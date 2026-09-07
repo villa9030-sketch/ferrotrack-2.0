@@ -245,6 +245,9 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
                 'materiali_assente': not ha_mat,
                 'residuo': round(residuo, 2) if residuo is not None else None,
                 'residuo_calcolabile': residuo is not None,
+                # Se i materiali non sono stati inseriti il residuo li considera
+                # zero: e' quindi SOVRASTIMATO. Va dichiarato, non nascosto.
+                'residuo_parziale': bool(residuo is not None and not ha_mat),
             })
 
         tot_fatt = sum(c['fatturato'] or 0 for c in clienti)

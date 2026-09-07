@@ -413,7 +413,7 @@ async function caricaRiepilogo(){
       <td class="n">${c.costo_ore==null?'<span class="assente">non calcolabile</span>':eur(c.costo_ore)}</td>
       <td class="n">${c.materiali_assente?'<span class="assente">assente</span>':eur(c.materiali)}</td>
       <td class="n">${c.fatturato_assente?'<span class="assente">assente</span>':eur(c.fatturato)}</td>
-      <td class="n"><b>${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</b></td>
+      <td class="n"><b>${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</b>${c.residuo_parziale?'<span title="Materiali non inseriti: il residuo e' sovrastimato" style="color:var(--orange);font-weight:700"> *</span>':''}</td>
       <td><button class="sec" onclick="dettaglio('${esc(c.cliente).replace(/'/g,"\\'")}')">Dettaglio</button></td>
     </tr>`).join('');
 
@@ -424,7 +424,10 @@ async function caricaRiepilogo(){
     <th class="n">${eur(t2.fatturato)}</th><th class="n">${eur(t2.residuo)}</th><th></th></tr>
     <tr><td colspan="7" style="color:var(--gray-text)">Attività interne (non attribuite):
       <b>${d.attivita_interne.ore.toString().replace('.',',')} h</b> — ${eur(d.attivita_interne.costo_ore)}</td></tr>`;
-  document.getElementById('ri-note').innerHTML=d.note.map(n=>'• '+esc(n)).join('<br>');
+  const parz=d.clienti.filter(c=>c.residuo_parziale).length;
+  document.getElementById('ri-note').innerHTML=
+    (parz?'<b style="color:var(--orange)">* Materiali non inseriti: per '+parz+' clienti il residuo e sovrastimato.</b><br>':'')
+    + d.note.map(n=>'&bull; '+esc(n)).join('<br>');
   caricaTariffe();
 }
 
