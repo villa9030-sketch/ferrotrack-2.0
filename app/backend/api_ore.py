@@ -56,6 +56,20 @@ def api_contesto():
     }), 200
 
 
+@bp_ore.route('/dispositivo', methods=['GET'])
+@require_scope('ore', 'reparto', 'ufficio')
+def api_dispositivo():
+    """Chi e' questo tablet. Usato dalle pagine a schermo fisso per capire se
+    sono state abilitate e in che modalita', senza chiedere un login."""
+    dev = device_corrente()
+    return jsonify({
+        'success': True,
+        'dispositivo': dev.get('label'),
+        'scope': dev.get('scope'),
+        'oggi': svc.oggi_locale().isoformat(),
+    }), 200
+
+
 # ---------------------------------------------------------------------------
 # Anagrafiche
 # ---------------------------------------------------------------------------
@@ -89,6 +103,26 @@ def _con_attese(giornata: dict, operatore_id: str, giorno: str) -> dict:
         logger.exception('lettura ore attese fallita per %s / %s', operatore_id, giorno)
         giornata['minuti_attesi'] = None
     return giornata
+
+
+@bp_ore.route('/bacheca', methods=['GET'])
+@require_scope('ore', 'ufficio')
+def api_bacheca():
+    """Quadro della giornata per la schermata fissa della timbratrice.
+
+    Include per ogni operaio le ore attese, cosi' il tablet puo' evidenziare
+    subito chi non ha ancora registrato o chi non arriva alle ore dovute.
+    """
+    data = (request.args.get('data') or '').strip() or svc.oggi_locale().isoformat()
+    dev = device_corrente()
+    if dev.get('scope') == 'ore' and data != svc.oggi_locale().isoformat():
+        return jsonify({'success': False,
+                        'error': 'Questo dispositivo mostra solo la giornata di oggi.',
+                        'codice': 'giorno_non_consentito'}), 403
+    voci = svc.giornata_tutti(data)
+    for v in voci:
+        _con_attese(v, v['id'], data)
+    return jsonify({'success': True, 'data': data, 'operai': voci}), 200
 
 
 @bp_ore.route('/giornata', methods=['GET'])

@@ -128,6 +128,33 @@
   .toast .txt{font-size:26px; font-weight:800; margin-top:10px}
   .toast .sub{font-size:18px; color:var(--gray-text); margin-top:6px}
 
+  /* ---- Bacheca della giornata (schermata fissa della timbratrice) ---- */
+  .testa-bacheca{display:flex; align-items:baseline; justify-content:space-between; gap:16px}
+  .testa-bacheca .agg{font-size:14px; color:var(--gray-text)}
+  .bacheca{display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px}
+  .persona{
+    display:block; width:100%; text-align:left; cursor:pointer;
+    background:var(--white); border:2px solid var(--border); border-radius:16px;
+    padding:18px 20px; min-height:var(--touch);
+  }
+  .persona:active{background:#f4f6f7}
+  .persona.mancante{border-color:#f0b429; background:#fffbf0}
+  .persona.completa{border-color:var(--green)}
+  .persona .riga1{display:flex; align-items:baseline; justify-content:space-between; gap:12px}
+  .persona .nome{font-size:22px; font-weight:800}
+  .persona .ore{font-size:28px; font-weight:800; color:var(--green); white-space:nowrap}
+  .persona.mancante .ore{color:#b45309; font-size:19px}
+  .persona .stato{font-size:14px; font-weight:700; margin-top:2px}
+  .persona.mancante .stato{color:#b45309}
+  .persona.completa .stato{color:var(--green)}
+  .persona .stato.corta{color:#b45309}
+  .persona .clienti{
+    margin-top:12px; padding-top:12px; border-top:1px solid var(--border);
+    font-size:16px; color:var(--gray-text); line-height:1.6;
+  }
+  .persona .clienti div{display:flex; justify-content:space-between; gap:12px}
+  .persona .clienti b{color:var(--ink); font-weight:700; white-space:nowrap}
+
   .cerca{
     width:100%; min-height:56px; font-size:19px; padding:12px 16px;
     border:2px solid var(--border); border-radius:12px; margin-bottom:14px;
@@ -167,11 +194,14 @@
     <button class="btn-salva" style="width:100%" onclick="salvaToken()">Abilita dispositivo</button>
   </section>
 
-  <!-- ============ 1. SELEZIONE NOME ============ -->
+  <!-- ============ 1. BACHECA DELLA GIORNATA ============ -->
   <section id="vista-nome" hidden>
-    <h2>Chi sei?</h2>
-    <p class="hint">Tocca il tuo nome.</p>
-    <div class="griglia" id="griglia-operai"></div>
+    <div class="testa-bacheca">
+      <h2>Ore di oggi</h2>
+      <div class="agg" id="bacheca-agg"></div>
+    </div>
+    <p class="hint">Tocca il tuo nome per registrare o correggere le tue ore.</p>
+    <div class="bacheca" id="griglia-operai"></div>
     <div class="msg err" id="msg-nome" hidden></div>
   </section>
 
@@ -232,6 +262,7 @@ let OPERAI = [], CLIENTI = [];
 let operatore = null;           // {id, nome}
 let righe = [];                 // [{cliente|null, attivita_interna, minuti}]
 let revisione = 0;              // revisione letta dal server
+let ULTIMA_BACHECA = null;      // ultimo aggiornamento riuscito della bacheca
 let minutiAttesi = null;        // ore dovute oggi da quest'operaio (null = giornata non dovuta)
 let scostamentoOk = false;      // l'operaio ha confermato un totale diverso dalle attese
 let sporco = false;             // modifiche non salvate
@@ -303,10 +334,23 @@ async function salvaToken() {
 }
 
 async function caricaAnagrafiche() {
-  const [a, b] = await Promise.all([api('/api/ore/operai'), api('/api/ore/clienti')]);
+  const [a, b] = await Promise.all([api('/api/ore/bacheca'), api('/api/ore/clienti')]);
   OPERAI = (a.data && a.data.operai) || [];
   CLIENTI = (b.data && b.data.clienti) || [];
+  ULTIMA_BACHECA = a.ok ? new Date() : ULTIMA_BACHECA;
   renderOperai();
+}
+
+// La bacheca resta accesa tutto il giorno: si riaggiorna da sola cosi' chi passa
+// vede sempre lo stato vero, e chi ha appena registrato si vede comparire.
+async function aggiornaBacheca() {
+  if (operatore) return;                 // qualcuno sta compilando: non disturbare
+  const r = await api('/api/ore/bacheca');
+  if (r.ok && r.data && r.data.operai) {
+    OPERAI = r.data.operai;
+    ULTIMA_BACHECA = new Date();
+    renderOperai();
+  }
 }
 
 function dataIta(iso) {
@@ -320,10 +364,59 @@ function dataIta(iso) {
 // ===========================================================================
 function renderOperai() {
   const g = document.getElementById('griglia-operai');
-  if (!OPERAI.length) { g.innerHTML = '<div class="vuoto">Nessun operaio configurato. Avvisa l\'ufficio.</div>'; return; }
-  g.innerHTML = OPERAI.map(o =>
-    `<button class="btn-grande" onclick="scegliOperaio('${o.id}')">${esc(o.nome)}</button>`
-  ).join('');
+  const agg = document.getElementById('bacheca-agg');
+  if (agg) {
+    agg.textContent = ULTIMA_BACHECA
+      ? 'aggiornato ' + ULTIMA_BACHECA.toLocaleTimeString('it-IT',
+          { hour: '2-digit', minute: '2-digit' })
+      : '';
+  }
+  if (!OPERAI.length) {
+    g.innerHTML = '<div class="vuoto">Nessun operaio configurato. Avvisa l\'ufficio.</div>';
+    return;
+  }
+  g.innerHTML = OPERAI.map(o => {
+    const dich = !!o.dichiarata;
+    const tot = o.totale_minuti || 0;
+    const attesi = (o.minuti_attesi === undefined) ? null : o.minuti_attesi;
+
+    // Tre stati distinti: non ha ancora registrato / ha registrato meno del
+    // dovuto / a posto. "Zero registrato" NON e' "non registrato".
+    let cls = '', stato = '', ore = '';
+    if (!dich) {
+      cls = 'mancante';
+      stato = attesi === null ? 'Da registrare' : 'Non ha ancora registrato';
+      ore = 'da fare';
+    } else {
+      ore = oreTesto(tot) + ' h';
+      if (attesi !== null && tot < attesi) {
+        cls = 'completa';
+        stato = `mancano ${oreTesto(attesi - tot)} h sulle ${oreTesto(attesi)} dovute`
+              + (o.scostamento_confermato ? ' (confermate)' : '');
+      } else if (attesi !== null && tot > attesi) {
+        cls = 'completa';
+        stato = `${oreTesto(tot - attesi)} h oltre le ${oreTesto(attesi)} dovute`;
+      } else {
+        cls = 'completa';
+        stato = 'Giornata completa';
+      }
+    }
+
+    const righe = (o.righe || []).map(r => {
+      const nome = r.attivita_interna ? ETICHETTA_INTERNA() : (r.cliente || '');
+      return `<div><span>${esc(nome)}</span><b>${oreTesto(r.minuti)} h</b></div>`;
+    }).join('');
+
+    return `
+      <button class="persona ${cls}" onclick="scegliOperaio('${o.id}')">
+        <div class="riga1">
+          <span class="nome">${esc(o.nome)}</span>
+          <span class="ore">${ore}</span>
+        </div>
+        <div class="stato ${cls === 'completa' && attesi !== null && tot !== attesi ? 'corta' : ''}">${stato}</div>
+        ${righe ? `<div class="clienti">${righe}</div>` : ''}
+      </button>`;
+  }).join('');
 }
 
 async function scegliOperaio(id) {
@@ -603,6 +696,7 @@ function tornaAiNomi(forza) {
   nascondi('msg-giornata');
   vista('nome');
   window.scrollTo(0, 0);
+  aggiornaBacheca();          // rientrando si vede subito il proprio dato aggiornato
 }
 
 // ===========================================================================
@@ -626,6 +720,13 @@ window.addEventListener('beforeunload', e => {
 });
 
 avvia();
+
+// La timbratrice resta accesa: la bacheca si riaggiorna da sola ogni minuto e
+// quando qualcuno torna a guardarla. Non tocca nulla se un operaio sta compilando.
+setInterval(aggiornaBacheca, 60000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) aggiornaBacheca();
+});
 </script>
 </body>
 </html>

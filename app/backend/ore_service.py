@@ -125,6 +125,50 @@ def _serializza(g: GiornataOre) -> dict:
     }
 
 
+def giornata_tutti(data=None) -> list:
+    """Stato della giornata per OGNI operaio, per la bacheca della timbratrice.
+
+    Una sola chiamata invece di una per operaio: il tablet resta acceso tutto il
+    giorno e si aggiorna da solo, quindi non deve fare N richieste ogni volta.
+
+    Per ciascuno: se ha gia' registrato, quanti minuti in totale e su quali
+    clienti. `dichiarata=False` significa "non ha ancora registrato", che e'
+    diverso da una giornata registrata a zero.
+    """
+    from .models_ore import GiornataOre, RigaOre
+
+    d = parse_data(data) or oggi_locale()
+    operai = elenco_operai()
+    session = get_session()
+    try:
+        giornate = {g.operatore_id: g for g in session.query(GiornataOre).filter(
+            GiornataOre.data == d).all()}
+        righe_per_giornata = {}
+        if giornate:
+            for r in session.query(RigaOre).filter(
+                    RigaOre.giornata_id.in_([g.id for g in giornate.values()])).all():
+                righe_per_giornata.setdefault(r.giornata_id, []).append(r)
+
+        out = []
+        for op in operai:
+            g = giornate.get(op['id'])
+            voce = {**op, 'data': d.isoformat(), 'dichiarata': g is not None,
+                    'totale_minuti': 0, 'righe': [],
+                    'scostamento_confermato': bool(g.scostamento_confermato) if g else False}
+            if g is not None:
+                righe = righe_per_giornata.get(g.id, [])
+                voce['righe'] = sorted(
+                    [{'cliente': r.cliente,
+                      'attivita_interna': bool(r.attivita_interna),
+                      'minuti': int(r.minuti or 0)} for r in righe],
+                    key=lambda x: (x['attivita_interna'], (x['cliente'] or '').lower()))
+                voce['totale_minuti'] = sum(x['minuti'] for x in voce['righe'])
+            out.append(voce)
+        return out
+    finally:
+        session.close()
+
+
 def leggi_giornata(operatore_id: str, data) -> dict:
     """Stato della giornata. `dichiarata=False` se non esiste ancora.
 

@@ -9,6 +9,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+/* Le regole di classe qui sotto usano display:block/flex e batterebbero il
+   display:none implicito di [hidden]: senza questo, gli elementi nascosti
+   resterebbero visibili. */
+[hidden] { display: none !important; }
 body {
   font-family: 'Inter', sans-serif;
   background: #f2f4f5;
@@ -110,6 +114,12 @@ header {
 .disegno { color:#1a7a48; text-decoration:none; font-weight:600; }
 .pezzi li { border-bottom:1px dashed #eef1f2; padding-bottom:5px; }
 .vuoto { padding:40px 18px; text-align:center; color:#6b7478; font-size:14px; }
+.attiva {
+  margin:18px; padding:22px 24px; border-radius:14px;
+  background:#fff; border:2px solid #f0b429;
+}
+.attiva h2 { font-family:'Geist'; font-weight:800; font-size:18px; margin-bottom:8px; }
+.attiva p { font-size:14px; color:#41494d; line-height:1.6; }
 .solalettura {
   margin:18px; padding:12px 14px; border-radius:11px;
   background:#eef2f4; border:1px solid #dde3e6;
@@ -123,17 +133,26 @@ header {
   <div class="riga">
     <div class="logo">LS</div>
     <div class="chi">
-      <h1 id="hello">Ciao</h1>
-      <div class="ruolo" id="role">Operaio</div>
+      <h1 id="hello">Ordini in corso</h1>
+      <div class="ruolo" id="role">Reparto</div>
     </div>
-    <button class="esci" onclick="logout()">Esci</button>
+    <button class="esci" id="btn-esci" onclick="logout()" hidden>Esci</button>
   </div>
 </header>
 
-<a class="ore-cta" href="/ore.html">
+<!-- Il richiamo alle ore compare SOLO se un operaio ha fatto login da un PC.
+     Sul tablet fisso di reparto no: le ore si registrano alla timbratrice. -->
+<a class="ore-cta" id="ore-cta" href="/ore.html" hidden>
   <div class="t">Dichiara le tue ore</div>
   <div class="s">Chi sei, per quale cliente hai lavorato, quante ore. Nient'altro.</div>
 </a>
+
+<!-- Schermata di abilitazione, mostrata una volta sola su un tablet nuovo -->
+<div class="attiva" id="attiva" hidden>
+  <h2>Questo tablet non è ancora abilitato</h2>
+  <p>Chiedi in ufficio di aprire <b>Admin → Soglie sistema → Tablet di officina</b>,
+     scegliere <b>Sola consultazione ordini</b> e inquadrare il QR con questo tablet.</p>
+</div>
 
 <div class="strumenti">
   <input class="cerca" id="cerca" type="search" inputmode="search"
@@ -153,7 +172,7 @@ header {
 
 <div class="solalettura">
   Questa pagina è di <b>sola consultazione</b>: serve a vedere cosa c'è da fare e per quando.
-  Non registra lavorazioni. Le ore si dichiarano una volta al giorno dal pulsante verde in alto.
+  Non registra lavorazioni. Le ore si registrano una volta al giorno sul tablet della timbratrice.
 </div>
 
 <script>
@@ -163,13 +182,64 @@ let APERTO = null;          // id ordine espanso: va preservato fra un refresh e
 let ULTIMO_OK = null;       // ultimo aggiornamento andato a buon fine
 let ERRORE_RETE = false;
 
-/* ---------- avvio ---------- */
-const utente = JSON.parse(localStorage.getItem('currentUser') || '{}');
-if (!utente.id) { window.location.href = '/login.html'; }
-document.getElementById('hello').textContent = 'Ciao ' + (utente.name || '').split(' ')[0];
-document.getElementById('role').textContent = utente.role || 'Operaio';
+/* ---------- avvio ----------
+   Due modi di aprire questa pagina:
+   - TABLET DI REPARTO: abilitato una volta con ?token=..., nessun login, nessuna
+     azione, solo gli ordini. E' il caso dei due tablet appesi in reparto.
+   - OPERAIO DA PC: e' entrato col suo nome, quindi vede anche il richiamo alle
+     ore e il pulsante Esci. */
+let TOKEN = null;
+let UTENTE = {};
 
-document.getElementById('cerca').addEventListener('input', disegna);
+function avvio() {
+  const url = new URL(window.location.href);
+  const daUrl = url.searchParams.get('token');
+  if (daUrl) {
+    try { localStorage.setItem('reparto_device_token', daUrl); } catch (_) {}
+    url.searchParams.delete('token');          // via dalla barra: non resta in cronologia
+    history.replaceState(null, '', url.toString());
+  }
+  try { TOKEN = localStorage.getItem('reparto_device_token'); } catch (_) { TOKEN = null; }
+  try { UTENTE = JSON.parse(localStorage.getItem('currentUser') || '{}'); } catch (_) { UTENTE = {}; }
+
+  if (TOKEN) { avvioTablet(); return; }
+  if (UTENTE.id) { avvioPersona(); return; }
+  window.location.href = '/login.html';
+}
+
+async function avvioTablet() {
+  try {
+    const r = await fetch(`${API}/api/ore/dispositivo`, { headers: { 'X-Device-Token': TOKEN } });
+    if (r.status === 401 || r.status === 403) {   // token revocato o scaduto
+      try { localStorage.removeItem('reparto_device_token'); } catch (_) {}
+      TOKEN = null;
+      if (UTENTE.id) { avvioPersona(); return; }
+      document.getElementById('attiva').hidden = false;
+      return;
+    }
+    const d = await r.json();
+    document.getElementById('role').textContent = d.dispositivo || 'Reparto';
+  } catch (_) {
+    // Server irraggiungibile: si mostrano comunque gli ordini in cache.
+    document.getElementById('role').textContent = 'Reparto';
+  }
+  partiElenco();
+}
+
+function avvioPersona() {
+  document.getElementById('hello').textContent = 'Ciao ' + (UTENTE.name || '').split(' ')[0];
+  document.getElementById('role').textContent = UTENTE.role || 'Operaio';
+  document.getElementById('ore-cta').hidden = false;
+  document.getElementById('btn-esci').hidden = false;
+  partiElenco();
+}
+
+function partiElenco() {
+  document.getElementById('cerca').addEventListener('input', disegna);
+  carica(false);
+  setInterval(() => carica(false), 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) carica(false); });
+}
 
 /* ---------- dati ---------- */
 async function carica(manuale) {
@@ -303,14 +373,9 @@ function logout() {
   window.location.href = '/login.html';
 }
 
-/* ---------- aggiornamento periodico ----------
-   Non tocca il testo cercato, la card aperta o la posizione di scorrimento:
-   ridisegna solo il contenuto e il browser mantiene lo scroll. */
-carica(false);
-setInterval(() => carica(false), 60000);
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) carica(false);
-});
+/* L'aggiornamento periodico parte da partiElenco(): non tocca il testo cercato,
+   la card aperta o la posizione di scorrimento. */
+avvio();
 </script>
 </body>
 </html>
