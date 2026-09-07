@@ -324,6 +324,13 @@ def elenco_anomalie(stato: str = 'aperta', dal=None, al=None, limite: int = 200)
             q = q.filter(AnomaliaOre.data <= d2)
         rows = q.order_by(AnomaliaOre.data.desc(),
                           AnomaliaOre.operatore_id.asc()).limit(limite).all()
+        confermate = {}
+        if rows:
+            for op, gg in session.query(
+                    GiornataOre.operatore_id, GiornataOre.data).filter(
+                    GiornataOre.scostamento_confermato == True,  # noqa: E712
+                    GiornataOre.data.in_([a.data for a in rows])).all():
+                confermate[(op, gg)] = True
         return [{
             'id': a.id,
             'operatore_id': a.operatore_id,
@@ -334,6 +341,9 @@ def elenco_anomalie(stato: str = 'aperta', dal=None, al=None, limite: int = 200)
             'minuti_attesi': int(a.minuti_attesi or 0),
             'stato': a.stato,
             'rilevata_il': a.rilevata_il.isoformat() if a.rilevata_il else None,
+            # "l'operaio sapeva": distingue una giornata corta confermata
+            # (mezza giornata, permesso) da una dimenticanza o da un errore.
+            'confermata_dall_operaio': bool(confermate.get((a.operatore_id, a.data))),
         } for a in rows]
     finally:
         session.close()

@@ -92,6 +92,10 @@
   }
   .totale{flex:1; font-size:24px; font-weight:800}
   .totale span{font-size:32px; color:var(--green)}
+  .obiettivo{font-size:15px; font-weight:700; margin-top:2px}
+  .obiettivo.manca{color:#b45309}
+  .obiettivo.ok{color:var(--green)}
+  .obiettivo.oltre{color:#1d4ed8}
   .btn-salva{
     min-height:var(--touch); padding:0 40px; border-radius:14px; border:none;
     background:var(--green); color:#fff; font-size:22px; font-weight:800; cursor:pointer;
@@ -188,8 +192,24 @@
 <!-- ============ BARRA TOTALE + SALVA ============ -->
 <div class="barra" id="barra" hidden>
   <button class="btn-sec" onclick="tornaAiNomi()">Indietro</button>
-  <div class="totale">Totale: <span id="totale">0</span> h</div>
+  <div class="totale">
+    <div>Totale: <span id="totale">0</span> h</div>
+    <div class="obiettivo" id="obiettivo"></div>
+  </div>
   <button class="btn-salva" id="btn-salva" onclick="salva()">Salva</button>
+</div>
+
+<!-- ============ CONFERMA SCOSTAMENTO DALLE ORE ATTESE ============ -->
+<div class="toast" id="chiedi">
+  <div class="box" style="max-width:560px; text-align:left">
+    <div style="font-size:26px; font-weight:800; margin-bottom:10px" id="chiedi-titolo"></div>
+    <div style="font-size:19px; color:var(--gray-text); line-height:1.5" id="chiedi-testo"></div>
+    <div style="display:flex; gap:14px; margin-top:26px">
+      <button class="btn-sec" style="flex:1" onclick="chiudiChiedi()">Correggo</button>
+      <button class="btn-salva" style="flex:1; padding:0 20px; font-size:19px"
+              id="chiedi-ok" onclick="confermaScostamento()"></button>
+    </div>
+  </div>
 </div>
 
 <!-- ============ CONFERMA ============ -->
@@ -212,6 +232,8 @@ let OPERAI = [], CLIENTI = [];
 let operatore = null;           // {id, nome}
 let righe = [];                 // [{cliente|null, attivita_interna, minuti}]
 let revisione = 0;              // revisione letta dal server
+let minutiAttesi = null;        // ore dovute oggi da quest'operaio (null = giornata non dovuta)
+let scostamentoOk = false;      // l'operaio ha confermato un totale diverso dalle attese
 let sporco = false;             // modifiche non salvate
 let richiestaId = null;         // chiave di idempotenza del tentativo corrente
 let inSalvataggio = false;
@@ -322,11 +344,13 @@ async function scegliOperaio(id) {
 // ===========================================================================
 async function caricaGiornata() {
   righe = []; revisione = 0; sporco = false; richiestaId = null;
+  minutiAttesi = null; scostamentoOk = false;
   try {
     const r = await api(`/api/ore/giornata?operatore_id=${encodeURIComponent(operatore.id)}`);
     if (r.ok && r.data.giornata) {
       const g = r.data.giornata;
       revisione = g.revisione || 0;
+      minutiAttesi = (g.minuti_attesi === undefined) ? null : g.minuti_attesi;
       righe = (g.righe || []).map(x => ({
         cliente: x.cliente, attivita_interna: !!x.attivita_interna, minuti: x.minuti || 0
       }));
@@ -368,12 +392,37 @@ function oreTesto(min) {
   return Number.isInteger(h) ? String(h) : h.toFixed(1).replace('.', ',');
 }
 
+function totaleMinuti() {
+  return righe.reduce((s, r) => s + (r.minuti || 0), 0);
+}
+
 function aggiornaTotale() {
-  const tot = righe.reduce((s, r) => s + (r.minuti || 0), 0);
+  const tot = totaleMinuti();
   document.getElementById('totale').textContent = oreTesto(tot);
+
+  // Obiettivo della giornata sempre in vista: l'operaio deve accorgersi SUBITO
+  // se non arriva alle ore dovute, non il giorno dopo tramite l'ufficio.
+  const el = document.getElementById('obiettivo');
+  el.className = 'obiettivo';
+  if (minutiAttesi === null || minutiAttesi === undefined) {
+    el.textContent = '';                       // giornata non dovuta: non chiedere nulla
+    return;
+  }
+  const diff = tot - minutiAttesi;
+  if (diff === 0) {
+    el.classList.add('ok');
+    el.textContent = `Obiettivo ${oreTesto(minutiAttesi)} h — completo`;
+  } else if (diff < 0) {
+    el.classList.add('manca');
+    el.textContent = `Obiettivo ${oreTesto(minutiAttesi)} h — mancano ${oreTesto(-diff)} h`;
+  } else {
+    el.classList.add('oltre');
+    el.textContent = `Obiettivo ${oreTesto(minutiAttesi)} h — ${oreTesto(diff)} h in più`;
+  }
 }
 
 function cambia(i, dir) {
+  scostamentoOk = false;        // cambiato qualcosa: la conferma va ridata
   const r = righe[i]; if (!r) return;
   const nuovo = (r.minuti || 0) + dir * PASSO();
   if (nuovo < 0) return;
@@ -385,6 +434,7 @@ function cambia(i, dir) {
 }
 
 function rimuovi(i) {
+  scostamentoOk = false;
   righe.splice(i, 1);
   sporco = true; richiestaId = null;
   renderRighe();
@@ -413,6 +463,7 @@ function filtraClienti() {
 }
 
 function aggiungiCliente(nome) {
+  scostamentoOk = false;
   righe.push({cliente: nome, attivita_interna: false, minuti: PASSO()});
   sporco = true; richiestaId = null;
   document.getElementById('cerca-cliente').value = '';
@@ -420,6 +471,7 @@ function aggiungiCliente(nome) {
 }
 
 function aggiungiInterna() {
+  scostamentoOk = false;
   righe.push({cliente: null, attivita_interna: true, minuti: PASSO()});
   sporco = true; richiestaId = null;
   renderRighe(); renderClienti();
@@ -432,8 +484,46 @@ function nuovaRichiestaId() {
   return 'r-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
 
+// Se il totale non coincide con le ore dovute, si chiede una conferma esplicita.
+// Non si blocca il salvataggio: chi ha fatto mezza giornata deve poter dichiarare
+// il vero, altrimenti l'unico modo per uscire dalla schermata sarebbe gonfiare le ore.
+function serveConferma() {
+  if (minutiAttesi === null || minutiAttesi === undefined) return false;
+  if (scostamentoOk) return false;
+  return totaleMinuti() !== minutiAttesi;
+}
+
+function chiediConferma() {
+  const tot = totaleMinuti();
+  const diff = tot - minutiAttesi;
+  document.getElementById('chiedi-titolo').textContent =
+    tot === 0 ? 'Nessuna ora inserita' : `Confermi ${oreTesto(tot)} ore?`;
+  document.getElementById('chiedi-testo').textContent =
+    tot === 0
+      ? `Oggi risultano dovute ${oreTesto(minutiAttesi)} ore e non hai inserito niente. ` +
+        'Se salvi cosi, in ufficio risultera una giornata a zero ore.'
+      : (diff < 0
+          ? `Oggi sono dovute ${oreTesto(minutiAttesi)} ore: ne mancano ${oreTesto(-diff)}. ` +
+            'Se hai lavorato meno va bene, basta confermare.'
+          : `Oggi sono dovute ${oreTesto(minutiAttesi)} ore: ne hai messe ${oreTesto(diff)} in piu.`);
+  document.getElementById('chiedi-ok').textContent =
+    tot === 0 ? 'Salvo a zero' : `Si, ${oreTesto(tot)} ore`;
+  document.getElementById('chiedi').classList.add('on');
+}
+
+function chiudiChiedi() {
+  document.getElementById('chiedi').classList.remove('on');
+}
+
+function confermaScostamento() {
+  scostamentoOk = true;
+  chiudiChiedi();
+  salva();
+}
+
 async function salva() {
   if (inSalvataggio) return;                 // doppio tocco: ignorato
+  if (serveConferma()) { chiediConferma(); return; }
   inSalvataggio = true;
   const btn = document.getElementById('btn-salva');
   btn.disabled = true; btn.textContent = 'Salvataggio…';
@@ -453,13 +543,15 @@ async function salva() {
           cliente: x.cliente, attivita_interna: x.attivita_interna, minuti: x.minuti
         })),
         revisione_attesa: revisione,
-        richiesta_id: richiestaId
+        richiesta_id: richiestaId,
+        scostamento_confermato: scostamentoOk
       })
     });
 
     if (r.ok && r.data.success) {
       const g = r.data.giornata;
       revisione = g.revisione; sporco = false; richiestaId = null;
+      if (g.minuti_attesi !== undefined) minutiAttesi = g.minuti_attesi;
       confermaEsci(g.totale_minuti);
       return;
     }

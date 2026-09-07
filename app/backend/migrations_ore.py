@@ -37,7 +37,8 @@ _ORDER_COLS = {
 # `create_all` crea le tabelle mancanti ma NON aggiunge colonne a quelle esistenti:
 # senza questo passaggio un database creato con una versione precedente si rompe.
 _NUOVE_TABELLE_COLS = {
-    'giornate_ore': {'ultima_richiesta_id': 'VARCHAR'},
+    'giornate_ore': {'ultima_richiesta_id': 'VARCHAR',
+                     'scostamento_confermato': 'BOOLEAN'},
 }
 
 # Ruoli considerati "operai di officina" per il seed della compilazione ore.

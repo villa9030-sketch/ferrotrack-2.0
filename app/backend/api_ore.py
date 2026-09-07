@@ -74,6 +74,23 @@ def api_clienti():
 # ---------------------------------------------------------------------------
 # Giornata
 # ---------------------------------------------------------------------------
+def _con_attese(giornata: dict, operatore_id: str, giorno: str) -> dict:
+    """Aggiunge alla giornata le ore ATTESE per quell'operaio in quel giorno.
+
+    Serve al tablet per mostrare l'obiettivo mentre si compila ("mancano 3 h")
+    invece di scoprire lo scostamento il giorno dopo in ufficio.
+    `minuti_attesi = None` significa giornata non dovuta (festivo, assenza
+    approvata, giorno non lavorativo): in quel caso il tablet non chiede nulla.
+    """
+    try:
+        from .anomalie_service import minuti_attesi
+        giornata['minuti_attesi'] = minuti_attesi(operatore_id, giorno)
+    except Exception:
+        logger.exception('lettura ore attese fallita per %s / %s', operatore_id, giorno)
+        giornata['minuti_attesi'] = None
+    return giornata
+
+
 @bp_ore.route('/giornata', methods=['GET'])
 @require_scope('ore', 'ufficio')
 def api_leggi_giornata():
@@ -92,7 +109,7 @@ def api_leggi_giornata():
     g = svc.leggi_giornata(operatore_id, data)
     if g.get('error'):
         return jsonify({'success': False, **g}), 400
-    return jsonify({'success': True, 'giornata': g}), 200
+    return jsonify({'success': True, 'giornata': _con_attese(g, operatore_id, data)}), 200
 
 
 @bp_ore.route('/giornata', methods=['POST'])
@@ -123,10 +140,11 @@ def api_salva_giornata():
         revisione_attesa=data_in.get('revisione_attesa'),
         richiesta_id=(data_in.get('richiesta_id') or '').strip() or None,
         note=data_in.get('note'),
+        scostamento_confermato=bool(data_in.get('scostamento_confermato')),
     )
 
     if res.get('success'):
-        g = res['giornata']
+        g = _con_attese(res['giornata'], operatore_id, giorno)
         if not g.get('idempotente'):
             _audit('DICHIARAZIONE_ORE', operatore_id,
                    f"{giorno}: {g.get('totale_minuti', 0)} min, rev {g.get('revisione')}")

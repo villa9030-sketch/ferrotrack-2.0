@@ -304,7 +304,7 @@ async function caricaAnomalie(){
     const d=a.data.split('-').reverse().join('/');
     return `<tr>
       <td>${d}</td><td>${esc(a.operatore)}</td>
-      <td><span class="badge ${cls}">${t}</span>${a.stato==='risolta'?' <span class="badge b-green">risolta</span>':''}</td>
+      <td><span class="badge ${cls}">${t}</span>${a.stato==='risolta'?' <span class="badge b-green">risolta</span>':''}${a.confermata_dall_operaio?' <span class="badge b-gray" title="L'operaio ha confermato queste ore sul tablet: probabile mezza giornata o permesso, non una dimenticanza">confermata dall'operaio</span>':''}</td>
       <td class="n">${h(a.minuti_dichiarati)} h</td>
       <td class="n">${h(a.minuti_attesi)} h</td>
       <td><button class="sec" onclick="apriCorrezione('${a.operatore_id}','${a.data}','${esc(a.operatore)}')">Correggi</button></td>

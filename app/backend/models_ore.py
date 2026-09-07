@@ -98,6 +98,10 @@ class GiornataOre(Base):
     # Chiave di idempotenza: un doppio tocco o un retry dopo timeout con la
     # stessa richiesta NON deve applicare due volte il salvataggio.
     ultima_richiesta_id = Column(String, nullable=True)
+    # L'operaio ha confermato esplicitamente un totale diverso dalle ore attese
+    # (es. mezza giornata). Serve a distinguere "ha sbagliato/dimenticato" da
+    # "ha davvero lavorato meno e lo sa".
+    scostamento_confermato = Column(Boolean, default=False)
     note = Column(Text, nullable=True)
     righe = relationship('RigaOre', back_populates='giornata',
                          cascade='all, delete-orphan')

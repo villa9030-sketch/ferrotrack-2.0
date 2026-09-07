@@ -121,6 +121,7 @@ def _serializza(g: GiornataOre) -> dict:
         'origine': g.origine,
         'aggiornata_il': g.aggiornata_il.isoformat() if g.aggiornata_il else None,
         'modificata_da': g.modificata_da,
+        'scostamento_confermato': bool(g.scostamento_confermato),
     }
 
 
@@ -220,7 +221,8 @@ def _normalizza_righe(righe, clienti_validi):
 # ---------------------------------------------------------------------------
 def salva_giornata(operatore_id, data, righe, *, origine='tablet',
                    device_label=None, modificata_da=None,
-                   revisione_attesa=None, richiesta_id=None, note=None) -> dict:
+                   revisione_attesa=None, richiesta_id=None, note=None,
+                   scostamento_confermato=None) -> dict:
     """Salva (sostituendola) l'intera giornata di un operaio. Atomico.
 
     origine='tablet'  -> consentito SOLO il giorno corrente (le correzioni dei
@@ -294,6 +296,7 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
                 origine=origine, device_label=device_label,
                 modificata_da=modificata_da, ultima_richiesta_id=richiesta_id,
                 note=note,
+                scostamento_confermato=bool(scostamento_confermato),
             )
             session.add(g)
             session.flush()
@@ -306,6 +309,9 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
             g.ultima_richiesta_id = richiesta_id
             if note is not None:
                 g.note = note
+            # Ogni salvataggio ridichiara la conferma: se l'operaio corregge e
+            # arriva alle ore attese, la vecchia conferma non deve restare appesa.
+            g.scostamento_confermato = bool(scostamento_confermato)
             # Sostituzione atomica: via le righe precedenti
             session.query(RigaOre).filter(RigaOre.giornata_id == g.id).delete(
                 synchronize_session=False)
