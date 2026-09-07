@@ -321,6 +321,75 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   <h2 class="page-title">Soglie sistema</h2>
   <p class="page-sub">Configurazione dell'app. Solo capi e amministratori possono modificare questi valori.</p>
 
+  <!-- Tablet di officina -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Tablet di officina</h3>
+      <span class="card-meta">Postazione fissa vicino alla timbratrice</span>
+    </div>
+    <div class="card-body">
+      <p style="font-size:13px; color:var(--gray-text); margin-bottom:14px;">
+        Il tablet appeso in officina <b>non ha login</b>: si abilita una volta sola e resta
+        sempre sulla pagina delle ore. L'operaio, quando timbra, tocca il proprio nome,
+        indica per quale cliente ha lavorato e quante ore, e salva. Poi la pagina torna
+        da sola all'elenco dei nomi per il collega successivo.
+      </p>
+      <div class="form-row">
+        <div class="form-field">
+          <label>Nome del tablet</label>
+          <input type="text" id="disp-label" placeholder="Es. Tablet timbratrice" maxlength="60">
+          <div class="form-hint">Serve solo a riconoscerlo qui, se un domani va revocato.</div>
+        </div>
+        <div class="form-field">
+          <label>A cosa serve</label>
+          <select id="disp-scope">
+            <option value="ore">Registrazione ore (timbratrice)</option>
+            <option value="reparto">Sola consultazione ordini</option>
+          </select>
+          <div class="form-hint">I tablet d'ufficio si abilitano da riga di comando.</div>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="creaDispositivo()">Abilita tablet</button>
+      <div id="disp-msg" style="margin-top:10px; font-size:13px; min-height:18px;"></div>
+
+      <!-- Istruzioni + QR mostrati UNA sola volta, subito dopo la creazione -->
+      <div id="disp-nuovo" style="display:none; margin-top:18px; padding:18px;
+           border:2px solid var(--green); border-radius:12px; background:#f6fbf8;">
+        <div style="font-weight:800; font-size:15px; margin-bottom:10px;">
+          Tablet abilitato &mdash; segui questi 3 passaggi <b>adesso</b>
+        </div>
+        <ol style="font-size:13px; line-height:1.9; padding-left:20px; margin-bottom:14px;">
+          <li>Prendi il tablet dell'officina e apri il browser.</li>
+          <li>Inquadra questo QR con la fotocamera, oppure digita l'indirizzo qui sotto.</li>
+          <li>Quando compare l'elenco dei nomi, aggiungi la pagina alla schermata Home.</li>
+        </ol>
+        <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+          <img id="disp-qr" alt="QR di abilitazione" width="220" height="220"
+               style="border:1px solid var(--border); border-radius:10px; background:#fff;">
+          <div style="flex:1; min-width:260px;">
+            <label style="font-size:12px; font-weight:700; color:var(--gray-text);">Indirizzo da aprire</label>
+            <textarea id="disp-url" readonly rows="3"
+              style="width:100%; font-family:monospace; font-size:12px; padding:10px;
+                     border:1px solid var(--border); border-radius:8px; resize:vertical;"></textarea>
+            <button class="btn-secondary" style="margin-top:8px" onclick="copiaUrlDispositivo()">Copia indirizzo</button>
+            <div style="margin-top:12px; font-size:12px; color:var(--gray-text); line-height:1.5;">
+              <b>Questo indirizzo non verr&agrave; pi&ugrave; mostrato.</b> Contiene il codice del tablet:
+              se lo perdi, revoca il dispositivo e abilitane uno nuovo.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:22px;">
+        <label style="font-size:12px; font-weight:700; color:var(--gray-text);">Tablet gi&agrave; abilitati</label>
+        <table class="tbl" style="margin-top:8px;">
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Stato</th><th>Abilitato il</th><th></th></tr></thead>
+          <tbody id="disp-tbody"><tr><td colspan="5" class="empty">Caricamento&hellip;</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Da dove arrivano le ore -->
   <div class="card">
     <div class="card-header">
@@ -379,14 +448,17 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   </div>
 
   <!-- Orario di lavoro (per calcolo automatico ore) -->
-  <div class="card">
+  <div class="card" id="card-orario-lavoro">
     <div class="card-header">
       <h3>Orario di lavoro</h3>
       <span class="card-meta">Scorpora automaticamente pausa pranzo dai conteggi</span>
     </div>
     <div class="card-body">
       <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
-        Le ore lavorate degli operai vengono calcolate <b>solo dentro queste finestre</b>. La pausa pranzo, le notti e i tempi fuori orario vengono scorporati automaticamente: l'operaio scansiona solo "inizio" e "fine" ordine, il resto lo fa il sistema.
+        Serve al calcolo dei tempi ricavati dalle <b>scansioni con la pistola</b>: le durate
+        venivano contate solo dentro queste finestre, scorporando pausa pranzo e notti.
+        Con le pistole dismesse le ore sono quelle <b>dichiarate dall'operaio</b> e queste
+        finestre non incidono sul conteggio: restano per rileggere lo storico.
       </p>
       <div class="form-row">
         <div class="form-field" style="max-width:160px;">
@@ -413,7 +485,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   </div>
 
   <!-- Chiusura turno automatica -->
-  <div class="card">
+  <div class="card" id="card-fine-turno">
     <div class="card-header">
       <h3>Chiusura automatica fine turno</h3>
       <span class="card-meta">Cron giornaliero</span>
@@ -813,7 +885,79 @@ function _hhmmToMinutes(s) {
   return h * 60 + m;
 }
 
+// ---------- Tablet di officina ----------
+async function caricaDispositivi() {
+  const tb = document.getElementById('disp-tbody');
+  if (!tb) return;
+  try {
+    const r = await fetch(`${API_URL}/api/admin/dispositivi`);
+    const d = await r.json();
+    const righe = d.dispositivi || [];
+    if (!righe.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="empty">Nessun tablet abilitato.</td></tr>';
+      return;
+    }
+    const tipo = { ore: 'Registrazione ore', reparto: 'Consultazione', ufficio: 'Ufficio' };
+    tb.innerHTML = righe.map(x => `
+      <tr style="${x.is_active ? '' : 'opacity:.5'}">
+        <td>${escapeHtml(x.label || '')}</td>
+        <td>${tipo[x.scope] || escapeHtml(x.scope)}</td>
+        <td>${x.is_active ? '<span style="color:var(--green); font-weight:700;">attivo</span>'
+                          : 'revocato'}</td>
+        <td style="font-size:12px; color:var(--gray-text);">
+          ${x.created_at ? new Date(x.created_at).toLocaleDateString('it-IT') : '-'}</td>
+        <td>${x.is_active ? `<button class="btn-secondary" onclick="revocaDispositivo('${x.id}', '${escapeHtml(x.label || '')}')">Revoca</button>` : ''}</td>
+      </tr>`).join('');
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="5" class="empty">Errore: ${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function creaDispositivo() {
+  const label = document.getElementById('disp-label').value.trim();
+  const scope = document.getElementById('disp-scope').value;
+  if (!label) { showMsg('disp-msg', 'Dai un nome al tablet', 'var(--red)'); return; }
+  try {
+    const r = await fetch(`${API_URL}/api/admin/dispositivi`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ label, scope, admin_id: currentUser ? currentUser.id : '' })
+    });
+    const d = await r.json();
+    if (!r.ok) { showMsg('disp-msg', d.error || 'Operazione fallita', 'var(--red)'); return; }
+    const url = d.dispositivo.url;
+    document.getElementById('disp-url').value = url;
+    document.getElementById('disp-qr').src =
+      `${API_URL}/api/admin/dispositivi/qr?testo=${encodeURIComponent(url)}`;
+    document.getElementById('disp-nuovo').style.display = 'block';
+    document.getElementById('disp-label').value = '';
+    showMsg('disp-msg', 'Tablet abilitato: segui le istruzioni qui sotto', 'var(--green)');
+    caricaDispositivi();
+  } catch (e) { showMsg('disp-msg', `Errore: ${e.message}`, 'var(--red)'); }
+}
+
+function copiaUrlDispositivo() {
+  const t = document.getElementById('disp-url');
+  t.select();
+  try { document.execCommand('copy'); showMsg('disp-msg', 'Indirizzo copiato', 'var(--green)'); }
+  catch (_) { showMsg('disp-msg', 'Copialo a mano dal riquadro', 'var(--red)'); }
+}
+
+async function revocaDispositivo(id, label) {
+  const avviso = 'Revocare "' + label + '"?\n\nDa quel momento il tablet non potra\' piu\' ' +
+                 'salvare ore finche non lo riabiliti con un nuovo indirizzo.';
+  if (!confirm(avviso)) return;
+  try {
+    const admin = encodeURIComponent(currentUser ? currentUser.id : '');
+    const r = await fetch(`${API_URL}/api/admin/dispositivi/${id}?admin_id=${admin}`,
+                          { method: 'DELETE' });
+    const d = await r.json();
+    if (r.ok) { showMsg('disp-msg', 'Tablet revocato', 'var(--green)'); caricaDispositivi(); }
+    else showMsg('disp-msg', d.error || 'Revoca fallita', 'var(--red)');
+  } catch (e) { showMsg('disp-msg', `Errore: ${e.message}`, 'var(--red)'); }
+}
+
 async function loadConfig() {
+  caricaDispositivi();
   try {
     const r = await fetch(`${API_URL}/api/admin/config`);
     const d = await r.json();
@@ -837,6 +981,12 @@ async function loadConfig() {
 // Mostra i criteri coerenti con la modalita' scelta: chi legge non deve chiedersi
 // quale delle due regole sia quella in vigore.
 function _mostraSezioniPistole(attive) {
+  // Le impostazioni che agiscono solo sulle scansioni non hanno senso da spente:
+  // lasciarle visibili farebbe credere di poter regolare le ore dichiarate.
+  for (const id of ['card-orario-lavoro', 'card-fine-turno']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = attive ? '' : 'none';
+  }
   document.getElementById('cfg-testo-pistole').style.display = attive ? '' : 'none';
   document.getElementById('cfg-testo-dichiarazioni').style.display = attive ? 'none' : '';
   document.getElementById('cfg-riga-scan').style.display = attive ? '' : 'none';

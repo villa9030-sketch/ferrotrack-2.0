@@ -1579,6 +1579,137 @@ def api_scan():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+#  TABLET DI OFFICINA — abilitazione dei dispositivi condivisi
+#  Il tablet appeso vicino alla timbratrice non ha login: viene abilitato UNA
+#  volta con un token di dispositivo, e da quel momento gli operai toccano solo
+#  il proprio nome. Qui l'ufficio puo' crearlo, vederlo e revocarlo senza CLI.
+# ============================================================================
+
+# Scope creabili dall'interfaccia. 'ufficio' NO: darebbe i poteri
+# dell'impiegata a chiunque sappia chiamare l'endpoint, e questa API e'
+# protetta solo dall'id utente inviato dal browser come il resto dell'admin.
+# I token d'ufficio restano da riga di comando (app/tools/device_token.py).
+_SCOPE_DA_UI = ('ore', 'reparto')
+
+
+def _url_base_lan() -> str:
+    """Indirizzo con cui il tablet raggiunge il server (non 'localhost')."""
+    import socket
+    host = request.host.split(':')[0]
+    if host not in ('localhost', '127.0.0.1'):
+        return f'{request.scheme}://{request.host}'
+    porta = request.host.split(':')[1] if ':' in request.host else '5000'
+    try:
+        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sk.connect(('8.8.8.8', 80))       # non invia nulla: serve solo l'IP locale
+        ip = sk.getsockname()[0]
+        sk.close()
+    except Exception:
+        ip = socket.gethostbyname(socket.gethostname())
+    return f'http://{ip}:{porta}'
+
+
+@app.route('/api/admin/dispositivi', methods=['GET'])
+def api_dispositivi_list():
+    """Elenco dei tablet abilitati (senza segreti) + indirizzo base per il QR."""
+    try:
+        from .auth_device import elenca_token
+        return jsonify({'success': True, 'dispositivi': elenca_token(),
+                        'url_base': _url_base_lan()}), 200
+    except Exception as e:
+        logger.exception('api_dispositivi_list failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/dispositivi', methods=['POST'])
+def api_dispositivi_create():
+    """Abilita un tablet. Il token in chiaro viene restituito UNA sola volta."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = (data.get('admin_id') or '').strip()
+        if not _require_capo(user_id):
+            return jsonify({'error': 'Permesso negato'}), 403
+        scope = (data.get('scope') or 'ore').strip().lower()
+        if scope not in _SCOPE_DA_UI:
+            return jsonify({'error': 'Da qui si abilitano solo i tablet di officina '
+                                     'e di reparto.'}), 400
+        etichetta = (data.get('label') or '').strip()
+        if not etichetta:
+            return jsonify({'error': 'Dai un nome al tablet (es. "Tablet timbratrice")'}), 400
+
+        from .auth_device import crea_token
+        res = crea_token(etichetta, scope, created_by=user_id)
+        if res.get('error'):
+            return jsonify({'error': res['error']}), 400
+        try:
+            AuditManager.log(user_id=user_id, action='CREA_DEVICE_TOKEN',
+                             entity_type='device_token', entity_id=res.get('id'),
+                             detail=f'{etichetta} ({scope})')
+        except Exception:
+            pass
+        base = _url_base_lan()
+        pagina = '/ore.html' if scope == 'ore' else '/operaio-info.html'
+        res['url'] = f"{base}{pagina}?token={res['token']}"
+        return jsonify({'success': True, 'dispositivo': res}), 201
+    except Exception as e:
+        logger.exception('api_dispositivi_create failed')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/dispositivi/<token_id>', methods=['DELETE'])
+def api_dispositivi_revoke(token_id):
+    """Revoca un tablet (es. smarrito). Da quel momento non salva piu' nulla."""
+    try:
+        user_id = (request.args.get('admin_id') or '').strip()
+        if not _require_capo(user_id):
+            return jsonify({'error': 'Permesso negato'}), 403
+        from .auth_device import revoca_token
+        res = revoca_token(token_id, da=user_id)
+        if res.get('error'):
+            return jsonify(res), 404
+        try:
+            AuditManager.log(user_id=user_id, action='REVOCA_DEVICE_TOKEN',
+                             entity_type='device_token', entity_id=token_id, detail='')
+        except Exception:
+            pass
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.exception('api_dispositivi_revoke failed')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/dispositivi/qr', methods=['GET'])
+def api_dispositivi_qr():
+    """QR PNG dell'indirizzo di abilitazione, da inquadrare col tablet.
+
+    Il testo da codificare arriva come parametro e NON viene salvato: il QR e'
+    usa-e-getta, si genera subito dopo aver creato il token.
+    """
+    try:
+        testo = (request.args.get('testo') or '').strip()
+        if not testo or len(testo) > 512:
+            return jsonify({'error': 'testo mancante o troppo lungo'}), 400
+        # SVG e non PNG: il backend raster di reportlab richiede una libreria
+        # nativa che qui non c'e', mentre l'SVG e' puro testo e si vede uguale.
+        from reportlab.graphics.barcode import qr
+        from reportlab.graphics.shapes import Drawing
+        from reportlab.graphics import renderSVG
+        import io as _io
+
+        codice = qr.QrCodeWidget(testo, barLevel='M')
+        x1, y1, x2, y2 = codice.getBounds()
+        lato = 560
+        d = Drawing(lato, lato,
+                    transform=[lato / (x2 - x1), 0, 0, lato / (y2 - y1), -x1, -y1])
+        d.add(codice)
+        buf = _io.BytesIO(renderSVG.drawToString(d).encode('utf-8'))
+        return send_file(buf, mimetype='image/svg+xml', max_age=0)
+    except Exception as e:
+        logger.exception('api_dispositivi_qr failed')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/cartellino', methods=['GET'])
 def api_cartellino(order_id):
     """Ritorna il PDF A6 col cartellino barcode dell'ordine."""
