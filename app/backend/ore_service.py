@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 MINUTI_MAX_GIORNO = 1440          # 24h: oltre e' incompatibile con una giornata
 PASSO_MINUTI = 30                 # il tablet lavora a mezz'ore
-ETICHETTA_INTERNA = 'Attivita interne'
+ETICHETTA_INTERNA = 'Attività interne'
 
 
 # ---------------------------------------------------------------------------

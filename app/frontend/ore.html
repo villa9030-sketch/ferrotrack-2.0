@@ -4,63 +4,83 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Ore di lavoro — LS FerroTrack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#fafafa; --white:#ffffff; --black:#000000;
+    --bg:#f2f4f5; --white:#ffffff; --black:#14181a; --ink:#14181a;
     --green:#1a7a48; --green-light:#22a060;
-    --gray-text:#666666; --gray-muted:#999999; --border:#e5e5e5;
-    --blue:#1e40af; --blue-bg:#dbeafe;
+    --gray-text:#5a6367; --gray-muted:#98a1a5; --border:#e3e6e8;
+    --blue:#1e40af; --blue-bg:#eaf1fb;
     --red:#991b1b; --red-bg:#fee2e2;
     --orange:#92400e; --orange-bg:#fef3c7;
-    --green-badge:#166534; --green-badge-bg:#dcfce7;
+    --ambra:#b45309; --ambra-bordo:#f0b429; --ambra-bg:#fffbf0;
+    --green-badge:#166534; --green-badge-bg:#e7f5ee;
+    --ombra:0 1px 2px rgba(0,0,0,.03), 0 6px 20px rgba(0,0,0,.05);
+    --ombra-alta:0 4px 14px rgba(0,0,0,.05), 0 18px 50px rgba(0,0,0,.10);
     --touch:64px;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
   html,body{margin:0; padding:0}
   body{
-    background:var(--bg); color:var(--black);
-    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    font-size:18px; line-height:1.4;
+    background:var(--bg); color:var(--ink);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    font-size:18px; line-height:1.45;
+    font-variant-numeric:tabular-nums;
     -webkit-user-select:none; user-select:none;
   }
-  .wrap{max-width:1100px; margin:0 auto; padding:16px 16px 120px}
+  .wrap{max-width:1200px; margin:0 auto; padding:20px 20px 124px}
 
   /* ---- Testata ---- */
   .topbar{
-    background:var(--white); border-bottom:2px solid var(--border);
-    padding:14px 18px; display:flex; align-items:center; gap:14px;
+    background:var(--white); border-bottom:1px solid var(--border);
+    padding:14px 20px; display:flex; align-items:center; gap:14px;
     position:sticky; top:0; z-index:20;
+    box-shadow:0 1px 3px rgba(0,0,0,.04);
   }
-  .topbar h1{margin:0; font-size:22px; font-weight:700; flex:1}
-  .oggi{font-size:17px; color:var(--gray-text); font-weight:600; white-space:nowrap}
+  .marchio{
+    width:44px; height:44px; flex:none; border-radius:12px;
+    background:var(--green); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Geist',sans-serif; font-weight:900; font-size:16px; letter-spacing:.5px;
+  }
+  .topbar h1{
+    margin:0; flex:1; font-family:'Geist',sans-serif; font-weight:800;
+    font-size:21px; letter-spacing:-.4px;
+  }
+  .oggi{font-size:16px; color:var(--gray-text); font-weight:600; white-space:nowrap}
   .chip-persona{
-    background:var(--green); color:#fff; font-weight:700; font-size:19px;
-    padding:10px 18px; border-radius:999px; white-space:nowrap;
+    background:var(--green); color:#fff; font-weight:700; font-size:18px;
+    padding:11px 20px; border-radius:999px; white-space:nowrap;
+    box-shadow:0 4px 12px rgba(26,122,72,.22);
   }
 
-  h2{font-size:21px; margin:22px 0 12px; font-weight:700}
-  .hint{color:var(--gray-text); font-size:16px; margin:0 0 14px}
+  h2{font-family:'Geist',sans-serif; font-size:24px; margin:24px 0 6px;
+     font-weight:800; letter-spacing:-.5px}
+  .hint{color:var(--gray-text); font-size:16px; margin:0 0 18px}
 
   /* ---- Pulsanti grandi ---- */
   .griglia{display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
   .btn-grande{
-    min-height:88px; background:var(--white); border:2px solid var(--border);
-    border-radius:14px; font-size:22px; font-weight:700; color:var(--black);
+    min-height:88px; background:var(--white); border:1px solid var(--border);
+    border-radius:14px; font-size:20px; font-weight:600; color:var(--ink);
     cursor:pointer; padding:16px; display:flex; align-items:center; justify-content:center;
-    text-align:center; transition:border-color .12s, background .12s;
+    text-align:center; box-shadow:var(--ombra);
+    transition:border-color .12s, box-shadow .12s, transform .08s;
   }
-  .btn-grande:hover{border-color:var(--green)}
-  .btn-grande:active{background:#f0f0f0}
+  .btn-grande:hover{border-color:var(--green); box-shadow:var(--ombra-alta)}
+  .btn-grande:active{transform:scale(.985); background:#fafbfb}
   .btn-grande:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
   .btn-grande.interna{background:var(--blue-bg); border-color:#bfdbfe; color:var(--blue)}
 
   /* ---- Righe ore ---- */
   .riga{
-    background:var(--white); border:2px solid var(--border); border-radius:14px;
-    padding:14px 16px; margin-bottom:12px; display:flex; align-items:center; gap:14px;
-    flex-wrap:wrap;
+    background:var(--white); border:1px solid var(--border); border-radius:14px;
+    padding:16px 18px; margin-bottom:12px; display:flex; align-items:center; gap:14px;
+    flex-wrap:wrap; box-shadow:var(--ombra);
   }
-  .riga.interna{background:#f8fbff; border-color:#bfdbfe}
+  .riga.interna{background:#f7fafd; border-color:#d7e6f7}
   .riga .nome{flex:1; min-width:180px; font-size:20px; font-weight:700}
   .riga .nome .tag{
     display:inline-block; font-size:13px; font-weight:700; color:var(--blue);
@@ -69,47 +89,61 @@
   }
   .stepper{display:flex; align-items:center; gap:10px}
   .step-btn{
-    width:var(--touch); height:var(--touch); border-radius:12px; border:2px solid var(--border);
-    background:var(--white); font-size:32px; font-weight:700; line-height:1; cursor:pointer;
-    color:var(--black); display:flex; align-items:center; justify-content:center;
+    width:var(--touch); height:var(--touch); border-radius:14px; border:1px solid var(--border);
+    background:var(--white); font-size:30px; font-weight:600; line-height:1; cursor:pointer;
+    color:var(--ink); display:flex; align-items:center; justify-content:center;
+    box-shadow:var(--ombra); transition:transform .08s, border-color .12s;
   }
-  .step-btn:active{background:#eee}
+  .step-btn:hover{border-color:var(--green)}
+  .step-btn:active{transform:scale(.94); background:#f4f6f7}
   .step-btn:disabled{opacity:.35; cursor:default}
   .step-btn:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
-  .valore{min-width:104px; text-align:center; font-size:28px; font-weight:800; font-variant-numeric:tabular-nums}
+  .valore{min-width:110px; text-align:center; font-family:'Geist',sans-serif;
+          font-size:30px; font-weight:800; letter-spacing:-.5px}
   .valore .u{font-size:16px; color:var(--gray-text); font-weight:600; margin-left:2px}
   .rimuovi{
-    min-width:56px; height:56px; border-radius:12px; border:2px solid var(--border);
-    background:var(--white); color:var(--red); font-size:22px; cursor:pointer;
+    min-width:56px; height:56px; border-radius:14px; border:1px solid var(--border);
+    background:var(--white); color:var(--red); font-size:20px; cursor:pointer;
   }
+  .rimuovi:hover{border-color:#f3c8c8; background:#fffafa}
 
   /* ---- Totale + salva (barra fissa) ---- */
   .barra{
     position:fixed; left:0; right:0; bottom:0; background:var(--white);
-    border-top:2px solid var(--border); padding:14px 18px;
+    border-top:1px solid var(--border); padding:14px 20px;
     display:flex; align-items:center; gap:16px; z-index:30;
     padding-bottom:calc(14px + env(safe-area-inset-bottom));
+    box-shadow:0 -6px 24px rgba(0,0,0,.07);
   }
-  .totale{flex:1; font-size:24px; font-weight:800}
+  .totale{flex:1; font-family:'Geist',sans-serif; font-size:22px; font-weight:800;
+          letter-spacing:-.4px}
   .totale span{font-size:32px; color:var(--green)}
-  .obiettivo{font-size:15px; font-weight:700; margin-top:2px}
-  .obiettivo.manca{color:#b45309}
+  .obiettivo{font-family:'Inter',sans-serif; font-size:15px; font-weight:600;
+             margin-top:3px; letter-spacing:0}
+  .obiettivo.manca{color:var(--ambra)}
   .obiettivo.ok{color:var(--green)}
   .obiettivo.oltre{color:#1d4ed8}
   .btn-salva{
     min-height:var(--touch); padding:0 40px; border-radius:14px; border:none;
-    background:var(--green); color:#fff; font-size:22px; font-weight:800; cursor:pointer;
+    background:var(--green); color:#fff; font-family:'Geist',sans-serif;
+    font-size:21px; font-weight:800; cursor:pointer;
+    box-shadow:0 6px 18px rgba(26,122,72,.24);
+    transition:transform .08s, box-shadow .12s;
   }
-  .btn-salva:disabled{background:var(--gray-muted); cursor:default}
+  .btn-salva:hover{background:var(--green-light)}
+  .btn-salva:active{transform:scale(.98)}
+  .btn-salva:disabled{background:var(--gray-muted); box-shadow:none; cursor:default}
   .btn-salva:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
   .btn-sec{
-    min-height:var(--touch); padding:0 24px; border-radius:14px;
-    border:2px solid var(--border); background:var(--white);
-    font-size:19px; font-weight:700; cursor:pointer;
+    min-height:var(--touch); padding:0 26px; border-radius:14px;
+    border:1px solid var(--border); background:var(--white); color:var(--ink);
+    font-size:18px; font-weight:600; cursor:pointer;
   }
+  .btn-sec:hover{background:#fafbfb; border-color:var(--gray-muted)}
 
   /* ---- Messaggi ---- */
-  .msg{padding:16px 18px; border-radius:12px; font-size:18px; font-weight:600; margin:14px 0; display:none}
+  .msg{padding:16px 18px; border-radius:12px; font-size:17px; font-weight:500;
+       line-height:1.5; margin:14px 0; display:none}
   .msg.ok{background:var(--green-badge-bg); color:var(--green-badge); display:block}
   .msg.err{background:var(--red-bg); color:var(--red); display:block}
   .msg.warn{background:var(--orange-bg); color:var(--orange); display:block}
@@ -121,61 +155,85 @@
   }
   .toast.on{display:flex}
   .toast .box{
-    background:var(--white); border-radius:20px; padding:44px 56px; text-align:center;
-    box-shadow:0 20px 60px rgba(0,0,0,.3);
+    background:var(--white); border-radius:22px; padding:44px 56px; text-align:center;
+    box-shadow:0 24px 70px rgba(0,0,0,.32);
   }
   .toast .segno{font-size:64px; color:var(--green); line-height:1}
-  .toast .txt{font-size:26px; font-weight:800; margin-top:10px}
+  .toast .txt{font-family:'Geist',sans-serif; font-size:26px; font-weight:800;
+              margin-top:10px; letter-spacing:-.4px}
   .toast .sub{font-size:18px; color:var(--gray-text); margin-top:6px}
 
   /* ---- Bacheca della giornata (schermata fissa della timbratrice) ---- */
-  .testa-bacheca{display:flex; align-items:baseline; justify-content:space-between; gap:16px}
-  .testa-bacheca .agg{font-size:14px; color:var(--gray-text)}
-  .bacheca{display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px}
+  .testa-bacheca{display:flex; align-items:baseline; justify-content:space-between;
+                 gap:16px; flex-wrap:wrap}
+  .testa-bacheca .agg{font-size:14px; color:var(--gray-muted); font-weight:500}
+  .bacheca{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:18px}
   .persona{
-    display:block; width:100%; text-align:left; cursor:pointer;
-    background:var(--white); border:2px solid var(--border); border-radius:16px;
-    padding:18px 20px; min-height:var(--touch);
+    position:relative; display:flex; flex-direction:column; align-items:stretch;
+    justify-content:flex-start; width:100%; text-align:left; cursor:pointer;
+    background:var(--white); border:1px solid var(--border); border-radius:18px;
+    padding:20px 22px 20px 26px; min-height:var(--touch); overflow:hidden;
+    box-shadow:var(--ombra); transition:box-shadow .14s, transform .08s;
   }
-  .persona:active{background:#f4f6f7}
-  .persona.mancante{border-color:#f0b429; background:#fffbf0}
-  .persona.completa{border-color:var(--green)}
-  .persona .riga1{display:flex; align-items:baseline; justify-content:space-between; gap:12px}
-  .persona .nome{font-size:22px; font-weight:800}
-  .persona .ore{font-size:28px; font-weight:800; color:var(--green); white-space:nowrap}
-  .persona.mancante .ore{color:#b45309; font-size:19px}
-  .persona .stato{font-size:14px; font-weight:700; margin-top:2px}
-  .persona.mancante .stato{color:#b45309}
+  /* filetto verticale colorato: lo stato si legge da lontano, anche di sbieco */
+  .persona::before{
+    content:''; position:absolute; left:0; top:0; bottom:0; width:6px;
+    background:var(--border);
+  }
+  .persona:hover{box-shadow:var(--ombra-alta)}
+  .persona:active{transform:scale(.99)}
+  .persona.mancante{background:var(--ambra-bg); border-color:#f5e3bd}
+  .persona.mancante::before{background:var(--ambra-bordo)}
+  .persona.completa::before{background:var(--green)}
+  .persona .riga1{display:flex; align-items:baseline; justify-content:space-between; gap:14px}
+  .persona .nome{font-family:'Geist',sans-serif; font-size:22px; font-weight:800;
+                 letter-spacing:-.4px; line-height:1.2}
+  .persona .ore{font-family:'Geist',sans-serif; font-size:30px; font-weight:900;
+                color:var(--green); white-space:nowrap; letter-spacing:-1px}
+  .persona.mancante .ore{color:var(--ambra); font-size:17px; font-weight:800;
+                         letter-spacing:0; text-transform:uppercase}
+  .persona .stato{font-size:13px; font-weight:600; margin-top:4px;
+                  letter-spacing:.2px; color:var(--gray-text)}
+  .persona.mancante .stato{color:var(--ambra)}
   .persona.completa .stato{color:var(--green)}
-  .persona .stato.corta{color:#b45309}
+  .persona .stato.corta{color:var(--ambra)}
   .persona .clienti{
-    margin-top:12px; padding-top:12px; border-top:1px solid var(--border);
-    font-size:16px; color:var(--gray-text); line-height:1.6;
+    margin-top:14px; padding-top:14px; border-top:1px solid var(--border);
+    font-size:16px; color:var(--gray-text); line-height:1.75;
   }
-  .persona .clienti div{display:flex; justify-content:space-between; gap:12px}
+  .persona .clienti div{display:flex; justify-content:space-between; gap:14px}
+  .persona .clienti span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .persona .clienti b{color:var(--ink); font-weight:700; white-space:nowrap}
 
   .cerca{
-    width:100%; min-height:56px; font-size:19px; padding:12px 16px;
-    border:2px solid var(--border); border-radius:12px; margin-bottom:14px;
+    width:100%; min-height:56px; font-size:18px; padding:12px 18px;
+    font-family:'Inter',sans-serif; color:var(--ink);
+    border:1px solid var(--border); border-radius:14px; margin-bottom:16px;
+    background:var(--white); box-shadow:var(--ombra);
     -webkit-user-select:text; user-select:text;
   }
-  .cerca:focus{outline:none; border-color:var(--green)}
+  .cerca:focus{outline:none; border-color:var(--green);
+               box-shadow:0 0 0 3px rgba(26,122,72,.14)}
 
-  .vuoto{color:var(--gray-text); font-size:18px; padding:22px; text-align:center;
-         background:var(--white); border:2px dashed var(--border); border-radius:14px}
+  .vuoto{color:var(--gray-text); font-size:17px; padding:28px; text-align:center;
+         background:var(--white); border:1px dashed var(--border); border-radius:16px}
   [hidden]{display:none !important}
 
   @media (max-width:520px){
-    .wrap{padding:12px 12px 130px}
-    .griglia{grid-template-columns:1fr}
+    .wrap{padding:14px 14px 132px}
+    .griglia,.bacheca{grid-template-columns:1fr}
     .riga .nome{min-width:100%}
+    .topbar h1{font-size:18px}
+    .totale{font-size:19px}
+    .totale span{font-size:26px}
+    .btn-salva{padding:0 26px; font-size:19px}
   }
 </style>
 </head>
 <body>
 
 <div class="topbar">
+  <div class="marchio">LS</div>
   <h1>Ore di lavoro</h1>
   <div class="oggi" id="oggi">—</div>
   <div class="chip-persona" id="chip-persona" hidden></div>
