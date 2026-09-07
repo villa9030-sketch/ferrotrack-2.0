@@ -1,0 +1,148 @@
+"""API delle DICHIARAZIONI ORE (blueprint isolato dal monolite `app.py`).
+
+Tutti gli endpoint sono protetti da `require_scope`: i permessi derivano dal
+TOKEN DI DISPOSITIVO verificato dal server, mai da un ruolo o user_id inviato
+dal browser.
+
+  scope 'ore'     -> tablet officina: legge/scrive SOLO dichiarazioni, solo oggi
+  scope 'ufficio' -> impiegata: puo' correggere anche i giorni precedenti
+
+Il nome operaio selezionato sul tablet e' una DICHIARAZIONE del soggetto, non
+un'autenticazione: viene registrato separatamente dal dispositivo che ha
+effettuato l'operazione (tracciabilita' richiesta).
+"""
+import logging
+
+from flask import Blueprint, jsonify, request
+
+from . import ore_service as svc
+from .auth_device import device_corrente, require_scope
+
+logger = logging.getLogger(__name__)
+
+bp_ore = Blueprint('ore', __name__, url_prefix='/api/ore')
+
+
+def _audit(azione, operatore_id, dettaglio):
+    """Traccia la modifica distinguendo operaio dichiarato e dispositivo."""
+    try:
+        from .database import AuditManager
+        dev = device_corrente()
+        AuditManager.log(
+            user_id=operatore_id,
+            action=azione,
+            entity_type='ore',
+            entity_id=operatore_id or '',
+            detail=f"[device={dev.get('label', '?')} scope={dev.get('scope', '?')}] {dettaglio}",
+        )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Contesto del dispositivo (il tablet sa cosa puo' fare)
+# ---------------------------------------------------------------------------
+@bp_ore.route('/contesto', methods=['GET'])
+@require_scope('ore', 'ufficio')
+def api_contesto():
+    dev = device_corrente()
+    return jsonify({
+        'success': True,
+        'dispositivo': dev.get('label'),
+        'scope': dev.get('scope'),
+        'oggi': svc.oggi_locale().isoformat(),
+        'passo_minuti': svc.PASSO_MINUTI,
+        'etichetta_interna': svc.ETICHETTA_INTERNA,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# Anagrafiche
+# ---------------------------------------------------------------------------
+@bp_ore.route('/operai', methods=['GET'])
+@require_scope('ore', 'ufficio')
+def api_operai():
+    return jsonify({'success': True, 'operai': svc.elenco_operai()}), 200
+
+
+@bp_ore.route('/clienti', methods=['GET'])
+@require_scope('ore', 'ufficio')
+def api_clienti():
+    return jsonify({'success': True, 'clienti': svc.elenco_clienti()}), 200
+
+
+# ---------------------------------------------------------------------------
+# Giornata
+# ---------------------------------------------------------------------------
+@bp_ore.route('/giornata', methods=['GET'])
+@require_scope('ore', 'ufficio')
+def api_leggi_giornata():
+    operatore_id = (request.args.get('operatore_id') or '').strip()
+    data = (request.args.get('data') or '').strip() or svc.oggi_locale().isoformat()
+    if not operatore_id:
+        return jsonify({'success': False, 'error': 'operatore_id obbligatorio'}), 400
+
+    dev = device_corrente()
+    # Il tablet ore consulta solo la giornata corrente: nient'altro gli serve.
+    if dev.get('scope') == 'ore' and data != svc.oggi_locale().isoformat():
+        return jsonify({'success': False,
+                        'error': 'Questo dispositivo puo\' consultare solo la giornata di oggi.',
+                        'codice': 'giorno_non_consentito'}), 403
+
+    g = svc.leggi_giornata(operatore_id, data)
+    if g.get('error'):
+        return jsonify({'success': False, **g}), 400
+    return jsonify({'success': True, 'giornata': g}), 200
+
+
+@bp_ore.route('/giornata', methods=['POST'])
+@require_scope('ore', 'ufficio')
+def api_salva_giornata():
+    """Salva l'intera giornata (sostituzione atomica).
+
+    Body: {operatore_id, data, righe[], revisione_attesa, richiesta_id, note?}
+    L'origine NON viene dal client: e' derivata dallo scope del dispositivo.
+    """
+    dev = device_corrente()
+    data_in = request.get_json(silent=True) or {}
+
+    operatore_id = (data_in.get('operatore_id') or '').strip()
+    if not operatore_id:
+        return jsonify({'success': False, 'error': 'operatore_id obbligatorio'}), 400
+
+    origine = 'tablet' if dev.get('scope') == 'ore' else 'ufficio'
+    giorno = (data_in.get('data') or '').strip() or svc.oggi_locale().isoformat()
+
+    res = svc.salva_giornata(
+        operatore_id,
+        giorno,
+        data_in.get('righe'),
+        origine=origine,
+        device_label=dev.get('label'),
+        modificata_da=dev.get('label'),
+        revisione_attesa=data_in.get('revisione_attesa'),
+        richiesta_id=(data_in.get('richiesta_id') or '').strip() or None,
+        note=data_in.get('note'),
+    )
+
+    if res.get('success'):
+        g = res['giornata']
+        if not g.get('idempotente'):
+            _audit('DICHIARAZIONE_ORE', operatore_id,
+                   f"{giorno}: {g.get('totale_minuti', 0)} min, rev {g.get('revisione')}")
+        # Un salvataggio andato a buon fine puo' risolvere un'anomalia aperta.
+        try:
+            from .anomalie_service import rivaluta_giornata
+            rivaluta_giornata(operatore_id, giorno)
+        except Exception:
+            pass
+        return jsonify(res), 200
+
+    codice = res.get('codice')
+    if codice == 'conflitto':
+        return jsonify({'success': False, **res}), 409
+    if codice in ('operatore_non_valido', 'giorno_non_corrente'):
+        return jsonify({'success': False, **res}), 403
+    if codice == 'errore_server':
+        return jsonify({'success': False, **res}), 500
+    return jsonify({'success': False, **res}), 400

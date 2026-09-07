@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ore di lavoro — LS FerroTrack</title>
+<style>
+  :root{
+    --bg:#fafafa; --white:#ffffff; --black:#000000;
+    --green:#1a7a48; --green-light:#22a060;
+    --gray-text:#666666; --gray-muted:#999999; --border:#e5e5e5;
+    --blue:#1e40af; --blue-bg:#dbeafe;
+    --red:#991b1b; --red-bg:#fee2e2;
+    --orange:#92400e; --orange-bg:#fef3c7;
+    --green-badge:#166534; --green-badge-bg:#dcfce7;
+    --touch:64px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; padding:0}
+  body{
+    background:var(--bg); color:var(--black);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    font-size:18px; line-height:1.4;
+    -webkit-user-select:none; user-select:none;
+  }
+  .wrap{max-width:1100px; margin:0 auto; padding:16px 16px 120px}
+
+  /* ---- Testata ---- */
+  .topbar{
+    background:var(--white); border-bottom:2px solid var(--border);
+    padding:14px 18px; display:flex; align-items:center; gap:14px;
+    position:sticky; top:0; z-index:20;
+  }
+  .topbar h1{margin:0; font-size:22px; font-weight:700; flex:1}
+  .oggi{font-size:17px; color:var(--gray-text); font-weight:600; white-space:nowrap}
+  .chip-persona{
+    background:var(--green); color:#fff; font-weight:700; font-size:19px;
+    padding:10px 18px; border-radius:999px; white-space:nowrap;
+  }
+
+  h2{font-size:21px; margin:22px 0 12px; font-weight:700}
+  .hint{color:var(--gray-text); font-size:16px; margin:0 0 14px}
+
+  /* ---- Pulsanti grandi ---- */
+  .griglia{display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .btn-grande{
+    min-height:88px; background:var(--white); border:2px solid var(--border);
+    border-radius:14px; font-size:22px; font-weight:700; color:var(--black);
+    cursor:pointer; padding:16px; display:flex; align-items:center; justify-content:center;
+    text-align:center; transition:border-color .12s, background .12s;
+  }
+  .btn-grande:hover{border-color:var(--green)}
+  .btn-grande:active{background:#f0f0f0}
+  .btn-grande:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
+  .btn-grande.interna{background:var(--blue-bg); border-color:#bfdbfe; color:var(--blue)}
+
+  /* ---- Righe ore ---- */
+  .riga{
+    background:var(--white); border:2px solid var(--border); border-radius:14px;
+    padding:14px 16px; margin-bottom:12px; display:flex; align-items:center; gap:14px;
+    flex-wrap:wrap;
+  }
+  .riga.interna{background:#f8fbff; border-color:#bfdbfe}
+  .riga .nome{flex:1; min-width:180px; font-size:20px; font-weight:700}
+  .riga .nome .tag{
+    display:inline-block; font-size:13px; font-weight:700; color:var(--blue);
+    background:var(--blue-bg); padding:2px 10px; border-radius:999px; margin-left:8px;
+    vertical-align:middle;
+  }
+  .stepper{display:flex; align-items:center; gap:10px}
+  .step-btn{
+    width:var(--touch); height:var(--touch); border-radius:12px; border:2px solid var(--border);
+    background:var(--white); font-size:32px; font-weight:700; line-height:1; cursor:pointer;
+    color:var(--black); display:flex; align-items:center; justify-content:center;
+  }
+  .step-btn:active{background:#eee}
+  .step-btn:disabled{opacity:.35; cursor:default}
+  .step-btn:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
+  .valore{min-width:104px; text-align:center; font-size:28px; font-weight:800; font-variant-numeric:tabular-nums}
+  .valore .u{font-size:16px; color:var(--gray-text); font-weight:600; margin-left:2px}
+  .rimuovi{
+    min-width:56px; height:56px; border-radius:12px; border:2px solid var(--border);
+    background:var(--white); color:var(--red); font-size:22px; cursor:pointer;
+  }
+
+  /* ---- Totale + salva (barra fissa) ---- */
+  .barra{
+    position:fixed; left:0; right:0; bottom:0; background:var(--white);
+    border-top:2px solid var(--border); padding:14px 18px;
+    display:flex; align-items:center; gap:16px; z-index:30;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
+  }
+  .totale{flex:1; font-size:24px; font-weight:800}
+  .totale span{font-size:32px; color:var(--green)}
+  .btn-salva{
+    min-height:var(--touch); padding:0 40px; border-radius:14px; border:none;
+    background:var(--green); color:#fff; font-size:22px; font-weight:800; cursor:pointer;
+  }
+  .btn-salva:disabled{background:var(--gray-muted); cursor:default}
+  .btn-salva:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
+  .btn-sec{
+    min-height:var(--touch); padding:0 24px; border-radius:14px;
+    border:2px solid var(--border); background:var(--white);
+    font-size:19px; font-weight:700; cursor:pointer;
+  }
+
+  /* ---- Messaggi ---- */
+  .msg{padding:16px 18px; border-radius:12px; font-size:18px; font-weight:600; margin:14px 0; display:none}
+  .msg.ok{background:var(--green-badge-bg); color:var(--green-badge); display:block}
+  .msg.err{background:var(--red-bg); color:var(--red); display:block}
+  .msg.warn{background:var(--orange-bg); color:var(--orange); display:block}
+  .msg .azioni{margin-top:12px; display:flex; gap:10px}
+
+  .toast{
+    position:fixed; inset:0; background:rgba(0,0,0,.55); display:none;
+    align-items:center; justify-content:center; z-index:50;
+  }
+  .toast.on{display:flex}
+  .toast .box{
+    background:var(--white); border-radius:20px; padding:44px 56px; text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,.3);
+  }
+  .toast .segno{font-size:64px; color:var(--green); line-height:1}
+  .toast .txt{font-size:26px; font-weight:800; margin-top:10px}
+  .toast .sub{font-size:18px; color:var(--gray-text); margin-top:6px}
+
+  .cerca{
+    width:100%; min-height:56px; font-size:19px; padding:12px 16px;
+    border:2px solid var(--border); border-radius:12px; margin-bottom:14px;
+    -webkit-user-select:text; user-select:text;
+  }
+  .cerca:focus{outline:none; border-color:var(--green)}
+
+  .vuoto{color:var(--gray-text); font-size:18px; padding:22px; text-align:center;
+         background:var(--white); border:2px dashed var(--border); border-radius:14px}
+  [hidden]{display:none !important}
+
+  @media (max-width:520px){
+    .wrap{padding:12px 12px 130px}
+    .griglia{grid-template-columns:1fr}
+    .riga .nome{min-width:100%}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Ore di lavoro</h1>
+  <div class="oggi" id="oggi">—</div>
+  <div class="chip-persona" id="chip-persona" hidden></div>
+</div>
+
+<div class="wrap">
+
+  <!-- ============ CONFIGURAZIONE DISPOSITIVO (una volta sola) ============ -->
+  <section id="vista-config" hidden>
+    <h2>Configurazione del dispositivo</h2>
+    <p class="hint">Questo tablet non è ancora abilitato. Inserisci il codice fornito
+       dall'ufficio: si fa <b>una volta sola</b>.</p>
+    <input class="cerca" id="in-token" type="password" placeholder="Codice dispositivo"
+           autocomplete="off" aria-label="Codice dispositivo">
+    <div class="msg err" id="msg-config" hidden></div>
+    <button class="btn-salva" style="width:100%" onclick="salvaToken()">Abilita dispositivo</button>
+  </section>
+
+  <!-- ============ 1. SELEZIONE NOME ============ -->
+  <section id="vista-nome" hidden>
+    <h2>Chi sei?</h2>
+    <p class="hint">Tocca il tuo nome.</p>
+    <div class="griglia" id="griglia-operai"></div>
+    <div class="msg err" id="msg-nome" hidden></div>
+  </section>
+
+  <!-- ============ 2. GIORNATA ============ -->
+  <section id="vista-giornata" hidden>
+    <div class="msg" id="msg-giornata" hidden></div>
+
+    <h2 id="titolo-giornata">La tua giornata</h2>
+    <div id="righe"></div>
+
+    <h2>Aggiungi cliente</h2>
+    <input class="cerca" id="cerca-cliente" placeholder="Cerca cliente (facoltativo)"
+           oninput="filtraClienti()" aria-label="Cerca cliente">
+    <div class="griglia" id="griglia-clienti"></div>
+  </section>
+</div>
+
+<!-- ============ BARRA TOTALE + SALVA ============ -->
+<div class="barra" id="barra" hidden>
+  <button class="btn-sec" onclick="tornaAiNomi()">Indietro</button>
+  <div class="totale">Totale: <span id="totale">0</span> h</div>
+  <button class="btn-salva" id="btn-salva" onclick="salva()">Salva</button>
+</div>
+
+<!-- ============ CONFERMA ============ -->
+<div class="toast" id="toast">
+  <div class="box">
+    <div class="segno">✓</div>
+    <div class="txt">Salvato</div>
+    <div class="sub" id="toast-sub"></div>
+  </div>
+</div>
+
+<script>
+// ===========================================================================
+//  Stato
+// ===========================================================================
+const API = '';
+let TOKEN = null;
+let CTX = null;                 // contesto dispositivo (scope, oggi, passo)
+let OPERAI = [], CLIENTI = [];
+let operatore = null;           // {id, nome}
+let righe = [];                 // [{cliente|null, attivita_interna, minuti}]
+let revisione = 0;              // revisione letta dal server
+let sporco = false;             // modifiche non salvate
+let richiestaId = null;         // chiave di idempotenza del tentativo corrente
+let inSalvataggio = false;
+
+const PASSO = () => (CTX && CTX.passo_minuti) || 30;
+const ETICHETTA_INTERNA = () => (CTX && CTX.etichetta_interna) || 'Attività interne';
+
+// ===========================================================================
+//  Rete — il token viaggia sempre nell'header (mai in URL)
+// ===========================================================================
+async function api(path, opts = {}) {
+  const o = Object.assign({headers: {}}, opts);
+  o.headers['X-Device-Token'] = TOKEN || '';
+  if (o.body) o.headers['Content-Type'] = 'application/json';
+  const r = await fetch(API + path, o);          // può lanciare (rete assente)
+  let d = {};
+  try { d = await r.json(); } catch (_) { d = {}; }
+  return {status: r.status, ok: r.ok, data: d};
+}
+
+// ===========================================================================
+//  Avvio
+// ===========================================================================
+function vista(nome) {
+  for (const v of ['config', 'nome', 'giornata']) {
+    document.getElementById('vista-' + v).hidden = (v !== nome);
+  }
+  document.getElementById('barra').hidden = (nome !== 'giornata');
+  document.getElementById('chip-persona').hidden = (nome !== 'giornata');
+}
+
+async function avvia() {
+  // Token: da URL (configurazione una tantum) oppure da memoria del dispositivo
+  const url = new URL(window.location.href);
+  const daUrl = url.searchParams.get('token');
+  if (daUrl) {
+    localStorage.setItem('ore_device_token', daUrl);
+    url.searchParams.delete('token');
+    history.replaceState({}, '', url.toString());   // non lasciarlo nella barra
+  }
+  TOKEN = localStorage.getItem('ore_device_token');
+  if (!TOKEN) { vista('config'); return; }
+
+  try {
+    const r = await api('/api/ore/contesto');
+    if (r.status === 401) { localStorage.removeItem('ore_device_token'); TOKEN = null; vista('config');
+      mostra('msg-config', 'Codice non valido o revocato. Chiedi un nuovo codice all\'ufficio.', 'err');
+      return; }
+    if (!r.ok) throw new Error(r.data.error || 'Errore');
+    CTX = r.data;
+    document.getElementById('oggi').textContent = dataIta(CTX.oggi);
+    await caricaAnagrafiche();
+    vista('nome');
+  } catch (e) {
+    vista('config');
+    mostra('msg-config', 'Server non raggiungibile. Riprova.', 'err');
+  }
+}
+
+async function salvaToken() {
+  const t = (document.getElementById('in-token').value || '').trim();
+  if (!t) return;
+  localStorage.setItem('ore_device_token', t);
+  TOKEN = t;
+  document.getElementById('msg-config').hidden = true;
+  avvia();
+}
+
+async function caricaAnagrafiche() {
+  const [a, b] = await Promise.all([api('/api/ore/operai'), api('/api/ore/clienti')]);
+  OPERAI = (a.data && a.data.operai) || [];
+  CLIENTI = (b.data && b.data.clienti) || [];
+  renderOperai();
+}
+
+function dataIta(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+// ===========================================================================
+//  1. Nomi
+// ===========================================================================
+function renderOperai() {
+  const g = document.getElementById('griglia-operai');
+  if (!OPERAI.length) { g.innerHTML = '<div class="vuoto">Nessun operaio configurato. Avvisa l\'ufficio.</div>'; return; }
+  g.innerHTML = OPERAI.map(o =>
+    `<button class="btn-grande" onclick="scegliOperaio('${o.id}')">${esc(o.nome)}</button>`
+  ).join('');
+}
+
+async function scegliOperaio(id) {
+  const o = OPERAI.find(x => x.id === id);
+  if (!o) return;
+  operatore = o;
+  document.getElementById('chip-persona').textContent = o.nome;
+  document.getElementById('titolo-giornata').textContent = `${o.nome} — oggi`;
+  nascondi('msg-giornata');
+  await caricaGiornata();
+  renderClienti();
+  vista('giornata');
+  window.scrollTo(0, 0);
+}
+
+// ===========================================================================
+//  2. Giornata
+// ===========================================================================
+async function caricaGiornata() {
+  righe = []; revisione = 0; sporco = false; richiestaId = null;
+  try {
+    const r = await api(`/api/ore/giornata?operatore_id=${encodeURIComponent(operatore.id)}`);
+    if (r.ok && r.data.giornata) {
+      const g = r.data.giornata;
+      revisione = g.revisione || 0;
+      righe = (g.righe || []).map(x => ({
+        cliente: x.cliente, attivita_interna: !!x.attivita_interna, minuti: x.minuti || 0
+      }));
+    } else if (!r.ok) {
+      mostra('msg-giornata', 'Non riesco a leggere i dati di oggi. I valori che inserisci verranno comunque salvati.', 'warn');
+    }
+  } catch (e) {
+    mostra('msg-giornata', 'Server non raggiungibile: controlla la rete prima di salvare.', 'warn');
+  }
+  renderRighe();
+}
+
+function renderRighe() {
+  const box = document.getElementById('righe');
+  if (!righe.length) {
+    box.innerHTML = '<div class="vuoto">Nessuna ora inserita per oggi. Aggiungi un cliente qui sotto.</div>';
+  } else {
+    box.innerHTML = righe.map((r, i) => {
+      const nome = r.attivita_interna
+        ? `${esc(ETICHETTA_INTERNA())}<span class="tag">non cliente</span>`
+        : esc(r.cliente);
+      return `<div class="riga ${r.attivita_interna ? 'interna' : ''}">
+        <div class="nome">${nome}</div>
+        <div class="stepper">
+          <button class="step-btn" onclick="cambia(${i},-1)" ${r.minuti <= 0 ? 'disabled' : ''}
+                  aria-label="Togli mezz'ora">−</button>
+          <div class="valore">${oreTesto(r.minuti)}<span class="u">h</span></div>
+          <button class="step-btn" onclick="cambia(${i},1)" aria-label="Aggiungi mezz'ora">+</button>
+        </div>
+        <button class="rimuovi" onclick="rimuovi(${i})" aria-label="Rimuovi riga">✕</button>
+      </div>`;
+    }).join('');
+  }
+  aggiornaTotale();
+}
+
+function oreTesto(min) {
+  const h = (min || 0) / 60;
+  return Number.isInteger(h) ? String(h) : h.toFixed(1).replace('.', ',');
+}
+
+function aggiornaTotale() {
+  const tot = righe.reduce((s, r) => s + (r.minuti || 0), 0);
+  document.getElementById('totale').textContent = oreTesto(tot);
+}
+
+function cambia(i, dir) {
+  const r = righe[i]; if (!r) return;
+  const nuovo = (r.minuti || 0) + dir * PASSO();
+  if (nuovo < 0) return;
+  if (nuovo > 1440) return;
+  r.minuti = nuovo;
+  sporco = true; richiestaId = null;      // nuovo contenuto = nuovo tentativo
+  nascondi('msg-giornata');
+  renderRighe();
+}
+
+function rimuovi(i) {
+  righe.splice(i, 1);
+  sporco = true; richiestaId = null;
+  renderRighe();
+}
+
+// ---- clienti ----
+function renderClienti(filtro) {
+  const g = document.getElementById('griglia-clienti');
+  const usati = new Set(righe.filter(r => !r.attivita_interna).map(r => r.cliente));
+  const f = (filtro || '').trim().toLowerCase();
+  let lista = CLIENTI.filter(c => !usati.has(c.nome));
+  if (f) lista = lista.filter(c => c.nome.toLowerCase().includes(f));
+
+  let html = '';
+  if (!righe.some(r => r.attivita_interna)) {
+    html += `<button class="btn-grande interna" onclick="aggiungiInterna()">${esc(ETICHETTA_INTERNA())}</button>`;
+  }
+  html += lista.map(c =>
+    `<button class="btn-grande" onclick="aggiungiCliente('${escAttr(c.nome)}')">${esc(c.nome)}</button>`
+  ).join('');
+  g.innerHTML = html || '<div class="vuoto">Nessun cliente trovato.</div>';
+}
+
+function filtraClienti() {
+  renderClienti(document.getElementById('cerca-cliente').value);
+}
+
+function aggiungiCliente(nome) {
+  righe.push({cliente: nome, attivita_interna: false, minuti: PASSO()});
+  sporco = true; richiestaId = null;
+  document.getElementById('cerca-cliente').value = '';
+  renderRighe(); renderClienti();
+}
+
+function aggiungiInterna() {
+  righe.push({cliente: null, attivita_interna: true, minuti: PASSO()});
+  sporco = true; richiestaId = null;
+  renderRighe(); renderClienti();
+}
+
+// ===========================================================================
+//  3. Salvataggio — atomico, idempotente, mai falsi successi
+// ===========================================================================
+function nuovaRichiestaId() {
+  return 'r-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+async function salva() {
+  if (inSalvataggio) return;                 // doppio tocco: ignorato
+  inSalvataggio = true;
+  const btn = document.getElementById('btn-salva');
+  btn.disabled = true; btn.textContent = 'Salvataggio…';
+  nascondi('msg-giornata');
+
+  // La stessa richiesta viene riusata nei tentativi successivi: se il server
+  // aveva già registrato, il replay non duplica le ore.
+  if (!richiestaId) richiestaId = nuovaRichiestaId();
+
+  try {
+    const r = await api('/api/ore/giornata', {
+      method: 'POST',
+      body: JSON.stringify({
+        operatore_id: operatore.id,
+        data: CTX.oggi,
+        righe: righe.map(x => ({
+          cliente: x.cliente, attivita_interna: x.attivita_interna, minuti: x.minuti
+        })),
+        revisione_attesa: revisione,
+        richiesta_id: richiestaId
+      })
+    });
+
+    if (r.ok && r.data.success) {
+      const g = r.data.giornata;
+      revisione = g.revisione; sporco = false; richiestaId = null;
+      confermaEsci(g.totale_minuti);
+      return;
+    }
+
+    if (r.status === 409) {                  // qualcun altro ha modificato
+      const g = r.data.giornata;
+      if (g) {
+        righe = (g.righe || []).map(x => ({
+          cliente: x.cliente, attivita_interna: !!x.attivita_interna, minuti: x.minuti
+        }));
+        revisione = g.revisione || 0;
+        renderRighe(); renderClienti();
+      }
+      richiestaId = null;
+      mostra('msg-giornata',
+        'La tua giornata è stata modificata dall\'ufficio. Qui sopra vedi i dati aggiornati: ' +
+        'controllali e, se serve, correggi e salva di nuovo.', 'warn');
+      return;
+    }
+
+    mostra('msg-giornata',
+      (r.data && r.data.error) || 'Salvataggio non riuscito.', 'err', true);
+
+  } catch (e) {
+    // Rete assente / timeout: NON dichiarare successo, conserva i valori.
+    mostra('msg-giornata',
+      'Salvataggio non riuscito: il server non risponde. I dati inseriti sono ancora qui.',
+      'err', true);
+  } finally {
+    inSalvataggio = false;
+    btn.disabled = false; btn.textContent = 'Salva';
+  }
+}
+
+function confermaEsci(totMin) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-sub').textContent =
+    `${operatore.nome} — ${oreTesto(totMin)} h`;
+  t.classList.add('on');
+  setTimeout(() => { t.classList.remove('on'); tornaAiNomi(true); }, 1400);
+}
+
+function tornaAiNomi(forza) {
+  if (!forza && sporco) {
+    if (!confirm('Hai modifiche non salvate. Vuoi uscire senza salvare?')) return;
+  }
+  operatore = null; righe = []; revisione = 0; sporco = false; richiestaId = null;
+  document.getElementById('cerca-cliente').value = '';
+  nascondi('msg-giornata');
+  vista('nome');
+  window.scrollTo(0, 0);
+}
+
+// ===========================================================================
+//  Utilità
+// ===========================================================================
+function mostra(id, testo, tipo, conRiprova) {
+  const el = document.getElementById(id);
+  el.className = 'msg ' + (tipo || 'ok');
+  el.innerHTML = esc(testo) +
+    (conRiprova ? '<div class="azioni"><button class="btn-sec" onclick="salva()">Riprova</button></div>' : '');
+  el.hidden = false;
+  el.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+}
+function nascondi(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escAttr(s) { return String(s == null ? '' : s).replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+window.addEventListener('beforeunload', e => {
+  if (sporco) { e.preventDefault(); e.returnValue = ''; }
+});
+
+avvia();
+</script>
+</body>
+</html>

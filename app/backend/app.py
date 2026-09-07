@@ -95,6 +95,11 @@ def _convert_dwg_to_dxf(dwg_path):
         shutil.rmtree(tmp_out, ignore_errors=True)
 
 app = Flask(__name__, static_folder=None)
+
+# Sottosistema DICHIARAZIONI ORE (blueprint isolato: la logica non sta qui).
+# I suoi endpoint usano token di dispositivo verificati dal server.
+from .api_ore import bp_ore  # noqa: E402
+app.register_blueprint(bp_ore)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max upload
 CORS(app, origins=[r"http://localhost:*", r"http://127\.0\.0\.1:*", r"http://192\.168\.\d+\.\d+:*"])
 
@@ -117,8 +122,12 @@ def handle_unexpected_error(e):
 def handle_file_too_large(e):
     return jsonify({'error': 'File troppo grande (max 50MB)'}), 413
 
-# Inizializza database
-initialize_database()
+# Inizializza database.
+# NOTA: avviene all'IMPORT del modulo (effetto collaterale storico). Resta il
+# comportamento di default per non cambiare gli avvii esistenti, ma puo' essere
+# disattivato per i test, che non devono toccare il database di lavoro.
+if os.environ.get('FERROTRACK_SKIP_DB_INIT') != '1':
+    initialize_database()
 
 # ============ UTILITÀ AUTORIZZAZIONE ============
 

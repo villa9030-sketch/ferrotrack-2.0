@@ -33,6 +33,13 @@ _ORDER_COLS = {
     'consegna_registrata_da': 'VARCHAR',
 }
 
+# Colonne aggiunte a tabelle del sottosistema DOPO la loro prima creazione.
+# `create_all` crea le tabelle mancanti ma NON aggiunge colonne a quelle esistenti:
+# senza questo passaggio un database creato con una versione precedente si rompe.
+_NUOVE_TABELLE_COLS = {
+    'giornate_ore': {'ultima_richiesta_id': 'VARCHAR'},
+}
+
 # Ruoli considerati "operai di officina" per il seed della compilazione ore.
 _RUOLI_OPERAI = ('Operaio Laser', 'Operaio Officina')
 
@@ -55,6 +62,22 @@ def _migra_colonne_ordine(engine, insp):
                 conn.execute(text(f'ALTER TABLE orders ADD COLUMN {col} {tipo}'))
                 logger.info('migrations_ore: aggiunta colonna orders.%s', col)
                 aggiunte += 1
+        conn.commit()
+    return aggiunte
+
+
+def _migra_colonne_sottosistema(engine, insp):
+    """Allinea le colonne delle tabelle del sottosistema ore (idempotente)."""
+    aggiunte = 0
+    with engine.connect() as conn:
+        for tabella, colonne in _NUOVE_TABELLE_COLS.items():
+            if tabella not in insp.get_table_names():
+                continue
+            for col, tipo in colonne.items():
+                if not _column_exists(insp, tabella, col):
+                    conn.execute(text(f'ALTER TABLE {tabella} ADD COLUMN {col} {tipo}'))
+                    logger.info('migrations_ore: aggiunta colonna %s.%s', tabella, col)
+                    aggiunte += 1
         conn.commit()
     return aggiunte
 
@@ -140,6 +163,8 @@ def migrate_ore(engine):
         insp = inspect(engine)
         cols = _migra_colonne_ordine(engine, insp)
         insp = inspect(engine)  # ricarica dopo gli ALTER
+        cols += _migra_colonne_sottosistema(engine, insp)
+        insp = inspect(engine)
         cli = _seed_clienti(engine, insp)
         ore = _seed_ore_attese(engine, insp)
         if cols or cli or ore:

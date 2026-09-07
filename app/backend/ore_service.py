@@ -322,8 +322,11 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
         return {'success': True, 'giornata': _serializza(g)}
     except Exception as e:
         session.rollback()
-        logger.exception('salva_giornata fallita')
-        return {'error': str(e), 'codice': 'errore_server'}
+        # Il dettaglio tecnico resta nei log del server: all'operaio va un
+        # messaggio comprensibile, non un errore SQL.
+        logger.exception('salva_giornata fallita: %s', e)
+        return {'error': 'Errore interno durante il salvataggio. Riprova.',
+                'codice': 'errore_server'}
     finally:
         session.close()
 
