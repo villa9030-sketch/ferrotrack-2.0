@@ -492,6 +492,8 @@ def _backup_db_before_migration():
 def initialize_database():
     """Crea le tabelle se non esistono e popola i dati di default"""
     _backup_db_before_migration()
+    # Registra le tabelle del sottosistema ORE prima di create_all
+    from . import models_ore  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
     # Migrazione: aggiunge colonne tempo a phase_delegations se mancanti
@@ -687,5 +689,9 @@ def initialize_database():
                 conn.execute(text('ALTER TABLE preventivi ADD COLUMN email_inviata_il DATETIME'))
                 logger.info('Aggiunta colonna email_inviata_il a preventivi')
             conn.commit()
+
+    # Migrazioni additive del sottosistema ORE (colonne ordine, seed clienti/config)
+    from .migrations_ore import migrate_ore
+    migrate_ore(engine)
 
     seed_users()
