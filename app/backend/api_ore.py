@@ -233,3 +233,87 @@ def api_elimina_eccezione():
         return jsonify({'success': False, **res}), 400
     _audit('ECCEZIONE_GIORNO_RIMOSSA', d.get('operatore_id'), str(d.get('data')))
     return jsonify(res), 200
+
+
+# ===========================================================================
+#  RIEPILOGO ECONOMICO — riservato all'UFFICIO
+#  Nessun dato economico e' esposto ai dispositivi di officina.
+# ===========================================================================
+@bp_ore.route('/riepilogo', methods=['GET'])
+@require_scope('ufficio')
+def api_riepilogo():
+    from . import riepilogo_service as ri
+    return jsonify({'success': True, 'riepilogo': ri.riepilogo(
+        anno=request.args.get('anno'), mese=request.args.get('mese'),
+        dal=request.args.get('dal'), al=request.args.get('al'),
+        cliente=(request.args.get('cliente') or '').strip() or None,
+    )}), 200
+
+
+@bp_ore.route('/riepilogo/dettaglio', methods=['GET'])
+@require_scope('ufficio')
+def api_riepilogo_dettaglio():
+    """Risalita ai dati che compongono i totali di un cliente."""
+    from . import riepilogo_service as ri
+    cliente = (request.args.get('cliente') or '').strip()
+    if not cliente:
+        return jsonify({'success': False, 'error': 'cliente obbligatorio'}), 400
+    return jsonify({'success': True, 'dettaglio': ri.dettaglio_cliente(
+        cliente, anno=request.args.get('anno'), mese=request.args.get('mese'),
+        dal=request.args.get('dal'), al=request.args.get('al'),
+    )}), 200
+
+
+@bp_ore.route('/tariffa', methods=['GET'])
+@require_scope('ufficio')
+def api_tariffe():
+    from . import riepilogo_service as ri
+    return jsonify({'success': True, 'tariffe': ri.elenco_tariffe()}), 200
+
+
+@bp_ore.route('/tariffa', methods=['POST'])
+@require_scope('ufficio')
+def api_imposta_tariffa():
+    """Nuova tariffa valida da una data: non altera lo storico precedente."""
+    from . import riepilogo_service as ri
+    d = request.get_json(silent=True) or {}
+    dev = device_corrente()
+    res = ri.imposta_tariffa(d.get('valido_dal'), d.get('euro_ora'),
+                             da=dev.get('label'), nota=d.get('nota'))
+    if res.get('error'):
+        return jsonify({'success': False, **res}), 400
+    _audit('COSTO_ORARIO', '', f"{d.get('euro_ora')} EUR/h dal {d.get('valido_dal')}")
+    return jsonify(res), 200
+
+
+@bp_ore.route('/fatturato', methods=['POST'])
+@require_scope('ufficio')
+def api_salva_fatturato():
+    from . import riepilogo_service as ri
+    d = request.get_json(silent=True) or {}
+    dev = device_corrente()
+    res = ri.salva_fatturato(d.get('cliente'), d.get('anno'), d.get('mese'),
+                             d.get('importo'), riferimento=d.get('riferimento'),
+                             nota=d.get('nota'), da=dev.get('label'))
+    if res.get('error'):
+        return jsonify({'success': False, **res}), 400
+    _audit('FATTURATO_MANUALE', '',
+           f"{d.get('cliente')} {d.get('anno')}-{d.get('mese')}: {d.get('importo')}")
+    return jsonify(res), 200
+
+
+@bp_ore.route('/materiale', methods=['POST'])
+@require_scope('ufficio')
+def api_salva_materiale():
+    """Costo materiali. Cliente vuoto = NON attribuito (non viene ripartito)."""
+    from . import riepilogo_service as ri
+    d = request.get_json(silent=True) or {}
+    dev = device_corrente()
+    res = ri.salva_materiale(d.get('cliente'), d.get('anno'), d.get('mese'),
+                             d.get('importo'), descrizione=d.get('descrizione'),
+                             riferimento=d.get('riferimento'), da=dev.get('label'))
+    if res.get('error'):
+        return jsonify({'success': False, **res}), 400
+    _audit('MATERIALE_MANUALE', '',
+           f"{d.get('cliente') or 'non attribuito'} {d.get('anno')}-{d.get('mese')}: {d.get('importo')}")
+    return jsonify(res), 200

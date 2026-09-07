@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ore e riepilogo — Ufficio</title>
+<style>
+  :root{
+    --bg:#fafafa; --white:#fff; --black:#000;
+    --green:#1a7a48; --green-light:#22a060;
+    --gray-text:#666; --gray-muted:#999; --border:#e5e5e5;
+    --blue:#1e40af; --blue-bg:#dbeafe;
+    --red:#991b1b; --red-bg:#fee2e2;
+    --orange:#92400e; --orange-bg:#fef3c7;
+    --green-badge:#166534; --green-badge-bg:#dcfce7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--black);
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size:14px}
+  .topbar{background:var(--white); border-bottom:1px solid var(--border); padding:14px 20px;
+          display:flex; align-items:center; gap:14px; position:sticky; top:0; z-index:20}
+  .topbar h1{margin:0; font-size:18px; font-weight:700; flex:1}
+  .dev{font-size:12px; color:var(--gray-text)}
+  .tabbar{background:var(--white); border-bottom:1px solid var(--border); padding:0 20px;
+          display:flex; gap:4px; position:sticky; top:53px; z-index:19}
+  .tab{padding:12px 18px; border:none; background:none; font-size:14px; font-weight:600;
+       color:var(--gray-text); cursor:pointer; border-bottom:3px solid transparent}
+  .tab.active{color:var(--green); border-bottom-color:var(--green)}
+  .tab:focus-visible{outline:3px solid var(--blue); outline-offset:-3px}
+  .wrap{max-width:1200px; margin:0 auto; padding:20px}
+  .card{background:var(--white); border:1px solid var(--border); border-radius:10px;
+        padding:18px; margin-bottom:18px}
+  .card h2{margin:0 0 4px; font-size:16px; font-weight:700}
+  .card .sub{color:var(--gray-text); font-size:13px; margin:0 0 14px}
+  table{width:100%; border-collapse:collapse; font-size:13px}
+  th,td{padding:9px 10px; text-align:left; border-bottom:1px solid var(--border)}
+  th{background:#f7f7f7; font-weight:700; font-size:12px; text-transform:uppercase;
+     letter-spacing:.03em; color:var(--gray-text)}
+  td.n,th.n{text-align:right; font-variant-numeric:tabular-nums}
+  .scroll{overflow-x:auto}
+  .badge{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700}
+  .b-red{background:var(--red-bg); color:var(--red)}
+  .b-orange{background:var(--orange-bg); color:var(--orange)}
+  .b-blue{background:var(--blue-bg); color:var(--blue)}
+  .b-green{background:var(--green-badge-bg); color:var(--green-badge)}
+  .b-gray{background:#eee; color:var(--gray-text)}
+  input,select{padding:8px 10px; border:1px solid var(--border); border-radius:7px;
+               font-size:14px; font-family:inherit; background:var(--white)}
+  input:focus,select:focus{outline:none; border-color:var(--green); box-shadow:0 0 0 3px #1a7a4822}
+  label{display:block; font-size:12px; font-weight:600; color:var(--gray-text); margin-bottom:4px}
+  .row{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px}
+  .f{display:flex; flex-direction:column}
+  button.act{padding:9px 16px; border-radius:7px; border:none; background:var(--green);
+             color:#fff; font-weight:700; font-size:14px; cursor:pointer}
+  button.act:disabled{background:var(--gray-muted); cursor:default}
+  button.sec{padding:8px 14px; border-radius:7px; border:1px solid var(--border);
+             background:var(--white); font-weight:600; cursor:pointer; font-size:13px}
+  button.act:focus-visible,button.sec:focus-visible{outline:3px solid var(--blue); outline-offset:2px}
+  .msg{padding:11px 14px; border-radius:8px; font-size:13px; font-weight:600; margin:10px 0; display:none}
+  .msg.ok{background:var(--green-badge-bg); color:var(--green-badge); display:block}
+  .msg.err{background:var(--red-bg); color:var(--red); display:block}
+  .msg.warn{background:var(--orange-bg); color:var(--orange); display:block}
+  .vuoto{color:var(--gray-text); padding:22px; text-align:center; font-size:13px}
+  .assente{color:var(--gray-muted); font-style:italic}
+  .avvisi{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px}
+  .avviso{padding:9px 13px; border-radius:8px; font-size:13px; font-weight:600}
+  .nota{font-size:12px; color:var(--gray-text); line-height:1.6; margin-top:12px;
+        padding-top:12px; border-top:1px dashed var(--border)}
+  .tot{font-size:22px; font-weight:800; font-variant-numeric:tabular-nums}
+  [hidden]{display:none !important}
+  @media (max-width:640px){ .wrap{padding:12px} .row{flex-direction:column; align-items:stretch} }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Ore e riepilogo economico</h1>
+  <div class="dev" id="dev">—</div>
+</div>
+<div class="tabbar">
+  <button class="tab active" data-t="anomalie" onclick="vai('anomalie')">Da controllare</button>
+  <button class="tab" data-t="riepilogo" onclick="vai('riepilogo')">Riepilogo economico</button>
+  <button class="tab" data-t="config" onclick="vai('config')">Configurazione</button>
+</div>
+
+<div class="wrap">
+  <div class="msg err" id="msg-token" hidden></div>
+
+  <!-- ================= ANOMALIE ================= -->
+  <section id="s-anomalie">
+    <div class="card">
+      <h2>Giornate da controllare</h2>
+      <p class="sub">Ore mancanti o diverse dal previsto. Si risolvono da sole quando i dati
+         diventano corretti.</p>
+      <div class="row">
+        <div class="f"><label>Stato</label>
+          <select id="an-stato" onchange="caricaAnomalie()">
+            <option value="aperta">Da sistemare</option>
+            <option value="risolta">Risolte</option>
+            <option value="tutte">Tutte</option>
+          </select></div>
+        <button class="sec" onclick="controllaOra()">Ricontrolla adesso</button>
+      </div>
+      <div class="msg" id="msg-an" hidden></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Data</th><th>Operaio</th><th>Problema</th>
+          <th class="n">Dichiarate</th><th class="n">Attese</th><th>Azioni</th></tr></thead>
+        <tbody id="an-body"><tr><td colspan="6" class="vuoto">Caricamento…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="card" id="card-correzione" hidden>
+      <h2>Correzione giornata</h2>
+      <p class="sub" id="corr-sub"></p>
+      <div class="msg" id="msg-corr" hidden></div>
+      <div id="corr-righe"></div>
+      <div class="row" style="margin-top:12px">
+        <div class="f"><label>Aggiungi cliente</label>
+          <select id="corr-cliente"></select></div>
+        <div class="f"><label>Ore</label>
+          <input type="number" id="corr-ore" step="0.5" min="0" value="1" style="width:100px"></div>
+        <button class="sec" onclick="corrAggiungi()">Aggiungi</button>
+        <div style="flex:1"></div>
+        <div class="f"><label>Totale</label><div class="tot"><span id="corr-tot">0</span> h</div></div>
+        <button class="act" id="btn-corr" onclick="corrSalva()">Salva correzione</button>
+      </div>
+      <div class="row" style="border-top:1px dashed var(--border); padding-top:14px">
+        <div class="f"><label>Oppure registra</label>
+          <select id="corr-ecc">
+            <option value="">— nessuna eccezione —</option>
+            <option value="assenza">Assenza (ferie/malattia)</option>
+            <option value="ridotta">Giornata ridotta</option>
+            <option value="festivo">Festivo</option>
+          </select></div>
+        <div class="f"><label>Ore attese (se ridotta)</label>
+          <input type="number" id="corr-ecc-ore" step="0.5" min="0" value="4" style="width:110px"></div>
+        <button class="sec" onclick="corrEccezione()">Registra eccezione</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RIEPILOGO ================= -->
+  <section id="s-riepilogo" hidden>
+    <div class="card">
+      <h2>Riepilogo per cliente</h2>
+      <p class="sub">Fatturato, materiali attribuiti, ore dichiarate e costo delle ore.</p>
+      <div class="row">
+        <div class="f"><label>Periodo</label>
+          <select id="ri-tipo" onchange="cambiaPeriodo()">
+            <option value="mese">Mese</option>
+            <option value="anno">Cumulato annuale</option>
+            <option value="custom">Personalizzato</option>
+          </select></div>
+        <div class="f" id="f-anno"><label>Anno</label>
+          <input type="number" id="ri-anno" style="width:100px" onchange="caricaRiepilogo()"></div>
+        <div class="f" id="f-mese"><label>Mese</label>
+          <select id="ri-mese" onchange="caricaRiepilogo()"></select></div>
+        <div class="f" id="f-dal" hidden><label>Dal</label>
+          <input type="date" id="ri-dal" onchange="caricaRiepilogo()"></div>
+        <div class="f" id="f-al" hidden><label>Al</label>
+          <input type="date" id="ri-al" onchange="caricaRiepilogo()"></div>
+        <div class="f"><label>Cliente</label>
+          <select id="ri-cliente" onchange="caricaRiepilogo()"><option value="">Tutti</option></select></div>
+      </div>
+      <div class="avvisi" id="ri-avvisi"></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Cliente</th><th class="n">Ore</th><th class="n">Costo ore</th>
+          <th class="n">Materiali</th><th class="n">Fatturato</th><th class="n">Residuo</th>
+          <th></th></tr></thead>
+        <tbody id="ri-body"><tr><td colspan="7" class="vuoto">Caricamento…</td></tr></tbody>
+        <tfoot id="ri-foot"></tfoot>
+      </table></div>
+      <div class="nota" id="ri-note"></div>
+    </div>
+
+    <div class="card" id="card-dettaglio" hidden>
+      <h2 id="det-titolo">Dettaglio</h2>
+      <p class="sub" id="det-sub"></p>
+      <div class="scroll" id="det-body"></div>
+    </div>
+
+    <div class="card">
+      <h2>Inserimento dati amministrativi</h2>
+      <p class="sub">Il sistema non conosce gli importi fatturati: si inseriscono qui.
+         I materiali sono <b>acquisti attribuiti</b>, non consumi misurati.</p>
+      <div class="msg" id="msg-ins" hidden></div>
+      <div class="row">
+        <div class="f"><label>Tipo</label>
+          <select id="in-tipo">
+            <option value="fatturato">Fatturato</option>
+            <option value="materiale">Materiali</option>
+          </select></div>
+        <div class="f"><label>Cliente</label><select id="in-cliente"></select></div>
+        <div class="f"><label>Anno</label><input type="number" id="in-anno" style="width:100px"></div>
+        <div class="f"><label>Mese</label><select id="in-mese"></select></div>
+        <div class="f"><label>Importo €</label><input type="number" id="in-importo" step="0.01" min="0" style="width:130px"></div>
+        <div class="f"><label>Riferimento / descrizione</label><input type="text" id="in-rif" style="width:200px"></div>
+        <button class="act" onclick="salvaDato()">Registra</button>
+      </div>
+      <p class="sub" style="margin:0">Per gli acquisti generici lascia il cliente su
+        <b>«non attribuito»</b>: non vengono ripartiti sui clienti.</p>
+    </div>
+
+    <div class="card">
+      <h2>Costo orario aziendale</h2>
+      <p class="sub">Vale da una data in poi: cambiarlo <b>non modifica lo storico</b> già calcolato.</p>
+      <div class="msg" id="msg-tar" hidden></div>
+      <div class="row">
+        <div class="f"><label>Valido dal</label><input type="date" id="tar-dal"></div>
+        <div class="f"><label>€ / ora</label><input type="number" id="tar-val" step="0.01" min="0" style="width:120px"></div>
+        <button class="act" onclick="salvaTariffa()">Imposta</button>
+      </div>
+      <div class="scroll"><table>
+        <thead><tr><th>Valido dal</th><th class="n">€/ora</th><th>Nota</th></tr></thead>
+        <tbody id="tar-body"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ================= CONFIGURAZIONE ================= -->
+  <section id="s-config" hidden>
+    <div class="card">
+      <h2>Chi compila le ore</h2>
+      <p class="sub">Ore attese e giorni lavorativi per operaio. Non si assume che siano
+         8 ore per tutti.</p>
+      <div class="msg" id="msg-cfg" hidden></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Operaio</th><th>Ruolo</th><th>Compila</th>
+          <th class="n">Ore attese</th><th>Giorni</th><th></th></tr></thead>
+        <tbody id="cfg-body"><tr><td colspan="6" class="vuoto">Caricamento…</td></tr></tbody>
+      </table></div>
+    </div>
+  </section>
+</div>
+
+<script>
+let TOKEN = null, CLIENTI = [], CORR = null;
+const MESI = ['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto',
+              'settembre','ottobre','novembre','dicembre'];
+
+async function api(path, opts = {}) {
+  const o = Object.assign({headers: {}}, opts);
+  o.headers['X-Device-Token'] = TOKEN || '';
+  if (o.body) o.headers['Content-Type'] = 'application/json';
+  const r = await fetch(path, o);
+  let d = {}; try { d = await r.json(); } catch (_) {}
+  return {status: r.status, ok: r.ok, data: d};
+}
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function h(min){const v=(min||0)/60; return Number.isInteger(v)?String(v):v.toFixed(1).replace('.',',');}
+function eur(v){return v==null?'—':(v).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
+function msg(id,t,tipo){const e=document.getElementById(id); e.className='msg '+(tipo||'ok'); e.textContent=t; e.hidden=false;
+  if(tipo==='ok') setTimeout(()=>{e.hidden=true;},3000);}
+function nascondi(id){const e=document.getElementById(id); if(e) e.hidden=true;}
+
+function vai(t){
+  for(const s of ['anomalie','riepilogo','config']) document.getElementById('s-'+s).hidden=(s!==t);
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.t===t));
+  if(t==='riepilogo') caricaRiepilogo();
+  if(t==='config') caricaConfig();
+}
+
+// ---------- avvio ----------
+async function avvia(){
+  const url=new URL(location.href), q=url.searchParams.get('token');
+  if(q){ localStorage.setItem('ufficio_device_token', q); url.searchParams.delete('token');
+         history.replaceState({},'',url.toString()); }
+  TOKEN = localStorage.getItem('ufficio_device_token');
+  if(!TOKEN){ msg('msg-token','Dispositivo non configurato: apri questa pagina una volta con ?token=… fornito dal setup.','err'); return; }
+  const r = await api('/api/ore/contesto');
+  if(!r.ok){ msg('msg-token','Codice dispositivo non valido o senza permessi d\'ufficio.','err'); return; }
+  if(r.data.scope !== 'ufficio'){ msg('msg-token','Questo dispositivo non ha i permessi d\'ufficio.','err'); return; }
+  document.getElementById('dev').textContent = r.data.dispositivo || '';
+  const oggi = r.data.oggi;
+  const [y,m] = oggi.split('-').map(Number);
+  document.getElementById('ri-anno').value=y; document.getElementById('in-anno').value=y;
+  for(const sel of ['ri-mese','in-mese']){
+    document.getElementById(sel).innerHTML = MESI.map((n,i)=>
+      `<option value="${i+1}" ${i+1===m?'selected':''}>${n}</option>`).join('');
+  }
+  document.getElementById('tar-dal').value = oggi;
+  const c = await api('/api/ore/clienti');
+  CLIENTI = (c.data.clienti||[]).map(x=>x.nome);
+  document.getElementById('ri-cliente').innerHTML =
+    '<option value="">Tutti i clienti</option>'+CLIENTI.map(n=>`<option>${esc(n)}</option>`).join('');
+  document.getElementById('in-cliente').innerHTML =
+    '<option value="">— non attribuito —</option>'+CLIENTI.map(n=>`<option>${esc(n)}</option>`).join('');
+  document.getElementById('corr-cliente').innerHTML = CLIENTI.map(n=>`<option>${esc(n)}</option>`).join('');
+  caricaAnomalie();
+}
+
+// ---------- anomalie ----------
+const TIPO = {mancante:['Non ha dichiarato','b-red'], sotto:['Ore inferiori','b-orange'], sopra:['Ore superiori','b-blue']};
+
+async function caricaAnomalie(){
+  const st=document.getElementById('an-stato').value;
+  const r=await api('/api/ore/anomalie?stato='+st);
+  const b=document.getElementById('an-body');
+  const rows=(r.data.anomalie)||[];
+  if(!rows.length){ b.innerHTML='<tr><td colspan="6" class="vuoto">Nessuna giornata da controllare.</td></tr>'; return; }
+  b.innerHTML=rows.map(a=>{
+    const [t,cls]=TIPO[a.tipo]||[a.tipo,'b-gray'];
+    const d=a.data.split('-').reverse().join('/');
+    return `<tr>
+      <td>${d}</td><td>${esc(a.operatore)}</td>
+      <td><span class="badge ${cls}">${t}</span>${a.stato==='risolta'?' <span class="badge b-green">risolta</span>':''}</td>
+      <td class="n">${h(a.minuti_dichiarati)} h</td>
+      <td class="n">${h(a.minuti_attesi)} h</td>
+      <td><button class="sec" onclick="apriCorrezione('${a.operatore_id}','${a.data}','${esc(a.operatore)}')">Correggi</button></td>
+    </tr>`;}).join('');
+}
+
+async function controllaOra(){
+  const r=await api('/api/ore/controlla',{method:'POST',body:JSON.stringify({})});
+  if(r.ok){ msg('msg-an','Controllo eseguito.','ok'); caricaAnomalie(); }
+  else msg('msg-an','Controllo non riuscito.','err');
+}
+
+async function apriCorrezione(op,data,nome){
+  const r=await api(`/api/ore/giornata?operatore_id=${encodeURIComponent(op)}&data=${data}`);
+  if(!r.ok){ msg('msg-an','Non riesco a leggere la giornata.','err'); return; }
+  const g=r.data.giornata;
+  CORR={op,data,nome,revisione:g.revisione||0,
+        righe:(g.righe||[]).map(x=>({cliente:x.cliente,attivita_interna:!!x.attivita_interna,minuti:x.minuti}))};
+  document.getElementById('corr-sub').textContent=
+    `${nome} — ${data.split('-').reverse().join('/')}${g.dichiarata?'':' (mai dichiarata)'}`;
+  document.getElementById('card-correzione').hidden=false;
+  nascondi('msg-corr'); renderCorr();
+  document.getElementById('card-correzione').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function renderCorr(){
+  const b=document.getElementById('corr-righe');
+  if(!CORR.righe.length){ b.innerHTML='<div class="vuoto">Nessuna ora inserita.</div>'; }
+  else b.innerHTML='<div class="scroll"><table><tbody>'+CORR.righe.map((r,i)=>`<tr>
+      <td>${r.attivita_interna?'<span class="badge b-blue">Attività interne</span>':esc(r.cliente)}</td>
+      <td class="n" style="width:150px"><input type="number" step="0.5" min="0" value="${(r.minuti/60)}"
+          onchange="corrOre(${i},this.value)" style="width:90px"> h</td>
+      <td style="width:60px"><button class="sec" onclick="corrRimuovi(${i})">✕</button></td>
+    </tr>`).join('')+'</tbody></table></div>';
+  document.getElementById('corr-tot').textContent=h(CORR.righe.reduce((s,r)=>s+r.minuti,0));
+}
+function corrOre(i,v){ const m=Math.round(parseFloat(v||0)*60); CORR.righe[i].minuti=isFinite(m)&&m>=0?m:0; renderCorr(); }
+function corrRimuovi(i){ CORR.righe.splice(i,1); renderCorr(); }
+function corrAggiungi(){
+  const n=document.getElementById('corr-cliente').value;
+  const ore=parseFloat(document.getElementById('corr-ore').value||0);
+  if(!n||!(ore>0)) return;
+  const e=CORR.righe.find(r=>r.cliente===n&&!r.attivita_interna);
+  if(e) e.minuti+=Math.round(ore*60); else CORR.righe.push({cliente:n,attivita_interna:false,minuti:Math.round(ore*60)});
+  renderCorr();
+}
+async function corrSalva(){
+  const btn=document.getElementById('btn-corr'); btn.disabled=true;
+  const r=await api('/api/ore/giornata',{method:'POST',body:JSON.stringify({
+    operatore_id:CORR.op, data:CORR.data, righe:CORR.righe,
+    revisione_attesa:CORR.revisione, richiesta_id:'uff-'+Date.now()})});
+  btn.disabled=false;
+  if(r.ok&&r.data.success){ msg('msg-corr','Correzione salvata.','ok');
+    CORR.revisione=r.data.giornata.revisione; caricaAnomalie(); }
+  else if(r.status===409){ msg('msg-corr','Modificata nel frattempo: ricarico i dati aggiornati.','warn');
+    apriCorrezione(CORR.op,CORR.data,CORR.nome); }
+  else msg('msg-corr',(r.data&&r.data.error)||'Salvataggio non riuscito.','err');
+}
+async function corrEccezione(){
+  const tipo=document.getElementById('corr-ecc').value;
+  if(!tipo){ msg('msg-corr','Scegli il tipo di eccezione.','warn'); return; }
+  const body={operatore_id:CORR.op,data:CORR.data,tipo};
+  if(tipo==='ridotta') body.minuti_attesi=Math.round(parseFloat(document.getElementById('corr-ecc-ore').value||0)*60);
+  const r=await api('/api/ore/eccezione',{method:'POST',body:JSON.stringify(body)});
+  if(r.ok){ msg('msg-corr','Eccezione registrata.','ok'); caricaAnomalie(); }
+  else msg('msg-corr',(r.data&&r.data.error)||'Non riuscito.','err');
+}
+
+// ---------- riepilogo ----------
+function cambiaPeriodo(){
+  const t=document.getElementById('ri-tipo').value;
+  document.getElementById('f-mese').hidden=(t!=='mese');
+  document.getElementById('f-anno').hidden=(t==='custom');
+  document.getElementById('f-dal').hidden=(t!=='custom');
+  document.getElementById('f-al').hidden=(t!=='custom');
+  caricaRiepilogo();
+}
+
+async function caricaRiepilogo(){
+  const t=document.getElementById('ri-tipo').value;
+  const p=new URLSearchParams();
+  if(t==='custom'){
+    const d1=document.getElementById('ri-dal').value, d2=document.getElementById('ri-al').value;
+    if(!d1||!d2) return; p.set('dal',d1); p.set('al',d2);
+  } else { p.set('anno',document.getElementById('ri-anno').value);
+           if(t==='mese') p.set('mese',document.getElementById('ri-mese').value); }
+  const c=document.getElementById('ri-cliente').value; if(c) p.set('cliente',c);
+  const r=await api('/api/ore/riepilogo?'+p.toString());
+  if(!r.ok) return;
+  const d=r.data.riepilogo;
+  document.getElementById('card-dettaglio').hidden=true;
+
+  const av=[];
+  if(d.avvisi.tariffa_assente) av.push(['b-red','Costo orario non impostato: il costo delle ore non è calcolabile']);
+  if(d.avvisi.giornate_mancanti) av.push(['b-orange',`${d.avvisi.giornate_mancanti} giornate ancora da dichiarare nel periodo`]);
+  if(d.avvisi.clienti_senza_fatturato.length) av.push(['b-blue',`Fatturato non inserito per ${d.avvisi.clienti_senza_fatturato.length} clienti`]);
+  if(d.materiali_non_attribuiti) av.push(['b-gray',`Materiali non attribuiti: ${eur(d.materiali_non_attribuiti)}`]);
+  if(d.avvisi.periodo_non_allineato_ai_mesi) av.push(['b-gray','Periodo non allineato ai mesi: fatturato e materiali sono registrati per mese']);
+  document.getElementById('ri-avvisi').innerHTML=av.map(([c,t])=>`<div class="avviso ${c.replace('b-','')}"><span class="badge ${c}">${esc(t)}</span></div>`).join('');
+
+  const b=document.getElementById('ri-body');
+  if(!d.clienti.length){ b.innerHTML='<tr><td colspan="7" class="vuoto">Nessun dato nel periodo.</td></tr>'; }
+  else b.innerHTML=d.clienti.map(c=>`<tr>
+      <td><b>${esc(c.cliente)}</b></td>
+      <td class="n">${c.ore.toString().replace('.',',')} h</td>
+      <td class="n">${c.costo_ore==null?'<span class="assente">non calcolabile</span>':eur(c.costo_ore)}</td>
+      <td class="n">${c.materiali_assente?'<span class="assente">assente</span>':eur(c.materiali)}</td>
+      <td class="n">${c.fatturato_assente?'<span class="assente">assente</span>':eur(c.fatturato)}</td>
+      <td class="n"><b>${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</b></td>
+      <td><button class="sec" onclick="dettaglio('${esc(c.cliente).replace(/'/g,"\\'")}')">Dettaglio</button></td>
+    </tr>`).join('');
+
+  const t2=d.totali;
+  document.getElementById('ri-foot').innerHTML=`<tr>
+    <th>Totale</th><th class="n">${t2.ore.toString().replace('.',',')} h</th>
+    <th class="n">${eur(t2.costo_ore)}</th><th class="n">${eur(t2.materiali_attribuiti)}</th>
+    <th class="n">${eur(t2.fatturato)}</th><th class="n">${eur(t2.residuo)}</th><th></th></tr>
+    <tr><td colspan="7" style="color:var(--gray-text)">Attività interne (non attribuite):
+      <b>${d.attivita_interne.ore.toString().replace('.',',')} h</b> — ${eur(d.attivita_interne.costo_ore)}</td></tr>`;
+  document.getElementById('ri-note').innerHTML=d.note.map(n=>'• '+esc(n)).join('<br>');
+  caricaTariffe();
+}
+
+async function dettaglio(cliente){
+  const t=document.getElementById('ri-tipo').value;
+  const p=new URLSearchParams({cliente});
+  if(t==='custom'){ p.set('dal',document.getElementById('ri-dal').value); p.set('al',document.getElementById('ri-al').value); }
+  else { p.set('anno',document.getElementById('ri-anno').value);
+         if(t==='mese') p.set('mese',document.getElementById('ri-mese').value); }
+  const r=await api('/api/ore/riepilogo/dettaglio?'+p.toString());
+  if(!r.ok) return;
+  const d=r.data.dettaglio;
+  document.getElementById('det-titolo').textContent='Dettaglio — '+cliente;
+  document.getElementById('det-sub').textContent=d.nota_fonti;
+  document.getElementById('det-body').innerHTML=`
+    <table><thead><tr><th>Data</th><th>Operaio</th><th class="n">Ore</th>
+      <th class="n">€/h</th><th class="n">Costo</th><th>Origine</th></tr></thead>
+    <tbody>${d.ore.map(o=>`<tr><td>${o.data.split('-').reverse().join('/')}</td>
+      <td>${esc(o.operatore)}</td><td class="n">${String(o.ore).replace('.',',')}</td>
+      <td class="n">${o.euro_ora==null?'—':o.euro_ora}</td>
+      <td class="n">${o.costo==null?'—':eur(o.costo)}</td>
+      <td><span class="badge b-gray">${esc(o.origine)}</span></td></tr>`).join('')||
+      '<tr><td colspan="6" class="vuoto">Nessuna ora nel periodo.</td></tr>'}</tbody></table>
+    <table style="margin-top:14px"><thead><tr><th>Fatturato (inserito a mano)</th><th class="n">Importo</th><th>Riferimento</th></tr></thead>
+    <tbody>${d.fatturato.map(f=>`<tr><td>${f.periodo}</td><td class="n">${eur(f.importo)}</td><td>${esc(f.riferimento||'')}</td></tr>`).join('')||
+      '<tr><td colspan="3" class="vuoto">Nessun fatturato inserito.</td></tr>'}</tbody></table>
+    <table style="margin-top:14px"><thead><tr><th>Materiali attribuiti</th><th class="n">Importo</th><th>Descrizione</th></tr></thead>
+    <tbody>${d.materiali.map(m=>`<tr><td>${m.periodo}</td><td class="n">${eur(m.importo)}</td><td>${esc(m.descrizione||'')}</td></tr>`).join('')||
+      '<tr><td colspan="3" class="vuoto">Nessun materiale attribuito.</td></tr>'}</tbody></table>`;
+  document.getElementById('card-dettaglio').hidden=false;
+  document.getElementById('card-dettaglio').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+async function salvaDato(){
+  const tipo=document.getElementById('in-tipo').value;
+  const body={cliente:document.getElementById('in-cliente').value,
+    anno:document.getElementById('in-anno').value, mese:document.getElementById('in-mese').value,
+    importo:document.getElementById('in-importo').value};
+  if(tipo==='fatturato'){ body.riferimento=document.getElementById('in-rif').value; }
+  else { body.descrizione=document.getElementById('in-rif').value; }
+  const r=await api('/api/ore/'+(tipo==='fatturato'?'fatturato':'materiale'),
+    {method:'POST',body:JSON.stringify(body)});
+  if(r.ok&&r.data.success){ msg('msg-ins','Registrato.','ok');
+    document.getElementById('in-importo').value=''; document.getElementById('in-rif').value='';
+    caricaRiepilogo(); }
+  else msg('msg-ins',(r.data&&r.data.error)||'Non riuscito.','err');
+}
+
+async function caricaTariffe(){
+  const r=await api('/api/ore/tariffa');
+  document.getElementById('tar-body').innerHTML=((r.data.tariffe)||[]).map(t=>
+    `<tr><td>${t.valido_dal.split('-').reverse().join('/')}</td><td class="n">${t.euro_ora} €</td><td>${esc(t.nota||'')}</td></tr>`
+  ).join('')||'<tr><td colspan="3" class="vuoto">Nessuna tariffa impostata.</td></tr>';
+}
+
+async function salvaTariffa(){
+  const r=await api('/api/ore/tariffa',{method:'POST',body:JSON.stringify({
+    valido_dal:document.getElementById('tar-dal').value,
+    euro_ora:document.getElementById('tar-val').value})});
+  if(r.ok&&r.data.success){ msg('msg-tar','Tariffa impostata (lo storico precedente resta invariato).','ok');
+    caricaTariffe(); caricaRiepilogo(); }
+  else msg('msg-tar',(r.data&&r.data.error)||'Non riuscito.','err');
+}
+
+// ---------- configurazione ----------
+const GG=['','lun','mar','mer','gio','ven','sab','dom'];
+async function caricaConfig(){
+  const r=await api('/api/ore/configurazione');
+  const b=document.getElementById('cfg-body');
+  const rows=(r.data.operai)||[];
+  b.innerHTML=rows.map((o,i)=>`<tr>
+    <td><b>${esc(o.operatore)}</b></td><td>${esc(o.ruolo||'')}</td>
+    <td><input type="checkbox" id="c-t-${i}" ${o.tenuto?'checked':''}></td>
+    <td class="n"><input type="number" id="c-m-${i}" step="0.5" min="0" value="${o.minuti_attesi/60}" style="width:80px"> h</td>
+    <td>${[1,2,3,4,5,6,7].map(g=>`<label style="display:inline-block;margin-right:6px;font-weight:400">
+        <input type="checkbox" id="c-g-${i}-${g}" ${(o.giorni_settimana||[]).includes(g)?'checked':''}> ${GG[g]}</label>`).join('')}</td>
+    <td><button class="sec" onclick="salvaCfg(${i},'${o.operatore_id}')">Salva</button></td>
+  </tr>`).join('')||'<tr><td colspan="6" class="vuoto">Nessun operaio.</td></tr>';
+}
+async function salvaCfg(i,op){
+  const giorni=[1,2,3,4,5,6,7].filter(g=>document.getElementById(`c-g-${i}-${g}`).checked);
+  const r=await api('/api/ore/configurazione',{method:'POST',body:JSON.stringify({
+    operatore_id:op, tenuto:document.getElementById(`c-t-${i}`).checked,
+    minuti_attesi:Math.round(parseFloat(document.getElementById(`c-m-${i}`).value||0)*60),
+    giorni_settimana:giorni})});
+  if(r.ok&&r.data.success) msg('msg-cfg','Configurazione salvata.','ok');
+  else msg('msg-cfg',(r.data&&r.data.error)||'Non riuscito.','err');
+}
+
+avvia();
+</script>
+</body>
+</html>
