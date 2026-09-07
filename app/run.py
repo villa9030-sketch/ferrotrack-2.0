@@ -111,6 +111,7 @@ def _loop_vigilanza():
       - taglio non confermato oltre soglia (alert_taglio_ore, default 4h) → capi
       - consegna imminente/scaduta con ordine non pronto → capi
       - ordini 'sospetti finiti' (lavorati ma mai chiusi) → capi + Impiegata
+      - dichiarazioni ORE mancanti o incomplete -> Impiegata
     Ogni alert è dedup (una notifica per ordine) e solo in orario lavorativo."""
     from backend.database import OrderManager, BarcodeManager
     time.sleep(180)  # attende 3 minuti dopo l'avvio
@@ -124,6 +125,13 @@ def _loop_vigilanza():
             OrderManager.alert_ordini_taglio_fermo(soglia_ore=soglia)
             OrderManager.alert_consegne_a_rischio(giorni=int(cfg.get('alert_consegna_giorni', 1) or 1))
             OrderManager.alert_sospetti_finiti_push()
+            # Controllo mancanze ORE: rileva le anomalie (recuperando gli
+            # arretrati dopo uno spegnimento) e notifica UNA SOLA VOLTA ciascuna.
+            try:
+                from backend.anomalie_service import controlla_e_notifica
+                controlla_e_notifica()
+            except Exception as e:
+                logger.error(f'Errore nel controllo mancanze ore: {e}')
         except Exception as e:
             logger.error(f'Errore nel thread vigilanza: {e}')
         time.sleep(1800)  # 30 minuti
@@ -176,7 +184,7 @@ if __name__ == '__main__':
     # Avvia thread di vigilanza (taglio fermo + consegne a rischio + sospetti finiti)
     t_alert = threading.Thread(target=_loop_vigilanza, daemon=True, name='vigilanza')
     t_alert.start()
-    logger.info('Thread vigilanza (taglio fermo / consegne a rischio / sospetti finiti) attivo')
+    logger.info('Thread vigilanza (taglio / consegne / sospetti finiti / ore mancanti) attivo')
 
     # Beta: debug=False per stabilità
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'

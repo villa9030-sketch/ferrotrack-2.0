@@ -146,3 +146,90 @@ def api_salva_giornata():
     if codice == 'errore_server':
         return jsonify({'success': False, **res}), 500
     return jsonify({'success': False, **res}), 400
+
+
+# ===========================================================================
+#  CONTROLLO MANCANZE — riservato all'UFFICIO (scope 'ufficio')
+#  Un tablet di officina non puo' accedere a nulla di tutto questo.
+# ===========================================================================
+@bp_ore.route('/anomalie', methods=['GET'])
+@require_scope('ufficio')
+def api_anomalie():
+    from . import anomalie_service as an
+    stato = (request.args.get('stato') or 'aperta').strip()
+    if stato not in ('aperta', 'risolta', 'tutte'):
+        stato = 'aperta'
+    return jsonify({
+        'success': True,
+        'anomalie': an.elenco_anomalie(
+            stato=None if stato == 'tutte' else stato,
+            dal=request.args.get('dal'), al=request.args.get('al')),
+    }), 200
+
+
+@bp_ore.route('/controlla', methods=['POST'])
+@require_scope('ufficio')
+def api_controlla():
+    """Esecuzione manuale del controllo (oltre a quella periodica automatica)."""
+    from . import anomalie_service as an
+    data = request.get_json(silent=True) or {}
+    return jsonify({'success': True,
+                    'esito': an.controlla_periodo(data.get('dal'), data.get('al'))}), 200
+
+
+@bp_ore.route('/configurazione', methods=['GET'])
+@require_scope('ufficio')
+def api_configurazione():
+    from . import anomalie_service as an
+    return jsonify({'success': True, 'operai': an.elenco_configurazione()}), 200
+
+
+@bp_ore.route('/configurazione', methods=['POST'])
+@require_scope('ufficio')
+def api_salva_configurazione():
+    from . import anomalie_service as an
+    d = request.get_json(silent=True) or {}
+    dev = device_corrente()
+    res = an.salva_configurazione(
+        (d.get('operatore_id') or '').strip(),
+        bool(d.get('tenuto')),
+        d.get('minuti_attesi'),
+        d.get('giorni_settimana'),
+        da=dev.get('label'),
+    )
+    if res.get('error'):
+        return jsonify({'success': False, **res}), 400
+    _audit('CONFIG_ORE_ATTESE', d.get('operatore_id'),
+           f"tenuto={d.get('tenuto')} minuti={d.get('minuti_attesi')}")
+    return jsonify(res), 200
+
+
+@bp_ore.route('/eccezione', methods=['POST'])
+@require_scope('ufficio')
+def api_salva_eccezione():
+    """Assenza / giornata ridotta / festivo."""
+    from . import anomalie_service as an
+    d = request.get_json(silent=True) or {}
+    dev = device_corrente()
+    res = an.salva_eccezione(
+        (d.get('operatore_id') or '').strip(), d.get('data'), d.get('tipo'),
+        minuti_attesi=d.get('minuti_attesi'), nota=d.get('nota'),
+        da=dev.get('label'),
+    )
+    if res.get('error'):
+        return jsonify({'success': False, **res}), 400
+    _audit('ECCEZIONE_GIORNO', d.get('operatore_id'),
+           f"{d.get('data')}: {d.get('tipo')}")
+    return jsonify(res), 200
+
+
+@bp_ore.route('/eccezione', methods=['DELETE'])
+@require_scope('ufficio')
+def api_elimina_eccezione():
+    from . import anomalie_service as an
+    d = request.get_json(silent=True) or {}
+    res = an.elimina_eccezione((d.get('operatore_id') or '').strip(), d.get('data'))
+    if res.get('error'):
+        return jsonify({'success': False, **res}), 400
+    _audit('ECCEZIONE_GIORNO_RIMOSSA', d.get('operatore_id'), str(d.get('data')))
+    return jsonify(res), 200
