@@ -1861,7 +1861,7 @@ function renderDetails(order) {
 
   document.getElementById('details-content').innerHTML = html;
 
-  // Pulsanti laser: un solo gesto. "Taglio fatto" sblocca le scansioni officina,
+  // Pulsanti laser: un solo gesto. "Taglio fatto" toglie l'ordine dalla coda del laser
   // "Annulla taglio" è disponibile per qualche ora se l'operatore ha sbagliato.
   let footerHtml = '';
   if (taglioFatto) {
@@ -1876,11 +1876,11 @@ function renderDetails(order) {
 
 // === MARK LASER DONE ===
 // Quando l'operatore laser ha finito di tagliare, segna l'ordine come tagliato.
-// Da questo momento le pistole barcode accettano scansioni su questo ordine.
+// Serve alla sola coda del laser: non sblocca ne' blocca nulla a valle.
 async function markLaserDone(orderId) {
   const user = JSON.parse(localStorage.getItem('currentUser'));
   const ok = await showConfirm('Taglio completato',
-    'Confermi che hai finito di tagliare?<br>Gli operai officina potranno scansionare il cartellino.',
+    'Confermi che hai finito di tagliare?<br>L'ordine esce dalla coda del laser.',
     { icon: '&#x2705;', okText: 'Sì, taglio fatto' });
   if (!ok) return;
   actionInProgress = true;
@@ -1910,7 +1910,7 @@ async function markLaserDone(orderId) {
 async function undoLaserDone(orderId) {
   const user = JSON.parse(localStorage.getItem('currentUser'));
   const ok = await showConfirm('Annullare il taglio?',
-    'L\'ordine tornerà in coda al laser. Le pistole non potranno più scansionarlo finché non lo rimarci come tagliato.',
+    'L'ordine tornera' in coda al laser.',
     { icon: '&#x21BA;', okText: 'Sì, annulla' });
   if (!ok) return;
   actionInProgress = true;

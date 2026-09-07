@@ -262,7 +262,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
     <button class="btn-tb" onclick="window.location.href='/admin.html'" title="Impostazioni, utenti, soglie">
       <i data-lucide="settings" style="width:14px;height:14px;vertical-align:-2px;"></i> Admin
     </button>
-    <button class="btn-tb danger" onclick="closeResidual()" title="Chiude tutte le scan ancora aperte (fine turno)">
+    <button class="btn-tb danger" id="btn-chiudi-turno" onclick="closeResidual()" title="Chiude tutte le scan ancora aperte (fine turno)">
       <i data-lucide="moon" style="width:14px;height:14px;vertical-align:-2px;"></i> Chiudi turno
     </button>
     <button class="btn-tb danger" onclick="logout()">
@@ -279,13 +279,20 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
     <span id="sospetti-badge" style="display:none; margin-left:8px; padding:2px 8px; border-radius:100px; background:#dc2626; color:white; font-size:11px; font-weight:800;">0</span>
   </div>
   <div class="tab-item" data-tab="calendario" onclick="switchTab('calendario')">Calendario</div>
-  <div class="tab-item" data-tab="pistole" onclick="switchTab('pistole')">Pistole</div>
+  <div class="tab-item" id="tab-pistole" data-tab="pistole" onclick="switchTab('pistole')">Pistole</div>
   <div class="tab-item" onclick="window.location.href='/laser.html'" style="margin-left:auto;">Postazione Laser →</div>
 </div>
 
 <!-- ===================== PANEL: KPI ===================== -->
 <div class="panel active" id="panel-kpi">
   <h2 class="page-title">KPI Operai — ore lavorate</h2>
+  <div id="nota-fonte-ore" style="display:none; margin-bottom:12px; padding:10px 14px;
+       border-radius:10px; background:#eef2f4; border:1px solid #dde3e6;
+       font-size:12px; color:#5a6367; line-height:1.5;">
+    Le ore arrivano dalle <b>dichiarazioni degli operai</b> sul tablet (una al giorno, per cliente).
+    Le pistole barcode sono dismesse: lo storico delle scansioni resta consultabile ma non
+    alimenta più questi numeri.
+  </div>
   <div class="card">
     <div class="card-header">
       <h3>Tempo per operaio (oggi · settimana · mese)</h3>
@@ -583,6 +590,24 @@ setTimeout(() => {
     if (n) { badge.textContent = n; badge.style.display = 'inline-block'; }
   }).catch(() => {});
 }, 2000);
+
+// ---------- Pistole dismesse: adegua la pagina --------------------------
+// Se la rilevazione con pistola e' spenta, spariscono il tab e il pulsante di
+// chiusura turno (non avrebbero piu' effetto) e si dichiara da dove vengono le ore.
+(async function adeguaPistole() {
+  try {
+    const r = await fetch(`${API_URL}/api/admin/config`);
+    const j = await r.json();
+    const attive = !!(j.config && j.config.pistole_attive);
+    if (attive) return;
+    const tab = document.getElementById('tab-pistole');
+    if (tab) tab.style.display = 'none';
+    const btn = document.getElementById('btn-chiudi-turno');
+    if (btn) btn.style.display = 'none';
+    const nota = document.getElementById('nota-fonte-ore');
+    if (nota) nota.style.display = 'block';
+  } catch (_) { /* in dubbio si lascia tutto visibile */ }
+})();
 
 // ---------- Gestione pistole ----------
 async function loadPistole() {

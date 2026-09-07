@@ -241,7 +241,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 <!-- ===================== PANEL: UTENTI ===================== -->
 <div class="panel active" id="panel-utenti">
   <h2 class="page-title">Utenti</h2>
-  <p class="page-sub">Operai, capi, impiegate e amministratori. Le pistole barcode si gestiscono dal <a href="/capo-officina.html" style="color:var(--green); font-weight:600;">Pannello Capo &rarr; Pistole</a>.</p>
+  <p class="page-sub">Operai, capi, impiegate e amministratori. Le pistole barcode sono dismesse (vedi <b>Impostazioni &rarr; Rilevazione delle ore</b>): gli operai dichiarano le ore dal tablet.</p>
 
   <!-- Crea utente -->
   <div class="card">
@@ -321,6 +321,30 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   <h2 class="page-title">Soglie sistema</h2>
   <p class="page-sub">Configurazione dell'app. Solo capi e amministratori possono modificare questi valori.</p>
 
+  <!-- Da dove arrivano le ore -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Rilevazione delle ore</h3>
+      <span class="card-meta">Pistole barcode / dichiarazioni da tablet</span>
+    </div>
+    <div class="card-body">
+      <p style="font-size:13px; color:var(--gray-text); margin-bottom:14px;">
+        Dal 2026 gli operai <b>dichiarano le ore dal tablet</b> (chi sei, per quale cliente, quante ore):
+        una sola registrazione al giorno. Le pistole barcode restano spente perch&eacute; sarebbero un
+        passaggio in pi&ugrave; che non alimenta pi&ugrave; nulla. Lo <b>storico delle scansioni non viene
+        cancellato</b> e torna visibile riattivandole.
+      </p>
+      <label style="display:flex; align-items:center; gap:10px; font-size:14px; font-weight:600; cursor:pointer;">
+        <input type="checkbox" id="cfg-pistole-attive" style="width:18px; height:18px; cursor:pointer;">
+        Riattiva la rilevazione con pistola barcode
+      </label>
+      <div class="form-hint" style="margin-top:6px;">
+        Se riattivata, le pistole tornano a registrare i tempi per ordine e i KPI del capo tornano
+        a leggere le scansioni invece delle dichiarazioni.
+      </div>
+    </div>
+  </div>
+
   <!-- Soglie sospetti finiti -->
   <div class="card">
     <div class="card-header">
@@ -329,9 +353,17 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
     </div>
     <div class="card-body">
       <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
-        Un ordine compare nella sezione rossa "ordini sospetti finiti" se il <b>taglio &egrave; completato da almeno N giorni</b> E <b>nessuna scansione officina da almeno M giorni</b>.
+        <span id="cfg-testo-pistole" style="display:none;">Con le pistole attive un ordine compare nella sezione rossa "ordini sospetti finiti" se il <b>taglio &egrave; completato da almeno N giorni</b> E <b>nessuna scansione officina da almeno M giorni</b>.</span>
+        <span id="cfg-testo-dichiarazioni">Senza pistole non esiste il segnale "ultima scansione": un ordine compare nella sezione rossa se &egrave; <b>aperto da almeno N giorni</b> e l'ufficio <b>non ne ha ancora registrato il completamento</b>.</span>
       </p>
-      <div class="form-row">
+      <div class="form-row" id="cfg-riga-apertura">
+        <div class="form-field">
+          <label>Giorni di apertura</label>
+          <input type="number" id="cfg-giorni-apertura" min="1" max="120">
+          <div class="form-hint">Dopo quanti giorni dall'arrivo dell'ordine chiedersi se non sia gi&agrave; finito.</div>
+        </div>
+      </div>
+      <div class="form-row" id="cfg-riga-scan">
         <div class="form-field">
           <label>Giorni dal taglio</label>
           <input type="number" id="cfg-giorni-taglio" min="1" max="60">
@@ -788,6 +820,10 @@ async function loadConfig() {
     const cfg = d.config || {};
     document.getElementById('cfg-giorni-taglio').value = cfg.sospetto_giorni_dal_taglio ?? 5;
     document.getElementById('cfg-giorni-scan').value   = cfg.sospetto_giorni_da_ultima_scan ?? 3;
+    document.getElementById('cfg-giorni-apertura').value = cfg.sospetto_giorni_apertura ?? 10;
+    const attive = !!cfg.pistole_attive;
+    document.getElementById('cfg-pistole-attive').checked = attive;
+    _mostraSezioniPistole(attive);
     document.getElementById('cfg-fine-turno').value    = cfg.fine_turno_hhmm || '17:30';
     const ol = cfg.orario_lavoro || [['07:30','12:00'], ['13:30','17:00']];
     document.getElementById('cfg-orario-mat-inizio').value = (ol[0] && ol[0][0]) || '07:30';
@@ -798,8 +834,22 @@ async function loadConfig() {
   } catch (e) { showMsg('cfg-msg', `Errore: ${e.message}`, 'var(--red)'); }
 }
 
+// Mostra i criteri coerenti con la modalita' scelta: chi legge non deve chiedersi
+// quale delle due regole sia quella in vigore.
+function _mostraSezioniPistole(attive) {
+  document.getElementById('cfg-testo-pistole').style.display = attive ? '' : 'none';
+  document.getElementById('cfg-testo-dichiarazioni').style.display = attive ? 'none' : '';
+  document.getElementById('cfg-riga-scan').style.display = attive ? '' : 'none';
+  document.getElementById('cfg-riga-apertura').style.display = attive ? 'none' : '';
+}
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'cfg-pistole-attive') _mostraSezioniPistole(e.target.checked);
+});
+
 async function saveConfig() {
   const giorniTaglio = parseInt(document.getElementById('cfg-giorni-taglio').value, 10);
+  const giorniApertura = parseInt(document.getElementById('cfg-giorni-apertura').value, 10);
+  const pistoleAttive = document.getElementById('cfg-pistole-attive').checked;
   const giorniScan   = parseInt(document.getElementById('cfg-giorni-scan').value, 10);
   const fineTurno    = document.getElementById('cfg-fine-turno').value.trim();
   const matIn  = document.getElementById('cfg-orario-mat-inizio').value.trim();
@@ -812,6 +862,9 @@ async function saveConfig() {
   }
   if (isNaN(giorniScan) || giorniScan < 1 || giorniScan > 30) {
     showMsg('cfg-msg', 'Giorni dall\'ultima scan: 1-30', 'var(--red)'); return;
+  }
+  if (isNaN(giorniApertura) || giorniApertura < 1 || giorniApertura > 120) {
+    showMsg('cfg-msg', 'Giorni di apertura: 1-120', 'var(--red)'); return;
   }
   if (!HHMM_RE.test(fineTurno)) {
     showMsg('cfg-msg', 'Orario fine turno: formato HH:MM (es. 17:30)', 'var(--red)'); return;
@@ -837,6 +890,8 @@ async function saveConfig() {
         admin_id: currentUser ? currentUser.id : '',
         sospetto_giorni_dal_taglio: giorniTaglio,
         sospetto_giorni_da_ultima_scan: giorniScan,
+        sospetto_giorni_apertura: giorniApertura,
+        pistole_attive: pistoleAttive,
         fine_turno_hhmm: fineTurno,
         orario_lavoro: [[matIn, matFi], [pomIn, pomFi]]
       })

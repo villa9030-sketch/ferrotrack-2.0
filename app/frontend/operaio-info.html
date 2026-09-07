@@ -3,92 +3,314 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LS FerroTrack — Operaio</title>
+<title>LS FerroTrack — Reparto</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
 body {
   font-family: 'Inter', sans-serif;
-  background: linear-gradient(160deg, #fafafa, #eef0f2);
+  background: #f2f4f5;
+  color: #14181a;
   min-height: 100vh;
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px;
   font-variant-numeric: tabular-nums;
+  padding-bottom: 40px;
 }
-.card {
-  background: #fff;
-  border-radius: 18px;
-  padding: 48px 40px;
-  max-width: 520px;
-  width: 100%;
-  text-align: center;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.04), 0 18px 60px rgba(0,0,0,0.10);
+
+/* ---- Testata ---- */
+header {
+  background: #fff; border-bottom: 1px solid #e3e6e8;
+  padding: 14px 18px;
+  position: sticky; top: 0; z-index: 20;
 }
+.riga { display:flex; align-items:center; gap:12px; }
 .logo {
-  width: 64px; height: 64px;
-  background: #1a7a48; color: white;
-  border-radius: 14px;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-family: 'Geist'; font-weight: 900; font-size: 22px;
-  margin-bottom: 18px;
+  width: 42px; height: 42px; flex:none;
+  background:#1a7a48; color:#fff; border-radius:11px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:'Geist'; font-weight:900; font-size:15px;
 }
-h1 { font-family: 'Geist'; font-weight: 900; font-size: 22px; letter-spacing: -0.5px; margin-bottom: 6px; }
-.role { font-size: 13px; color: #666; margin-bottom: 28px; }
-.illustration {
-  font-size: 64px; margin: 20px 0;
+.chi { flex:1; min-width:0; }
+.chi h1 { font-family:'Geist'; font-weight:800; font-size:17px; letter-spacing:-0.3px; }
+.chi .ruolo { font-size:12px; color:#6b7478; }
+.esci {
+  border:1px solid #e3e6e8; background:#fff; color:#991b1b;
+  border-radius:10px; padding:10px 14px; font-size:13px; font-weight:600;
+  cursor:pointer; min-height:44px;
 }
-.msg {
-  font-size: 15px; color: #333; line-height: 1.55;
-  background: #f5f7f6; border-radius: 12px;
-  padding: 18px 20px; margin-bottom: 24px;
+
+/* ---- Richiamo ore ---- */
+.ore-cta {
+  display:block; margin:16px 18px 0; text-decoration:none;
+  background:#1a7a48; color:#fff; border-radius:14px;
+  padding:18px 20px; min-height:72px;
+  box-shadow:0 6px 18px rgba(26,122,72,0.22);
 }
-.msg b { color: #1a7a48; }
-.note { font-size: 12px; color: #999; margin-bottom: 24px; line-height: 1.5; }
-.btn {
-  padding: 12px 28px;
-  border: 1px solid #e5e5e5; background: #fff;
-  border-radius: 10px; cursor: pointer;
-  font-weight: 600; font-size: 14px;
-  transition: background 0.15s;
+.ore-cta .t { font-family:'Geist'; font-weight:800; font-size:18px; }
+.ore-cta .s { font-size:13px; opacity:0.88; margin-top:3px; }
+
+/* ---- Barra strumenti ---- */
+.strumenti { padding: 16px 18px 6px; }
+.cerca {
+  width:100%; padding:14px 16px; font-size:16px;
+  border:1px solid #d9dee0; border-radius:12px; background:#fff;
+  min-height:50px;
 }
-.btn:hover { background: #f5f5f5; }
-.btn.danger { color: #991b1b; border-color: #fee2e2; }
+.cerca:focus { outline:2px solid #1a7a48; outline-offset:-1px; border-color:#1a7a48; }
+.meta {
+  display:flex; justify-content:space-between; align-items:center;
+  gap:10px; margin-top:10px; font-size:12px; color:#6b7478; flex-wrap:wrap;
+}
+.aggiorna {
+  border:1px solid #d9dee0; background:#fff; border-radius:9px;
+  padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer; min-height:38px;
+}
+
+/* ---- Avvisi ---- */
+.avviso {
+  margin:12px 18px 0; padding:12px 14px; border-radius:11px;
+  font-size:13px; line-height:1.45;
+}
+.avviso.rete { background:#fef3c7; border:1px solid #fcd34d; color:#78350f; }
+.avviso.info { background:#eef2f4; border:1px solid #dde3e6; color:#41494d; }
+
+/* ---- Elenco ordini ---- */
+.elenco { padding: 10px 18px 0; display:flex; flex-direction:column; gap:10px; }
+.ordine {
+  background:#fff; border:1px solid #e3e6e8; border-radius:13px;
+  padding:14px 16px; cursor:pointer;
+}
+.ordine:active { background:#fafbfb; }
+.ordine .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.ordine .num { font-family:'Geist'; font-weight:800; font-size:16px; letter-spacing:-0.2px; }
+.ordine .cli { font-size:14px; color:#41494d; margin-top:2px; }
+.consegna { text-align:right; flex:none; }
+.consegna .d { font-weight:700; font-size:14px; }
+.consegna .e { font-size:11px; margin-top:2px; font-weight:600; }
+.scaduto .d, .scaduto .e { color:#b91c1c; }
+.oggi .d, .oggi .e { color:#b45309; }
+.futuro .e { color:#6b7478; }
+.tag {
+  display:inline-block; margin-top:8px; margin-right:6px;
+  padding:4px 9px; border-radius:7px; font-size:11px; font-weight:600;
+  background:#eef2f4; color:#41494d;
+}
+.tag.tagliato { background:#e7f5ee; color:#186c42; }
+.dettaglio { margin-top:12px; border-top:1px solid #eef1f2; padding-top:12px; font-size:13px; }
+.dettaglio .nota { color:#41494d; line-height:1.5; white-space:pre-wrap; }
+.dettaglio h4 { font-size:12px; text-transform:uppercase; letter-spacing:0.4px; color:#6b7478; margin-bottom:6px; }
+.pezzi { list-style:none; display:flex; flex-direction:column; gap:5px; }
+.apri-pdf {
+  display:inline-block; margin-top:12px; text-decoration:none;
+  border:1px solid #d9dee0; border-radius:10px; padding:11px 16px;
+  font-size:13px; font-weight:600; color:#14181a; background:#fff; min-height:44px;
+}
+.riga-info { font-size:12px; color:#6b7478; margin-bottom:8px; }
+.disegno { color:#1a7a48; text-decoration:none; font-weight:600; }
+.pezzi li { border-bottom:1px dashed #eef1f2; padding-bottom:5px; }
+.vuoto { padding:40px 18px; text-align:center; color:#6b7478; font-size:14px; }
+.solalettura {
+  margin:18px; padding:12px 14px; border-radius:11px;
+  background:#eef2f4; border:1px solid #dde3e6;
+  font-size:12px; color:#5a6367; line-height:1.5;
+}
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo">LS</div>
-  <h1 id="hello">Ciao</h1>
-  <div class="role" id="role">Operaio</div>
 
-  <div class="illustration">📷</div>
-
-  <div class="msg">
-    Per lavorare in officina, <b>usa la pistola WiFi</b> per scansionare il cartellino dell'ordine.
-    Non serve aprire altro su questa pagina.
+<header>
+  <div class="riga">
+    <div class="logo">LS</div>
+    <div class="chi">
+      <h1 id="hello">Ciao</h1>
+      <div class="ruolo" id="role">Operaio</div>
+    </div>
+    <button class="esci" onclick="logout()">Esci</button>
   </div>
+</header>
 
-  <div class="note">
-    Quando scansioni un nuovo ordine la sessione precedente si chiude in automatico.
-    A fine turno il sistema chiude tutte le scansioni rimaste aperte.
+<a class="ore-cta" href="/ore.html">
+  <div class="t">Dichiara le tue ore</div>
+  <div class="s">Chi sei, per quale cliente hai lavorato, quante ore. Nient'altro.</div>
+</a>
+
+<div class="strumenti">
+  <input class="cerca" id="cerca" type="search" inputmode="search"
+         placeholder="Cerca ordine o cliente" autocomplete="off">
+  <div class="meta">
+    <span id="conteggio">—</span>
+    <span>
+      <span id="aggiornato">—</span>
+      <button class="aggiorna" onclick="carica(true)">Aggiorna</button>
+    </span>
   </div>
-
-  <button class="btn danger" onclick="logout()">Esci</button>
 </div>
+
+<div id="avvisi"></div>
+<div class="elenco" id="elenco"></div>
+<div class="vuoto" id="vuoto" hidden>Nessun ordine da mostrare.</div>
+
+<div class="solalettura">
+  Questa pagina è di <b>sola consultazione</b>: serve a vedere cosa c'è da fare e per quando.
+  Non registra lavorazioni. Le ore si dichiarano una volta al giorno dal pulsante verde in alto.
+</div>
+
 <script>
-(function init(){
-  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  if (!user.id) { window.location.href = '/login.html'; return; }
-  document.getElementById('hello').textContent = 'Ciao ' + (user.name || '').split(' ')[0];
-  document.getElementById('role').textContent = user.role || 'Operaio';
-})();
+const API = window.location.origin;
+let ORDINI = [];
+let APERTO = null;          // id ordine espanso: va preservato fra un refresh e l'altro
+let ULTIMO_OK = null;       // ultimo aggiornamento andato a buon fine
+let ERRORE_RETE = false;
+
+/* ---------- avvio ---------- */
+const utente = JSON.parse(localStorage.getItem('currentUser') || '{}');
+if (!utente.id) { window.location.href = '/login.html'; }
+document.getElementById('hello').textContent = 'Ciao ' + (utente.name || '').split(' ')[0];
+document.getElementById('role').textContent = utente.role || 'Operaio';
+
+document.getElementById('cerca').addEventListener('input', disegna);
+
+/* ---------- dati ---------- */
+async function carica(manuale) {
+  try {
+    const r = await fetch(`${API}/api/orders`, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const dati = await r.json();
+    ORDINI = (Array.isArray(dati) ? dati : (dati.orders || []))
+      .filter(o => !['CHIUSO', 'SPEDITO', 'ARCHIVIATO'].includes(o.status));
+    ERRORE_RETE = false;
+    ULTIMO_OK = new Date();
+    disegna();
+  } catch (e) {
+    // Non svuota la lista: meglio dati di 5 minuti fa che una pagina bianca.
+    ERRORE_RETE = true;
+    disegna();
+    if (manuale) console.warn('Aggiornamento fallito', e);
+  }
+}
+
+/* ---------- resa ---------- */
+function giorniA(iso) {
+  if (!iso) return null;
+  const d = new Date(iso); d.setHours(0,0,0,0);
+  const oggi = new Date(); oggi.setHours(0,0,0,0);
+  return Math.round((d - oggi) / 86400000);
+}
+
+function etichettaConsegna(g) {
+  if (g === null) return { cls: 'futuro', txt: '' };
+  if (g < 0)  return { cls: 'scaduto', txt: g === -1 ? 'ieri' : `${-g} gg fa` };
+  if (g === 0) return { cls: 'oggi', txt: 'oggi' };
+  if (g === 1) return { cls: 'oggi', txt: 'domani' };
+  return { cls: 'futuro', txt: `fra ${g} gg` };
+}
+
+function esc(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function disegna() {
+  const q = (document.getElementById('cerca').value || '').trim().toLowerCase();
+  const lista = ORDINI
+    .filter(o => !q
+      || (o.numero_ordine || '').toLowerCase().includes(q)
+      || (o.cliente || '').toLowerCase().includes(q))
+    .sort((a, b) => new Date(a.data_consegna || '2999-01-01') - new Date(b.data_consegna || '2999-01-01'));
+
+  // Avvisi di stato
+  const av = [];
+  if (ERRORE_RETE) {
+    av.push(`<div class="avviso rete">Aggiornamento non riuscito — stai vedendo i dati
+      ${ULTIMO_OK ? 'delle ' + ULTIMO_OK.toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'}) : 'in cache'}.
+      Riprovo da solo fra poco.</div>`);
+  }
+  document.getElementById('avvisi').innerHTML = av.join('');
+
+  document.getElementById('conteggio').textContent =
+    lista.length + (lista.length === 1 ? ' ordine aperto' : ' ordini aperti');
+  document.getElementById('aggiornato').textContent = ULTIMO_OK
+    ? 'agg. ' + ULTIMO_OK.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+    : 'mai aggiornato';
+
+  document.getElementById('vuoto').hidden = lista.length > 0;
+
+  document.getElementById('elenco').innerHTML = lista.map(o => {
+    const g = giorniA(o.data_consegna);
+    const et = etichettaConsegna(g);
+    const data = o.data_consegna
+      ? new Date(o.data_consegna).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })
+      : '—';
+    const tags = [];
+    if (o.lotto_numero) tags.push(`<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>`);
+    if (o.taglio_completato) tags.push('<span class="tag tagliato">Tagliato</span>');
+    if (o.origine && o.origine !== 'PDF') tags.push(`<span class="tag">${esc(o.origine)}</span>`);
+
+    return `
+      <div class="ordine ${et.cls}" onclick="apri('${o.id}')">
+        <div class="top">
+          <div>
+            <div class="num">${esc(o.numero_ordine || o.id.slice(0, 8))}</div>
+            <div class="cli">${esc(o.cliente || '')}</div>
+          </div>
+          <div class="consegna">
+            <div class="d">${data}</div>
+            <div class="e">${et.txt}</div>
+          </div>
+        </div>
+        ${tags.join('')}
+        ${APERTO === o.id ? dettaglio(o) : ''}
+      </div>`;
+  }).join('');
+}
+
+function dettaglio(o) {
+  // Solo cio' che il backend espone davvero per un ordine: note, PDF e disegni.
+  // Niente sezioni che restano sempre vuote.
+  const dxf = Array.isArray(o.dxf_files) ? o.dxf_files : [];
+  const disegni = dxf.slice(0, 60).map(f => {
+    const nome = (typeof f === 'string') ? f : (f.filename || f.nome || '');
+    if (!nome) return '';
+    return `<li><a class="disegno" target="_blank" rel="noopener"
+              href="${API}/api/orders/${o.id}/dxf/${encodeURIComponent(nome)}">${esc(nome)}</a></li>`;
+  }).join('');
+  const ric = o.data_ricezione
+    ? new Date(o.data_ricezione).toLocaleDateString('it-IT', { day:'2-digit', month:'2-digit', year:'numeric' })
+    : null;
+
+  return `
+    <div class="dettaglio" onclick="event.stopPropagation()">
+      ${ric ? `<div class="riga-info">Arrivato il ${ric}</div>` : ''}
+      ${o.note ? `<h4>Note</h4><div class="nota">${esc(o.note)}</div>` : ''}
+      ${disegni ? `<h4 style="margin-top:12px">Disegni${dxf.length > 60 ? ' (primi 60)' : ''} · ${dxf.length}</h4>
+                   <ul class="pezzi">${disegni}</ul>` : ''}
+      ${o.pdf_file ? `<a class="apri-pdf" target="_blank" rel="noopener"
+                         href="${API}/api/orders/${o.id}/pdf">Apri il PDF dell'ordine</a>` : ''}
+      ${(!o.note && !disegni && !o.pdf_file)
+        ? '<div class="riga-info">Nessun allegato per questo ordine.</div>' : ''}
+      <div style="margin-top:10px;font-size:11px;color:#98a1a5">Solo consultazione</div>
+    </div>`;
+}
+
+function apri(id) {
+  APERTO = (APERTO === id) ? null : id;
+  disegna();
+}
 
 function logout() {
   localStorage.removeItem('currentUser');
   window.location.href = '/login.html';
 }
+
+/* ---------- aggiornamento periodico ----------
+   Non tocca il testo cercato, la card aperta o la posizione di scorrimento:
+   ridisegna solo il contenuto e il browser mantiene lo scroll. */
+carica(false);
+setInterval(() => carica(false), 60000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) carica(false);
+});
 </script>
 </body>
 </html>

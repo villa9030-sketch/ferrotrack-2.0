@@ -1489,8 +1489,8 @@ async function loginUser(userId) {
       return;
     }
 
-    // Operai officina (PIEGA/SALDATURA/PULIZIA): non hanno più UI
-    // — lavorano con la pistola WiFi. Pagina informativa.
+    // Operai officina: bacheca ordini in SOLA LETTURA + dichiarazione ore.
+    // Nessuna pistola, nessun timer, nessun avanzamento di fase.
     window.location.href = '/operaio-info.html';
     return;
 
@@ -2165,7 +2165,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.href = '/laser.html';
         return;
       }
-      // Operai officina: pagina informativa (lavorano con pistola WiFi)
+      // Operai officina: bacheca ordini in sola lettura + dichiarazione ore
       window.location.href = '/operaio-info.html';
       return;
 

@@ -1541,8 +1541,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
       </div>
     </div>
 
-    <!-- SCAN ATTIVE (chi-fa-cosa adesso) -->
-    <div style="background:var(--white); border:1px solid var(--border); border-radius:12px; padding:0; margin-bottom:20px;">
+    <!-- SCAN ATTIVE (chi-fa-cosa adesso) - nascosto se le pistole sono dismesse -->
+    <div id="card-scan-attive" style="background:var(--white); border:1px solid var(--border); border-radius:12px; padding:0; margin-bottom:20px;">
       <div style="padding:14px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
         <h3 style="font-size:14px; font-weight:700; margin:0; text-transform:uppercase; letter-spacing:0.4px; color:var(--gray-text);">Scansioni Attive</h3>
         <span id="live-attive-count" style="font-size:12px; color:var(--gray-muted); font-weight:600;">—</span>
@@ -1734,8 +1734,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
       <button class="modal-close" onclick="closeCartellinoModal()" title="Chiudi">&times;</button>
     </div>
     <div style="padding:0 20px 12px; font-size:13px; color:var(--gray-text);">
-      Anteprima del cartellino A6 da stampare e incollare sul faldone dell'ordine.
-      L'operaio lo scansiona con la pistola WiFi.
+      Anteprima del cartellino A6 da stampare e incollare sul faldone dell'ordine,
+      così in officina si riconosce a colpo d'occhio di che ordine si tratta.
     </div>
     <div class="modal-body" style="flex:1; min-height:480px; padding:0 20px;">
       <iframe id="cartellino-iframe" style="width:100%; height:480px; border:1px solid var(--border); border-radius:8px; background:#fafafa;"></iframe>
@@ -1838,6 +1838,19 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 // GLOBALS
 // ===========================
 const API_URL = '';
+
+// Le pistole barcode sono dismesse: le ore le dichiarano gli operai dal tablet.
+// Il flag arriva dal server (app_config) per non doverlo duplicare in ogni pagina.
+let PISTOLE_ATTIVE = false;
+(async function leggiFlagPistole() {
+  try {
+    const r = await fetch('/api/admin/config');
+    const j = await r.json();
+    PISTOLE_ATTIVE = !!(j.config && j.config.pistole_attive);
+  } catch (_) { PISTOLE_ATTIVE = false; }
+  const card = document.getElementById('card-scan-attive');
+  if (card) card.style.display = PISTOLE_ATTIVE ? '' : 'none';
+})();
 let currentUser = null;
 let pdfData = {};
 let allOrders = [];
@@ -2159,11 +2172,17 @@ function renderSospettiFiniti(orders) {
   card.style.borderColor = '#fca5a5';
   card.querySelectorAll('div[style*="background:#fef2f2"]').forEach(el => el.style.display = '');
   let html = '<table class="ordini-table" style="border-radius:0;"><thead><tr>';
-  html += '<th>Ordine</th><th>Cliente</th><th>Taglio fatto il</th><th>Ultima scan</th><th class="num">Inattivo</th><th style="text-align:center;">Azione</th>';
+  html += PISTOLE_ATTIVE
+    ? '<th>Ordine</th><th>Cliente</th><th>Taglio fatto il</th><th>Ultima scan</th><th class="num">Inattivo</th><th style="text-align:center;">Azione</th>'
+    : '<th>Ordine</th><th>Cliente</th><th>Consegna</th><th>Perche compare</th><th class="num">Aperto da</th><th style="text-align:center;">Azione</th>';
   html += '</tr></thead><tbody>';
   for (const o of orders) {
-    const dt = o.data_taglio_completato ? new Date(o.data_taglio_completato).toLocaleDateString('it-IT') : '—';
-    const ls = o.ultima_scan ? new Date(o.ultima_scan).toLocaleDateString('it-IT') : 'mai dopo taglio';
+    const dt = PISTOLE_ATTIVE
+      ? (o.data_taglio_completato ? new Date(o.data_taglio_completato).toLocaleDateString('it-IT') : '—')
+      : (o.data_consegna ? new Date(o.data_consegna).toLocaleDateString('it-IT') : '—');
+    const ls = PISTOLE_ATTIVE
+      ? (o.ultima_scan ? new Date(o.ultima_scan).toLocaleDateString('it-IT') : 'mai dopo taglio')
+      : escapeHtml(o.motivo || 'Nessun completamento registrato');
     const label = escapeHtml(o.numero_ordine);
     html += `<tr>
       <td><code style="font-size:12px;">${label}</code></td>

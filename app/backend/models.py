@@ -55,11 +55,19 @@ class Order(Base):
     lotto_nome = Column(String, nullable=True)  # Nome personalizzato del lotto (es. "Pezzi grandi")
     visto_da_operatore = Column(Boolean, default=False)  # True = operatore ha aperto/preso visione dell'ordine
     data_presa_visione = Column(DateTime, nullable=True)  # Quando l'operatore ha visto l'ordine
-    # Sblocca le scansioni officina: finché taglio_completato è False, le pistole
-    # rifiutano la scansione. Marcato dal LASER (Mirko) quando ha finito di tagliare.
+    # Storico: serviva a sbloccare le scansioni con la pistola. Dismesse le
+    # pistole, resta come pre-conferma del laser per la sua coda di lavoro; non
+    # blocca piu' nulla a valle.
     taglio_completato = Column(Boolean, default=False)
     data_taglio_completato = Column(DateTime, nullable=True)
     taglio_completato_da = Column(String, ForeignKey('users.id'), nullable=True)
+    # Chiusura OPERATIVA dell'ordine: la registra l'ufficio (impiegata) quando
+    # l'officina comunica che il lavoro e' finito. Colonne create da
+    # migrations_ore._migra_colonne_ordini.
+    data_completamento_operativo = Column(DateTime, nullable=True)
+    completato_operativo_da = Column(String, nullable=True)
+    data_consegna_effettiva = Column(DateTime, nullable=True)
+    consegna_registrata_da = Column(String, nullable=True)
     files = relationship('OrderFile', back_populates='order', cascade='all, delete-orphan')
     processing_steps = relationship('ProcessingStep', back_populates='order', cascade='all, delete-orphan')
     notifications = relationship('OrderNotification', back_populates='order', cascade='all, delete-orphan')
