@@ -43,6 +43,9 @@ _ORDER_COLS = {
 _NUOVE_TABELLE_COLS = {
     'giornate_ore': {'ultima_richiesta_id': 'VARCHAR',
                      'scostamento_confermato': 'BOOLEAN'},
+    # Fotografia economica scattata all'INVIO: un'offerta gia' mandata non deve
+    # cambiare prezzo se qualcuno modifica i costi in configurazione.
+    'preventivi': {'snapshot_economico': 'TEXT'},
 }
 
 # Ruoli considerati "operai di officina" per il seed della compilazione ore.

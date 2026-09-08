@@ -171,11 +171,16 @@ const params = new URLSearchParams(window.location.search);
 const PREV = params.get('prev');
 const FILE = params.get('file');
 const ARTICOLO = params.get('articolo') || '';
+// Identificativi STABILI da rimandare col messaggio: il contenitore li usa per
+// capire a chi appartiene la conferma senza fidarsi della posizione in elenco.
+const ARTICOLO_ID = params.get('articolo_id') || '';
 const EMBED = params.get('embed') === '1';   // innestato inline nel preventivo (no finestra separata)
 // Notifica il contenitore: finestra separata (opener) o iframe inline (parent).
 function _notifyHost(msg) {
   const host = window.opener || (window.parent !== window ? window.parent : null);
-  if (host) host.postMessage(msg, '*');
+  // Destinatario esplicito invece di '*': il messaggio contiene dati del
+  // preventivo e non deve finire a una pagina di un'altra origine.
+  if (host) host.postMessage(msg, window.location.origin);
 }
 function closeCad() { if (EMBED) _notifyHost({ type: 'cad-close' }); else window.close(); }
 document.getElementById('hdr-file').textContent = FILE || '(nessun file)';
@@ -693,6 +698,8 @@ async function confermaPezzo() {
     canonical_dxf_sha256: canonical ? canonical.sha256 : null,
   };
   if (ARTICOLO && (window.opener || window.parent !== window)) {
+    payload.preventivo_id = PREV;
+    payload.articolo_id = ARTICOLO_ID;
     _notifyHost({ type: 'cad-confirm', payload });
     setStatus('ok', EMBED ? 'Pezzo confermato ✓' : 'Pezzo confermato e inviato al preventivo. Puoi chiudere.');
   } else {

@@ -282,6 +282,9 @@ class Preventivo(Base):
     costi_montaggio_totale = Column(Float, nullable=False, default=0.0)
     costi_tubolari_totale = Column(Float, nullable=False, default=0.0)
     costi_piastre_totale = Column(Float, nullable=False, default=0.0)
+    # JSON con totali e percentuali usate al momento dell'invio. Serve a non
+    # far cambiare da solo il PDF di un'offerta gia' comunicata al cliente.
+    snapshot_economico = Column(Text, nullable=True)
     created_by = Column(String, ForeignKey('users.id'), nullable=True)
     data_creazione = Column(DateTime, nullable=False, default=datetime.utcnow)
     note = Column(Text, nullable=True)

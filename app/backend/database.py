@@ -3567,6 +3567,36 @@ class SupportManager:
 #  BARCODE / OFFICINA SCAN — rilevazione tempi via pistola WiFi
 # ============================================================================
 
+def _valida(errori):
+    """Passa attraverso: serve solo a rendere leggibili le chiamate sopra."""
+    return errori
+
+
+def _msg_valida(errori):
+    from .preventivi.validazione import messaggio
+    return messaggio(errori)
+
+
+def _v_articoli(x):
+    from .preventivi.validazione import valida_articoli
+    return valida_articoli(x)
+
+
+def _v_assiemi(x):
+    from .preventivi.validazione import valida_assiemi
+    return valida_assiemi(x)
+
+
+def _v_tubolari(x):
+    from .preventivi.validazione import valida_tubolari
+    return valida_tubolari(x)
+
+
+def _v_piastre(x):
+    from .preventivi.validazione import valida_piastre
+    return valida_piastre(x)
+
+
 def _totale_concordato(preventivo: dict):
     """Prezzo su cui il cliente ha detto di si'.
 
@@ -4931,6 +4961,12 @@ class PreventivoManager:
                 return {'error': 'Preventivo non trovato'}
             if p.status in ('INVIATO', 'ACCETTATO'):
                 return {'error': 'Preventivo ' + p.status + ': immutabile'}
+            # Costi negativi, numeri non finiti e quantita' assurde venivano
+            # accettati in silenzio e si scoprivano solo da un totale sbagliato.
+            _err = _valida(_v_articoli(articoli))
+            if _err:
+                return {'error': 'Dati non validi — ' + _msg_valida(_err),
+                        'dettagli': _err}
             # Delete tutti gli articoli esistenti
             session.query(PreventivoArticolo).filter(
                 PreventivoArticolo.preventivo_id == preventivo_id
@@ -4993,6 +5029,12 @@ class PreventivoManager:
                 return {'error': 'Preventivo non trovato'}
             if p.status in ('INVIATO', 'ACCETTATO'):
                 return {'error': 'Preventivo ' + p.status + ': immutabile'}
+            # Costi negativi, numeri non finiti e quantita' assurde venivano
+            # accettati in silenzio e si scoprivano solo da un totale sbagliato.
+            _err = _valida(_v_assiemi(assiemi))
+            if _err:
+                return {'error': 'Dati non validi — ' + _msg_valida(_err),
+                        'dettagli': _err}
             session.query(PreventivoAssieme).filter(
                 PreventivoAssieme.preventivo_id == preventivo_id
             ).delete(synchronize_session=False)
@@ -5032,6 +5074,12 @@ class PreventivoManager:
                 return {'error': 'Preventivo non trovato'}
             if p.status in ('INVIATO', 'ACCETTATO'):
                 return {'error': 'Preventivo ' + p.status + ': immutabile'}
+            # Costi negativi, numeri non finiti e quantita' assurde venivano
+            # accettati in silenzio e si scoprivano solo da un totale sbagliato.
+            _err = _valida(_v_tubolari(tubolari))
+            if _err:
+                return {'error': 'Dati non validi — ' + _msg_valida(_err),
+                        'dettagli': _err}
             session.query(PreventivoTubolare).filter(
                 PreventivoTubolare.preventivo_id == preventivo_id
             ).delete(synchronize_session=False)
@@ -5071,6 +5119,12 @@ class PreventivoManager:
                 return {'error': 'Preventivo non trovato'}
             if p.status in ('INVIATO', 'ACCETTATO'):
                 return {'error': 'Preventivo ' + p.status + ': immutabile'}
+            # Costi negativi, numeri non finiti e quantita' assurde venivano
+            # accettati in silenzio e si scoprivano solo da un totale sbagliato.
+            _err = _valida(_v_piastre(piastre))
+            if _err:
+                return {'error': 'Dati non validi — ' + _msg_valida(_err),
+                        'dettagli': _err}
             session.query(PreventivoPiastra).filter(
                 PreventivoPiastra.preventivo_id == preventivo_id
             ).delete(synchronize_session=False)
@@ -5195,6 +5249,17 @@ class PreventivoManager:
                 # assiemi, tubolari e piastre, e senza quelli il calcolo darebbe
                 # zero e ci si accorgerebbe del guaio solo in fattura.
                 completo = PreventivoManager.get(preventivo_id) or preventivo_dict
+                # Il prezzo accettato deve essere quello COMUNICATO al cliente:
+                # se c'e' la fotografia scattata all'invio, comandano le sue
+                # percentuali, non quelle attuali della configurazione.
+                snap = completo.get('snapshot_economico') or None
+                if snap:
+                    cfg = {'costo_generali_pct': snap.get('costo_generali_pct') or 0}
+                    completo = {**completo,
+                                'margine_pct': snap.get('ricarico_pct',
+                                                        completo.get('margine_pct')),
+                                'sconto_pct': snap.get('sconto_pct',
+                                                       completo.get('sconto_pct'))}
                 esito = verifica(completo, totali or {}, cfg)
                 calcolati = esito['totali']
                 if not esito['coerente']:
@@ -5349,6 +5414,34 @@ class PreventivoManager:
             # e la richiesta continuerebbe a risultare "da prezzare".
             if new_status in ('INVIATO', 'RIFIUTATO') and getattr(p, 'da_prezzare', False):
                 p.da_prezzare = False
+
+            # All'INVIO si fotografa il prezzo con le percentuali di OGGI: da
+            # quel momento il PDF di quell'offerta non cambia piu' se qualcuno
+            # ritocca i costi in configurazione. Il cliente ha in mano un numero.
+            if new_status == 'INVIATO' and not getattr(p, 'snapshot_economico', None):
+                try:
+                    from .preventivi.calcolo import calcola
+                    cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+                    completo = PreventivoManager.get(preventivo_id) or {}
+                    tot = calcola(completo, cfg)
+                    p.snapshot_economico = json.dumps({
+                        'congelato_il': datetime.utcnow().isoformat(),
+                        'congelato_da': user_id or '',
+                        'costo_generali_pct': tot['costi_generali_pct'],
+                        'ricarico_pct': tot['ricarico_pct'],
+                        'sconto_pct': tot['sconto_pct'],
+                        'totale_pezzo': tot['totale_pezzo'],
+                        'totale_pezzo_con_margine': tot['totale_pezzo_con_margine'],
+                        'totale_lotto': tot['totale_lotto'],
+                        'totale_lotto_lordo': tot['totale_lotto_lordo'],
+                    }, ensure_ascii=False)
+                    if tot['totale_lotto'] > 0:
+                        p.totale_pezzo = tot['totale_pezzo']
+                        p.totale_pezzo_con_margine = tot['totale_pezzo_con_margine']
+                        p.totale_lotto = tot['totale_lotto']
+                except Exception as exc:
+                    logger.exception('congelamento prezzo all invio fallito: %s', exc)
+
             session.commit()
             return PreventivoManager._serialize(p)
         finally:
@@ -5376,6 +5469,8 @@ class PreventivoManager:
             'costi_montaggio_totale': p.costi_montaggio_totale,
             'costi_tubolari_totale': p.costi_tubolari_totale,
             'costi_piastre_totale': p.costi_piastre_totale,
+            'snapshot_economico': (json.loads(p.snapshot_economico)
+                                   if getattr(p, 'snapshot_economico', None) else None),
             'created_by': p.created_by,
             'data_creazione': p.data_creazione.isoformat() if p.data_creazione else None,
             'note': p.note,

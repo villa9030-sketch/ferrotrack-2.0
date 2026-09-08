@@ -2327,7 +2327,9 @@ def api_preventivi_import_dxf(preventivo_id):
         # per consentire la preview interattiva. Sarà cancellato all'accettazione/rifiuto/delete.
         prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
-        saved_filename = os.path.basename(f.filename)
+        # Nome che non ne sovrascrive un altro: due "flangia.dxf" da cartelle
+        # diverse sono la norma, e il secondo cancellava il primo.
+        saved_filename = _nome_disegno_libero(prev_dir, f.filename)
 
         is_dwg = fname_lower.endswith('.dwg')
         if is_dwg:
@@ -2686,7 +2688,7 @@ def api_preventivi_import_rfq_package():
                 logger.warning('salvataggio PDF ordine RFQ fallito: %s', rfq_pdf_filename)
 
         dxf_map = getattr(result, 'dxf_map', {}) or {}
-        saved_tasks = []  # (dxf_path, filename)
+        saved_tasks = []  # (dxf_path, nome_salvato, nome_originale)
         matched_dxfs = {a.matched_dxf for a in result.articoli if a.matched_dxf}
         for fname, data in dxf_map.items():
             if fname not in matched_dxfs:
@@ -2906,10 +2908,15 @@ def api_preventivi_import_dxf_batch(preventivo_id):
                     'error': 'Batch supporta solo .dxf (per .dwg usa import single)',
                 })
                 continue
-            saved_filename = os.path.basename(f.filename)
+            # In un albero di cartelle lo stesso nome ricorre spesso (ogni
+            # fornitore ha la sua "flangia.dxf"): salvare col solo basename
+            # faceva sparire il primo file. Si tiene traccia del nome originale
+            # perche' l'assieme e' associato a quello.
+            nome_originale = os.path.basename(f.filename)
+            saved_filename = _nome_disegno_libero(prev_dir, nome_originale)
             tmp_path = os.path.join(prev_dir, saved_filename)
             f.save(tmp_path)
-            saved_tasks.append((tmp_path, saved_filename))
+            saved_tasks.append((tmp_path, saved_filename, nome_originale))
         if not saved_tasks:
             return jsonify({'success': True, 'results': skipped}), 200
         # Config DXF (una volta per tutti)
@@ -2926,20 +2933,24 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         max_workers = min(8, max(1, len(saved_tasks)))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {
-                pool.submit(process_single_dxf, path, fname, dxf_cfg): fname
-                for path, fname in saved_tasks
+                pool.submit(process_single_dxf, path, fname, dxf_cfg): (fname, originale)
+                for path, fname, originale in saved_tasks
             }
             for fut in as_completed(futures):
-                fname = futures[fut]
+                fname, originale = futures[fut]
                 try:
                     r = fut.result()
-                    # Assegna l'assieme dal percorso della cartella (se disponibile)
+                    # L'assieme e' associato al nome ORIGINALE: se il file e'
+                    # stato rinominato per non sovrascriverne un altro, cercare
+                    # col nome nuovo non troverebbe nulla.
                     if assieme_by_base:
-                        r['codice_assieme'] = assieme_by_base.get(fname)
+                        r['codice_assieme'] = (assieme_by_base.get(originale)
+                                               or assieme_by_base.get(fname))
                     results.append(r)
                 except Exception as e:
                     logger.exception('worker fail per %s', fname)
-                    results.append({'success': False, 'filename': fname, 'error': str(e)})
+                    results.append({'success': False, 'filename': fname,
+                                    'filename_originale': originale, 'error': str(e)})
         # Pre-warm SVG cache in background: subito dopo la response la UI
         # richiederà /svg per ogni file. Se la cache è fredda ezdxf ci mette
         # 0.5-1.5s per file → il primo caricamento della tabella articoli
@@ -4539,6 +4550,28 @@ def api_preventivi_calcola(preventivo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _nome_disegno_libero(cartella: str, nome: str) -> str:
+    """Nome di file che non ne sovrascrive un altro.
+
+    Due fornitori mandano tutti e due "flangia.dxf": prima il secondo caricamento
+    cancellava il primo in silenzio e un articolo si ritrovava il disegno di un
+    altro. Se il nome e' gia' occupato si aggiunge un progressivo, come farebbe
+    Windows: flangia.dxf, flangia (2).dxf, ...
+    """
+    base = os.path.basename(nome or 'disegno.dxf')
+    percorso = os.path.join(cartella, base)
+    if not os.path.exists(percorso):
+        return base
+    radice, est = os.path.splitext(base)
+    for n in range(2, 1000):
+        candidato = f'{radice} ({n}){est}'
+        if not os.path.exists(os.path.join(cartella, candidato)):
+            logger.info('Disegno "%s" gia presente: salvato come "%s"', base, candidato)
+            return candidato
+    # Caso limite: si ripiega su un suffisso univoco invece di sovrascrivere.
+    return f'{radice}_{uuid.uuid4().hex[:8]}{est}'
+
+
 def _preventivo_to_pdf_dati(p: dict) -> dict:
     """Mappa il dict serializzato PreventivoManager al formato atteso da PDFPreventivo.genera_pdf().
 
@@ -4705,9 +4738,19 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     qty_preventivo = int(p.get('quantita') or 1)
     margine_pct = float(p.get('margine_pct') or 0)
 
+    # Se il preventivo e' gia' stato INVIATO si usano le percentuali CONGELATE
+    # a quel momento: altrimenti bastava ritoccare i costi in configurazione per
+    # far cambiare da solo il PDF di un'offerta gia' in mano al cliente.
+    _snap = p.get('snapshot_economico') or None
+    if _snap:
+        _generali_pct = float(_snap.get('costo_generali_pct') or 0)
+        margine_pct = float(_snap.get('ricarico_pct') or margine_pct)
+    else:
+        _generali_pct = float((app_cfg.get('preventivi_config') or {}).get('costo_generali_pct', 0))
+
     # Fattore prezzo finale = generali (overhead) × ricarico. Incorpora TUTTO
     # ciò che il cliente non deve vedere scomposto (costi + margine).
-    _gen_f = 1 + float((app_cfg.get('preventivi_config') or {}).get('costo_generali_pct', 0)) / 100.0
+    _gen_f = 1 + _generali_pct / 100.0
     _f_finale = _gen_f * (1 + margine_pct / 100.0)
 
     # Righe per il PDF CLIENTE: codice + descrizione + qty + prezzo finale.
@@ -4806,7 +4849,9 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     # non possono divergere. Le righe qui sopra restano per il dettaglio.
     try:
         from .preventivi.calcolo import calcola as _calcola_autorevole
-        _tot = _calcola_autorevole(p, app_cfg.get('preventivi_config') or {})
+        _cfg_prezzo = ({'costo_generali_pct': _generali_pct} if _snap
+                       else (app_cfg.get('preventivi_config') or {}))
+        _tot = _calcola_autorevole(p, _cfg_prezzo)
         _scarto = abs(_tot['totale_lotto_lordo'] - totale_lotto_calc)
         if _scarto > 0.5:
             logger.warning(

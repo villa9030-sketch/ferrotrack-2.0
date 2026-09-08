@@ -453,6 +453,19 @@ button:focus, input:focus, select:focus, textarea:focus { outline: none; }
    ═══════════════════════════════════════════════════════════════════ */
 
 /* Editor header strip: dati cliente compressi in una barra orizzontale */
+/* Stato del salvataggio: prima un errore finiva solo nella console e
+   l'utente credeva di aver salvato. */
+.salva-stato { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.salva-stato.in-attesa { color: #92400e; }
+.salva-stato.in-corso  { color: var(--text-3, #666); }
+.salva-stato.fatto     { color: #166534; }
+.salva-stato.errore    { color: #991b1b; }
+.salva-stato button {
+  margin-left: 8px; padding: 3px 10px; font-size: 11px; font-weight: 700;
+  border: 1px solid #991b1b; background: #fff; color: #991b1b;
+  border-radius: 6px; cursor: pointer;
+}
+
 .editor-strip {
   position: sticky; top: 112px;  /* topbar + tabbar */
   background: rgba(255,255,255,0.85);
@@ -1856,6 +1869,8 @@ tr.row-warn:hover { background: #FEF3C7; }
         <span id="ec-cliente-inline" style="font-family:'Geist'; font-weight:700; color:var(--text);">—</span>
         <span style="color:var(--text-3); font-weight:400; font-size:12px;">/ Articoli</span>
         <span id="articoli-summary" style="font-weight:500; font-size:12px; color:var(--text-2); margin-left:4px;"></span>
+        <span id="stato-salvataggio" class="salva-stato" style="margin-left:10px;"
+              title="Stato del salvataggio"></span>
       </h3>
       <div style="display:flex; align-items:center; gap:8px;">
         <!-- Toggle e Focus rimossi: split fullscreen è l'unica vista -->
@@ -3049,54 +3064,157 @@ function round2(v) { return Math.round((v || 0) * 100) / 100; }
 // ═══════════════════════════════════════════════════════════════════
 // Autosave articoli su DB — debounced, dopo qualsiasi modifica locale
 // ═══════════════════════════════════════════════════════════════════
-let _saveArticoliTimer = null;
-function scheduleSaveArticoli(delayMs = 1500) {
-  if (!currentPreventivo) return;
-  if (_saveArticoliTimer) clearTimeout(_saveArticoliTimer);
-  _saveArticoliTimer = setTimeout(() => saveArticoliNow(), delayMs);
-}
-async function saveArticoliNow() {
-  if (!currentPreventivo || !currentUser) return;
-  try {
-    // Rimuovo i campi interni di UI (_prefissi) prima di inviare al server
-    const payload = currentArticoli.map(a => {
-      const out = {};
-      for (const k in a) if (!k.startsWith('_')) out[k] = a[k];
-      return out;
-    });
-    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/articoli`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ admin_id: currentUser.id, articoli: payload }),
-    });
-    const d = await r.json();
-    if (!d.success) console.warn('autosave articoli failed:', d.error);
-  } catch (e) { console.warn('autosave articoli network error:', e); }
+// ═══════════════════════════════════════════════════════════════════
+// SALVATAGGIO AFFIDABILE
+//
+// Il difetto precedente: il timer, quando scattava, leggeva `currentPreventivo`
+// e `currentArticoli`, cioe' lo stato globale IN QUEL MOMENTO. Cambiando
+// preventivo entro il ritardo, la scrittura poteva finire sul documento
+// sbagliato. E un errore finiva solo in console: l'utente credeva di aver
+// salvato.
+//
+// Adesso: destinatario e dati si fissano quando si pianifica il salvataggio,
+// ogni richiesta ha un numero progressivo (una risposta vecchia non sovrascrive
+// una nuova) e lo stato e' scritto in testata.
+// ═══════════════════════════════════════════════════════════════════
+const _salva = {
+  articoli: { timer: null, seq: 0, applicata: 0, inSospeso: null },
+  assiemi:  { timer: null, seq: 0, applicata: 0, inSospeso: null },
+};
+let _statoSalvataggio = 'pulito';   // pulito | in-attesa | in-corso | fatto | errore
+
+function _mostraStatoSalvataggio(stato, dettaglio) {
+  _statoSalvataggio = stato;
+  const el = document.getElementById('stato-salvataggio');
+  if (!el) return;
+  el.className = 'salva-stato ' + (stato === 'pulito' ? '' : stato);
+  if (stato === 'pulito')      el.innerHTML = '';
+  else if (stato === 'in-attesa') el.innerHTML = '● Modifiche non salvate';
+  else if (stato === 'in-corso')  el.innerHTML = 'Salvataggio…';
+  else if (stato === 'fatto')     el.innerHTML = '✓ Salvato alle ' + dettaglio;
+  else if (stato === 'errore')    el.innerHTML =
+    '⚠ Salvataggio non riuscito' +
+    '<button type="button" onclick="riprovaSalvataggio()">Riprova</button>';
 }
 
-let _saveAssiemiTimer = null;
+function _oraCorrente() {
+  return new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Restano dati da mandare al server? Guarda solo timer e code, NON lo stato
+    mostrato: serve a decidere se scrivere "Salvato", e lo stato in quel momento
+    e' per forza "in-corso". */
+function _codaVuota() {
+  return _salva.articoli.timer == null && _salva.assiemi.timer == null
+      && _salva.articoli.inSospeso == null && _salva.assiemi.inSospeso == null;
+}
+
+/** Ci sono modifiche non ancora arrivate al server? (per l'avviso di uscita) */
+function salvataggioInSospeso() {
+  return !_codaVuota() || _statoSalvataggio === 'in-corso'
+      || _statoSalvataggio === 'errore';
+}
+
+function _ripulisci(lista) {
+  // Via i campi interni di interfaccia (prefisso _) prima di inviare
+  return (lista || []).map(x => {
+    const out = {};
+    for (const k in x) if (!k.startsWith('_')) out[k] = x[k];
+    return out;
+  });
+}
+
+function _pianifica(tipo, percorso, chiave, lista, delayMs) {
+  if (!currentPreventivo || !currentUser) return;
+  const st = _salva[tipo];
+  // Il destinatario e i dati sono quelli di ADESSO, non quelli che ci saranno
+  // fra un secondo e mezzo.
+  st.inSospeso = {
+    preventivoId: currentPreventivo.id,
+    userId: currentUser.id,
+    percorso, chiave,
+    dati: _ripulisci(lista),
+  };
+  if (st.timer) clearTimeout(st.timer);
+  _mostraStatoSalvataggio('in-attesa');
+  st.timer = setTimeout(() => _esegui(tipo), delayMs);
+}
+
+async function _esegui(tipo) {
+  const st = _salva[tipo];
+  st.timer = null;
+  const lavoro = st.inSospeso;
+  if (!lavoro) return;
+  const mio = ++st.seq;
+  _mostraStatoSalvataggio('in-corso');
+  try {
+    const corpo = { admin_id: lavoro.userId };
+    corpo[lavoro.chiave] = lavoro.dati;
+    const r = await fetch(
+      `${API_URL}/api/preventivi/${lavoro.preventivoId}/${lavoro.percorso}`,
+      { method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(corpo) });
+    const d = await r.json().catch(() => ({}));
+    if (mio < st.applicata) return;      // risposta vecchia: non conta piu'
+    st.applicata = mio;
+    if (r.ok && d.success) {
+      st.inSospeso = null;
+      if (_codaVuota()) _mostraStatoSalvataggio('fatto', _oraCorrente());
+    } else {
+      _mostraStatoSalvataggio('errore');
+      console.warn('salvataggio ' + tipo + ' non riuscito:', d.error || r.status);
+    }
+  } catch (e) {
+    if (mio >= st.applicata) {
+      st.applicata = mio;
+      _mostraStatoSalvataggio('errore');   // i dati restano in st.inSospeso
+      console.warn('salvataggio ' + tipo + ' — rete:', e);
+    }
+  }
+}
+
+function riprovaSalvataggio() {
+  for (const tipo of ['articoli', 'assiemi']) {
+    if (_salva[tipo].inSospeso) _esegui(tipo);
+  }
+}
+
+/** Forza il salvataggio e ASPETTA che finisca. Da usare prima di invio,
+    accettazione o generazione PDF: quelle operazioni non devono partire su
+    dati che il server non ha ancora. */
+async function salvaSubitoEAttendi() {
+  for (const tipo of ['articoli', 'assiemi']) {
+    const st = _salva[tipo];
+    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+    if (st.inSospeso) await _esegui(tipo);
+  }
+  return _statoSalvataggio !== 'errore';
+}
+
+function scheduleSaveArticoli(delayMs = 1500) {
+  _pianifica('articoli', 'articoli', 'articoli', currentArticoli, delayMs);
+}
+async function saveArticoliNow() {
+  _pianifica('articoli', 'articoli', 'articoli', currentArticoli, 0);
+  const st = _salva.articoli;
+  if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+  await _esegui('articoli');
+}
+
 function scheduleSaveAssiemi(delayMs = 1500) {
-  if (!currentPreventivo) return;
-  if (_saveAssiemiTimer) clearTimeout(_saveAssiemiTimer);
-  _saveAssiemiTimer = setTimeout(() => saveAssiemiNow(), delayMs);
+  _pianifica('assiemi', 'assiemi', 'assiemi', currentAssiemi, delayMs);
 }
 async function saveAssiemiNow() {
-  if (!currentPreventivo || !currentUser) return;
-  try {
-    const payload = currentAssiemi.map(a => {
-      const out = {};
-      for (const k in a) if (!k.startsWith('_')) out[k] = a[k];
-      return out;
-    });
-    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/assiemi`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ admin_id: currentUser.id, assiemi: payload }),
-    });
-    const d = await r.json();
-    if (!d.success) console.warn('autosave assiemi failed:', d.error);
-  } catch (e) { console.warn('autosave assiemi network error:', e); }
+  _pianifica('assiemi', 'assiemi', 'assiemi', currentAssiemi, 0);
+  const st = _salva.assiemi;
+  if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+  await _esegui('assiemi');
 }
+
+// Chiudere la pagina con modifiche non arrivate al server: avviso del browser.
+window.addEventListener('beforeunload', (ev) => {
+  if (salvataggioInSospeso()) { ev.preventDefault(); ev.returnValue = ''; }
+});
 
 function colorFromName(name) {
   if (!name) return '#1a7a48';
@@ -3665,7 +3783,9 @@ function _ensureFoldIframe() {
   f.src = '/fold3d.html?thumb=1';
   f.style.cssText = 'position:fixed; z-index:60; border:none; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.22); display:none; background:#EEF2F6; pointer-events:none;';
   document.body.appendChild(f);
-  window.addEventListener('message', ev => {
+
+window.addEventListener('message', ev => {
+  if (!_messaggioAffidabile(ev)) return;
     if (ev.data && ev.data.type === 'fold3d-ready') {
       _foldReady = true;
       if (_foldPending) { f.contentWindow.postMessage({ type: 'fold3d-model', model: _foldPending }, '*'); _foldPending = null; }
@@ -4687,8 +4807,12 @@ function openCadEditor() {
   _cadEditorIdx = idx;
   const preview = document.getElementById('sd-preview');
   if (!preview) return;
+  // Si passa anche l'ID dell'articolo: la posizione nell'elenco puo' cambiare
+  // mentre il CAD e' aperto, l'id no.
+  const _idArt = (currentArticoli[idx] && currentArticoli[idx].id) || '';
   const url = `/dxf-editor.html?prev=${encodeURIComponent(currentPreventivo.id)}`
-            + `&file=${encodeURIComponent(file)}&articolo=${idx}&embed=1`;
+            + `&file=${encodeURIComponent(file)}&articolo=${idx}`
+            + `&articolo_id=${encodeURIComponent(_idArt)}&embed=1`;
   preview.onclick = null; preview.style.cursor = 'default';
   // Skeleton immediato: niente flash bianco mentre l'iframe carica.
   const h = 'min(80vh,820px)';
@@ -4703,7 +4827,55 @@ function openCadEditor() {
 }
 
 // CAD inline chiuso senza confermare → ripristina la preview statica del pezzo
+// ═══════════════════════════════════════════════════════════════════
+// MESSAGGI DA FINESTRE E IFRAME (CAD, anteprime)
+//
+// Prima nessun listener controllava da DOVE arrivava il messaggio: qualunque
+// pagina in grado di aprire o incorporare questa poteva riscrivere geometria,
+// materiale e spessore di un pezzo. E il messaggio piu' importante indirizzava
+// l'articolo con un INDICE di array: bastava riordinare o filtrare l'elenco
+// mentre il CAD era aperto perche' la conferma finisse sul pezzo sbagliato.
+// ═══════════════════════════════════════════════════════════════════
+
+/** Il messaggio arriva dalla nostra stessa origine? */
+function _messaggioAffidabile(ev) {
+  if (ev.origin && ev.origin !== window.location.origin) {
+    console.warn('Messaggio ignorato: origine estranea', ev.origin);
+    return false;
+  }
+  return true;
+}
+
+/** Ritrova l'articolo destinatario in modo STABILE.
+    Preferisce l'id (non cambia mai), poi il nome del disegno; l'indice di
+    posizione resta solo come ultima spiaggia per le finestre gia' aperte. */
+function _articoloDestinatario(p) {
+  if (!p) return -1;
+  if (p.articolo_id) {
+    const i = currentArticoli.findIndex(a => a.id === p.articolo_id);
+    if (i >= 0) return i;
+    console.warn('Messaggio per un articolo che non e piu in elenco:', p.articolo_id);
+    return -1;
+  }
+  if (p.dxf_filename) {
+    const i = currentArticoli.findIndex(a => a.dxf_filename === p.dxf_filename);
+    if (i >= 0) return i;
+  }
+  const idx = (typeof p.articolo !== 'undefined') ? parseInt(p.articolo, 10) : _cadEditorIdx;
+  if (idx == null || isNaN(idx) || !currentArticoli[idx]) return -1;
+  return idx;
+}
+
+/** Il messaggio riguarda il preventivo che ho aperto adesso? */
+function _messaggioDelPreventivoCorrente(p) {
+  if (!p || !p.preventivo_id) return true;      // messaggi vecchi senza il campo
+  const ok = currentPreventivo && p.preventivo_id === currentPreventivo.id;
+  if (!ok) console.warn('Messaggio ignorato: e di un altro preventivo', p.preventivo_id);
+  return ok;
+}
+
 window.addEventListener('message', (ev) => {
+  if (!_messaggioAffidabile(ev)) return;
   if (ev.data && ev.data.type === 'cad-close') {
     if (_cadEditorIdx != null && currentArticoli[_cadEditorIdx]) selectSplitArticolo(_cadEditorIdx);
   }
@@ -4711,11 +4883,13 @@ window.addEventListener('message', (ev) => {
 
 // Riceve la conferma dal CAD interno e aggiorna l'articolo + ricalcola + salva
 window.addEventListener('message', async (ev) => {
+  if (!_messaggioAffidabile(ev)) return;
   const msg = ev.data;
   if (!msg || msg.type !== 'cad-confirm' || !msg.payload) return;
   const p = msg.payload;
-  const idx = (typeof p.articolo !== 'undefined') ? parseInt(p.articolo, 10) : _cadEditorIdx;
-  if (idx == null || isNaN(idx) || !currentArticoli[idx]) return;
+  if (!_messaggioDelPreventivoCorrente(p)) return;
+  const idx = _articoloDestinatario(p);
+  if (idx < 0) return;
   const a = currentArticoli[idx];
   a.area_dm2 = p.area_dm2;
   a.perimetro_taglio_m = p.perimetro_taglio_m;
@@ -6602,9 +6776,11 @@ function invalidateStepFilesCache() { _stepFilesCache = { preventivo_id: null, f
 
 // Listener postMessage dalla preview-dxf.html: aggiorna valori articolo
 window.addEventListener('message', (event) => {
+  if (!_messaggioAffidabile(event)) return;
   const m = event.data || {};
   if (m.type === 'dxf-preview-confirm') {
-    const idx = currentArticoli.findIndex(a => a.id === m.articolo_id);
+    if (!_messaggioDelPreventivoCorrente(m)) return;
+    const idx = _articoloDestinatario(m);
     if (idx >= 0) {
       currentArticoli[idx].saldatura_ml = m.saldatura || 0;
       currentArticoli[idx].pieghe = m.pieghe || 0;
@@ -8425,6 +8601,14 @@ function closeAccettaModal() {
 
 async function confermaAccetta() {
   if (!currentPreventivo) return;
+  // Niente accettazione su dati che il server non ha ancora: e' il momento in
+  // cui il prezzo viene congelato e nasce l'ordine.
+  if (!await salvaSubitoEAttendi()) {
+    showMsg('msg-accetta',
+      'Ci sono modifiche non salvate: riprova il salvataggio prima di accettare.',
+      'var(--red)');
+    return;
+  }
   // A Mirko va sempre l'ORIGINALE (pulizia/nesting in Lantek). Nessun pre-check
   // "DXF pulito": non è più l'app a produrre il disegno di taglio.
   // Calcola totali correnti dal local state per inviarli al backend
