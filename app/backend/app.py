@@ -1634,6 +1634,42 @@ def _utente_ufficio():
     return user_id, None
 
 
+def _verifica_preventivo(preventivo_id):
+    """Esito della verifica, o None se il preventivo non esiste."""
+    prev = PreventivoManager.get(preventivo_id)
+    if not prev or prev.get('error'):
+        return None
+    from .preventivi.verifica import verifica as _v
+    cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+    snap = prev.get('snapshot_economico') or None
+    if snap:
+        cfg = {'costo_generali_pct': snap.get('costo_generali_pct') or 0}
+    return _v(prev, cfg)
+
+
+@app.route('/api/preventivi/<preventivo_id>/verifica', methods=['GET'])
+def api_preventivo_verifica(preventivo_id):
+    """E' pronto per l'invio? Se no, cosa manca e su quale riga.
+
+    Usato dall'editor prima delle operazioni definitive: senza questo l'invio
+    partiva e i buchi si scoprivano dal cliente.
+    """
+    try:
+        prev = PreventivoManager.get(preventivo_id)
+        if not prev or prev.get('error'):
+            return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
+        from .preventivi.verifica import verifica as _verifica
+        cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+        # Se l'offerta e' gia' partita valgono le percentuali congelate allora.
+        snap = prev.get('snapshot_economico') or None
+        if snap:
+            cfg = {'costo_generali_pct': snap.get('costo_generali_pct') or 0}
+        return jsonify({'success': True, **_verifica(prev, cfg)}), 200
+    except Exception as e:
+        logger.exception('api_preventivo_verifica failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/preventivi/<preventivo_id>/totali', methods=['GET'])
 def api_preventivo_totali(preventivo_id):
     """Totali calcolati dal SERVER sui dati salvati, con la composizione.
@@ -5074,13 +5110,19 @@ def api_preventivi_invia(preventivo_id):
         user_id = data.get('user_id') or ''
         if not _require_role(user_id, _PREV_WRITE_ROLES):
             return jsonify({'success': False, 'error': 'Permesso negato'}), 403
-        invalidi = _valida_costi_preventivo(preventivo_id)
-        if invalidi:
-            details = '; '.join(f"{x['codice']}: {x['motivo']}" for x in invalidi[:5])
+        # Controllo unico prima di un'operazione definitiva: senza, l'invio
+        # partiva e i buchi si scoprivano dal cliente.
+        esito = _verifica_preventivo(preventivo_id)
+        if esito is None:
+            return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
+        if not esito['pronto']:
+            dettagli = '; '.join(x['messaggio'] for x in esito['errori'][:5])
             return jsonify({
                 'success': False,
-                'error': f'Impossibile inviare: {len(invalidi)} punti da risolvere ({details})',
-                'articoli_invalidi': invalidi,
+                'error': f"Impossibile inviare: {len(esito['errori'])} punti da "
+                         f'risolvere ({dettagli})',
+                'errori': esito['errori'],
+                'avvisi': esito['avvisi'],
             }), 400
         _persisti_totali(preventivo_id)  # congela i totali sul DB prima di INVIATO
         result = PreventivoManager.transition_status(preventivo_id, 'INVIATO', user_id=user_id)
@@ -5264,6 +5306,16 @@ def api_preventivi_accetta(preventivo_id):
     Output: {success, order_id, numero_ordine, cartellino_url, preventivo}.
     """
     try:
+        # Anche l'accettazione e' definitiva: crea un ordine e blocca un prezzo.
+        _pre = _verifica_preventivo(preventivo_id)
+        if _pre is not None and not _pre['pronto']:
+            _dett = '; '.join(x['messaggio'] for x in _pre['errori'][:5])
+            return jsonify({
+                'success': False,
+                'error': f"Impossibile accettare: {len(_pre['errori'])} punti da "
+                         f'risolvere ({_dett})',
+                'errori': _pre['errori'],
+            }), 400
         data = request.get_json(silent=True) or {}
         user_id = data.get('user_id') or ''
         # Anche l'Impiegata (Elena) conferma: è lei che vede la risposta via mail

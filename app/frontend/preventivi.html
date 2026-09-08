@@ -453,6 +453,22 @@ button:focus, input:focus, select:focus, textarea:focus { outline: none; }
    ═══════════════════════════════════════════════════════════════════ */
 
 /* Editor header strip: dati cliente compressi in una barra orizzontale */
+/* Pannello di verifica: cosa manca prima di un'operazione definitiva.
+   Gli stati NON si distinguono solo per colore (icona + parola), perche' non
+   tutti distinguono rosso e verde. */
+.verifica { margin: 10px 0 0; border-radius: 10px; padding: 12px 14px; font-size: 13px; }
+.verifica.pronto   { background: #f0f9f4; border: 1px solid #bfe3cd; color: #166534; }
+.verifica.blocchi  { background: #fef2f2; border: 1px solid #fbc9c9; color: #991b1b; }
+.verifica.avvisi   { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+.verifica h4 { font-size: 13px; font-weight: 700; margin: 0 0 6px; }
+.verifica ul { margin: 4px 0 0 18px; padding: 0; line-height: 1.7; }
+.verifica .vai {
+  background: none; border: none; padding: 0 0 0 6px; cursor: pointer;
+  font: inherit; color: inherit; text-decoration: underline;
+}
+.verifica .sezione + .sezione { margin-top: 10px; padding-top: 8px;
+                                border-top: 1px solid rgba(0,0,0,.08); }
+
 /* Stato del salvataggio: prima un errore finiva solo nella console e
    l'utente credeva di aver salvato. */
 .salva-stato { font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -2530,6 +2546,8 @@ tr.row-warn:hover { background: #FEF3C7; }
         <input type="date" id="riep-data-consegna" onchange="saveDataConsegnaRiep(this.value)"
                style="padding:9px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px; color:var(--text);">
       </div>
+      <!-- Verdetto del server: cosa manca prima di un'operazione definitiva -->
+      <div class="verifica" id="pannello-verifica" style="display:none; margin-bottom:18px;"></div>
       <!-- REVISIONE GUIDATA: campi da verificare prima dell'invio (fail-safe) -->
       <div id="riep-revisione" style="margin-bottom:18px;"></div>
       <!-- BREAKDOWN articoli/assiemi/tubolari/piastre -->
@@ -2538,6 +2556,11 @@ tr.row-warn:hover { background: #FEF3C7; }
     <div class="modal-footer" style="padding:14px 22px; border-top:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
       <button class="btn-secondary" onclick="closeRiepilogoModal()">
         <i data-lucide="arrow-left" style="width:14px;height:14px;vertical-align:-2px;"></i> Torna agli articoli
+      </button>
+      <button class="btn-secondary" onclick="verificaPreventivo(true)" id="btn-verifica"
+              title="Controlla che il preventivo sia completo prima di mandarlo">
+        <i data-lucide="check-circle" style="width:14px;height:14px;vertical-align:-2px;"></i>
+        Verifica preventivo
       </button>
       <div style="flex:1;"></div>
       <button class="btn-secondary" onclick="exportPdf(false)" title="PDF per il cliente: prezzi finali, nessun costo né margine">
@@ -8434,14 +8457,40 @@ function _validazioneErrorMessage(v) {
 
 async function inviaPreventivo() {
   if (!currentPreventivo) return;
-  // GUARDIA CRITICA: nessun articolo può avere costo base 0
-  const validazione = await validaCostiCompletamente();
-  if (!validazione.ok) {
-    appAlert('IMPOSSIBILE INVIARE — costo laser mancante su alcuni articoli.\n\n' +
-          _validazioneErrorMessage(validazione) +
-          '\n\nIl preventivo NON è stato inviato. Correggi e riprova.');
+  // Un solo controllo, quello del server: e' lo stesso che rifiuterebbe l'invio
+  // via API, quindi da qui non si puo' passare per sbaglio.
+  const esito = await verificaPreventivo(true);
+  if (!esito) {
+    appAlert('Non riesco a verificare il preventivo: controlla il collegamento e riprova.');
     return;
   }
+  if (!esito.pronto) {
+    appAlert('IMPOSSIBILE INVIARE \u2014 ' + esito.errori.length + ' punti da risolvere:'
+      + String.fromCharCode(10) + String.fromCharCode(10)
+      + esito.errori.slice(0, 6).map(x => '\u2022 ' + x.messaggio).join(String.fromCharCode(10))
+      + (esito.errori.length > 6 ? String.fromCharCode(10) + '\u2026' : '')
+      + String.fromCharCode(10) + String.fromCharCode(10)
+      + 'Il preventivo NON e stato inviato. Li trovi elencati sotto i totali.');
+    return;
+  }
+  // Riepilogo concreto di cio' che sta per partire: e' un'operazione con
+  // conseguenze, e chi la fa deve vedere cosa manda prima di mandarlo.
+  const NL = String.fromCharCode(10);
+  const r = esito.riepilogo || {};
+  const avvisi = (esito.avvisi || []).length
+    ? NL + NL + 'Da guardare:' + NL
+      + esito.avvisi.slice(0, 4).map(x => '\u2022 ' + x.messaggio).join(NL)
+    : '';
+  const ok = await appConfirm(
+    'Cliente: ' + r.cliente + NL
+    + 'Pezzi: ' + (r.n_articoli || 0)
+    + (r.n_assiemi ? ' \u00b7 assiemi: ' + r.n_assiemi : '') + NL
+    + 'Quantita: ' + (r.quantita || 1) + NL
+    + 'Totale: ' + formatEur(r.totale_lotto || 0) + ' \u20ac'
+    + avvisi + NL + NL
+    + 'Si apre la mail: il preventivo risulta inviato solo dopo la spedizione.',
+    { title: 'Preparare l\'invio al cliente?', okText: 'Prepara invio' });
+  if (!ok) return;
   // Apre la finestra di composizione email (destinatario + testo, PDF in allegato).
   openEmailModal();
 }
@@ -8597,6 +8646,90 @@ async function openAccettaModal() {
 
 function closeAccettaModal() {
   document.getElementById('modal-accetta').classList.remove('active');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// VERIFICA PRIMA DELLE OPERAZIONI DEFINITIVE
+// Il server e' l'unico a decidere se un preventivo e' pronto: qui si mostra
+// il suo verdetto, con il collegamento alla riga da sistemare. Non si scrive
+// mai "tutto pronto" se restano errori.
+// ═══════════════════════════════════════════════════════════════
+let _ultimaVerifica = null;
+
+async function verificaPreventivo(mostraSempre) {
+  if (!currentPreventivo) return null;
+  const box = document.getElementById('pannello-verifica');
+  try {
+    await salvaSubitoEAttendi();     // si verifica cio' che il server ha davvero
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/verifica`);
+    const d = await r.json();
+    if (!r.ok || !d.success) throw new Error(d.error || 'verifica non riuscita');
+    _ultimaVerifica = d;
+    _mostraVerifica(d, mostraSempre);
+    // Il riquadro dei controlli locali va riallineato: senza questo poteva
+    // restare "tutto verificato" accanto a un errore bloccante.
+    try { if (typeof renderRevisione === 'function') renderRevisione(); } catch (_) {}
+    return d;
+  } catch (e) {
+    if (box) {
+      box.style.display = 'block';
+      box.className = 'verifica avvisi';
+      box.innerHTML = '<h4>Non riesco a verificare</h4>' + escapeHtml(e.message);
+    }
+    return null;
+  }
+}
+
+function _vociVerifica(lista) {
+  return lista.map((x, i) => {
+    const rif = x.riferimento;
+    const vai = rif && (rif.id || rif.indice != null)
+      ? `<button class="vai" onclick="vaiAllaRiga(${i}, '${x.tipo}')">vai al pezzo</button>`
+      : '';
+    return `<li>${escapeHtml(x.messaggio)}${vai}</li>`;
+  }).join('');
+}
+
+function _mostraVerifica(d, mostraSempre) {
+  const box = document.getElementById('pannello-verifica');
+  if (!box) return;
+  const err = d.errori || [], avv = d.avvisi || [];
+  if (!err.length && !avv.length && !mostraSempre) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.className = 'verifica ' + (err.length ? 'blocchi' : (avv.length ? 'avvisi' : 'pronto'));
+  let html = '';
+  if (err.length) {
+    html += `<div class="sezione"><h4>\u2716 Da risolvere prima di inviare
+             (${err.length})</h4><ul>${_vociVerifica(err)}</ul></div>`;
+  }
+  if (avv.length) {
+    html += `<div class="sezione"><h4>\u26a0 Da guardare (${avv.length})</h4>
+             <ul>${_vociVerifica(avv)}</ul></div>`;
+  }
+  if (!err.length) {
+    const r = d.riepilogo || {};
+    html = `<div class="sezione"><h4>\u2713 Pronto per l'invio</h4>
+            ${escapeHtml(r.cliente || '')} \u00b7 ${r.n_articoli || 0} pezzi
+            ${r.n_assiemi ? '\u00b7 ' + r.n_assiemi + ' assiemi' : ''}
+            \u00b7 <b>${formatEur(r.totale_lotto || 0)} \u20ac</b></div>` + html;
+  }
+  box.innerHTML = html;
+}
+
+/** Porta l'utente sulla riga segnalata invece di lasciarlo cercare. */
+function vaiAllaRiga(i, tipo) {
+  if (!_ultimaVerifica) return;
+  const lista = (_ultimaVerifica.errori || []).concat(_ultimaVerifica.avvisi || []);
+  const voce = (_ultimaVerifica.errori || [])[i] || (_ultimaVerifica.avvisi || [])[i];
+  const rif = voce && voce.riferimento;
+  if (!rif) return;
+  let idx = rif.id ? currentArticoli.findIndex(a => a.id === rif.id) : -1;
+  if (idx < 0 && rif.indice != null) idx = rif.indice;
+  if (idx >= 0 && currentArticoli[idx]) {
+    if (typeof selectSplitArticolo === 'function') selectSplitArticolo(idx);
+    const riga = document.querySelector(`[data-art-idx="${idx}"]`);
+    if (riga && riga.scrollIntoView) riga.scrollIntoView({block: 'center'});
+  }
 }
 
 async function confermaAccetta() {
@@ -8877,6 +9010,9 @@ function openRiepilogoModal() {
   bd.innerHTML = parts.join('') || '<div style="color:var(--text-3); text-align:center; padding:20px;">Nessun articolo/assieme presente</div>';
   // REVISIONE GUIDATA: elenca i punti da verificare + blocca l'invio se rossi
   const revBloccante = renderRevisione();
+  // Verdetto del server, senza aspettare che l'utente prema qualcosa: aprendo
+  // il riepilogo si deve gia' vedere se il preventivo e' pronto o cosa manca.
+  verificaPreventivo(true);
   // Visibilità bottoni workflow in base allo status del preventivo
   const st = currentPreventivo.status || 'BOZZA';
   const _show = (id, visible) => { const el = document.getElementById(id); if (el) el.style.display = visible ? '' : 'none'; };
@@ -9006,6 +9142,13 @@ function renderRevisione() {
   const rossi = issues.filter(i => i.sev === 'rosso');
   const gialli = issues.filter(i => i.sev === 'giallo');
   if (!issues.length) {
+    // Questi sono i controlli LOCALI. Se il server ha gia' detto che c'e' un
+    // errore bloccante, non si scrive "tutto verificato": due riquadri che si
+    // contraddicono sono peggio di nessun riquadro.
+    if (_ultimaVerifica && _ultimaVerifica.pronto === false) {
+      box.innerHTML = '';
+      return true;
+    }
     box.innerHTML = `<div style="display:flex; align-items:center; gap:8px; padding:12px 14px; background:rgba(34,197,94,.10); border:1px solid rgba(34,197,94,.35); border-radius:10px; color:var(--green); font-weight:600; font-size:13px;">
       <i data-lucide="shield-check" style="width:16px;height:16px;"></i> Tutto verificato — pronto per l'invio.</div>`;
     return false;
