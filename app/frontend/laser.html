@@ -244,26 +244,37 @@ body {
 .date-group-header.urgent-green { color: var(--green); }
 
 .order-item {
-  padding: 10px 12px;
+  padding: 12px 14px;
   background: #f8f8fa;
   border: 1px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.25s var(--ease-apple);
   font-size: 13px;
+  /* In colonna: su 360px tre cose affiancate si schiacciavano e il numero
+     d'ordine andava a capo in mezzo alle cifre. */
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .order-item:hover { background: #f3f4f6; transform: translateY(-1px); }
 
 /* Stato del taglio sulla riga stessa: si vede e si cambia senza aprire nulla. */
-.riga-testa { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.riga-testa { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.riga-testa .order-client { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                            white-space: nowrap; }
+.riga-sotto {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 11px; color: var(--text-secondary);
+}
+.riga-sotto .num { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data-consegna { flex: none; font-weight: 600; color: var(--text-primary); }
 .btn-taglio {
-  flex: none; border: 1px solid var(--border); background: #fff;
-  border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 700;
+  width: 100%; border: 1px solid var(--border); background: #fff;
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 700;
   cursor: pointer; white-space: nowrap; color: var(--text-primary);
+  margin-top: 2px;
 }
 .btn-taglio:hover { border-color: var(--green); }
 .btn-taglio.fatto { background: var(--green-badge-bg, #e7f5ee); color: #186c42;
@@ -1715,21 +1726,17 @@ function renderByDeadline() {
         <div class="order-item ${selectedOrderId === order.id ? 'selected' : ''}${order.taglio_completato ? ' tagliato' : ''}"
              onclick="selectOrder('${order.id}')">
           <div class="riga-testa">
-            <div style="min-width:0;">
-              <div class="order-client">${escapeHtml(order.cliente || '')}</div>
-              <div style="font-size:11px;color:var(--text-secondary);">
-                #${escapeHtml(order.numero_ordine || order.id.substring(0, 8))}
-              </div>
-            </div>
-            ${bottoneTaglio(order)}
+            <span class="order-client">${escapeHtml(order.cliente || '')}</span>
+            <span class="data-consegna">${new Date(order.data_consegna).toLocaleDateString('it-IT')}</span>
           </div>
-          ${isSup ? `<div style="font-size:10px;color:#1e40af;font-weight:600;">&#129309; In supporto a ${escapeHtml(supInfo.nome_principale)}</div>` : ''}
-          <div style="font-size:11px;color:var(--text-secondary); margin-top:4px;">
-            ${new Date(order.data_consegna).toLocaleDateString('it-IT')}
+          <div class="riga-sotto">
+            <span class="num">#${escapeHtml(order.numero_ordine || order.id.substring(0, 8))}</span>
             <span class="order-date-badge ${badgeClass}">
-              ${order.daysLeft < 0 ? '\uD83D\uDD34 ' + (-order.daysLeft) + 'd' : order.daysLeft + 'd'}
+              ${order.daysLeft < 0 ? (-order.daysLeft) + 'g in ritardo' : 'fra ' + order.daysLeft + 'g'}
             </span>
           </div>
+          ${isSup ? `<div style="font-size:10px;color:#1e40af;font-weight:600;">&#129309; In supporto a ${escapeHtml(supInfo.nome_principale)}</div>` : ''}
+          ${bottoneTaglio(order)}
         </div>`;
       }).join('')}
     </div>`;
@@ -1743,15 +1750,13 @@ function renderByDeadline() {
         <div class="order-item ${selectedOrderId === order.id ? 'selected' : ''}${order.taglio_completato ? ' tagliato' : ''}"
              onclick="selectOrder('${order.id}')">
           <div class="riga-testa">
-            <div style="min-width:0;">
-              <div class="order-client">${escapeHtml(order.cliente || '')}</div>
-              <div style="font-size:11px;color:var(--text-secondary);">
-                #${escapeHtml(order.numero_ordine || order.id.substring(0, 8))}
-              </div>
-            </div>
-            ${bottoneTaglio(order)}
+            <span class="order-client">${escapeHtml(order.cliente || '')}</span>
+            <span class="data-consegna">${date}</span>
           </div>
-          <div style="font-size:11px;color:var(--text-secondary); margin-top:4px;">${date}</div>
+          <div class="riga-sotto">
+            <span class="num">#${escapeHtml(order.numero_ordine || order.id.substring(0, 8))}</span>
+          </div>
+          ${bottoneTaglio(order)}
         </div>
       `).join('')}
     </div>`;
@@ -1823,15 +1828,16 @@ function renderByClient() {
           return `<div class="order-item${sel}${near}${order.taglio_completato ? ' tagliato' : ''}"
                        onclick="selectOrder('${order.id}')">
             <div class="riga-testa">
-              <div style="min-width:0;">
-                <div class="order-client">${escapeHtml(order.numero_ordine || order.id.substring(0,8))}</div>
-                <div class="client-order-numero">${new Date(order.data_consegna).toLocaleDateString('it-IT')}</div>
-              </div>
-              ${bottoneTaglio(order)}
+              <span class="order-client">${escapeHtml(order.numero_ordine || order.id.substring(0,8))}</span>
+              <span class="data-consegna">${new Date(order.data_consegna).toLocaleDateString('it-IT')}</span>
             </div>
-            <span class="order-date-badge ${badgeClass}" style="margin-top:4px; display:inline-block;">
-              ${order.daysLeft < 0 ? (-order.daysLeft) + 'd' : order.daysLeft + 'd'}
-            </span>
+            <div class="riga-sotto">
+              <span class="num"></span>
+              <span class="order-date-badge ${badgeClass}">
+                ${order.daysLeft < 0 ? (-order.daysLeft) + 'g in ritardo' : 'fra ' + order.daysLeft + 'g'}
+              </span>
+            </div>
+            ${bottoneTaglio(order)}
           </div>`;
         }).join('')}
       </div>
