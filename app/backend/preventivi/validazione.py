@@ -67,7 +67,23 @@ def valida_quantita(valore, campo: str, dove: str):
     return None
 
 
-def _valida_righe(righe, campi_costo, campi_quantita):
+def valida_conteggio(valore, campo: str, dove: str):
+    """Conteggio di lavorazioni: ZERO e' normale (un pezzo senza pieghe), il
+    negativo no. Diverso dalla quantita' di pezzi, che parte da 1."""
+    if valore is None or valore == '':
+        return None
+    try:
+        v = int(valore)
+    except (TypeError, ValueError):
+        return f'{dove}: "{campo}" non e\' un numero intero ({valore!r})'
+    if v < 0:
+        return f'{dove}: "{campo}" non puo\' essere negativo ({v})'
+    if v > QUANTITA_MAX:
+        return f'{dove}: "{campo}" fuori scala ({v}). Massimo {QUANTITA_MAX}.'
+    return None
+
+
+def _valida_righe(righe, campi_costo, campi_quantita, campi_conteggio=()):
     errori = []
     for i, r in enumerate(righe or []):
         if not isinstance(r, dict):
@@ -82,12 +98,18 @@ def _valida_righe(righe, campi_costo, campi_quantita):
             e = valida_quantita(r.get(c), c, dove)
             if e:
                 errori.append(e)
+        for c in campi_conteggio:
+            e = valida_conteggio(r.get(c), c, dove)
+            if e:
+                errori.append(e)
     return errori
 
 
 def valida_articoli(articoli):
-    return _valida_righe(articoli, CAMPI_COSTO_ARTICOLO,
-                         ('quantita', 'pieghe', 'filettatura_pz', 'svasatura_pz'))
+    # `quantita` sono i pezzi: almeno 1. Pieghe, filettature e svasature sono
+    # conteggi di lavorazioni: zero e' del tutto normale.
+    return _valida_righe(articoli, CAMPI_COSTO_ARTICOLO, ('quantita',),
+                         ('pieghe', 'filettatura_pz', 'svasatura_pz'))
 
 
 def valida_assiemi(assiemi):

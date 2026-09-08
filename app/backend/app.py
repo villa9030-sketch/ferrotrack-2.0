@@ -5302,6 +5302,7 @@ def api_preventivi_accetta(preventivo_id):
         # Copia i DXF puliti (o originali con warning) in uploads/drawings/<order_id>/
         # PRIMA del cleanup del tmp del preventivo. Mirko taglierà da lì.
         dxf_stats = {}
+        pdf_stats = {}
         order_id = result.get('order_id')
         if order_id:
             dxf_stats = _copy_cleaned_dxf_to_drawings(preventivo_id, order_id)
@@ -5318,8 +5319,28 @@ def api_preventivi_accetta(preventivo_id):
                                         f"missing={dxf_stats.get('missing')}")
             except Exception:
                 pass
-        # Cleanup DXF/STEP temporanei caricati per il preventivo
-        _cleanup_preventivo_files(preventivo_id)
+        # I file temporanei si cancellano SOLO se tutto quello che dipendeva da
+        # loro e' riuscito. Prima venivano rimossi comunque: se il passaggio di
+        # un disegno all'ordine falliva, l'originale spariva e in officina non
+        # restava niente da tagliare.
+        mancanti = 0
+        try:
+            mancanti = int(dxf_stats.get('missing') or 0) if dxf_stats else 0
+            if pdf_stats and pdf_stats.get('error'):
+                mancanti += 1
+        except (TypeError, ValueError, NameError):
+            mancanti = 0
+        if mancanti:
+            result['cleanup_rimandato'] = True
+            result['avviso'] = (
+                f"{mancanti} allegati non sono stati trasferiti all'ordine: "
+                "i file originali del preventivo sono stati CONSERVATI per poter "
+                "riprovare. Controlla i disegni dell'ordine prima di mandarlo in "
+                "officina.")
+            logger.warning('Accettazione %s: %d allegati non trasferiti, '
+                           'sorgenti conservati in preventivi_tmp', preventivo_id, mancanti)
+        else:
+            _cleanup_preventivo_files(preventivo_id)
         return jsonify(result), 200
     except Exception as e:
         logger.exception('preventivi accetta failed')
