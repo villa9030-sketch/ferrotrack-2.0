@@ -1215,7 +1215,11 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 }
 .az-btn.primaria { background:var(--green); color:#fff; border-color:var(--green); }
 .az-btn.primaria:hover { filter:brightness(1.08); }
-.az-btn:hover { background:#f7f8f9; }
+/* Solo i pulsanti NON principali schiariscono al passaggio del mouse.
+   Senza `:not(.primaria)` questa regola, scritta dopo, vinceva a parita' di
+   priorita' e schiariva anche il pulsante verde: sfondo quasi bianco e testo
+   bianco, cioe' il pulsante spariva proprio mentre lo si stava per premere. */
+.az-btn:not(.primaria):hover { background:#f7f8f9; }
 .tag-parziale { background:#fef3c7; color:#92400e; border-radius:6px;
                 padding:2px 8px; font-size:11px; font-weight:700; }
 .tag-laser    { background:#eef2f4; color:#41494d; border-radius:6px;
