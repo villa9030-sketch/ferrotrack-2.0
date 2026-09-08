@@ -1218,6 +1218,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 .az-btn:hover { background:#f7f8f9; }
 .tag-parziale { background:#fef3c7; color:#92400e; border-radius:6px;
                 padding:2px 8px; font-size:11px; font-weight:700; }
+.tag-laser    { background:#eef2f4; color:#41494d; border-radius:6px;
+                padding:2px 8px; font-size:11px; font-weight:600; }
+.tag-officina { background:#e7f5ee; color:#186c42; border-radius:6px;
+                padding:2px 8px; font-size:11px; font-weight:600; }
 
 /* Live dot — indica che ci sono scan attive in officina */
 .live-dot {
@@ -2727,7 +2731,7 @@ function dataIt(iso) {
 }
 
 const COLONNE = {
-  aperto:      ['Ordine', 'Cliente', 'Consegna prevista', 'Arrivato il', 'Azione'],
+  aperto:      ['Ordine', 'Cliente', 'Consegna prevista', 'A che punto', 'Azione'],
   pronto_ddt:  ['Ordine', 'Cliente', 'Lavorazione finita il', 'Registrato da', 'Azione'],
   consegnato:  ['Ordine', 'Cliente', 'DDT', 'Consegna', 'Azione'],
   archivio:    ['Ordine', 'Cliente', 'Consegna', 'DDT', 'Azione'],
@@ -2762,8 +2766,14 @@ function rigaVista(o) {
     ? ` <span class="tag-parziale" title="${escapeHtml(o.note_consegna)}">residuo</span>` : '';
 
   if (VISTA === 'aperto') {
+    // Dove si trova fisicamente: in coda al laser o gia' in officina. E' il
+    // solo dato che l'ufficio ha per rispondere a un cliente che chiede a che
+    // punto siamo, senza scendere a chiederlo.
+    const dove = o.taglio_fatto
+      ? `<span class="tag-officina">in officina</span>`
+      : `<span class="tag-laser">in coda al laser</span>`;
     return `<tr><td>${num}</td><td>${cli}</td><td>${dataIt(o.data_consegna)}</td>
-      <td style="color:var(--gray-text); font-size:12px;">${dataIt(o.data_ricezione)}</td>
+      <td>${dove}</td>
       <td><button class="az-btn primaria" onclick="azCompletamento('${id}')">
         Lavorazione finita &rarr; prepara DDT</button></td></tr>`;
   }

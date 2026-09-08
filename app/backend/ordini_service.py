@@ -85,6 +85,11 @@ def _riga(order, nomi: dict) -> dict:
         'lotto_nome': order.lotto_nome or '',
         'parent_order_id': order.parent_order_id,
         # I quattro fatti, distinti
+        # Unico segnale su dove sia un ordine ancora aperto: al laser o gia'
+        # in officina. Lo marca il laser, non blocca nulla, ma all'ufficio
+        # serve per rispondere al cliente che chiede "a che punto siamo".
+        'taglio_fatto': bool(getattr(order, 'taglio_completato', False)),
+        'taglio_il': _quando(order, 'data_taglio_completato'),
         'completamento': _quando(order, 'data_completamento_operativo'),
         'completato_da_id': getattr(order, 'completato_operativo_da', None),
         'completato_da': nomi.get(getattr(order, 'completato_operativo_da', None) or '',

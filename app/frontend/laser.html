@@ -546,7 +546,6 @@ body {
 .support-request-card .sr-actions { display:flex; gap:8px; margin-top:12px; }
 
 /* COMPLETE ORDER MODAL */
-.co-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; animation: fadeIn 0.2s ease; }
 /* CONFIRM DIALOG (custom, replaces native confirm()) */
 .confirm-overlay {
   position: fixed; top:0; left:0; right:0; bottom:0;
@@ -576,18 +575,6 @@ body {
   background: var(--bg); color: var(--gray-text); border: 1px solid var(--border);
 }
 .confirm-btn.cancel:hover { background: #ebebeb; }
-.co-modal { background:white; border-radius:12px; padding:24px; max-width:420px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); }
-.co-modal h3 { margin:0 0 4px; font-size:16px; font-weight:700; }
-.co-modal .co-subtitle { font-size:13px; color:var(--gray-text); margin-bottom:16px; }
-.co-phase-list { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
-.co-phase-done { font-size:13px; font-weight:600; color:var(--green); padding:6px 8px; background:var(--green-badge-bg); border-radius:6px; }
-.co-phase-skip { font-size:13px; color:#9ca3af; text-decoration:line-through; padding:6px 8px; background:#f9fafb; border-radius:6px; }
-.co-note { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; resize:vertical; min-height:50px; margin-bottom:12px; font-family:inherit; box-sizing:border-box; }
-.co-actions { display:flex; gap:8px; }
-.co-actions .btn-danger { background:#991b1b; color:white; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px; }
-.co-actions .btn-danger:hover { background:#7f1d1d; }
-.co-actions .btn-cancel { background:transparent; color:var(--gray-text); border:1px solid var(--border); padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px; }
-.co-actions .btn-cancel:hover { background:var(--bg); }
 
 .status {
   display: inline-block;
@@ -1221,7 +1208,6 @@ textarea.form-input { resize: vertical; min-height: 80px; padding: 10px 12px; he
   .order-item { padding: 14px 16px; font-size: 14px; }
   .view-toggle-btn { padding: 8px 14px; font-size: 12px; }
   .detail-btn { padding: 12px 16px; font-size: 14px; }
-  #panel-stato { padding: 16px !important; }
   .stato-row { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   .stato-row-client { min-width: 100px; }
   .stato-row-actions { width: 100%; justify-content: flex-start; }
@@ -1231,6 +1217,7 @@ textarea.form-input { resize: vertical; min-height: 80px; padding: 10px 12px; he
 .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 24px 32px 0; }
 .kpi-card { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; display: flex; flex-direction: column; gap: 6px; border-left: 4px solid var(--green); }
 .kpi-card--orange { border-left-color: var(--orange); }
+.kpi-card--red { border-left-color: #dc2626; }
 .kpi-card--blue { border-left-color: var(--blue); }
 .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gray-text); }
 .kpi-value { font-family: 'Geist', sans-serif; font-size: 32px; font-weight: 900; letter-spacing: -1px; color: var(--black); line-height: 1; }
@@ -1374,7 +1361,6 @@ button:active {
 <!-- TAB BAR -->
 <div class="tab-bar">
   <div class="tab-item active" onclick="switchTab('lavoro')" id="tab-lavoro">Lavoro</div>
-  <div class="tab-item" onclick="switchTab('stato')" id="tab-stato">Stato Ordini</div>
   <div class="tab-item" onclick="switchTab('calendario')" id="tab-calendario">Calendario &amp; KPI</div>
 </div>
 
@@ -1383,10 +1369,11 @@ button:active {
     <!-- CALENDAR -->
     <div class="calendar" id="calendar">
     <div class="calendar-header">
-      <div class="calendar-title" id="calendar-view-title">Ordini per Scadenza</div>
+      <div class="calendar-title" id="calendar-view-title">Da tagliare</div>
       <div class="view-toggle">
-        <button class="view-toggle-btn active" id="vt-scadenza" onclick="switchLaserView('scadenza')">Per Scadenza</button>
-        <button class="view-toggle-btn" id="vt-cliente" onclick="switchLaserView('cliente')">Per Cliente</button>
+        <button class="view-toggle-btn active" id="vt-scadenza" onclick="switchLaserView('scadenza')">Da tagliare</button>
+        <button class="view-toggle-btn" id="vt-fatti" onclick="switchLaserView('fatti')">Tagliati oggi</button>
+        <button class="view-toggle-btn" id="vt-cliente" onclick="switchLaserView('cliente')">Per cliente</button>
       </div>
     </div>
     <div class="calendar-list" id="calendar-list"></div>
@@ -1416,48 +1403,29 @@ button:active {
   </div>
 </div>
 
-<!-- TAB PANEL: STATO ORDINI -->
-<div class="tab-panel" id="panel-stato" style="padding: 24px 32px;">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
-    <h2 style="font-size:18px; font-weight:700; color:var(--black);">Stato Ordini</h2>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <select id="stato-filtro-fase" onchange="renderStatoOrdini()" style="padding:8px 12px; border:1px solid var(--border); border-radius:10px; font-size:13px; background:#f8f8fa;">
-        <option value="">In lavorazione</option>
-        <option value="LASER">Solo Laser</option>
-        <option value="PIEGA">Solo Piega</option>
-        <option value="SALDATURA">Solo Saldatura</option>
-        <option value="PULIZIA">Solo Pulizia</option>
-        <option value="COMPLETATO">Completati</option>
-      </select>
-      <input type="text" id="stato-search" placeholder="Cerca cliente..." oninput="renderStatoOrdini()" style="padding:8px 12px; border:1px solid var(--border); border-radius:10px; font-size:13px; width:180px; background:#f8f8fa;">
-    </div>
-  </div>
-  <div id="stato-ordini-list"></div>
-</div>
-
 <!-- TAB PANEL: CALENDARIO & KPI -->
 <div class="tab-panel" id="panel-calendario">
   <!-- KPI ROW -->
   <div class="kpi-row">
     <div class="kpi-card kpi-card--green">
-      <div class="kpi-label">Ordini Completati</div>
-      <div class="kpi-value" id="kpi-completati">—</div>
-      <div class="kpi-sub" id="kpi-completati-sub">nel periodo</div>
-    </div>
-    <div class="kpi-card kpi-card--orange">
-      <div class="kpi-label">Ordini in Attesa</div>
-      <div class="kpi-value" id="kpi-attesa">—</div>
-      <div class="kpi-sub">da lavorare</div>
+      <div class="kpi-label">Tagliati oggi</div>
+      <div class="kpi-value" id="kpi-oggi">—</div>
+      <div class="kpi-sub">ordini marcati da te</div>
     </div>
     <div class="kpi-card kpi-card--blue">
-      <div class="kpi-label">Tempo Medio Laser</div>
-      <div class="kpi-value" id="kpi-tempo-medio">—</div>
-      <div class="kpi-sub">per ordine completato</div>
+      <div class="kpi-label">Tagliati questa settimana</div>
+      <div class="kpi-value" id="kpi-settimana">—</div>
+      <div class="kpi-sub">da lunedì</div>
     </div>
-    <div class="kpi-card kpi-card--green">
-      <div class="kpi-label">Capacità Giornaliera</div>
-      <div class="kpi-value" id="kpi-capacita">—</div>
-      <div class="kpi-sub" id="kpi-capacita-sub">ordini oggi</div>
+    <div class="kpi-card kpi-card--orange">
+      <div class="kpi-label">In coda</div>
+      <div class="kpi-value" id="kpi-coda">—</div>
+      <div class="kpi-sub">ancora da tagliare</div>
+    </div>
+    <div class="kpi-card kpi-card--red">
+      <div class="kpi-label">In coda e già scaduti</div>
+      <div class="kpi-value" id="kpi-scaduti">—</div>
+      <div class="kpi-sub" id="kpi-scaduti-sub">consegna già passata</div>
     </div>
   </div>
 
@@ -1601,7 +1569,8 @@ function groupOrdersByDate() {
   };
   const byDate = {};
 
-  allOrders.forEach(order => {
+  // Solo la coda: cio' che e' gia' tagliato non e' piu' un problema del laser.
+  ordiniDaTagliare().forEach(order => {
     const delivery = new Date(order.data_consegna);
     delivery.setHours(0, 0, 0, 0);
     const daysLeft = Math.floor((delivery - today) / (1000 * 60 * 60 * 24));
@@ -1627,19 +1596,70 @@ function groupOrdersByDate() {
 // === VIEW SWITCH ===
 function switchLaserView(mode) {
   laserViewMode = mode;
-  document.getElementById('vt-scadenza').classList.toggle('active', mode === 'scadenza');
-  document.getElementById('vt-cliente').classList.toggle('active', mode === 'cliente');
-  document.getElementById('calendar-view-title').textContent = mode === 'scadenza' ? 'Ordini per Scadenza' : 'Ordini per Cliente';
+  for (const [id, m] of [['vt-scadenza', 'scadenza'], ['vt-fatti', 'fatti'],
+                         ['vt-cliente', 'cliente']]) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active', mode === m);
+  }
+  const titoli = {scadenza: 'Da tagliare', fatti: 'Tagliati oggi',
+                  cliente: 'Da tagliare, per cliente'};
+  document.getElementById('calendar-view-title').textContent = titoli[mode] || 'Da tagliare';
   renderCalendar();
+}
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// La coda del laser: gli ordini che NON sono ancora stati tagliati e non sono
+// chiusi. Prima l'elenco mostrava tutto, compreso cio' che era gia' passato in
+// officina: cercare il prossimo pezzo da tagliare era un lavoro in piu'.
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+const CHIUSI = ['CHIUSO', 'SPEDITO', 'ARCHIVIATO'];
+
+function ordiniDaTagliare() {
+  return (allOrders || []).filter(o => !o.taglio_completato
+                                    && !CHIUSI.includes(o.status));
+}
+
+function ordiniTagliatiOggi() {
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  return (allOrders || []).filter(o => {
+    if (!o.data_taglio_completato) return false;
+    const d = new Date(o.data_taglio_completato); d.setHours(0, 0, 0, 0);
+    return d.getTime() === oggi.getTime();
+  });
 }
 
 // === RENDER CALENDAR (dispatch) ===
 function renderCalendar() {
-  if (laserViewMode === 'cliente') {
-    renderByClient();
-  } else {
-    renderByDeadline();
+  if (laserViewMode === 'cliente') renderByClient();
+  else if (laserViewMode === 'fatti') renderTagliatiOggi();
+  else renderByDeadline();
+}
+
+/** Cosa ha gia' fatto oggi: serve a sapere dove si e' arrivati, non a decidere. */
+function renderTagliatiOggi() {
+  const container = document.getElementById('calendar-list');
+  const fatti = ordiniTagliatiOggi()
+    .sort((a, b) => new Date(b.data_taglio_completato) - new Date(a.data_taglio_completato));
+  if (!fatti.length) {
+    container.innerHTML = '<div style="padding:24px; color:var(--text-secondary); '
+      + 'text-align:center; font-size:13px;">Oggi non hai ancora marcato nessun '
+      + 'taglio.</div>';
+    return;
   }
+  container.innerHTML = `<div class="date-group">
+    <div class="date-group-header urgent-green">TAGLIATI OGGI (${fatti.length})</div>
+    ${fatti.map(o => {
+      const ora = new Date(o.data_taglio_completato)
+        .toLocaleTimeString('it-IT', {hour: '2-digit', minute: '2-digit'});
+      return `<div class="order-item ${selectedOrderId === o.id ? 'selected' : ''}"
+                   onclick="selectOrder('${o.id}')">
+        <div class="order-client">${escapeHtml(o.cliente || '')}</div>
+        <div style="font-size:11px;color:var(--text-secondary);">
+          #${escapeHtml(o.numero_ordine || o.id.substring(0, 8))} \u00b7 alle ${ora}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
 }
 
 // === RENDER BY DEADLINE (vista originale) ===
@@ -1700,9 +1720,10 @@ function renderByClient() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // Raggruppa per cliente
+  // Raggruppa per cliente, ma sempre e solo la CODA: raggruppare per cliente
+  // serve a fare un nesting unico, e un pezzo gia' tagliato non c'entra.
   const clientMap = {};
-  allOrders.forEach(order => {
+  ordiniDaTagliare().forEach(order => {
     const key = order.cliente || 'Sconosciuto';
     if (!clientMap[key]) clientMap[key] = [];
     const delivery = new Date(order.data_consegna);
@@ -1995,7 +2016,7 @@ async function loadStatoOrdini() {
     const resp = await fetch(`${API_URL}/api/orders`);
     const data = await resp.json();
     allOrdiniStato = data.orders || data;
-    renderStatoOrdini();
+
   } catch (err) {
     console.error('Errore caricamento stato ordini:', err);
   }
@@ -2017,98 +2038,6 @@ function statoProgressColor(pct) {
   return '#ef4444';
 }
 
-function renderStatoOrdini() {
-  const container = document.getElementById('stato-ordini-list');
-  const filtroFase = document.getElementById('stato-filtro-fase').value;
-  const search = (document.getElementById('stato-search').value || '').toLowerCase().trim();
-
-  let filtered = allOrdiniStato.filter(o => {
-    // Default (vuoto) = nascondi completati
-    if (!filtroFase && (['COMPLETATO','DA_FATTURARE','CHIUSO'].includes(o.status) || o.status === 'PARZIALE')) return false;
-    if (filtroFase === 'COMPLETATO' && !['COMPLETATO','DA_FATTURARE','CHIUSO'].includes(o.status) && o.status !== 'PARZIALE') return false;
-    if (filtroFase && filtroFase !== 'COMPLETATO' && o.fase_corrente !== filtroFase) return false;
-    if (search && !o.cliente.toLowerCase().includes(search) && !(o.numero_ordine || '').toLowerCase().includes(search)) return false;
-    return true;
-  });
-
-  if (filtered.length === 0) {
-    container.innerHTML = '<div class="stato-empty">Nessun ordine trovato</div>';
-    return;
-  }
-
-  // Raggruppa per fase (ordine pipeline)
-  const phaseOrder = ['LASER', 'PIEGA', 'SALDATURA', 'PULIZIA', 'COMPLETATO'];
-  const phaseLabels = { LASER: 'Laser', PIEGA: 'Piega', SALDATURA: 'Saldatura', PULIZIA: 'Pulizia', COMPLETATO: 'Completati' };
-  const phaseColors = { LASER: 'var(--blue)', PIEGA: '#92400e', SALDATURA: '#9d174d', PULIZIA: '#3730a3', COMPLETATO: 'var(--green-badge)' };
-  const phaseBgs = { LASER: 'var(--blue-bg)', PIEGA: '#fff4d6', SALDATURA: '#fce7f3', PULIZIA: '#e0e7ff', COMPLETATO: 'var(--green-badge-bg)' };
-
-  const groups = {};
-  filtered.forEach(o => {
-    const fase = (['COMPLETATO','DA_FATTURARE','CHIUSO'].includes(o.status) || o.status === 'PARZIALE') ? 'COMPLETATO' : (o.fase_corrente || 'LASER');
-    if (!groups[fase]) groups[fase] = [];
-    groups[fase].push(o);
-  });
-
-  let html = '';
-  phaseOrder.forEach(fase => {
-    const orders = groups[fase];
-    if (!orders || orders.length === 0) return;
-    // Ordina per data consegna
-    orders.sort((a, b) => {
-      if (!a.data_consegna) return 1;
-      if (!b.data_consegna) return -1;
-      return new Date(a.data_consegna) - new Date(b.data_consegna);
-    });
-
-    html += `<div class="stato-section">
-      <div class="stato-section-header" style="border-left-color:${phaseColors[fase]}; background:${phaseBgs[fase]};">
-        <span class="stato-section-title" style="color:${phaseColors[fase]};">${phaseLabels[fase]}</span>
-        <span class="stato-section-count" style="background:${phaseColors[fase]};">${orders.length}</span>
-      </div>`;
-
-    orders.forEach(o => {
-      const consegna = o.data_consegna ? new Date(o.data_consegna).toLocaleDateString('it-IT') : '—';
-      const numero = o.numero_ordine || o.id.substring(0, 8);
-      const steps = o.processing_steps || [];
-
-      // Urgenza consegna
-      let urgClass = '';
-      if (o.data_consegna) {
-        const diff = (new Date(o.data_consegna) - new Date()) / (1000*60*60*24);
-        if (diff < 0) urgClass = 'overdue';
-        else if (diff <= 3) urgClass = 'soon';
-      }
-
-      // Azioni
-      let actionsHtml = '';
-      const laserStep = steps.filter(s => s.fase === 'LASER').pop();
-      if (fase === 'LASER') {
-        const started = laserStep?.timestamp_inizio && !laserStep?.timestamp_fine;
-        const done = laserStep?.timestamp_fine;
-        if (!done && !started) {
-          actionsHtml = `<button class="stato-action-btn green" onclick="startPhase('${o.id}')">Inizia Taglio</button>`;
-        } else if (started) {
-          actionsHtml = `<button class="stato-action-btn green" onclick="completePhase('${o.id}')">Completa</button>`;
-        }
-      }
-      actionsHtml += `<button class="stato-action-btn outline" onclick="statoViewPdf('${o.id}')">PDF</button>`;
-      if (fase === 'LASER') {
-        actionsHtml += `<button class="stato-action-btn outline" onclick="statoGoToOrder('${o.id}')">Apri</button>`;
-      }
-
-      html += `<div class="stato-row">
-        <div class="stato-row-client">${escapeHtml(o.cliente)}</div>
-        <div class="stato-row-num">#${escapeHtml(numero)}</div>
-        <div class="stato-row-consegna ${urgClass}">${consegna}</div>
-        <div class="stato-row-actions">${actionsHtml}</div>
-      </div>`;
-    });
-
-    html += `</div>`;
-  });
-
-  container.innerHTML = html;
-}
 
 function statoViewPdf(orderId) {
   const modal = document.getElementById('pdf-modal');
@@ -2391,6 +2320,11 @@ async function handleDrop(e, targetDate) {
 }
 
 async function rescheduleOrder(orderId, newDate) {
+  // Spostare una consegna e' una decisione commerciale, non del laser: la
+  // prende l'ufficio, che sa cosa e' stato promesso al cliente.
+  showToast('La data di consegna la cambia l\'ufficio', 'error');
+  return;
+  /* eslint-disable no-unreachable */
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   try {
     const response = await fetch(`${API_URL}/api/orders/${orderId}/delivery-date`, {
@@ -2398,6 +2332,7 @@ async function rescheduleOrder(orderId, newDate) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data_consegna: newDate, operatore_id: user.id })
     });
+    /* eslint-enable no-unreachable */
     const result = await response.json();
     if (result.success) {
       const order = allOrders.find(o => o.id === orderId);
@@ -2424,34 +2359,36 @@ function updateKPIs() {
     return d >= startDate && d <= endDate;
   });
 
-  const completati = periodOrders.filter(o => {
-    const step = (o.processing_steps || []).filter(s => s.fase === 'LASER').pop();
-    return step && step.timestamp_fine;
+  // Solo numeri che nascono da un fatto registrato: il taglio marcato
+  // dall'operatore e la data di consegna dell'ordine. Prima "Tempo medio laser"
+  // veniva dai processing_steps: nel database ce ne sono TRE in tutto e non
+  // cresceranno, perche' le fasi non si tracciano piu'.
+  const oggiK = new Date(); oggiK.setHours(0, 0, 0, 0);
+  const lunediK = new Date(oggiK);
+  lunediK.setDate(oggiK.getDate() - ((oggiK.getDay() + 6) % 7));
+
+  const tagliatiDa = (da) => (allOrders || []).filter(o => {
+    if (!o.data_taglio_completato) return false;
+    const d = new Date(o.data_taglio_completato); d.setHours(0, 0, 0, 0);
+    return d >= da;
+  }).length;
+
+  const codaK = ordiniDaTagliare();
+  const scadutiK = codaK.filter(o => {
+    if (!o.data_consegna) return false;
+    const d = new Date(o.data_consegna); d.setHours(0, 0, 0, 0);
+    return d < oggiK;
   });
 
-  const attesa = periodOrders.filter(o => {
-    const step = (o.processing_steps || []).filter(s => s.fase === 'LASER').pop();
-    return !step || !step.timestamp_inizio;
-  });
-
-  const durations = completati.map(o => {
-    const step = (o.processing_steps || []).filter(s => s.fase === 'LASER').pop();
-    if (!step || !step.timestamp_inizio || !step.timestamp_fine) return null;
-    return (new Date(step.timestamp_fine) - new Date(step.timestamp_inizio)) / 60000;
-  }).filter(d => d !== null && d > 0);
-
-  const avgMinutes = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null;
-
-  const todayStr = formatDateStr(new Date());
-  const todayOrders = allOrders.filter(o => o.data_consegna && o.data_consegna.split('T')[0] === todayStr).length;
-  const capacityPct = periodOrders.length > 0 ? Math.round((todayOrders / periodOrders.length) * 100) : 0;
-
-  document.getElementById('kpi-completati').textContent = completati.length;
-  document.getElementById('kpi-completati-sub').textContent = `nel ${calView === 'month' ? 'mese' : calView === 'week' ? 'settimana' : 'giorno'}`;
-  document.getElementById('kpi-attesa').textContent = attesa.length;
-  document.getElementById('kpi-tempo-medio').textContent = avgMinutes !== null ? (avgMinutes >= 60 ? `${Math.floor(avgMinutes / 60)}h ${avgMinutes % 60}m` : `${avgMinutes}m`) : '—';
-  document.getElementById('kpi-capacita').textContent = `${todayOrders} / ${periodOrders.length}`;
-  document.getElementById('kpi-capacita-sub').textContent = `${capacityPct}% del periodo`;
+  const _setK = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  _setK('kpi-oggi', tagliatiDa(oggiK));
+  _setK('kpi-settimana', tagliatiDa(lunediK));
+  _setK('kpi-coda', codaK.length);
+  _setK('kpi-scaduti', scadutiK.length);
+  _setK('kpi-scaduti-sub', scadutiK.length
+    ? 'il più vecchio: ' + new Date(Math.min.apply(null,
+        scadutiK.map(o => new Date(o.data_consegna)))).toLocaleDateString('it-IT')
+    : 'nessuno in ritardo');
 }
 
 function getCurrentViewRange() {
@@ -2682,7 +2619,6 @@ setInterval(pollNotifCount, 30000);
 setTimeout(pollNotifCount, 2000);
 
 // === COMPLETE ORDER (chiusura anticipata) ===
-let completeOrderTarget = null;
 
 function formatDurSec(sec) {
   if (!sec || sec <= 0) return '';
@@ -2691,83 +2627,8 @@ function formatDurSec(sec) {
   return h > 0 ? `${h}h ${m}min` : `${m}min`;
 }
 
-function openCompleteOrderModal(orderId) {
-  const order = allOrders.find(o => o.id === orderId) || allOrdiniStato.find(o => o.id === orderId);
-  if (!order) return;
-  // Blocca se operatore di supporto
-  const curUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const isSupport = (order.support_requests || []).some(sr => sr.operatore_supporto === curUser.id && sr.stato === 'accepted');
-  if (isSupport && !curUser.is_capo) {
-    showToast("Solo l'operatore principale può chiudere l'ordine", 'error');
-    return;
-  }
-  completeOrderTarget = orderId;
 
-  const allPhases = ['LASER', 'PIEGA', 'SALDATURA', 'PULIZIA'];
-  const steps = order.processing_steps || [];
-  const executedPhases = new Set(steps.filter(s => s.timestamp_fine).map(s => s.fase));
-  const activeStep = steps.find(s => !s.timestamp_fine);
-  if (activeStep) executedPhases.add(activeStep.fase);
 
-  let html = '';
-  allPhases.forEach(p => {
-    const step = steps.filter(s => s.fase === p).pop();
-    if (executedPhases.has(p)) {
-      const dur = step?.tempo_cumulativo_secondi || 0;
-      const durStr = dur > 0 ? formatDurSec(dur) : (step?.timestamp_inizio ? 'in corso' : '');
-      html += `<div class="co-phase-done">&#10004; ${p} &mdash; ${escapeHtml(step?.operatore || '')} ${durStr}</div>`;
-    } else {
-      html += `<div class="co-phase-skip">&mdash; ${p} &mdash; Non necessaria</div>`;
-    }
-  });
-
-  document.getElementById('co-order-info').textContent =
-    `${order.cliente} — #${order.numero_ordine || order.id.substring(0,8)}`;
-  document.getElementById('co-phase-summary').innerHTML = html;
-  document.getElementById('co-note').value = '';
-  document.getElementById('co-overlay').style.display = 'flex';
-}
-
-function closeCompleteOrderModal() {
-  document.getElementById('co-overlay').style.display = 'none';
-  completeOrderTarget = null;
-}
-
-async function confirmCompleteOrder() {
-  if (!completeOrderTarget) return;
-  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  const note = document.getElementById('co-note').value.trim();
-  try {
-    const resp = await fetch(`${API_URL}/api/orders/${completeOrderTarget}/complete-order`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ operatore_id: user.id, note })
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      console.error('complete-order error:', resp.status, text);
-      try {
-        const err = JSON.parse(text);
-        showToast('Errore: ' + (err.error || resp.status), 'error');
-      } catch (_) {
-        showToast('Errore server: ' + resp.status, 'error');
-      }
-      return;
-    }
-    const result = await resp.json();
-    if (result.success) {
-      closeCompleteOrderModal();
-      showToast('Ordine completato!');
-      await loadOrders();
-      if (currentTab === 'stato') loadStatoOrdini();
-    } else {
-      showToast('Errore: ' + (result.error || ''), 'error');
-    }
-  } catch (err) {
-    console.error('complete-order fetch error:', err);
-    showToast('Errore di connessione: ' + err.message, 'error');
-  }
-}
 
 // === SUPPORTO / CHIEDI AIUTO ===
 let supportModalOrderId = null;
@@ -2884,20 +2745,6 @@ document.addEventListener('click', (e) => {
     <div class="confirm-actions">
       <button class="confirm-btn cancel" onclick="resolveConfirm(false)">Annulla</button>
       <button class="confirm-btn primary" id="confirm-ok-btn" onclick="resolveConfirm(true)">Conferma</button>
-    </div>
-  </div>
-</div>
-
-<!-- COMPLETE ORDER MODAL -->
-<div class="co-overlay" id="co-overlay" style="display:none;" onclick="closeCompleteOrderModal()">
-  <div class="co-modal" onclick="event.stopPropagation()">
-    <h3>Chiudi Ordine Definitivamente</h3>
-    <p class="co-subtitle" id="co-order-info"></p>
-    <div class="co-phase-list" id="co-phase-summary"></div>
-    <textarea class="co-note" id="co-note" placeholder="Note (opzionale)"></textarea>
-    <div class="co-actions">
-      <button class="btn-danger" onclick="confirmCompleteOrder()">Conferma Chiusura</button>
-      <button class="btn-cancel" onclick="closeCompleteOrderModal()">Annulla</button>
     </div>
   </div>
 </div>
