@@ -169,18 +169,6 @@
   .testa-bacheca .agg{font-size:14px; color:var(--gray-muted); font-weight:500}
   .bacheca{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:18px}
 
-  /* Le ore per cliente: e' il numero per cui esiste tutta la raccolta. */
-  .per-cliente{background:var(--white); border:1px solid var(--border);
-    border-radius:16px; padding:18px 22px; margin-bottom:22px}
-  .per-cliente h3{margin:0 0 14px; font-size:13px; letter-spacing:.08em;
-    text-transform:uppercase; color:var(--gray-muted); font-weight:800}
-  .per-cliente .riga{display:flex; justify-content:space-between; align-items:baseline;
-    gap:16px; padding:9px 0; border-bottom:1px solid var(--border-2, #eee); font-size:19px}
-  .per-cliente .riga:last-of-type{border-bottom:0}
-  .per-cliente .riga b{font-variant-numeric:tabular-nums; font-weight:800}
-  .per-cliente .tot{display:flex; justify-content:space-between; margin-top:12px;
-    padding-top:12px; border-top:2px solid var(--black); font-size:20px; font-weight:800}
-  .per-cliente .interna{color:var(--gray-muted)}
 
   /* Aggiungere una persona: un gesto, non una procedura. */
   .btn-aggiungi{margin-top:18px; width:100%; padding:16px; font-size:17px;
@@ -277,10 +265,6 @@
       <h2>Ore di oggi</h2>
       <div class="agg" id="bacheca-agg"></div>
     </div>
-    <!-- Il conto che serve davvero: quante ore per ogni cliente. Le schede
-         qui sotto dicono chi ha registrato; questo dice quanto e' costato. -->
-    <div class="per-cliente" id="per-cliente" hidden></div>
-
     <p class="hint">Tocca il tuo nome per registrare o correggere le tue ore.</p>
     <div class="bacheca" id="griglia-operai"></div>
     <button class="btn-aggiungi" onclick="chiediNome()">+ Aggiungi una persona</button>
@@ -341,9 +325,6 @@ const API = '';
 let TOKEN = null;
 let CTX = null;                 // contesto dispositivo (scope, oggi, passo)
 let OPERAI = [], CLIENTI = [];
-// Il conto per cliente lo fa il server: qui si conserva solo l'ultimo
-// ricevuto, per poterlo ridisegnare senza richiederlo.
-let PER_CLIENTE = [], MINUTI_INTERNI = 0, TOTALE_MINUTI = 0;
 let operatore = null;           // {id, nome}
 let righe = [];                 // [{cliente|null, attivita_interna, minuti}]
 let revisione = 0;              // revisione letta dal server
@@ -421,9 +402,6 @@ async function salvaToken() {
 async function caricaAnagrafiche() {
   const [a, b] = await Promise.all([api('/api/ore/bacheca'), api('/api/ore/clienti')]);
   OPERAI = (a.data && a.data.operai) || [];
-  PER_CLIENTE = (a.data && a.data.per_cliente) || [];
-  MINUTI_INTERNI = (a.data && a.data.minuti_interni) || 0;
-  TOTALE_MINUTI = (a.data && a.data.totale_minuti) || 0;
   CLIENTI = (b.data && b.data.clienti) || [];
   ULTIMA_BACHECA = a.ok ? new Date() : ULTIMA_BACHECA;
   renderOperai();
@@ -436,9 +414,6 @@ async function aggiornaBacheca() {
   const r = await api('/api/ore/bacheca');
   if (r.ok && r.data && r.data.operai) {
     OPERAI = r.data.operai;
-    PER_CLIENTE = r.data.per_cliente || [];
-    MINUTI_INTERNI = r.data.minuti_interni || 0;
-    TOTALE_MINUTI = r.data.totale_minuti || 0;
     ULTIMA_BACHECA = new Date();
     renderOperai();
   }
@@ -453,34 +428,6 @@ function dataIta(iso) {
 // ===========================================================================
 //  1. Nomi
 // ===========================================================================
-/** Le ore di oggi per ogni cliente.
-    E' il motivo per cui si raccolgono: sapere quanto e' costato ogni lavoro.
-    Le schede qui sotto dicono chi ha registrato e chi no; questo dice quanto.
-    La somma la fa il server, che sa riconoscere lo stesso cliente scritto in
-    modi diversi: qui si mostra soltanto. */
-function renderPerCliente() {
-  const box = document.getElementById('per-cliente');
-  if (!box) return;
-  const righe = PER_CLIENTE || [];
-  if (!righe.length && !MINUTI_INTERNI) {
-    box.hidden = true;
-    box.innerHTML = '';
-    return;
-  }
-  box.hidden = false;
-  box.innerHTML = '<h3>Ore di oggi per cliente</h3>'
-    + righe.map(r =>
-        `<div class="riga"><span>${esc(r.cliente)}</span>`
-        + `<b>${oreTesto(r.minuti)} h</b></div>`).join('')
-    // Le attivita' interne stanno in fondo e in grigio: sono ore lavorate,
-    // ma non per un cliente, e sommarle al resto falserebbe il conto.
-    + (MINUTI_INTERNI
-        ? `<div class="riga"><span class="interna">${esc(ETICHETTA_INTERNA())}</span>`
-          + `<b class="interna">${oreTesto(MINUTI_INTERNI)} h</b></div>`
-        : '')
-    + `<div class="tot"><span>Totale</span><b>${oreTesto(TOTALE_MINUTI)} h</b></div>`;
-}
-
 function renderOperai() {
   const g = document.getElementById('griglia-operai');
   const agg = document.getElementById('bacheca-agg');
@@ -490,7 +437,6 @@ function renderOperai() {
           { hour: '2-digit', minute: '2-digit' })
       : '';
   }
-  renderPerCliente();
   if (!OPERAI.length) {
     g.innerHTML = '<div class="vuoto">Nessuno sulla bacheca. '
                 + 'Aggiungi una persona qui sotto.</div>';

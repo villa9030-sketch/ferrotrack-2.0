@@ -156,25 +156,14 @@ def api_bacheca():
     for v in voci:
         _con_attese(v, v['id'], data)
 
-    # Le ore per cliente: e' il numero per cui esiste tutta la raccolta.
-    # Le somma il server, applicando la stessa regola del riepilogo mensile,
-    # cosi' i due conti non possono discordare.
-    coppie, interne = [], 0
-    for v in voci:
-        for r in (v.get('righe') or []):
-            if r.get('attivita_interna'):
-                interne += int(r.get('minuti') or 0)
-            else:
-                coppie.append((r.get('cliente'), r.get('minuti')))
-    per_cliente = svc.raggruppa_per_cliente(coppie)
-    totale = sum(x['minuti'] for x in per_cliente) + interne
-
-    return jsonify({
-        'success': True, 'data': data, 'operai': voci,
-        'per_cliente': per_cliente,
-        'minuti_interni': interne,
-        'totale_minuti': totale,
-    }), 200
+    # Qui NON si mandano i totali delle ore per cliente.
+    #
+    # Questa bacheca sta appesa alla timbratrice, e li' li legge chiunque passi:
+    # quanto costa ogni commessa, quale cliente tiene occupata l'officina. Sono
+    # numeri da ufficio, e in ufficio ci sono gia' — nel riepilogo economico,
+    # calcolati con la stessa regola. Non basterebbe nasconderli nella pagina:
+    # un dato spedito e' un dato leggibile anche se non viene disegnato.
+    return jsonify({'success': True, 'data': data, 'operai': voci}), 200
 
 
 @bp_ore.route('/giornata', methods=['GET'])
