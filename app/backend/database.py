@@ -707,6 +707,9 @@ class OrderManager:
                     # Cartella da aprire in Lantek: il percorso serve
                     # all'operatore, i singoli file scaricati no.
                     'cartella_disegni': _cartella_disegni(order),
+                    # Come chiamarla parlando con un operatore. Vuota quando i
+                    # disegni non sono ancora nella cartella condivisa.
+                    'cartella_etichetta': _etichetta_cartella(order),
                 })
 
             return result
@@ -3618,6 +3621,15 @@ def _totale_concordato(preventivo: dict):
     except (TypeError, ValueError):
         pass
     return None
+
+
+def _etichetta_cartella(order) -> str:
+    """Nome leggibile della sottocartella condivisa (import differito)."""
+    try:
+        from .app import _etichetta_cartella_disegni
+        return _etichetta_cartella_disegni(order)
+    except Exception:
+        return ''
 
 
 def _cartella_disegni(order) -> str:

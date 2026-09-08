@@ -4586,6 +4586,34 @@ def api_preventivi_calcola(preventivo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _etichetta_cartella_disegni(order) -> str:
+    """Come si chiama, per un umano, la sottocartella dei disegni di quest'ordine.
+
+    Vale solo per la cartella CONDIVISA con l'ufficio, quella che l'operatore
+    apre a mano per importare in Lantek: la' dentro cerca <cliente>/<numero>.
+    Se i disegni stanno ancora soltanto nella cartella interna
+    dell'applicazione non c'e' niente da dire, perche' quel percorso non e'
+    un posto dove qualcuno vada a guardare.
+    """
+    try:
+        numero = (order.get('numero_ordine') if isinstance(order, dict)
+                  else getattr(order, 'numero_ordine', None)) or ''
+        cliente = (order.get('cliente') if isinstance(order, dict)
+                   else getattr(order, 'cliente', None)) or ''
+        root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+        if not (root and numero):
+            return ''
+        from .preventivi.dxf_cleanup import _sanitize_path_part
+        c = _sanitize_path_part(cliente, 'cliente_sconosciuto')
+        n = _sanitize_path_part(numero, 'ordine')
+        if not os.path.isdir(os.path.join(root, c, n)):
+            return ''
+        return (cliente + '  \u203a  ' + numero) if cliente else numero
+    except Exception:
+        logger.exception('etichetta cartella disegni non determinabile')
+        return ''
+
+
 def _cartella_disegni_ordine(order) -> str:
     """Percorso della cartella da aprire in Lantek per quest'ordine.
 

@@ -294,9 +294,9 @@ body {
 }
 .barra-dxf > span { flex: none; }
 .barra-dxf a { flex: none; }
-/* Il percorso e' la cosa da leggere: prende lo spazio. Il pulsante resta
-   della sua misura invece di allargarsi a meta' barra. */
-.barra-dxf code { flex: 1 1 auto; min-width: 0; }
+/* Il nome della sottocartella e' corto: sta della sua misura, allineato a
+   sinistra, invece di stirarsi su tutta la barra. */
+.barra-dxf code { flex: none; min-width: 0; font-family: inherit; font-weight: 600; }
 .barra-dxf .btn-taglio { width: auto; flex: none; margin-top: 0; }
 .barra-dxf a {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
@@ -1916,64 +1916,37 @@ function apriPdfScheda() {
   window.open(f.src.split('#')[0], '_blank', 'noopener');
 }
 
-/** La CARTELLA dei disegni, non i singoli file.
-    Scaricarli uno per uno dal browser non serve a nulla: in Lantek si apre la
-    cartella. Qui si mostra il percorso e lo si copia con un clic, pronto da
-    incollare in Esplora risorse. */
+/** Quanti disegni ha quest'ordine, e in quale sottocartella stanno.
+
+    Mirko importa a mano in Lantek da una cartella condivisa con l'ufficio, che
+    conosce: il percorso intero era ingombro. Gli serve sapere QUANTI pezzi deve
+    trovarsi nell'import, e DOVE dentro quella cartella. Non c'e' un pulsante
+    "apri cartella" perche' un browser non puo' aprire cartelle di rete. */
 function mostraDisegni(order) {
   const barra = document.getElementById('barra-dxf');
   if (!barra) return;
   const files = (order.dxf_files || []).map(f =>
     typeof f === 'string' ? f : (f.filename || f.nome || '')).filter(Boolean);
-  const cartella = order.cartella_disegni || '';
-  if (!files.length && !cartella) {
+  if (!files.length) {
     barra.style.display = 'none';
     barra.innerHTML = '';
     return;
   }
+  // L'etichetta la decide il server, che sa se i disegni sono gia' nella
+  // cartella condivisa o solo in quella interna dell'applicazione.
+  const dove = order.cartella_etichetta || '';
   barra.style.display = 'flex';
-  if (!cartella) {
-    barra.innerHTML = '<span style="color:var(--text-secondary);">'
-      + files.length + ' disegni per questo ordine, ma la cartella non risulta '
-      + 'pronta. Avvisa l\'ufficio.</span>';
-    return;
-  }
   barra.innerHTML =
-    '<span style="color:var(--text-secondary); font-weight:600;">Disegni ('
-      + files.length + ')</span>'
-    + '<code id="dxf-cartella" style="font-size:12px; padding:5px 10px; '
-      + 'background:#fff; border:1px solid var(--border); border-radius:7px; '
-      + 'white-space:nowrap; max-width:58vw; overflow:hidden; '
-      + 'text-overflow:ellipsis;" title="' + escapeHtml(cartella) + '">'
-      + escapeHtml(cartella) + '</code>'
-    + '<button class="btn-taglio" onclick="copiaCartella()">Copia percorso</button>'
-    + '<span id="dxf-copiato" style="color:var(--green); font-weight:700; '
-      + 'display:none;">copiato</span>';
+    '<span style="font-weight:700;">' + files.length + ' disegni</span>'
+    + (dove
+        ? '<span style="color:var(--text-secondary);">nella cartella</span>'
+          + '<code style="font-size:12px; padding:4px 10px; background:#fff; '
+          + 'border:1px solid var(--border); border-radius:7px;">'
+          + escapeHtml(dove) + '</code>'
+        : '<span style="color:var(--text-secondary);">non ancora nella '
+          + 'cartella condivisa: chiedi in ufficio</span>');
 }
 
-/** Copia il percorso: si incolla in Esplora risorse o nella finestra di
-    apertura di Lantek. */
-function copiaCartella() {
-  const el = document.getElementById('dxf-cartella');
-  if (!el) return;
-  const conferma = () => {
-    const s = document.getElementById('dxf-copiato');
-    if (s) { s.style.display = 'inline'; setTimeout(() => { s.style.display = 'none'; }, 2000); }
-  };
-  const ripiego = () => {
-    const r = document.createRange();
-    r.selectNodeContents(el);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(r);
-    try { document.execCommand('copy'); conferma(); } catch (_) {}
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(el.textContent).then(conferma).catch(ripiego);
-  } else {
-    ripiego();
-  }
-}
 
 // === DESELECT ORDER ===
 function clearDetails() { deselectOrder(); }
