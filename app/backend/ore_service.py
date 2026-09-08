@@ -25,7 +25,7 @@ except Exception:  # pragma: no cover - fallback estremo
     _TZ = None
 
 from .database import get_session
-from .models import User
+from .models import RUOLI_OPERAI, User
 from .models_ore import Cliente, GiornataOre, RigaOre
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def elenco_operai() -> list:
     session = get_session()
     try:
         attese = {a.operatore_id: a for a in session.query(OreAttese).all()}
-        ruoli_officina = ('Operaio Laser', 'Operaio Officina')
+        ruoli_officina = RUOLI_OPERAI
         out = []
         for u in session.query(User).filter(User.is_active == True).all():  # noqa: E712
             cfg = attese.get(u.id)

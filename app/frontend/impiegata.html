@@ -1377,6 +1377,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   <div class="tab-item" data-tab="ordini" onclick="switchTab('ordini')">Ordini</div>
   <div class="tab-item" data-tab="fatturare" onclick="switchTab('fatturare')">Ordini da Fatturare <span class="fatt-badge" id="fatt-badge" style="display:none;">0</span></div>
   <div class="tab-item" data-tab="archivio" onclick="switchTab('archivio')">Archivio</div>
+  <!-- Le ore stanno su una pagina sua: e' un lavoro diverso dagli ordini,
+       con i suoi controlli e il suo riepilogo. Il numero accanto sono le
+       giornate da controllare: si vede che c'e' da fare senza entrarci. -->
+  <a class="tab-item" href="/ufficio-ore.html" style="text-decoration:none;">Ore e riepilogo <span class="fatt-badge" id="ore-badge" style="display:none;">0</span></a>
   <div class="tab-item" data-tab="backup" onclick="switchTab('backup')">Backup</div>
 </div>
 
@@ -1971,6 +1975,27 @@ async function _sessioneAncoraValida() {
   return true;
 }
 
+/** Quante giornate ci sono da controllare. Un numero accanto alla scheda
+    vale piu' di una pagina in piu' da ricordarsi di aprire. */
+async function _contaOreDaControllare() {
+  const badge = document.getElementById('ore-badge');
+  if (!badge) return;
+  try {
+    // Le ore sono protette dal token del dispositivo, lo stesso che usa la
+    // pagina "Ore e riepilogo". Se questo PC non e' ancora abilitato il numero
+    // semplicemente non compare: la scheda resta raggiungibile lo stesso.
+    const tok = localStorage.getItem('ufficio_device_token');
+    if (!tok) return;
+    const r = await fetch(`${API_URL}/api/ore/anomalie?stato=aperta`,
+                          { headers: { 'X-Device-Token': tok } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const n = (d.anomalie || []).length;
+    badge.textContent = n;
+    badge.style.display = n ? '' : 'none';
+  } catch (_) { /* server irraggiungibile: la scheda resta senza numero */ }
+}
+
 function updateUserPill() {
   const user = JSON.parse(localStorage.getItem('currentUser'));
   if (!user) return;
@@ -1990,6 +2015,8 @@ window.addEventListener('load', () => {
   // Prima di tutto: la sessione salvata vale ancora? Se no si torna
   // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
   _sessioneAncoraValida();
+  _contaOreDaControllare();
+  setInterval(_contaOreDaControllare, 120000);
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!user.id) { window.location.href = '/login.html'; return; }
   currentUser = user;

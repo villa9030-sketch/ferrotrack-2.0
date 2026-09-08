@@ -18,6 +18,34 @@ DATABASE_URL = f'sqlite:///{DATABASE_PATH.replace(chr(92), "/")}'
 
 Base = declarative_base()
 
+# ---------------------------------------------------------------------------
+# I ruoli, dichiarati una volta sola.
+#
+# Confrontare stringhe scritte a mano sparse per il programma e' come tenere
+# cinque copie della stessa chiave: quando cambia la serratura, una resta
+# sempre indietro. E' successo davvero: rinominando le utenze in postazioni, il
+# controllo delle ore mancanti cercava ancora "Impiegata" e non avvisava piu'
+# nessuno, in silenzio.
+#
+# I nomi vecchi restano validi: nel database ci sono le utenze spente e
+# l'archivio delle azioni, e un domani si possono riaccendere.
+# ---------------------------------------------------------------------------
+
+# Dove si fa lavoro d'ufficio: ordini, consegne, fatturazione. E' anche chi
+# riceve gli avvisi sulle ore mancanti.
+RUOLI_UFFICIO = ('Amministrazione', 'Impiegata')
+
+# Dove si comanda. La postazione laser porta con se' la delega del capo, cosi'
+# le decisioni non aspettano che il responsabile sia in ufficio.
+RUOLI_COMANDO = ('Laser', 'Capo Officina', 'Amministratore')
+
+# Chi sta al laser e puo' marcare un taglio come fatto.
+RUOLI_LASER = ('Laser', 'Operaio Laser')
+
+# Le persone di cui si contano le ore. Non sono postazioni: non entrano nel
+# programma, toccano il proprio nome sul tablet della timbratrice.
+RUOLI_OPERAI = ('Operaio Laser', 'Operaio Officina')
+
 class FaseCorrente(str, enum.Enum):
     LASER = "LASER"
     PIEGA = "PIEGA"

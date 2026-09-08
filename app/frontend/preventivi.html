@@ -3040,19 +3040,35 @@ function _pesoArticoloKg(a) {
 }
 
 // ---------- session / topbar ----------
+/** Dove sta di casa una postazione.
+    Ripetuta in ogni pagina perche' le pagine sono indipendenti: e' la stessa
+    funzione ovunque, e va tenuta allineata. */
+function paginaDiCasa(u) {
+  const r = (u && u.role) || '';
+  if (r === 'Timbratrice') return '/ore.html';
+  if (r === 'Visione') return '/operaio-info.html';
+  if (r === 'Laser' || r === 'Operaio Laser') return '/laser.html';
+  if (r === 'Amministrazione' || r === 'Impiegata') return '/impiegata.html';
+  if (r === 'Commerciale') return '/preventivi.html';
+  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
+    return '/capo-officina.html';
+  }
+  return '/operaio-info.html';
+}
+
 window.addEventListener('load', () => {
   // Prima di tutto: la sessione salvata vale ancora? Se no si torna
   // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
   _sessioneAncoraValida();
-  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+  
+
+const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!user.id) { window.location.href = '/login.html'; return; }
   currentUser = user;
   const perms = user.permissions || [];
   const isAuth = user.role === 'Commerciale' || user.role === 'Amministratore' || user.is_capo;
   if (!isAuth) {
-    if (user.role === 'Operaio Laser') window.location.href = '/laser.html';
-    else if (user.role === 'Impiegata') window.location.href = '/impiegata.html';
-    else window.location.href = '/operaio-info.html';
+    window.location.href = paginaDiCasa(user);
     return;
   }
   const initials = (user.name || '').split(' ').map(w => w[0]).join('').toUpperCase() || '?';

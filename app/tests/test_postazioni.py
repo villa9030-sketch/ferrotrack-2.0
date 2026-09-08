@@ -147,6 +147,26 @@ def main():
     stato, d = chiama('/api/auth/sessione/non-esiste-questo')
     check('un id inventato non vale', d.get('valida') is False, d)
 
+    print("\n7) Nessuna pagina e' rimasta indietro sui nomi nuovi")
+    # La mappa "dove sta di casa una postazione" e' ripetuta in cinque pagine,
+    # perche' le pagine sono indipendenti l'una dall'altra. Se una resta
+    # indietro, chi ci capita viene rimandato nel posto sbagliato. Il controllo
+    # e' grossolano — cerca il nome del ruolo nel testo della pagina — ma prende
+    # il caso vero: una pagina che il ruolo nuovo non lo nomina affatto.
+    import io as _io
+    ruoli_attesi = ('Timbratrice', 'Visione', 'Laser', 'Amministrazione',
+                    'Commerciale')
+    for pagina in ('login.html', 'admin.html', 'archivio.html',
+                   'preventivi.html', 'capo-officina.html'):
+        percorso = os.path.join(_APP, 'frontend', pagina)
+        try:
+            testo = _io.open(percorso, encoding='utf-8').read()
+        except OSError:
+            continue
+        mancanti = [r for r in ruoli_attesi if ("'%s'" % r) not in testo]
+        check('%-22s conosce tutte le postazioni' % pagina,
+              not mancanti, 'non nomina: %s' % ', '.join(mancanti))
+
     print('\n' + '=' * 60)
     print('PASSATI: %d   FALLITI: %d' % (OK, len(KO)))
     if KO:

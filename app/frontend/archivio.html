@@ -1211,16 +1211,28 @@ function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+
+/** Dove sta di casa una postazione.
+    Ripetuta in ogni pagina perche' le pagine sono indipendenti: e' la stessa
+    funzione ovunque, e va tenuta allineata. */
+function paginaDiCasa(u) {
+  const r = (u && u.role) || '';
+  if (r === 'Timbratrice') return '/ore.html';
+  if (r === 'Visione') return '/operaio-info.html';
+  if (r === 'Laser' || r === 'Operaio Laser') return '/laser.html';
+  if (r === 'Amministrazione' || r === 'Impiegata') return '/impiegata.html';
+  if (r === 'Commerciale') return '/preventivi.html';
+  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
+    return '/capo-officina.html';
+  }
+  return '/operaio-info.html';
+}
+
 // === LOGOUT ===
 function goHome() {
   const u = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!u.id) { window.location.href = '/login.html'; return; }
-  if (u.role === 'Impiegata') { window.location.href = '/impiegata.html'; return; }
-  if (u.role === 'Operaio Laser') { window.location.href = '/laser.html'; return; }
-  if (u.is_capo || u.role === 'Capo Officina' || u.role === 'Amministratore') {
-    window.location.href = '/capo-officina.html'; return;
-  }
-  window.location.href = '/operaio-info.html';
+  window.location.href = paginaDiCasa(u);
 }
 
 async function logout() {

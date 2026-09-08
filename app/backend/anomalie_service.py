@@ -21,7 +21,7 @@ import uuid
 from datetime import date, datetime, timedelta
 
 from .database import get_session
-from .models import User
+from .models import RUOLI_UFFICIO, User
 from .models_ore import (
     AnomaliaOre, EccezioneGiorno, GiornataOre, OreAttese, RigaOre,
 )
@@ -259,7 +259,7 @@ _TESTO = {
 
 
 def notifica_anomalie(limite: int = 50) -> int:
-    """Notifica all'IMPIEGATA le anomalie aperte non ancora notificate.
+    """Avvisa l'AMMINISTRAZIONE delle giornate mancanti non ancora segnalate.
 
     Una anomalia si notifica UNA SOLA VOLTA (flag `notificata`): riavviare
     l'applicazione o rieseguire il controllo non produce doppioni.
@@ -270,8 +270,13 @@ def notifica_anomalie(limite: int = 50) -> int:
     try:
         destinatari = [u.id for u in session.query(User).filter(
             User.is_active == True,          # noqa: E712
-            User.role == 'Impiegata').all()]
+            User.role.in_(RUOLI_UFFICIO)).all()]
         if not destinatari:
+            # Nessuno a cui dirlo: va scritto, altrimenti "zero notifiche"
+            # sembra "nessuna mancanza" e le ore mancanti spariscono in
+            # silenzio.
+            logger.warning('nessuna postazione di amministrazione attiva: '
+                           'le giornate mancanti non vengono segnalate a nessuno')
             return 0
         nomi = {u.id: u.name for u in session.query(User).all()}
         aperte = session.query(AnomaliaOre).filter(

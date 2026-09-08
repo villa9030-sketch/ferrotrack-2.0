@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Importa moduli locali
 from . import email_sender as _email_sender
-from .models import initialize_database, Order, OrderFile, get_session
+from .models import (initialize_database, Order, OrderFile, get_session,
+                     RUOLI_UFFICIO, RUOLI_COMANDO, RUOLI_LASER)
 from .database import OrderManager, UserManager, AuditManager, ArchiveManager, FatturazioneManager, NotificationManager, AlertManager, KPIManager, BarcodeManager, PreventivoManager
 from .pdf_cartellino import genera_cartellino_pdf
 from .events import OrderEventBus
@@ -145,15 +146,6 @@ if os.environ.get('FERROTRACK_SKIP_DB_INIT') != '1':
     initialize_database()
 
 # ============ UTILITÀ AUTORIZZAZIONE ============
-
-# I posti da cui si fa lavoro d'ufficio: caricare ordini, confermare
-# consegne, fatturare. 'Impiegata' era il nome di prima e resta valido.
-RUOLI_UFFICIO = ('Amministrazione', 'Impiegata')
-
-# I posti da cui si comanda: la postazione laser porta con se' la delega del
-# capo, cosi' le decisioni non aspettano che il responsabile sia in ufficio.
-RUOLI_COMANDO = ('Laser', 'Capo Officina', 'Amministratore')
-
 
 def _require_capo(user_id: str) -> bool:
     """Verifica che user_id appartenga a un capo (is_capo=True) O a un Amministratore.
@@ -568,7 +560,7 @@ def mark_laser_done(order_id):
         if not user:
             return jsonify({'error': 'utente non trovato'}), 403
         # Solo ruolo Laser (o capo) può marcare il taglio completato
-        is_laser = user.get('role') in ('Laser', 'Operaio Laser') or user.get('is_capo')
+        is_laser = user.get('role') in RUOLI_LASER or user.get('is_capo')
         if not is_laser:
             return jsonify({'error': 'Solo operatore Laser o capo può marcare il taglio'}), 403
         result = OrderManager.mark_laser_done(order_id, user_id=user_id)
@@ -589,7 +581,7 @@ def mark_laser_undone(order_id):
         user = UserManager.get_user(user_id)
         if not user:
             return jsonify({'error': 'utente non trovato'}), 403
-        is_laser = (user.get('role') == 'Operaio Laser') or user.get('is_capo')
+        is_laser = user.get('role') in RUOLI_LASER or user.get('is_capo')
         if not is_laser:
             return jsonify({'error': 'Solo operatore Laser o capo può annullare il taglio'}), 403
         result = OrderManager.mark_laser_undone(order_id, user_id=user_id)
@@ -2689,7 +2681,10 @@ def api_preventivi_import_rfq_package():
         if not _require_role(admin_id, _PREV_WRITE_ROLES + ['Impiegata']):
             return jsonify({'success': False, 'error': 'Permesso negato'}), 403
         _caller = UserManager.get_user(admin_id) or {}
-        is_intake_elena = (_caller.get('role') == 'Impiegata')
+        # Una richiesta che arriva dall'amministrazione, col nome nuovo o
+        # con quello vecchio: senza questo, la bozza non risulta "da prezzare"
+        # e il commerciale non sa che c'e' qualcosa da fare.
+        is_intake_elena = (_caller.get('role') in RUOLI_UFFICIO)
 
         # Accetta sia uno ZIP (campo "zip", flusso commerciale) sia file SCIOLTI
         # (campo "files": PDF della richiesta + DXF). I file sciolti vengono

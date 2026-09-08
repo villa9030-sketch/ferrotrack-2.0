@@ -465,6 +465,23 @@ let currentUser = null;
 let _polls = [];
 
 // ---------- session / topbar ----------
+
+/** Dove sta di casa una postazione.
+    Ripetuta in ogni pagina perche' le pagine sono indipendenti: e' la stessa
+    funzione ovunque, e va tenuta allineata. */
+function paginaDiCasa(u) {
+  const r = (u && u.role) || '';
+  if (r === 'Timbratrice') return '/ore.html';
+  if (r === 'Visione') return '/operaio-info.html';
+  if (r === 'Laser' || r === 'Operaio Laser') return '/laser.html';
+  if (r === 'Amministrazione' || r === 'Impiegata') return '/impiegata.html';
+  if (r === 'Commerciale') return '/preventivi.html';
+  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
+    return '/capo-officina.html';
+  }
+  return '/operaio-info.html';
+}
+
 window.addEventListener('load', () => {
   // Prima di tutto: la sessione salvata vale ancora? Se no si torna
   // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
@@ -472,16 +489,11 @@ window.addEventListener('load', () => {
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!user.id) { window.location.href = '/login.html'; return; }
   currentUser = user;
-  // Solo capi/amministratori accedono qui. Operai laser hanno laser.html, gli
-  // altri operai non hanno UI (lavorano con la pistola WiFi).
+  // Qui si entra solo con la delega del capo: la porta la postazione laser,
+  // oltre alle vecchie utenze dei responsabili. Chi non ce l'ha torna a casa
+  // sua, invece di trovarsi davanti a una pagina che non gli serve.
   if (!user.is_capo && user.role !== 'Capo Officina' && user.role !== 'Amministratore') {
-    if (user.role === 'Operaio Laser') {
-      window.location.href = '/laser.html';
-    } else if (user.role === 'Impiegata') {
-      window.location.href = '/impiegata.html';
-    } else {
-      window.location.href = '/operaio-info.html';
-    }
+    window.location.href = paginaDiCasa(user);
     return;
   }
   const initials = (user.name || '').split(' ').map(w => w[0]).join('').toUpperCase() || '?';
