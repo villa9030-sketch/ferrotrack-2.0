@@ -192,7 +192,9 @@ body {
 /* === MAIN 3-COLUMN LAYOUT === */
 .main {
   display: grid;
-  grid-template-columns: 340px 1fr 380px;
+  /* Due aree soltanto: la coda e il disegno. Il disegno prende tutto lo spazio
+     che resta, perche' e' quello che l'operatore guarda per tagliare. */
+  grid-template-columns: 360px 1fr;
   height: calc(100vh - 120px);
   gap: 1px;
   background: var(--border);
@@ -255,6 +257,38 @@ body {
 }
 
 .order-item:hover { background: #f3f4f6; transform: translateY(-1px); }
+
+/* Stato del taglio sulla riga stessa: si vede e si cambia senza aprire nulla. */
+.riga-testa { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.btn-taglio {
+  flex: none; border: 1px solid var(--border); background: #fff;
+  border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 700;
+  cursor: pointer; white-space: nowrap; color: var(--text-primary);
+}
+.btn-taglio:hover { border-color: var(--green); }
+.btn-taglio.fatto { background: var(--green-badge-bg, #e7f5ee); color: #186c42;
+                    border-color: #bfe3cd; }
+.order-item.selected .btn-taglio {
+  background: rgba(255,255,255,.16); color: #fff;
+  border-color: rgba(255,255,255,.55);
+}
+.order-item.selected .btn-taglio.fatto { background: rgba(255,255,255,.9); color: #186c42; }
+.order-item.tagliato { opacity: .72; }
+
+/* Disegni tecnici sotto il PDF: servono per tagliare, non potevano sparire. */
+.barra-dxf {
+  display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
+  overflow-x: auto; padding: 8px 14px; border-top: 1px solid var(--border);
+  background: #f8f8fa; font-size: 12px; flex: none;
+}
+.barra-dxf > span { flex: none; }
+.barra-dxf a { flex: none; }
+.barra-dxf a {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  background: #fff; border: 1px solid var(--border); border-radius: 7px;
+  text-decoration: none; color: var(--text-primary); font-weight: 600;
+}
+.barra-dxf a:hover { border-color: var(--green); }
 .order-item.selected { background: var(--green); color: white; border-color: var(--green); }
 
 .order-client { font-weight: 600; }
@@ -436,37 +470,31 @@ body {
   padding: 20px;
 }
 
-.details {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-.details-header {
   padding: 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.details-title {
   font-size: 14px;
   font-weight: 700;
   color: var(--black);
   margin-bottom: 4px;
 }
 
-.details-meta {
   font-size: 12px;
   color: var(--gray-text);
 }
 
-.details-content {
   flex: 1;
   padding: 16px;
   overflow-y: auto;
 }
 
-.details-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
   display: flex;
@@ -484,15 +512,12 @@ body {
   font-size: 14px;
 }
 
-.detail-section {
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 
-.detail-section:last-child { border-bottom: none; }
 
-.section-label {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -501,7 +526,6 @@ body {
   letter-spacing: 0.5px;
 }
 
-.info-text {
   font-size: 13px;
   color: var(--black);
   word-break: break-word;
@@ -1163,7 +1187,7 @@ textarea.form-input { resize: vertical; min-height: 80px; padding: 10px 12px; he
 
 /* === RESPONSIVE === */
 @media (max-width: 1400px) {
-  .main { grid-template-columns: 300px 1fr 340px; }
+  .main { grid-template-columns: 300px 1fr; }
 }
 
 @media (max-width: 1024px) {
@@ -1386,20 +1410,10 @@ button:active {
       <button class="pdf-close" onclick="deselectOrder()">✕</button>
     </div>
     <iframe id="pdf-frame" class="pdf-frame"></iframe>
-    <div class="pdf-empty" id="pdf-empty">Seleziona un ordine dal calendario</div>
+    <div class="pdf-empty" id="pdf-empty">Seleziona un ordine dalla coda</div>
+    <div class="barra-dxf" id="barra-dxf" style="display:none;"></div>
   </div>
 
-  <!-- DETAILS -->
-  <div class="details">
-    <div class="details-header">
-      <div class="details-title" id="details-title">Dettagli Ordine</div>
-      <div class="details-meta" id="details-meta"></div>
-    </div>
-    <div class="details-content" id="details-content">
-      <div class="empty-state">&#x1F4CB; Seleziona un ordine dal calendario</div>
-    </div>
-    <div class="details-footer" id="details-footer"></div>
-  </div>
   </div>
 </div>
 
@@ -1543,7 +1557,7 @@ async function loadOrders() {
     if (selectedOrderId) {
       const order = allOrders.find(o => o.id === selectedOrderId);
       if (order) {
-        renderDetails(order);
+        mostraDisegni(order);
       } else {
         selectedOrderId = null;
         clearDetails();
@@ -1662,6 +1676,22 @@ function renderTagliatiOggi() {
   </div>`;
 }
 
+/** Stato e azione del taglio, direttamente sulla riga: un solo gesto, senza
+    passare da un pannello di dettaglio. Il clic non deve selezionare l'ordine,
+    altrimenti ricaricherebbe il PDF a ogni marcatura. */
+function bottoneTaglio(order) {
+  if (order.taglio_completato) {
+    const q = order.data_taglio_completato
+      ? new Date(order.data_taglio_completato).toLocaleDateString('it-IT') : '';
+    return `<button class="btn-taglio fatto"
+      onclick="event.stopPropagation(); undoLaserDone('${order.id}')"
+      title="Tagliato${q ? ' il ' + q : ''} \u2014 clicca per annullare">\u2714 Tagliato</button>`;
+  }
+  return `<button class="btn-taglio"
+    onclick="event.stopPropagation(); markLaserDone('${order.id}')"
+    title="Segna questo ordine come tagliato">Taglio fatto</button>`;
+}
+
 // === RENDER BY DEADLINE (vista originale) ===
 function renderByDeadline() {
   const { groups, byDate } = groupOrdersByDate();
@@ -1682,14 +1712,22 @@ function renderByDeadline() {
         const isSup = (order.support_requests || []).some(sr => sr.operatore_supporto === curUserId && sr.stato === 'accepted');
         const supInfo = isSup ? (order.support_requests || []).find(sr => sr.operatore_supporto === curUserId && sr.stato === 'accepted') : null;
         return `
-        <div class="order-item ${selectedOrderId === order.id ? 'selected' : ''}"
+        <div class="order-item ${selectedOrderId === order.id ? 'selected' : ''}${order.taglio_completato ? ' tagliato' : ''}"
              onclick="selectOrder('${order.id}')">
-          <div class="order-client">${order.cliente}</div>
+          <div class="riga-testa">
+            <div style="min-width:0;">
+              <div class="order-client">${escapeHtml(order.cliente || '')}</div>
+              <div style="font-size:11px;color:var(--text-secondary);">
+                #${escapeHtml(order.numero_ordine || order.id.substring(0, 8))}
+              </div>
+            </div>
+            ${bottoneTaglio(order)}
+          </div>
           ${isSup ? `<div style="font-size:10px;color:#1e40af;font-weight:600;">&#129309; In supporto a ${escapeHtml(supInfo.nome_principale)}</div>` : ''}
-          <div style="font-size:11px;color:var(--text-secondary);">
+          <div style="font-size:11px;color:var(--text-secondary); margin-top:4px;">
             ${new Date(order.data_consegna).toLocaleDateString('it-IT')}
             <span class="order-date-badge ${badgeClass}">
-              ${order.daysLeft < 0 ? '🔴 ' + (-order.daysLeft) + 'd' : order.daysLeft + 'd'}
+              ${order.daysLeft < 0 ? '\uD83D\uDD34 ' + (-order.daysLeft) + 'd' : order.daysLeft + 'd'}
             </span>
           </div>
         </div>`;
@@ -1702,10 +1740,18 @@ function renderByDeadline() {
     html += `<div class="date-group">
       <div class="date-group-header urgent-green">${date} (${orders.length})</div>
       ${orders.map(order => `
-        <div class="order-item ${selectedOrderId === order.id ? 'selected' : ''}"
+        <div class="order-item ${selectedOrderId === order.id ? 'selected' : ''}${order.taglio_completato ? ' tagliato' : ''}"
              onclick="selectOrder('${order.id}')">
-          <div class="order-client">${order.cliente}</div>
-          <div style="font-size:11px;color:var(--text-secondary);">${date}</div>
+          <div class="riga-testa">
+            <div style="min-width:0;">
+              <div class="order-client">${escapeHtml(order.cliente || '')}</div>
+              <div style="font-size:11px;color:var(--text-secondary);">
+                #${escapeHtml(order.numero_ordine || order.id.substring(0, 8))}
+              </div>
+            </div>
+            ${bottoneTaglio(order)}
+          </div>
+          <div style="font-size:11px;color:var(--text-secondary); margin-top:4px;">${date}</div>
         </div>
       `).join('')}
     </div>`;
@@ -1774,12 +1820,16 @@ function renderByClient() {
           const badgeClass = order.daysLeft < 0 ? 'badge-red' : order.daysLeft <= 1 ? 'badge-yellow' : 'badge-green';
           const sel = selectedOrderId === order.id ? ' selected' : '';
           const near = isNearest ? ' nearest-deadline' : '';
-          return `<div class="order-item${sel}${near}" onclick="selectOrder('${order.id}')">
-            <div>
-              <div class="order-client">${escapeHtml(order.numero_ordine || order.id.substring(0,8))}</div>
-              <div class="client-order-numero">${new Date(order.data_consegna).toLocaleDateString('it-IT')}</div>
+          return `<div class="order-item${sel}${near}${order.taglio_completato ? ' tagliato' : ''}"
+                       onclick="selectOrder('${order.id}')">
+            <div class="riga-testa">
+              <div style="min-width:0;">
+                <div class="order-client">${escapeHtml(order.numero_ordine || order.id.substring(0,8))}</div>
+                <div class="client-order-numero">${new Date(order.data_consegna).toLocaleDateString('it-IT')}</div>
+              </div>
+              ${bottoneTaglio(order)}
             </div>
-            <span class="order-date-badge ${badgeClass}">
+            <span class="order-date-badge ${badgeClass}" style="margin-top:4px; display:inline-block;">
               ${order.daysLeft < 0 ? (-order.daysLeft) + 'd' : order.daysLeft + 'd'}
             </span>
           </div>`;
@@ -1802,11 +1852,30 @@ function selectOrder(orderId) {
 
   const order = allOrders.find(o => o.id === orderId);
   if (order) {
-    renderDetails(order);
-    // Load PDF
     document.getElementById('pdf-frame').src = `${API_URL}/api/orders/${orderId}/pdf`;
     document.getElementById('pdf-empty').style.display = 'none';
+    document.getElementById('pdf-title').textContent =
+      (order.cliente || '') + '  \u00b7  #'
+      + (order.numero_ordine || order.id.substring(0, 8))
+      + '  \u00b7  consegna ' + new Date(order.data_consegna).toLocaleDateString('it-IT');
+    mostraDisegni(order);
   }
+}
+
+/** I disegni da tagliare, sotto l'anteprima. Erano nella colonna che abbiamo
+    tolto, e senza di loro all'operatore mancherebbe il file. */
+function mostraDisegni(order) {
+  const barra = document.getElementById('barra-dxf');
+  if (!barra) return;
+  const files = (order.dxf_files || []).map(f =>
+    typeof f === 'string' ? f : (f.filename || f.nome || '')).filter(Boolean);
+  if (!files.length) { barra.style.display = 'none'; barra.innerHTML = ''; return; }
+  barra.style.display = 'flex';
+  barra.innerHTML = '<span style="color:var(--text-secondary); font-weight:600;">Disegni ('
+    + files.length + ')</span>'
+    + files.slice(0, 40).map(f =>
+        `<a href="${API_URL}/api/orders/${order.id}/dxf/${encodeURIComponent(f)}"
+            target="_blank" rel="noopener">\uD83D\uDCC0 ${escapeHtml(f)}</a>`).join('');
 }
 
 // === DESELECT ORDER ===
@@ -1816,84 +1885,12 @@ function deselectOrder() {
   renderCalendar();
   document.getElementById('pdf-frame').src = '';
   document.getElementById('pdf-empty').style.display = 'flex';
-  document.getElementById('details-content').innerHTML = '<div class="empty-state">&#x1F4CB; Seleziona un ordine</div>';
-  document.getElementById('details-footer').innerHTML = '';
+  document.getElementById('pdf-title').textContent = 'PDF Ordine';
+  const barra = document.getElementById('barra-dxf');
+  if (barra) { barra.style.display = 'none'; barra.innerHTML = ''; }
 }
 
 // === RENDER DETAILS ===
-function renderDetails(order) {
-  document.getElementById('details-title').textContent = order.cliente;
-  document.getElementById('details-meta').textContent =
-    `#${order.id.substring(0, 8)} \u2022 ${new Date(order.data_consegna).toLocaleDateString('it-IT')}`;
-
-  const articles = order.articles_next_phase || [];
-
-  // Stato nel nuovo workflow: l'unica info che conta è "taglio completato o no"
-  const taglioFatto = !!order.taglio_completato;
-  const dataTaglio = order.data_taglio_completato
-    ? new Date(order.data_taglio_completato).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })
-    : '';
-
-  let html = `
-    <div class="detail-section">
-      <div class="section-label">Stato</div>
-      <div class="info-text">${taglioFatto ? '✅ Tagliato' + (dataTaglio ? ' — ' + dataTaglio : '') : '⭕ Da tagliare'}</div>
-    </div>
-  `;
-
-  // Articoli con quantita
-  if (articles.length > 0) {
-    html += `<div class="detail-section">
-      <div class="section-label">Articoli da lavorare (${articles.length})</div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        ${articles.map(a => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-light);border-radius:6px;font-size:12px;">
-            <span style="font-weight:600;">${escapeHtml(a.name || 'N/A')} ${a.code ? '<span style="color:var(--text-secondary)">(' + escapeHtml(a.code) + ')</span>' : ''}</span>
-            <span style="font-weight:700;color:var(--ls-green);">${a.qty || 0} pz</span>
-          </div>
-        `).join('')}
-        <div style="display:flex;justify-content:space-between;padding:8px 10px;background:rgba(26,122,72,0.08);border-radius:6px;font-size:12px;font-weight:700;">
-          <span>Totale pezzi</span>
-          <span style="color:var(--ls-green);">${articles.reduce((sum, a) => sum + (a.qty || 0), 0)} pz</span>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // DXF files
-  const dxfFiles = articles.filter(a => a.dxf_file).map(a => a.dxf_file);
-  if (dxfFiles.length > 0) {
-    html += `<div class="detail-section">
-      <div class="section-label">Disegni tecnici</div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        ${dxfFiles.map(f => `
-          <a href="${API_URL}/api/orders/${order.id}/dxf/${encodeURIComponent(f.filename)}"
-             target="_blank"
-             style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-light);border-radius:6px;font-size:12px;text-decoration:none;color:var(--text-primary);border:1px solid var(--border);transition:border-color 0.2s;"
-             onmouseover="this.style.borderColor='var(--ls-green)'" onmouseout="this.style.borderColor='var(--border)'">
-            <span style="font-size:16px;">\uD83D\uDCC0</span>
-            <span style="font-weight:600;flex:1;">${escapeHtml(f.filename)}</span>
-            <span style="color:var(--ls-green);font-weight:600;">Scarica</span>
-          </a>
-        `).join('')}
-      </div>
-    </div>`;
-  }
-
-  document.getElementById('details-content').innerHTML = html;
-
-  // Pulsanti laser: un solo gesto. "Taglio fatto" toglie l'ordine dalla coda del laser
-  // "Annulla taglio" è disponibile per qualche ora se l'operatore ha sbagliato.
-  let footerHtml = '';
-  if (taglioFatto) {
-    footerHtml += `<div class="status success active" style="margin-right:8px;">&#10004; Taglio completato</div>`;
-    footerHtml += `<button class="btn btn-danger-outline" onclick="undoLaserDone('${order.id}')">&#x21BA; Annulla taglio</button>`;
-  } else {
-    footerHtml += `<button class="btn btn-primary" onclick="markLaserDone('${order.id}')">&#10004; Taglio fatto</button>`;
-  }
-
-  document.getElementById('details-footer').innerHTML = footerHtml;
-}
 
 // === MARK LASER DONE ===
 // Quando l'operatore laser ha finito di tagliare, segna l'ordine come tagliato.
