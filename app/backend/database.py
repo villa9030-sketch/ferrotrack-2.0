@@ -5182,17 +5182,45 @@ class PreventivoManager:
                 if errors:
                     return {'error': 'persist failed: ' + ' | '.join(errors)}
 
-            # --- 3. Totali concordati --------------------------------------
-            if totali:
-                if 'totale_pezzo' in totali:
-                    p.totale_pezzo = float(totali['totale_pezzo'])
-                if 'totale_pezzo_con_margine' in totali:
-                    p.totale_pezzo_con_margine = float(totali['totale_pezzo_con_margine'])
-                if 'totale_lotto' in totali:
-                    p.totale_lotto = float(totali['totale_lotto'])
-                session.commit()
-
+            # --- 3. Totali: decide il SERVER, non il browser ----------------
+            # Le due formule nel JavaScript non coincidevano: l'accettazione
+            # ignorava assiemi, tubolari, piastre e costi generali, e contava
+            # due volte gli articoli gia' dentro un assieme. Il prezzo che
+            # finiva sull'ordine era piu' basso di quello mostrato al cliente.
             preventivo_dict = PreventivoManager._serialize(p)
+            try:
+                from .preventivi.calcolo import verifica
+                cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+                # Serve il preventivo COMPLETO: _serialize non porta articoli,
+                # assiemi, tubolari e piastre, e senza quelli il calcolo darebbe
+                # zero e ci si accorgerebbe del guaio solo in fattura.
+                completo = PreventivoManager.get(preventivo_id) or preventivo_dict
+                esito = verifica(completo, totali or {}, cfg)
+                calcolati = esito['totali']
+                if not esito['coerente']:
+                    logger.warning(
+                        'Accettazione %s: totali del browser diversi dal calcolo '
+                        'del server, si usano quelli del server. Scostamenti: %s',
+                        preventivo_id, esito['scostamenti'])
+                if calcolati['totale_lotto'] <= 0 and float(p.totale_lotto or 0) > 0:
+                    # Nessuna riga da cui calcolare, ma un prezzo salvato c'e':
+                    # non lo si azzera. Uno zero calcolato non e' un prezzo
+                    # confermato, e cancellarlo farebbe partire una commessa
+                    # a valore nullo.
+                    logger.warning(
+                        'Accettazione %s: il calcolo da 0 ma il preventivo ha '
+                        'un totale salvato di %.2f. Si tiene quello salvato.',
+                        preventivo_id, float(p.totale_lotto or 0))
+                else:
+                    p.totale_pezzo = calcolati['totale_pezzo']
+                    p.totale_pezzo_con_margine = calcolati['totale_pezzo_con_margine']
+                    p.totale_lotto = calcolati['totale_lotto']
+                session.commit()
+                preventivo_dict = PreventivoManager._serialize(p)
+            except Exception as exc:
+                # Se il calcolo autorevole non e' disponibile non si inventa un
+                # prezzo: si tiene quello gia' salvato sul preventivo.
+                logger.exception('calcolo totali in accettazione fallito: %s', exc)
         finally:
             session.close()
 

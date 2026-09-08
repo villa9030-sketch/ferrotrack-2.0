@@ -1634,6 +1634,25 @@ def _utente_ufficio():
     return user_id, None
 
 
+@app.route('/api/preventivi/<preventivo_id>/totali', methods=['GET'])
+def api_preventivo_totali(preventivo_id):
+    """Totali calcolati dal SERVER sui dati salvati, con la composizione.
+
+    Serve all'editor per confrontare la propria anteprima con il numero che
+    fara' testo, e al riepilogo per mostrare da dove viene il prezzo.
+    """
+    try:
+        prev = PreventivoManager.get(preventivo_id)
+        if not prev or prev.get('error'):
+            return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
+        from .preventivi.calcolo import calcola
+        cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+        return jsonify({'success': True, 'totali': calcola(prev, cfg)}), 200
+    except Exception as e:
+        logger.exception('api_preventivo_totali failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/ordini/viste', methods=['GET'])
 def api_ordini_viste():
     """Le quattro viste dell'ufficio con i conteggi di tutte le linguette."""
@@ -4781,6 +4800,31 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     con_margine_piastre = costo_piastre_std * _gen_f * (1 + margine_pct / 100.0)
     totale_lotto_calc = (con_margine * qty_preventivo
                           + con_margine_assiemi + con_margine_tubolari + con_margine_piastre)
+
+    # Il totale del documento lo decide il calcolo autorevole, lo stesso usato
+    # all'accettazione: cosi' il numero sul PDF e quello che finisce sull'ordine
+    # non possono divergere. Le righe qui sopra restano per il dettaglio.
+    try:
+        from .preventivi.calcolo import calcola as _calcola_autorevole
+        _tot = _calcola_autorevole(p, app_cfg.get('preventivi_config') or {})
+        _scarto = abs(_tot['totale_lotto_lordo'] - totale_lotto_calc)
+        if _scarto > 0.5:
+            logger.warning(
+                'PDF preventivo %s: righe %.2f vs calcolo autorevole %.2f',
+                p.get('id'), totale_lotto_calc, _tot['totale_lotto_lordo'])
+        totale_lotto_calc = _tot['totale_lotto_lordo']
+        # Uno sconto deve comparire come riga, altrimenti le righe non
+        # sommerebbero piu' al totale e il cliente non capirebbe il numero.
+        if _tot['sconto_pct']:
+            _sconto_eur = round(_tot['totale_lotto'] - _tot['totale_lotto_lordo'], 2)
+            righe_cliente.append({
+                'codice': 'Sconto',
+                'descrizione': f"Sconto {_tot['sconto_pct']:g}%",
+                'quantita': 1, 'prezzo_unitario': _sconto_eur, 'importo': _sconto_eur,
+            })
+            totale_lotto_calc = _tot['totale_lotto']
+    except Exception as _e:
+        logger.exception('calcolo autorevole per il PDF fallito: %s', _e)
 
     return {
         'cliente': p.get('cliente') or '',
