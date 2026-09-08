@@ -21,6 +21,11 @@
           display:flex; align-items:center; gap:14px; position:sticky; top:0; z-index:20}
   .topbar h1{margin:0; font-size:18px; font-weight:700; flex:1}
   .dev{font-size:12px; color:var(--gray-text)}
+  /* Senza questo la pagina era un vicolo cieco: si entrava e non si usciva. */
+  .indietro{background:var(--white); border:1px solid var(--border); border-radius:9px;
+    padding:7px 13px; font-size:14px; font-weight:600; color:var(--gray-text);
+    cursor:pointer; white-space:nowrap}
+  .indietro:hover{border-color:var(--green); color:var(--green)}
   .tabbar{background:var(--white); border-bottom:1px solid var(--border); padding:0 20px;
           display:flex; gap:4px; position:sticky; top:53px; z-index:19}
   .tab{padding:12px 18px; border:none; background:none; font-size:14px; font-weight:600;
@@ -81,6 +86,8 @@
 <body>
 
 <div class="topbar">
+  <button class="indietro" onclick="tornaIndietro()" title="Torna alla pagina principale">
+    &#8592; Indietro</button>
   <h1>Ore e riepilogo economico</h1>
   <div class="dev" id="dev">—</div>
 </div>
@@ -333,6 +340,23 @@ async function salvaTokenUfficio(){
   campo.value = '';
   nascondi('msg-abilita');
   avvia();
+}
+
+/** Torna dove sta di casa chi sta usando il programma.
+    Questa pagina si apre anche col solo codice del dispositivo, senza essere
+    entrati da nessuna parte: allora si torna all'ingresso, che e' l'unico
+    posto sensato dove mandare qualcuno. */
+function tornaIndietro(){
+  let u = null;
+  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
+  const r = (u && u.role) || '';
+  if (r === 'Amministrazione' || r === 'Impiegata') { location.href = '/impiegata.html'; return; }
+  if (r === 'Laser' || r === 'Operaio Laser') { location.href = '/laser.html'; return; }
+  if (r === 'Commerciale') { location.href = '/preventivi.html'; return; }
+  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
+    location.href = '/capo-officina.html'; return;
+  }
+  location.href = '/login.html';
 }
 
 // ---------- avvio ----------
