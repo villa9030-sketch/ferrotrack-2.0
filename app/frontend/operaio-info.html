@@ -247,8 +247,11 @@ async function carica(manuale) {
     const r = await fetch(`${API}/api/orders`, { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const dati = await r.json();
+    // Solo gli ordini ancora APERTI: quelli che l'ufficio ha gia' dichiarato
+    // completati non devono restare in bacheca come se fossero da fare.
     ORDINI = (Array.isArray(dati) ? dati : (dati.orders || []))
-      .filter(o => !['CHIUSO', 'SPEDITO', 'ARCHIVIATO'].includes(o.status));
+      .filter(o => (o.fase ? o.fase === 'aperto'
+                           : !['CHIUSO', 'SPEDITO', 'ARCHIVIATO', 'DA_FATTURARE'].includes(o.status)));
     ERRORE_RETE = false;
     ULTIMO_OK = new Date();
     disegna();

@@ -68,6 +68,12 @@ class Order(Base):
     completato_operativo_da = Column(String, nullable=True)
     data_consegna_effettiva = Column(DateTime, nullable=True)
     consegna_registrata_da = Column(String, nullable=True)
+    # DDT emesso da un altro sistema: qui si registra solo il riferimento.
+    ddt_numero = Column(String, nullable=True)
+    ddt_data = Column(DateTime, nullable=True)
+    # Consegna parziale: resta un residuo, la pratica non e' chiudibile.
+    consegna_parziale = Column(Boolean, default=False)
+    note_consegna = Column(Text, nullable=True)
     files = relationship('OrderFile', back_populates='order', cascade='all, delete-orphan')
     processing_steps = relationship('ProcessingStep', back_populates='order', cascade='all, delete-orphan')
     notifications = relationship('OrderNotification', back_populates='order', cascade='all, delete-orphan')

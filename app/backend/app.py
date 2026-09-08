@@ -1580,6 +1580,98 @@ def api_scan():
 
 
 # ============================================================================
+#  CICLO AMMINISTRATIVO DEGLI ORDINI — riservato all'ufficio
+#  L'operaio comunica a voce che ha finito: nessuno in officina cambia lo stato
+#  di un ordine. Queste transizioni sono consentite solo a Impiegata, capi e
+#  amministratori, e il controllo e' qui nel backend: nascondere i pulsanti non
+#  basta, l'API va protetta anche contro una chiamata diretta.
+# ============================================================================
+
+_RUOLI_UFFICIO = ['Impiegata', 'CAPO']
+
+
+def _utente_ufficio():
+    """Ritorna (user_id, None) se autorizzato, altrimenti (None, risposta 403)."""
+    dati = request.get_json(silent=True) or {}
+    user_id = (dati.get('user_id') or request.args.get('user_id') or '').strip()
+    if not _require_role(user_id, _RUOLI_UFFICIO):
+        return None, (jsonify({
+            'error': 'Solo l\'ufficio puo\' registrare i passaggi di un ordine.',
+            'codice': 'permesso_negato'}), 403)
+    return user_id, None
+
+
+@app.route('/api/ordini/viste', methods=['GET'])
+def api_ordini_viste():
+    """Le quattro viste dell'ufficio con i conteggi di tutte le linguette."""
+    try:
+        from .ordini_service import elenco
+        return jsonify({'success': True, **elenco(
+            fase_richiesta=(request.args.get('fase') or '').strip() or None,
+            cliente=(request.args.get('cliente') or '').strip() or None)}), 200
+    except Exception as e:
+        logger.exception('api_ordini_viste failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _transizione(funzione, order_id, **extra):
+    user_id, negato = _utente_ufficio()
+    if negato:
+        return negato
+    res = funzione(order_id, user_id, **extra)
+    if res.get('error'):
+        codice = res.get('codice')
+        stato = 404 if codice == 'non_trovato' else (
+            500 if codice == 'errore_interno' else 409)
+        return jsonify({'success': False, **res}), stato
+    return jsonify(res), 200
+
+
+@app.route('/api/ordini/<order_id>/completamento', methods=['POST'])
+def api_ordine_completamento(order_id):
+    """L'officina ha comunicato che ha finito: passa alla preparazione del DDT."""
+    from .ordini_service import registra_completamento
+    return _transizione(registra_completamento, order_id)
+
+
+@app.route('/api/ordini/<order_id>/completamento', methods=['DELETE'])
+def api_ordine_completamento_annulla(order_id):
+    from .ordini_service import annulla_completamento
+    return _transizione(annulla_completamento, order_id)
+
+
+@app.route('/api/ordini/<order_id>/ddt', methods=['POST'])
+def api_ordine_ddt(order_id):
+    """Registra il riferimento del DDT emesso nell'altro sistema."""
+    from .ordini_service import registra_ddt
+    dati = request.get_json(silent=True) or {}
+    return _transizione(registra_ddt, order_id, numero=dati.get('numero'))
+
+
+@app.route('/api/ordini/<order_id>/consegna', methods=['POST'])
+def api_ordine_consegna(order_id):
+    """Merce consegnata. `completa=false` lascia un residuo da consegnare."""
+    from .ordini_service import registra_consegna
+    dati = request.get_json(silent=True) or {}
+    return _transizione(registra_consegna, order_id,
+                        completa=bool(dati.get('completa', True)),
+                        note=dati.get('note') or '')
+
+
+@app.route('/api/ordini/<order_id>/chiudi', methods=['POST'])
+def api_ordine_chiudi(order_id):
+    """Ciclo amministrativo concluso: in archivio."""
+    from .ordini_service import chiudi_pratica
+    return _transizione(chiudi_pratica, order_id)
+
+
+@app.route('/api/ordini/<order_id>/riapri', methods=['POST'])
+def api_ordine_riapri(order_id):
+    from .ordini_service import riapri
+    return _transizione(riapri, order_id)
+
+
+# ============================================================================
 #  TABLET DI OFFICINA — abilitazione dei dispositivi condivisi
 #  Il tablet appeso vicino alla timbratrice non ha login: viene abilitato UNA
 #  volta con un token di dispositivo, e da quel momento gli operai toccano solo

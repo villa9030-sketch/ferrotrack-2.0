@@ -1195,6 +1195,30 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   vertical-align: middle;
 }
 
+/* Le quattro viste funzionali degli ordini */
+.vista-bar { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-bottom:2px; }
+.vista-btn {
+  border:1px solid var(--border); border-bottom:none; background:#f7f8f9;
+  border-radius:10px 10px 0 0; padding:11px 16px; cursor:pointer;
+  font-size:13px; font-weight:600; color:var(--gray-text);
+  display:flex; align-items:center; gap:8px;
+}
+.vista-btn:hover { background:#fff; color:var(--black); }
+.vista-btn.active { background:#fff; color:var(--green); border-color:var(--border);
+                    box-shadow:0 -2px 0 var(--green) inset; }
+.vista-n { background:var(--border); color:var(--black); border-radius:100px;
+           padding:1px 8px; font-size:11px; font-weight:800; }
+.vista-btn.active .vista-n { background:var(--green); color:#fff; }
+.az-btn {
+  padding:7px 13px; border-radius:8px; border:1px solid var(--border);
+  background:#fff; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+}
+.az-btn.primaria { background:var(--green); color:#fff; border-color:var(--green); }
+.az-btn.primaria:hover { filter:brightness(1.08); }
+.az-btn:hover { background:#f7f8f9; }
+.tag-parziale { background:#fef3c7; color:#92400e; border-radius:6px;
+                padding:2px 8px; font-size:11px; font-weight:700; }
+
 /* Live dot — indica che ci sono scan attive in officina */
 .live-dot {
   display: inline-block;
@@ -1485,104 +1509,98 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
 <!-- ===================== TAB 3: ORDINI ===================== -->
 <div class="tab-panel" id="panel-ordini">
   <div class="ordini-container">
-    <h2 class="page-title">Lista Ordini</h2>
-    <div class="search-wrap">
+    <h2 class="page-title">Ordini</h2>
+    <p style="font-size:13px; color:var(--gray-text); margin:-8px 0 18px;">
+      L'officina comunica a voce quando ha finito: i passaggi qui sotto li registri tu.
+      Sono quattro fatti distinti e vanno registrati separatamente.
+    </p>
+
+    <!-- Le quattro viste funzionali -->
+    <div class="vista-bar" id="vista-bar">
+      <button class="vista-btn active" data-fase="aperto" onclick="cambiaVista('aperto')">
+        Ordini aperti <span class="vista-n" id="n-aperto">0</span></button>
+      <button class="vista-btn" data-fase="pronto_ddt" onclick="cambiaVista('pronto_ddt')">
+        Pronti per DDT <span class="vista-n" id="n-pronto_ddt">0</span></button>
+      <button class="vista-btn" data-fase="consegnato" onclick="cambiaVista('consegnato')">
+        Consegnati / da fatturare <span class="vista-n" id="n-consegnato">0</span></button>
+      <button class="vista-btn" data-fase="archivio" onclick="cambiaVista('archivio')">
+        Archivio <span class="vista-n" id="n-archivio">0</span></button>
+    </div>
+
+    <div class="search-wrap" style="margin-top:16px;">
       <span class="search-icon">&#128269;</span>
-      <input type="text" class="search-box" id="search-input" placeholder="Cerca per cliente o numero ordine..." oninput="filterOrders()">
+      <input type="text" class="search-box" id="vista-cerca"
+             placeholder="Cerca per cliente o numero ordine..." oninput="renderVista()">
     </div>
-    <div class="filter-row">
-      <span class="filter-label">Stato:</span>
-      <button class="chip active" data-filter="status" data-value="" onclick="setFilter(this,'status')">Tutti</button>
-      <button class="chip" data-filter="status" data-value="RICEVUTO" onclick="setFilter(this,'status')">Ricevuto</button>
-      <button class="chip" data-filter="status" data-value="IN_LAVORAZIONE" onclick="setFilter(this,'status')">In Lavorazione</button>
-      <button class="chip" data-filter="status" data-value="DA_FATTURARE" onclick="setFilter(this,'status')">Da Fatturare</button>
-      <button class="chip" data-filter="status" data-value="CHIUSO" onclick="setFilter(this,'status')">Chiuso</button>
-      <button class="chip" data-filter="status" data-value="PARZIALE" onclick="setFilter(this,'status')">Parziale</button>
-    </div>
-    <div class="filter-row" style="margin-bottom: 20px;">
-      <span class="filter-label">Completati:</span>
-      <select id="completati-giorni" onchange="saveCompletatiSetting(); renderOrdersTable();"
-        style="padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; background: #fff; cursor: pointer;">
-        <option value="0">Mostra sempre</option>
-        <option value="1">Nascondi dopo 1 giorno</option>
-        <option value="3" selected>Nascondi dopo 3 giorni</option>
-        <option value="7">Nascondi dopo 7 giorni</option>
-        <option value="14">Nascondi dopo 14 giorni</option>
-        <option value="30">Nascondi dopo 30 giorni</option>
-      </select>
-    </div>
-    <div style="border-radius: 12px; overflow: hidden; border: 1px solid var(--border);">
-      <table class="ordini-table">
-        <thead>
-          <tr>
-            <th onclick="sortOrders('numero_ordine')">Ordine &#8597;</th>
-            <th onclick="sortOrders('cliente')">Cliente &#8597;</th>
-            <th onclick="sortOrders('data_consegna')">Consegna &#8597;</th>
-            <th>Stato</th>
-            <th onclick="sortOrders('progress')">Avanzamento &#8597;</th>
-            <th>PDF</th>
-          </tr>
-        </thead>
-        <tbody id="ordini-tbody"></tbody>
+
+    <div id="vista-msg" style="margin:10px 0; font-size:13px; min-height:18px;"></div>
+
+    <div style="border-radius:12px; overflow:hidden; border:1px solid var(--border); overflow-x:auto;">
+      <table class="ordini-table" id="vista-tabella">
+        <thead id="vista-thead"></thead>
+        <tbody id="vista-tbody"></tbody>
       </table>
     </div>
-    <div id="ordini-count" style="margin-top: 12px; font-size: 13px; color: var(--gray-text);"></div>
+    <div id="vista-count" style="margin-top:12px; font-size:13px; color:var(--gray-text);"></div>
   </div>
 </div>
 
-<!-- ===================== TAB: STATO OFFICINA LIVE ===================== -->
-<div class="tab-panel" id="panel-officina-live">
-  <div class="ordini-container">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-      <h2 class="page-title" style="margin-bottom:0;">Stato Officina <span id="live-server-time" style="font-size:13px; color:var(--gray-muted); font-weight:500; margin-left:12px;"></span></h2>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <span id="live-indicator" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--green-light); box-shadow:0 0 6px var(--green-light);"></span>
-        <span style="font-size:12px; color:var(--gray-text);">Aggiornamento ogni 5s</span>
-      </div>
-    </div>
-
-    <!-- SCAN ATTIVE (chi-fa-cosa adesso) - nascosto se le pistole sono dismesse -->
-    <div id="card-scan-attive" style="background:var(--white); border:1px solid var(--border); border-radius:12px; padding:0; margin-bottom:20px;">
-      <div style="padding:14px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="font-size:14px; font-weight:700; margin:0; text-transform:uppercase; letter-spacing:0.4px; color:var(--gray-text);">Scansioni Attive</h3>
-        <span id="live-attive-count" style="font-size:12px; color:var(--gray-muted); font-weight:600;">—</span>
-      </div>
-      <div id="live-attive-body" style="padding:0;">
-        <div style="padding:24px; text-align:center; color:var(--gray-muted); font-size:13px;">Nessuna scansione attiva</div>
-      </div>
-    </div>
-
-    <!-- ORDINI IN OFFICINA (lista cumulativa) -->
-    <div style="background:var(--white); border:1px solid var(--border); border-radius:12px; padding:0; margin-bottom:20px;">
-      <div style="padding:14px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="font-size:14px; font-weight:700; margin:0; text-transform:uppercase; letter-spacing:0.4px; color:var(--gray-text);">Ordini in Officina (ultimi 30 giorni)</h3>
-        <span id="live-ordini-count" style="font-size:12px; color:var(--gray-muted); font-weight:600;">—</span>
-      </div>
-      <div id="live-ordini-body" style="padding:0;">
-        <div style="padding:24px; text-align:center; color:var(--gray-muted); font-size:13px;">Nessun ordine in officina</div>
-      </div>
-    </div>
-
-    <!-- ORDINI SOSPETTI FINITI — backup quando i capi si dimenticano -->
-    <div id="sospetti-card" style="background:var(--white); border:1px solid #fca5a5; border-radius:12px; padding:0;">
-      <div style="padding:14px 18px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#fef2f2;">
-        <h3 style="font-size:14px; font-weight:700; margin:0; text-transform:uppercase; letter-spacing:0.4px; color:#991b1b;">
-          ⚠ Ordini probabilmente finiti
-        </h3>
-        <span id="sospetti-count" style="font-size:12px; color:#991b1b; font-weight:700;">—</span>
-      </div>
-      <div style="padding:8px 18px; background:#fef2f2; border-bottom:1px solid var(--border); font-size:12px; color:#7f1d1d;">
-        Ordini con taglio fatto + nessuna attività recente. I capi potrebbero essersi dimenticati di marcarli come finiti — puoi farlo tu.
-      </div>
-      <div id="sospetti-body" style="padding:0;">
-        <div style="padding:24px; text-align:center; color:var(--gray-muted); font-size:13px;">Nessun ordine sospetto</div>
-      </div>
+<!-- Riferimento del DDT emesso nell'altro sistema -->
+<div class="fatt-confirm-overlay" id="modal-ddt"
+     onclick="if(event.target===this)chiudiModalDdt()">
+  <div class="fatt-confirm-box" style="max-width:480px; text-align:left;">
+    <h3>Registra il DDT</h3>
+    <p id="ddt-ordine" style="font-size:13px; color:var(--gray-text); margin-bottom:14px;"></p>
+    <p style="font-size:12px; color:var(--gray-text); margin-bottom:12px; line-height:1.5;">
+      Il documento viene emesso nell'altro sistema: qui si annota soltanto il
+      riferimento, per ritrovarlo.
+    </p>
+    <label style="font-size:12px; font-weight:700; color:var(--gray-text);">Numero del DDT</label>
+    <input type="text" id="ddt-numero" maxlength="60" placeholder="Es. 2026/145"
+      style="width:100%; padding:11px 14px; border:1px solid var(--border);
+             border-radius:8px; font-size:14px; margin-top:4px;"
+      onkeydown="if(event.key==='Enter')salvaDdt()">
+    <div id="ddt-msg" style="margin-top:10px; font-size:13px; min-height:18px;"></div>
+    <div class="fatt-confirm-btns">
+      <button class="fatt-btn fatt-btn-save" onclick="chiudiModalDdt()">Annulla</button>
+      <button class="fatt-btn fatt-btn-close" onclick="salvaDdt()">Registra DDT</button>
     </div>
   </div>
 </div>
 
-<!-- ===================== TAB 4: ARCHIVIO ===================== -->
-<!-- ===================== TAB: ORDINI DA FATTURARE ===================== -->
+<!-- Registrazione della consegna: completa oppure con residuo -->
+<div class="fatt-confirm-overlay" id="modal-consegna"
+     onclick="if(event.target===this)chiudiModalConsegna()">
+  <div class="fatt-confirm-box" style="max-width:520px; text-align:left;">
+    <h3>Registra la consegna</h3>
+    <p id="consegna-ordine" style="font-size:13px; color:var(--gray-text); margin-bottom:14px;"></p>
+    <label style="display:flex; gap:10px; align-items:flex-start; margin-bottom:10px; cursor:pointer;">
+      <input type="radio" name="tipo-consegna" value="completa" checked
+             onchange="aggiornaModalConsegna()" style="margin-top:4px;">
+      <span><b>Consegna completa</b><br>
+        <span style="font-size:12px; color:var(--gray-text);">Tutta la merce e' stata consegnata.</span></span>
+    </label>
+    <label style="display:flex; gap:10px; align-items:flex-start; margin-bottom:12px; cursor:pointer;">
+      <input type="radio" name="tipo-consegna" value="parziale"
+             onchange="aggiornaModalConsegna()" style="margin-top:4px;">
+      <span><b>Consegna parziale</b><br>
+        <span style="font-size:12px; color:var(--gray-text);">Resta un residuo da consegnare.
+        L'ordine non potra' essere archiviato finche' non e' completo.</span></span>
+    </label>
+    <div id="consegna-note-wrap" style="display:none;">
+      <label style="font-size:12px; font-weight:700; color:var(--gray-text);">Cosa resta da consegnare</label>
+      <textarea id="consegna-note" rows="3" placeholder="Es. mancano 12 staffe, consegna prevista venerdi"
+        style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px;
+               font-size:13px; font-family:inherit; margin-top:4px;"></textarea>
+    </div>
+    <div id="consegna-msg" style="margin-top:10px; font-size:13px; min-height:18px;"></div>
+    <div class="fatt-confirm-btns">
+      <button class="fatt-btn fatt-btn-save" onclick="chiudiModalConsegna()">Annulla</button>
+      <button class="fatt-btn fatt-btn-close" onclick="salvaConsegna()">Registra consegna</button>
+    </div>
+  </div>
+</div>
+
 <div class="tab-panel" id="panel-fatturare">
   <div class="fatt-container">
     <div class="fatt-header">
@@ -1965,7 +1983,7 @@ window.addEventListener('load', () => {
     const activeTab = document.querySelector('.tab-item.active');
     const tabId = activeTab ? activeTab.dataset.tab : '';
     if (tabId === 'calendario') loadCalendar();
-    else if (tabId === 'ordini') loadOrdersList();
+    else if (tabId === 'ordini') { loadOrdersList(); caricaViste(); }
   }, 5000);
 
   // Pallino "live" sulla tab Stato Officina: check leggero anche se la tab
@@ -2002,7 +2020,7 @@ function switchTab(tabId) {
   panel.style.animation = 'tabFadeIn 0.2s ease-out';
   if (tabId === 'calendario') loadCalendar();
   if (tabId === 'conferme') loadConferme();
-  if (tabId === 'ordini') loadOrdersList();
+  if (tabId === 'ordini') { loadOrdersList(); caricaViste(); }
   if (tabId === 'fatturare') loadFatturare();
   if (tabId === 'archivio') { loadArchiveFilters(); loadArchive(); }
   if (tabId === 'backup') { loadBackupSettings(); loadBackupList(); }
@@ -2642,7 +2660,6 @@ function showDayDetail(dateStr) {
     html += '<div style="text-align:center;padding:48px 24px;"><div style="font-size:48px;margin-bottom:12px;opacity:0.3;">📅</div><div style="font-size:15px;font-weight:600;color:var(--gray-text);">Nessun ordine in consegna per questo giorno</div></div>';
   } else {
     ordersOnDay.forEach(order => {
-      const progress = calculateProgress(order);
       const statusColor = getStatusColor(order);
       const faseColor = faseColors[order.fase_corrente] || '#666';
       html += `<div class="cal-order-card" style="border-left-color: ${statusColor};" onclick="openDetailModal('${order.id}')">
@@ -2654,15 +2671,6 @@ function showDayDetail(dateStr) {
           <span class="fase-badge" style="background: ${faseColor};">${order.fase_corrente}</span>
         </div>
         ${order.operatore_assegnato ? `<div style="font-size: 11px; color: var(--gray-text);">Operatore: ${escapeHtml(order.operatore_assegnato)}</div>` : ''}
-        <div>
-          <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px;">
-            <span style="color: var(--gray-text);">Avanzamento</span>
-            <span style="font-weight: 700; color: ${statusColor};">${progress}%</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: ${progress}%; background: ${statusColor};"></div>
-          </div>
-        </div>
       </div>`;
     });
   }
@@ -2675,7 +2683,224 @@ function calNextMonth() { calDate.setMonth(calDate.getMonth() + 1); calSelectedD
 function calGoToday() { const n = new Date(); calDate = n; calSelectedDate = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; loadCalendar(); }
 
 // ===========================
-// TAB 3: ORDINI
+// TAB ORDINI — le quattro viste funzionali
+// Registrare il completamento, il DDT, la consegna e la chiusura sono quattro
+// fatti diversi: qui non vengono mai confusi in un unico pulsante.
+// ===========================
+let VISTA = 'aperto';
+let VISTE_DATI = { ordini: [], conteggi: {} };
+let CONSEGNA_TARGET = null;
+
+function utenteId() { return (currentUser && currentUser.id) || ''; }
+
+async function caricaViste(silenzioso) {
+  try {
+    const r = await fetch(`${API_URL}/api/ordini/viste`);
+    const d = await r.json();
+    if (!r.ok || !d.success) throw new Error(d.error || 'errore');
+    VISTE_DATI = d;
+    for (const f of ['aperto', 'pronto_ddt', 'consegnato', 'archivio']) {
+      const el = document.getElementById('n-' + f);
+      if (el) el.textContent = (d.conteggi && d.conteggi[f]) || 0;
+    }
+    renderVista();
+  } catch (e) {
+    if (!silenzioso) msgVista('Non riesco a leggere gli ordini: ' + e.message, 'var(--red)');
+  }
+}
+
+function cambiaVista(fase) {
+  VISTA = fase;
+  document.querySelectorAll('.vista-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.fase === fase));
+  msgVista('');
+  renderVista();
+}
+
+function msgVista(testo, colore) {
+  const el = document.getElementById('vista-msg');
+  if (el) { el.textContent = testo || ''; el.style.color = colore || 'var(--gray-text)'; }
+}
+
+function dataIt(iso) {
+  return iso ? new Date(iso).toLocaleDateString('it-IT') : '\u2014';
+}
+
+const COLONNE = {
+  aperto:      ['Ordine', 'Cliente', 'Consegna prevista', 'Arrivato il', 'Azione'],
+  pronto_ddt:  ['Ordine', 'Cliente', 'Lavorazione finita il', 'Registrato da', 'Azione'],
+  consegnato:  ['Ordine', 'Cliente', 'DDT', 'Consegna', 'Azione'],
+  archivio:    ['Ordine', 'Cliente', 'Consegna', 'DDT', 'Azione'],
+};
+
+function renderVista() {
+  const q = (document.getElementById('vista-cerca').value || '').trim().toLowerCase();
+  const righe = (VISTE_DATI.ordini || [])
+    .filter(o => o.fase === VISTA)
+    .filter(o => !q || (o.numero_ordine || '').toLowerCase().includes(q)
+                    || (o.cliente || '').toLowerCase().includes(q));
+
+  document.getElementById('vista-thead').innerHTML =
+    '<tr>' + COLONNE[VISTA].map(c => `<th>${c}</th>`).join('') + '</tr>';
+
+  const tb = document.getElementById('vista-tbody');
+  if (!righe.length) {
+    tb.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:34px;
+      color:var(--gray-text); font-size:13px;">Nessun ordine in questa vista.</td></tr>`;
+  } else {
+    tb.innerHTML = righe.map(rigaVista).join('');
+  }
+  document.getElementById('vista-count').textContent =
+    righe.length + (righe.length === 1 ? ' ordine' : ' ordini');
+}
+
+function rigaVista(o) {
+  const num = `<code style="font-size:12px;">${escapeHtml(o.numero_ordine)}</code>`;
+  const cli = escapeHtml(o.cliente || '');
+  const id = o.id;
+  const parziale = o.consegna_parziale
+    ? ` <span class="tag-parziale" title="${escapeHtml(o.note_consegna)}">residuo</span>` : '';
+
+  if (VISTA === 'aperto') {
+    return `<tr><td>${num}</td><td>${cli}</td><td>${dataIt(o.data_consegna)}</td>
+      <td style="color:var(--gray-text); font-size:12px;">${dataIt(o.data_ricezione)}</td>
+      <td><button class="az-btn primaria" onclick="azCompletamento('${id}')">
+        Lavorazione finita &rarr; prepara DDT</button></td></tr>`;
+  }
+  if (VISTA === 'pronto_ddt') {
+    // Gli ordini chiusi dall'officina prima di questo sistema non hanno
+    // data ne' autore: dirlo e' piu' onesto di due trattini muti.
+    const quando = o.completamento ? dataIt(o.completamento)
+      : '<span style="color:var(--gray-muted); font-size:12px;">già finito prima di questo sistema</span>';
+    return `<tr><td>${num}</td><td>${cli}</td><td>${quando}</td>
+      <td style="color:var(--gray-text); font-size:12px;">${escapeHtml(o.completato_da || '\u2014')}</td>
+      <td style="white-space:nowrap;">
+        <button class="az-btn primaria" onclick="azDdt('${id}')">Registra DDT</button>
+        <button class="az-btn" onclick="azAnnullaCompletamento('${id}')"
+                title="Non era finito: torna fra gli aperti">Annulla</button></td></tr>`;
+  }
+  if (VISTA === 'consegnato') {
+    const ddt = o.ddt_numero
+      ? `${escapeHtml(o.ddt_numero)} <span style="color:var(--gray-text); font-size:11px;">${dataIt(o.ddt_data)}</span>`
+      : '<span style="color:var(--gray-text);">da registrare</span>';
+    const cons = o.consegna ? dataIt(o.consegna) + parziale
+                            : '<span style="color:var(--gray-text);">da registrare</span>';
+    return `<tr><td>${num}</td><td>${cli}</td><td>${ddt}</td><td>${cons}</td>
+      <td style="white-space:nowrap;">
+        ${o.consegna ? '' : `<button class="az-btn primaria" onclick="apriModalConsegna('${id}')">Registra consegna</button>`}
+        ${o.consegna && o.consegna_parziale ? `<button class="az-btn primaria" onclick="apriModalConsegna('${id}')">Completa consegna</button>` : ''}
+        ${o.consegna && !o.consegna_parziale ? `<button class="az-btn primaria" onclick="azChiudi('${id}')">Chiudi pratica</button>` : ''}
+        ${o.ddt_numero ? '' : `<button class="az-btn" onclick="azDdt('${id}')">DDT</button>`}
+      </td></tr>`;
+  }
+  return `<tr><td>${num}</td><td>${cli}</td><td>${dataIt(o.consegna)}${parziale}</td>
+    <td style="color:var(--gray-text); font-size:12px;">${escapeHtml(o.ddt_numero || '\u2014')}</td>
+    <td><button class="az-btn" onclick="azRiapri('${id}')">Riapri</button></td></tr>`;
+}
+
+async function chiamaAzione(url, metodo, corpo, riuscito) {
+  msgVista('Attendi\u2026');
+  try {
+    const opt = { method: metodo, headers: { 'Content-Type': 'application/json' } };
+    if (metodo !== 'DELETE') opt.body = JSON.stringify({ ...(corpo || {}), user_id: utenteId() });
+    const sep = url.includes('?') ? '&' : '?';
+    const r = await fetch(`${API_URL}${url}${metodo === 'DELETE' ? sep + 'user_id=' + encodeURIComponent(utenteId()) : ''}`, opt);
+    const d = await r.json();
+    if (!r.ok) { msgVista(d.error || 'Operazione non riuscita', 'var(--red)'); return false; }
+    msgVista(riuscito, 'var(--green)');
+    await caricaViste(true);
+    return true;
+  } catch (e) {
+    msgVista('Operazione non riuscita: ' + e.message, 'var(--red)');
+    return false;
+  }
+}
+
+function azCompletamento(id) {
+  chiamaAzione(`/api/ordini/${id}/completamento`, 'POST', {},
+               'Lavorazione registrata: l\'ordine e\' passato a "Pronti per DDT".');
+}
+function azAnnullaCompletamento(id) {
+  if (!confirm('Riportare l\'ordine fra quelli aperti?')) return;
+  chiamaAzione(`/api/ordini/${id}/completamento`, 'DELETE', null,
+               'Ordine riportato fra gli aperti.');
+}
+let DDT_TARGET = null;
+
+function azDdt(id) {
+  DDT_TARGET = id;
+  const o = (VISTE_DATI.ordini || []).find(x => x.id === id) || {};
+  document.getElementById('ddt-ordine').textContent =
+    `${o.numero_ordine || ''} \u2014 ${o.cliente || ''}`;
+  document.getElementById('ddt-numero').value = o.ddt_numero || '';
+  document.getElementById('ddt-msg').textContent = '';
+  const m = document.getElementById('modal-ddt');
+  m.classList.add('active'); m.style.display = 'flex';
+  setTimeout(() => document.getElementById('ddt-numero').focus(), 50);
+}
+
+function chiudiModalDdt() {
+  DDT_TARGET = null;
+  const m = document.getElementById('modal-ddt');
+  m.classList.remove('active'); m.style.display = 'none';
+}
+
+async function salvaDdt() {
+  const numero = document.getElementById('ddt-numero').value.trim();
+  const msg = document.getElementById('ddt-msg');
+  if (!numero) {
+    msg.textContent = 'Scrivi il numero del DDT.'; msg.style.color = 'var(--red)';
+    return;
+  }
+  const ok = await chiamaAzione(`/api/ordini/${DDT_TARGET}/ddt`, 'POST', { numero },
+                                'Riferimento registrato: ' + numero);
+  if (ok) chiudiModalDdt();
+}
+function azChiudi(id) {
+  if (!confirm('Chiudere la pratica? L\'ordine andra\' in archivio.')) return;
+  chiamaAzione(`/api/ordini/${id}/chiudi`, 'POST', {}, 'Pratica chiusa: ordine in archivio.');
+}
+function azRiapri(id) {
+  chiamaAzione(`/api/ordini/${id}/riapri`, 'POST', {}, 'Ordine riportato fra i consegnati.');
+}
+
+// ---- Consegna completa o parziale ----
+function apriModalConsegna(id) {
+  CONSEGNA_TARGET = id;
+  const o = (VISTE_DATI.ordini || []).find(x => x.id === id) || {};
+  document.getElementById('consegna-ordine').textContent =
+    `${o.numero_ordine || ''} \u2014 ${o.cliente || ''}`;
+  document.querySelector('input[name="tipo-consegna"][value="completa"]').checked = true;
+  document.getElementById('consegna-note').value = o.note_consegna || '';
+  document.getElementById('consegna-msg').textContent = '';
+  aggiornaModalConsegna();
+  document.getElementById('modal-consegna').classList.add('active');
+  document.getElementById('modal-consegna').style.display = 'flex';
+}
+function aggiornaModalConsegna() {
+  const parziale = document.querySelector('input[name="tipo-consegna"]:checked').value === 'parziale';
+  document.getElementById('consegna-note-wrap').style.display = parziale ? 'block' : 'none';
+}
+function chiudiModalConsegna() {
+  CONSEGNA_TARGET = null;
+  const m = document.getElementById('modal-consegna');
+  m.classList.remove('active'); m.style.display = 'none';
+}
+async function salvaConsegna() {
+  const completa = document.querySelector('input[name="tipo-consegna"]:checked').value === 'completa';
+  const note = document.getElementById('consegna-note').value.trim();
+  if (!completa && !note) {
+    document.getElementById('consegna-msg').textContent = 'Scrivi cosa resta da consegnare.';
+    document.getElementById('consegna-msg').style.color = 'var(--red)';
+    return;
+  }
+  const ok = await chiamaAzione(`/api/ordini/${CONSEGNA_TARGET}/consegna`, 'POST',
+    { completa, note }, completa ? 'Consegna registrata.' : 'Consegna parziale registrata: resta un residuo.');
+  if (ok) chiudiModalConsegna();
+}
+
+// ===========================
+// TAB 3: ORDINI (elenco storico)
 // ===========================
 async function loadOrdersList() {
   try {
@@ -2707,6 +2932,9 @@ function sortOrders(field) {
 }
 
 function renderOrdersTable() {
+  // La vecchia tabella e' stata sostituita dalle quattro viste funzionali:
+  // la funzione resta perche' loadOrdersList popola allOrders, usato altrove.
+  if (!document.getElementById('ordini-tbody')) return;
   const search = (document.getElementById('search-input').value || '').toLowerCase().trim();
   let filtered = [...allOrders];
 
@@ -2771,7 +2999,8 @@ function renderOrdersTable() {
     }).join('');
   }
 
-  document.getElementById('ordini-count').textContent = `${filtered.length} ordine${filtered.length !== 1 ? 'i' : ''} trovati su ${allOrders.length} totali`;
+  const cnt = document.getElementById('ordini-count');
+  if (cnt) cnt.textContent = `${filtered.length} ordine${filtered.length !== 1 ? 'i' : ''} trovati su ${allOrders.length} totali`;
 }
 
 // ===========================
@@ -2830,7 +3059,6 @@ function formatDurationSec(totalSec) {
 
 function renderDetailModal(order) {
   const steps = order.processing_steps || [];
-  const progress = calculateProgress(order);
   const statusColor = getStatusColor(order);
   const faseColor = faseColors[order.fase_corrente] || '#666';
   const consegna = order.data_consegna ? new Date(order.data_consegna).toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
@@ -2917,12 +3145,6 @@ function renderDetailModal(order) {
           <label>Tempo Totale Lavorazione</label>
           <span style="color: var(--green);">${formatDurationSec(tempoTotale)}</span>
         </div>` : ''}
-      </div>
-      <div class="detail-progress-wrap" style="margin-top: 12px;">
-        <div class="progress-bar-bg" style="flex: 1;">
-          <div class="progress-bar-fill" style="width: ${progress}%; background: ${statusColor};"></div>
-        </div>
-        <span style="font-size: 13px; font-weight: 700;">${progress}%</span>
       </div>
     </div>
 

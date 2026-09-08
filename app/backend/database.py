@@ -679,6 +679,7 @@ class OrderManager:
                     'taglio_completato': bool(getattr(order, 'taglio_completato', False)),
                     'data_taglio_completato': order.data_taglio_completato.isoformat() if getattr(order, 'data_taglio_completato', None) else None,
                     'taglio_completato_da': getattr(order, 'taglio_completato_da', None),
+                    'fase': _fase_ordine(order),
                 })
 
             return result
@@ -3525,6 +3526,16 @@ class SupportManager:
 # ============================================================================
 #  BARCODE / OFFICINA SCAN — rilevazione tempi via pistola WiFi
 # ============================================================================
+
+def _fase_ordine(order) -> str:
+    """Fase amministrativa dell'ordine (aperto / pronto_ddt / consegnato /
+    archivio). Import differito: ordini_service dipende da questo modulo."""
+    try:
+        from .ordini_service import fase
+        return fase(order)
+    except Exception:
+        return 'aperto'
+
 
 class BarcodeManager:
     """Gestione scan barcode officina e KPI derivate.

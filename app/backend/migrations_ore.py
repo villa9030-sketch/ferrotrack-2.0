@@ -31,6 +31,10 @@ _ORDER_COLS = {
     # Merce effettivamente consegnata (diverso dal DDT preparato).
     'data_consegna_effettiva': 'DATETIME',
     'consegna_registrata_da': 'VARCHAR',
+    'ddt_numero': 'VARCHAR',
+    'ddt_data': 'DATETIME',
+    'consegna_parziale': 'BOOLEAN',
+    'note_consegna': 'TEXT',
 }
 
 # Colonne aggiunte a tabelle del sottosistema DOPO la loro prima creazione.
