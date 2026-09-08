@@ -446,13 +446,33 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 /* Focus visible for accessibility - clean ring */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-button:focus, input:focus, select:focus, textarea:focus { outline: none; }
+/* Il contorno si toglie SOLO al focus da mouse. Prima questa regola cancellava
+   anche quello da tastiera, e chi naviga con il Tab non vedeva dove si trovava. */
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible) { outline: none; }
 
 /* ═══════════════════════════════════════════════════════════════════
    MASTER-DETAIL LAYOUT (AlmaCAM-style) — solo per #panel-editor
    ═══════════════════════════════════════════════════════════════════ */
 
 /* Editor header strip: dati cliente compressi in una barra orizzontale */
+/* Ricerca nella distinta e totale sempre in vista (10.2) */
+.cerca-distinta {
+  width: 190px; padding: 6px 10px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 7px; background: var(--surface);
+  color: var(--text);
+}
+.cerca-distinta:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.totale-vivo {
+  display: flex; align-items: baseline; gap: 6px; padding: 5px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  cursor: pointer; font-size: 12px; color: var(--text-2);
+}
+.totale-vivo:hover { border-color: var(--accent); }
+.totale-vivo b { font-size: 14px; color: var(--text); }
+
 /* Pannello di verifica: cosa manca prima di un'operazione definitiva.
    Gli stati NON si distinguono solo per colore (icona + parola), perche' non
    tutti distinguono rosso e verde. */
@@ -1896,6 +1916,16 @@ tr.row-warn:hover { background: #FEF3C7; }
         </div>
         <button class="btn-mini focus-btn" id="btn-focus-mode" onclick="toggleFocusMode()" style="display:none;">
           <span id="btn-focus-label">Focus</span>
+        </button>
+        <!-- Ricerca: con distinte lunghe scorrere non basta -->
+        <input type="search" class="cerca-distinta" id="cerca-distinta"
+               placeholder="Cerca codice o materiale" autocomplete="off"
+               aria-label="Cerca nella distinta"
+               oninput="cercaNellaDistinta(this.value)">
+        <!-- Totale sempre raggiungibile, senza entrare nel Riepilogo -->
+        <button class="totale-vivo" id="totale-vivo" onclick="openRiepilogoModal()"
+                title="Apri il riepilogo economico">
+          Totale <b id="totale-vivo-val">0,00 &euro;</b>
         </button>
         <!-- Filtro problemi (utile per preventivi grandi) -->
         <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-2); cursor:pointer;">
@@ -4712,6 +4742,9 @@ function toggleAssiemeSplit(code) {
 /** Renderizza il tree sx. Righe: header standalone, articoli standalone,
     header assiemi (collassabili) con componenti indent. */
 function renderSplitTree() {
+  // Il ridisegno ricostruisce le righe: la ricerca va riapplicata subito dopo,
+  // altrimenti il filtro si perde a ogni modifica.
+  setTimeout(() => { try { applicaRicercaDistinta(); } catch (_) {} }, 0);
   const tbody = document.getElementById('split-tree-tbody');
   if (!tbody) return;
   if (!currentArticoli.length && !currentAssiemi.length) {
@@ -6926,6 +6959,45 @@ function computeAssiemePricing(assieme) {
   return { roll, costoIntrinseco, costoSingoloAssieme, qty, costoTotale: costoSingoloAssieme * qty };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Ricerca nella distinta: con cento pezzi il filtro "solo da rivedere" non
+// basta e scorrere e' peggio. Il testo cercato SOPRAVVIVE al ridisegno e
+// all'apertura del dettaglio: perderlo a ogni clic era il difetto da evitare.
+// ═══════════════════════════════════════════════════════════════
+let _testoCercato = '';
+
+function cercaNellaDistinta(testo) {
+  _testoCercato = (testo || '').trim().toLowerCase();
+  applicaRicercaDistinta();
+}
+
+/** Nasconde le righe che non corrispondono, senza toccare i dati. */
+function applicaRicercaDistinta() {
+  const righe = document.querySelectorAll(
+    '#split-tree-tbody tr[data-split-idx], #split-tree-tbody tr[data-ass-code], '
+    + '#articoli-tbody tr[data-split-idx]');
+  let visibili = 0;
+  righe.forEach(tr => {
+    if (!_testoCercato) { tr.style.display = ''; visibili++; return; }
+    const testo = (tr.innerText || '').toLowerCase();
+    const ok = testo.includes(_testoCercato);
+    tr.style.display = ok ? '' : 'none';
+    if (ok) visibili++;
+  });
+  const campo = document.getElementById('cerca-distinta');
+  if (campo && campo.value !== _testoCercato && document.activeElement !== campo) {
+    campo.value = _testoCercato;
+  }
+  const somm = document.getElementById('articoli-summary');
+  if (somm && _testoCercato) {
+    somm.dataset.originale = somm.dataset.originale || somm.textContent;
+    somm.textContent = `${visibili} su ${righe.length} \u00b7 filtro "${_testoCercato}"`;
+  } else if (somm && somm.dataset.originale) {
+    somm.textContent = somm.dataset.originale;
+    delete somm.dataset.originale;
+  }
+}
+
 function recalcTotali() {
   const qty = parseInt(document.getElementById('ed-quantita').value, 10) || 1;
   const margine = parseFloat(document.getElementById('ed-margine').value) || 0;
@@ -6971,6 +7043,9 @@ function recalcTotali() {
   document.getElementById('t-pezzo').innerHTML = formatEur(totalePezzo) + '<span class="unit">€</span>';
   document.getElementById('t-margine').innerHTML = formatEur(conMargine) + '<span class="unit">€</span>';
   document.getElementById('t-lotto').innerHTML = formatEur(totaleLotto) + '<span class="unit">€</span>';
+  // Totale in testata: sempre sotto gli occhi, anche mentre si lavora sui pezzi.
+  const _tv = document.getElementById('totale-vivo-val');
+  if (_tv) _tv.textContent = formatEur(totaleLotto) + ' €';
   document.getElementById('t-qty').textContent = qty;
 }
 
@@ -8727,7 +8802,7 @@ function vaiAllaRiga(i, tipo) {
   if (idx < 0 && rif.indice != null) idx = rif.indice;
   if (idx >= 0 && currentArticoli[idx]) {
     if (typeof selectSplitArticolo === 'function') selectSplitArticolo(idx);
-    const riga = document.querySelector(`[data-art-idx="${idx}"]`);
+    const riga = document.querySelector(`[data-split-idx="${idx}"]`);
     if (riga && riga.scrollIntoView) riga.scrollIntoView({block: 'center'});
   }
 }
