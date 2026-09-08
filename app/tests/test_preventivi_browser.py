@@ -29,8 +29,10 @@ except ImportError:
     sys.exit(0)
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
-UTENTE = {'id': 'stefano-responsabile', 'name': 'Stefano Villa',
-          'role': 'Capo Officina', 'is_capo': True,
+# Si entra dalla postazione laser, che porta con se' la delega del capo:
+# e' da li' che, in azienda, si tocca un preventivo senza passare dall'ufficio.
+UTENTE = {'id': 'postazione-laser', 'name': 'Laser',
+          'role': 'Laser', 'is_capo': True,
           'permissions': ['overview', 'supervisione', 'lavorazione', 'archive']}
 
 OK = 0

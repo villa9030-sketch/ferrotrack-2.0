@@ -46,6 +46,9 @@ _NUOVE_TABELLE_COLS = {
     # Fotografia economica scattata all'INVIO: un'offerta gia' mandata non deve
     # cambiare prezzo se qualcuno modifica i costi in configurazione.
     'preventivi': {'snapshot_economico': 'TEXT'},
+    # Distingue una POSTAZIONE da cui si entra (timbratrice, laser, ufficio)
+    # da una PERSONA di cui si contano le ore. Prima stavano mescolate.
+    'users': {'e_postazione': 'BOOLEAN'},
 }
 
 # Ruoli considerati "operai di officina" per il seed della compilazione ore.

@@ -1377,6 +1377,11 @@ button:active {
   </a>
   <div class="laser-nav">
     <a class="laser-nav-item active" href="/laser.html">Postazione Laser</a>
+    <!-- Compaiono solo se questa postazione ha la delega del capo. -->
+    <a class="laser-nav-item" id="nav-capo" href="/capo-officina.html"
+       style="display:none;">Ore e KPI</a>
+    <a class="laser-nav-item" id="nav-admin" href="/admin.html"
+       style="display:none;">Impostazioni</a>
   </div>
   <div class="topbar-actions">
     <div class="notif-bell">
@@ -1518,8 +1523,36 @@ function updateUserPill() {
   document.getElementById('user-pill-role').textContent = 'Laser';
 }
 
+
+/** La sessione salvata nel browser vale ancora?
+    Passando alle postazioni, una memoria vecchia diventa un'utenza che non
+    esiste piu': la pagina si aprirebbe e poi rifiuterebbe ogni salvataggio,
+    senza dire perche'. Meglio rimandare all'ingresso.
+    Non e' un permesso: quelli li decide il server a ogni richiesta. */
+async function _sessioneAncoraValida() {
+  let u = null;
+  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
+  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
+  try {
+    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
+    if (!r.ok) return true;                 // server irraggiungibile: si prosegue
+    const d = await r.json();
+    if (!d.valida) {
+      localStorage.removeItem('currentUser');
+      window.location.href = '/login.html';
+      return false;
+    }
+    // Ruolo e permessi possono essere cambiati da quando si e' entrati.
+    localStorage.setItem('currentUser', JSON.stringify({ ...u, ...d.utente }));
+  } catch (_) { /* rete assente: si prosegue con quello che c'e' */ }
+  return true;
+}
+
 // === SESSION CHECK ===
 window.addEventListener('load', () => {
+  // Prima di tutto: la sessione salvata vale ancora? Se no si torna
+  // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
+  _sessioneAncoraValida();
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!user.id) {
     window.location.href = '/login.html';
@@ -2036,6 +2069,20 @@ function escapeHtml(str) {
 }
 
 // === LOGOUT ===
+/** Mostra cio' che la delega del capo consente, e solo se c'e' davvero.
+    Nascondere un pulsante non e' un permesso: il server ricontrolla comunque
+    chi sei. Qui si evita solo di offrire una porta che darebbe errore. */
+(function _mostraDelegaCapo() {
+  try {
+    const u = JSON.parse(localStorage.getItem('currentUser') || 'null');
+    if (!u || !u.is_capo) return;
+    for (const id of ['nav-capo', 'nav-admin']) {
+      const a = document.getElementById(id);
+      if (a) a.style.display = '';
+    }
+  } catch (_) { /* senza utente in sessione non si mostra nulla */ }
+})();
+
 async function logout() {
   try {
     const user = JSON.parse(localStorage.getItem('currentUser') || '{}');

@@ -227,9 +227,19 @@ async function avvioTablet() {
 }
 
 function avvioPersona() {
-  document.getElementById('hello').textContent = 'Ciao ' + (UTENTE.name || '').split(' ')[0];
-  document.getElementById('role').textContent = UTENTE.role || 'Operaio';
-  document.getElementById('ore-cta').hidden = false;
+  // Una POSTAZIONE non e' una persona: non si saluta, e soprattutto non le si
+  // chiede di dichiarare ore. I due tablet in officina guardano e basta; le
+  // ore si dichiarano alla timbratrice, altrimenti si contano due volte.
+  const eUnaPostazione = UTENTE.role === 'Visione'
+                      || UTENTE.role === 'Timbratrice'
+                      || UTENTE.e_postazione === true;
+
+  document.getElementById('hello').textContent =
+    eUnaPostazione ? 'Ordini in corso'
+                   : 'Ciao ' + (UTENTE.name || '').split(' ')[0];
+  document.getElementById('role').textContent =
+    eUnaPostazione ? (UTENTE.name || 'Reparto') : (UTENTE.role || 'Operaio');
+  document.getElementById('ore-cta').hidden = eUnaPostazione;
   document.getElementById('btn-esci').hidden = false;
   partiElenco();
 }

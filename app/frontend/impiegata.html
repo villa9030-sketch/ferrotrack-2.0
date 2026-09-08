@@ -1224,17 +1224,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
                 padding:2px 8px; font-size:11px; font-weight:600; }
 
 /* Live dot — indica che ci sono scan attive in officina */
-.live-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 6px;
-  border-radius: 50%;
-  background: var(--green-light);
-  box-shadow: 0 0 6px var(--green-light);
-  vertical-align: middle;
-  animation: livePulse 1.4s ease-in-out infinite;
-}
 @keyframes livePulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.55; transform: scale(0.85); }
@@ -1386,7 +1375,6 @@ button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible
   <div class="tab-item" data-tab="conferme" onclick="switchTab('conferme')">Da confermare <span class="fatt-badge" id="conferme-badge" style="display:none;">0</span></div>
   <div class="tab-item" data-tab="calendario" onclick="switchTab('calendario')">Calendario</div>
   <div class="tab-item" data-tab="ordini" onclick="switchTab('ordini')">Ordini</div>
-  <div class="tab-item" data-tab="officina-live" onclick="switchTab('officina-live')">Stato Officina <span class="live-dot" id="live-dot" style="display:none;"></span></div>
   <div class="tab-item" data-tab="fatturare" onclick="switchTab('fatturare')">Ordini da Fatturare <span class="fatt-badge" id="fatt-badge" style="display:none;">0</span></div>
   <div class="tab-item" data-tab="archivio" onclick="switchTab('archivio')">Archivio</div>
   <div class="tab-item" data-tab="backup" onclick="switchTab('backup')">Backup</div>
@@ -1958,6 +1946,31 @@ function colorFromName(name) {
   return `hsl(${h % 360}, 58%, 42%)`;
 }
 
+
+/** La sessione salvata nel browser vale ancora?
+    Passando alle postazioni, una memoria vecchia diventa un'utenza che non
+    esiste piu': la pagina si aprirebbe e poi rifiuterebbe ogni salvataggio,
+    senza dire perche'. Meglio rimandare all'ingresso.
+    Non e' un permesso: quelli li decide il server a ogni richiesta. */
+async function _sessioneAncoraValida() {
+  let u = null;
+  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
+  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
+  try {
+    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
+    if (!r.ok) return true;                 // server irraggiungibile: si prosegue
+    const d = await r.json();
+    if (!d.valida) {
+      localStorage.removeItem('currentUser');
+      window.location.href = '/login.html';
+      return false;
+    }
+    // Ruolo e permessi possono essere cambiati da quando si e' entrati.
+    localStorage.setItem('currentUser', JSON.stringify({ ...u, ...d.utente }));
+  } catch (_) { /* rete assente: si prosegue con quello che c'e' */ }
+  return true;
+}
+
 function updateUserPill() {
   const user = JSON.parse(localStorage.getItem('currentUser'));
   if (!user) return;
@@ -1974,6 +1987,9 @@ function updateUserPill() {
 // SESSION
 // ===========================
 window.addEventListener('load', () => {
+  // Prima di tutto: la sessione salvata vale ancora? Se no si torna
+  // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
+  _sessioneAncoraValida();
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!user.id) { window.location.href = '/login.html'; return; }
   currentUser = user;
@@ -1990,19 +2006,6 @@ window.addEventListener('load', () => {
     else if (tabId === 'ordini') { loadOrdersList(); caricaViste(); }
   }, 5000);
 
-  // Pallino "live" sulla tab Stato Officina: check leggero anche se la tab
-  // non è aperta, così l'impiegata sa che qualcuno sta scansionando.
-  async function _liveBadgeCheck() {
-    try {
-      const r = await fetch(`${API_URL}/api/officina/live-status`);
-      if (!r.ok) return;
-      const d = await r.json();
-      const dot = document.getElementById('live-dot');
-      if (dot) dot.style.display = (d.scan_attive || []).length ? 'inline-block' : 'none';
-    } catch (_) {}
-  }
-  _liveBadgeCheck();
-  setInterval(_liveBadgeCheck, 15000);
 
   // Polling badge "Ordini da Fatturare": appena il capo officina marca un
   // ordine come "lavoro finito", il numero appare in tab bar entro 15s.
@@ -2028,7 +2031,6 @@ function switchTab(tabId) {
   if (tabId === 'fatturare') loadFatturare();
   if (tabId === 'archivio') { loadArchiveFilters(); loadArchive(); }
   if (tabId === 'backup') { loadBackupSettings(); loadBackupList(); }
-  if (tabId === 'officina-live') { startLivePolling(); } else { stopLivePolling(); }
 }
 
 // ===========================
@@ -2114,59 +2116,11 @@ async function rifiutaPreventivoImp(id) {
 // ===========================
 // TAB: STATO OFFICINA LIVE
 // ===========================
-let _livePollHandle = null;
-let _liveTickHandle = null;
 
-function startLivePolling() {
-  stopLivePolling();
-  refreshLiveStatus();
-  _livePollHandle = setInterval(refreshLiveStatus, 5000);
-  // Tick locale ogni 30s per incrementare i minuti correnti senza chiamare l'API
-  _liveTickHandle = setInterval(tickLiveAttive, 30000);
-}
 
-function stopLivePolling() {
-  if (_livePollHandle) { clearInterval(_livePollHandle); _livePollHandle = null; }
-  if (_liveTickHandle) { clearInterval(_liveTickHandle); _liveTickHandle = null; }
-}
 
-function tickLiveAttive() {
-  // Incrementa i minuti correnti delle scan attive senza polling extra
-  document.querySelectorAll('[data-live-minuti]').forEach(el => {
-    const m = parseInt(el.getAttribute('data-live-minuti') || '0', 10);
-    el.setAttribute('data-live-minuti', String(m + 1));
-    el.textContent = formatMinuti(m + 1);
-  });
-}
 
-function formatMinuti(min) {
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}h ${m}min` : `${h}h`;
-}
 
-async function refreshLiveStatus() {
-  try {
-    const resp = await fetch(`${API_URL}/api/officina/live-status`);
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const data = await resp.json();
-    renderLiveAttive(data.scan_attive || []);
-    renderLiveOrdini(data.ordini_in_officina || []);
-    // Pallino live in tab bar
-    const dot = document.getElementById('live-dot');
-    if (dot) dot.style.display = (data.scan_attive || []).length ? 'inline-block' : 'none';
-    const ts = document.getElementById('live-server-time');
-    if (ts) {
-      const d = new Date(data.server_time || Date.now());
-      ts.textContent = `aggiornato alle ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
-    }
-  } catch (e) {
-    console.warn('live-status error', e);
-  }
-  // Ordini sospetti finiti — refresh in parallelo
-  refreshSospettiFiniti();
-}
 
 async function refreshSospettiFiniti() {
   try {
@@ -2245,58 +2199,7 @@ async function markOrderFinito(orderId, label) {
   }
 }
 
-function renderLiveAttive(scans) {
-  const container = document.getElementById('live-attive-body');
-  const countEl = document.getElementById('live-attive-count');
-  countEl.textContent = scans.length ? `${scans.length} attive` : 'nessuna';
-  if (!scans.length) {
-    container.innerHTML = '<div style="padding:24px; text-align:center; color:var(--gray-muted); font-size:13px;">Nessuna scansione attiva</div>';
-    return;
-  }
-  let html = '<table class="ordini-table" style="border-radius:0;"><thead><tr>';
-  html += '<th style="width:25%;">Operaio</th><th>Ordine</th><th>Cliente</th><th>Fase</th><th style="text-align:right;">Da</th>';
-  html += '</tr></thead><tbody>';
-  for (const s of scans) {
-    html += `<tr>
-      <td><strong>${escapeHtml(s.operatore_name || s.operatore_id)}</strong></td>
-      <td><code style="font-size:12px;">${escapeHtml(s.numero_ordine)}</code></td>
-      <td>${escapeHtml(s.cliente || '')}</td>
-      <td><span class="chip" style="font-size:11px;">${escapeHtml(s.fase_corrente || '—')}</span></td>
-      <td style="text-align:right; font-variant-numeric:tabular-nums;"><span data-live-minuti="${s.minuti_correnti}">${formatMinuti(s.minuti_correnti)}</span></td>
-    </tr>`;
-  }
-  html += '</tbody></table>';
-  container.innerHTML = html;
-}
 
-function renderLiveOrdini(ordini) {
-  const container = document.getElementById('live-ordini-body');
-  const countEl = document.getElementById('live-ordini-count');
-  countEl.textContent = ordini.length ? `${ordini.length} ordini` : 'nessuno';
-  if (!ordini.length) {
-    container.innerHTML = '<div style="padding:24px; text-align:center; color:var(--gray-muted); font-size:13px;">Nessun ordine in officina di recente</div>';
-    return;
-  }
-  let html = '<table class="ordini-table" style="border-radius:0;"><thead><tr>';
-  html += '<th>Ordine</th><th>Cliente</th><th>Fase</th><th style="text-align:right;">Tempo totale</th><th>Ultima scan</th>';
-  html += '</tr></thead><tbody>';
-  for (const o of ordini) {
-    let ultimaStr = '—';
-    try {
-      const d = new Date(o.ultima_scan);
-      ultimaStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    } catch (_) {}
-    html += `<tr>
-      <td><code style="font-size:12px;">${escapeHtml(o.numero_ordine)}</code></td>
-      <td>${escapeHtml(o.cliente || '')}</td>
-      <td><span class="chip" style="font-size:11px;">${escapeHtml(o.fase_corrente || '—')}</span></td>
-      <td style="text-align:right; font-variant-numeric:tabular-nums; font-weight:600;">${formatMinuti(o.tempo_totale_minuti)}</td>
-      <td style="color:var(--gray-text); font-size:12px;">${ultimaStr}</td>
-    </tr>`;
-  }
-  html += '</tbody></table>';
-  container.innerHTML = html;
-}
 
 // ===========================
 // TAB 1: CARICA ORDINE

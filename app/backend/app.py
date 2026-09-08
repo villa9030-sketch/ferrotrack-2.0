@@ -146,6 +146,15 @@ if os.environ.get('FERROTRACK_SKIP_DB_INIT') != '1':
 
 # ============ UTILITÀ AUTORIZZAZIONE ============
 
+# I posti da cui si fa lavoro d'ufficio: caricare ordini, confermare
+# consegne, fatturare. 'Impiegata' era il nome di prima e resta valido.
+RUOLI_UFFICIO = ('Amministrazione', 'Impiegata')
+
+# I posti da cui si comanda: la postazione laser porta con se' la delega del
+# capo, cosi' le decisioni non aspettano che il responsabile sia in ufficio.
+RUOLI_COMANDO = ('Laser', 'Capo Officina', 'Amministratore')
+
+
 def _require_capo(user_id: str) -> bool:
     """Verifica che user_id appartenga a un capo (is_capo=True) O a un Amministratore.
     L'Amministratore fa da FALLBACK: senza questo, azioni come gestione pistole/utenti/
@@ -153,7 +162,8 @@ def _require_capo(user_id: str) -> bool:
     if not user_id:
         return False
     user = UserManager.get_user(user_id)
-    return bool(user and (user.get('is_capo', False) or user.get('role') == 'Amministratore'))
+    return bool(user and (user.get('is_capo', False)
+                          or user.get('role') in RUOLI_COMANDO))
 
 
 def _require_role(user_id: str, roles: list) -> bool:
@@ -172,7 +182,11 @@ def _require_role(user_id: str, roles: list) -> bool:
         return False
     user_role = user.get('role', '')
     for r in roles:
-        if r == 'CAPO' and (user.get('is_capo') or user_role == 'Amministratore'):
+        if r == 'CAPO' and (user.get('is_capo') or user_role in RUOLI_COMANDO):
+            return True
+        # 'Impiegata' vale come "chi sta in amministrazione", col nome nuovo
+        # o con quello vecchio: gli endpoint scritti prima non vanno riscritti.
+        if r == 'Impiegata' and user_role in RUOLI_UFFICIO:
             return True
         if r == user_role:
             return True
@@ -226,6 +240,22 @@ def serve_frontend(filename):
     return resp
 
 # ============ API AUTH ============
+
+@app.route('/api/auth/sessione/<user_id>', methods=['GET'])
+def api_sessione_valida(user_id):
+    """Dice se una sessione salvata nel browser vale ancora.
+
+    Serve a chi apre una pagina con in memoria un'utenza spenta o sostituita:
+    meglio rimandarlo all'ingresso che lasciarlo davanti a una pagina che si
+    apre ma rifiuta ogni salvataggio. Non registra un accesso, perche' viene
+    chiamata a ogni caricamento e riempirebbe l'archivio di accessi finti.
+    """
+    utente = UserManager.get_user(user_id)
+    if not utente or not utente.get('is_active', True):
+        return jsonify({'valida': False,
+                        'motivo': 'Questa postazione non e\' piu\' attiva.'}), 200
+    return jsonify({'valida': True, 'utente': utente}), 200
+
 
 @app.route('/api/auth/login', methods=['POST'])
 def login():
@@ -538,7 +568,7 @@ def mark_laser_done(order_id):
         if not user:
             return jsonify({'error': 'utente non trovato'}), 403
         # Solo ruolo Laser (o capo) può marcare il taglio completato
-        is_laser = (user.get('role') == 'Operaio Laser') or user.get('is_capo')
+        is_laser = user.get('role') in ('Laser', 'Operaio Laser') or user.get('is_capo')
         if not is_laser:
             return jsonify({'error': 'Solo operatore Laser o capo può marcare il taglio'}), 403
         result = OrderManager.mark_laser_done(order_id, user_id=user_id)
@@ -584,7 +614,8 @@ def close_order(order_id):
         user = UserManager.get_user(user_id)
         if not user:
             return jsonify({'error': 'utente non trovato'}), 403
-        is_allowed = user.get('is_capo') or (user.get('role') in ('Impiegata', 'Capo Officina', 'Amministratore'))
+        is_allowed = (user.get('is_capo')
+                      or user.get('role') in RUOLI_UFFICIO + RUOLI_COMANDO)
         if not is_allowed:
             return jsonify({'error': 'Permesso negato'}), 403
         result = OrderManager.close_order(order_id, user_id=user_id)

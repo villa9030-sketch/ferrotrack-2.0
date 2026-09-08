@@ -463,7 +463,10 @@ class OrderManager:
             dest = session.query(User).filter(
                 User.is_active == True,  # noqa: E712
             ).filter(
-                (User.is_capo == True) | (User.role == 'Impiegata')  # noqa: E712
+                # Chi va avvisato: i capi e chi sta in amministrazione (col
+                # nome nuovo o con quello vecchio).
+                (User.is_capo == True)  # noqa: E712
+                | (User.role.in_(('Amministrazione', 'Impiegata')))
             ).all()
             if not dest:
                 return 0
@@ -1906,6 +1909,9 @@ class UserManager:
             'permissions': user.permissions,
             'machines': user.machines,
             'is_capo': user.is_capo,
+            # Distingue una postazione da cui si entra da una persona di cui
+            # si contano le ore: l'ingresso mostra solo le prime.
+            'e_postazione': bool(getattr(user, 'e_postazione', False)),
             'is_active': user.is_active,
             'assigned_clients': assigned_clients,
             'last_login': user.last_login.isoformat() if user.last_login else None,
@@ -5460,7 +5466,7 @@ class PreventivoManager:
                         title='Nuovo ordine da preventivo',
                         message='Ordine #' + numero + ' (' + order.cliente + ') accettato dal commerciale',
                         notification_type='order', notification_category='informativa')
-                elif u.get('role') == 'Impiegata':
+                elif u.get('role') in ('Amministrazione', 'Impiegata'):
                     NotificationManager.create_notification(
                         user_id=u['id'], order_id=order.id,
                         title='Nuovo ordine da protocollare',

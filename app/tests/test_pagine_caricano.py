@@ -32,19 +32,22 @@ except ImportError:
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
 
-CAPO = {'id': 'stefano-responsabile', 'name': 'Stefano Villa',
-        'role': 'Capo Officina', 'is_capo': True,
+# La postazione laser: porta la delega del capo, quindi apre le stesse
+# pagine che prima apriva l'utenza del responsabile.
+CAPO = {'id': 'postazione-laser', 'name': 'Laser',
+        'role': 'Laser', 'is_capo': True,
         'permissions': ['overview', 'supervisione', 'lavorazione', 'archive']}
 
 # Chi deve risultare collegato per far vedere ciascuna pagina.
 UTENTI = {
-    'laser.html': {'id': 'mirko-laser', 'name': 'Mirko Sandionigi',
-                   'role': 'Operaio Laser'},
-    'impiegata.html': {'id': 'elena-impiegata', 'name': 'Elena Colombo',
-                       'role': 'Impiegata',
+    'laser.html': {'id': 'postazione-laser', 'name': 'Laser',
+                   'role': 'Laser', 'is_capo': True},
+    'impiegata.html': {'id': 'postazione-amministrazione',
+                       'name': 'Amministrazione',
+                       'role': 'Amministrazione',
                        'permissions': ['overview', 'supervisione']},
-    'operaio-info.html': {'id': 'enzo-officina', 'name': 'Enzo Masciari',
-                          'role': 'Operaio Officina'},
+    'operaio-info.html': {'id': 'postazione-visione',
+                          'name': 'Tablet di visione', 'role': 'Visione'},
     'capo-officina.html': CAPO,
     'admin.html': CAPO,
     'preventivi.html': CAPO,

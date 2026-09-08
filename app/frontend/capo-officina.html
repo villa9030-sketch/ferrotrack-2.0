@@ -466,6 +466,9 @@ let _polls = [];
 
 // ---------- session / topbar ----------
 window.addEventListener('load', () => {
+  // Prima di tutto: la sessione salvata vale ancora? Se no si torna
+  // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
+  _sessioneAncoraValida();
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!user.id) { window.location.href = '/login.html'; return; }
   currentUser = user;
@@ -852,7 +855,7 @@ async function loadOrdini() {
         <td class="n" data-tempo-officina="${o.id}">…</td>
         <td style="text-align:center;" onclick="event.stopPropagation();">
           <button onclick="closeOrder('${o.id}', '${label}')"
-                  title="Lavorazione finita: passa a Elena per fatturazione"
+                  title="Lavorazione finita: passa all'amministrazione per la fatturazione"
                   style="padding:6px 14px; background:#fff; border:1px solid var(--green); color:var(--green); border-radius:6px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">
             ✓ Lavoro finito
           </button>
@@ -1130,7 +1133,7 @@ async function closeOrder(orderId, label) {
     const data = await r.json();
     if (r.ok && data.success) {
       const tot = data.scan_chiuse ? ` (chiuse ${data.scan_chiuse} scansioni)` : '';
-      alert(`✓ Lavoro finito, ordine mandato a Elena per fatturazione${tot}.`);
+      alert(`✓ Lavoro finito, ordine mandato all'amministrazione per la fatturazione${tot}.`);
       loadOrdini();
     } else {
       alert('Errore: ' + (data.error || 'sconosciuto'));
@@ -1162,6 +1165,31 @@ async function closeResidual() {
 }
 </script>
 <script src="https://unpkg.com/lucide@latest"></script>
-<script>if (window.lucide) lucide.createIcons();</script>
+<script>if (window.lucide) lucide.createIcons();
+/** La sessione salvata nel browser vale ancora?
+    Passando alle postazioni, una memoria vecchia diventa un'utenza che non
+    esiste piu': la pagina si aprirebbe e poi rifiuterebbe ogni salvataggio,
+    senza dire perche'. Meglio rimandare all'ingresso.
+    Non e' un permesso: quelli li decide il server a ogni richiesta. */
+async function _sessioneAncoraValida() {
+  let u = null;
+  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
+  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
+  try {
+    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
+    if (!r.ok) return true;                 // server irraggiungibile: si prosegue
+    const d = await r.json();
+    if (!d.valida) {
+      localStorage.removeItem('currentUser');
+      window.location.href = '/login.html';
+      return false;
+    }
+    // Ruolo e permessi possono essere cambiati da quando si e' entrati.
+    localStorage.setItem('currentUser', JSON.stringify({ ...u, ...d.utente }));
+  } catch (_) { /* rete assente: si prosegue con quello che c'e' */ }
+  return true;
+}
+
+</script>
 </body>
 </html>

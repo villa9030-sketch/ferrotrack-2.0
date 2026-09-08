@@ -1798,7 +1798,7 @@ tr.row-warn:hover { background: #FEF3C7; }
     <span class="ec-meta">Consegna <b id="ec-consegna">—</b></span>
     <span class="ec-sep">·</span>
     <span class="badge gray" id="ec-status" style="font-size:10px; padding:2px 6px;">BOZZA</span>
-    <span class="badge orange" id="ec-daprezzare" title="Richiesta caricata da Elena, da prezzare" style="font-size:10px; padding:2px 6px; display:none;">● da prezzare</span>
+    <span class="badge orange" id="ec-daprezzare" title="Richiesta caricata dall'amministrazione, da prezzare" style="font-size:10px; padding:2px 6px; display:none;">● da prezzare</span>
     <div style="flex:1;"></div>
     <button class="btn-mini" onclick="toggleEditorHeader()" title="Modifica dati preventivo">✎ Modifica</button>
     <button class="btn-mini" onclick="duplicaPreventivo()" id="btn-duplica-compact" title="Duplica preventivo">⧉</button>
@@ -1808,7 +1808,7 @@ tr.row-warn:hover { background: #FEF3C7; }
     <div class="strip-title">
       <span id="editor-title">Nuovo preventivo</span>
       <span class="badge gray" id="editor-status-badge" style="font-size:11px; padding:3px 9px;">&mdash;</span>
-      <span class="badge orange" id="editor-daprezzare-badge" title="Richiesta caricata da Elena, da prezzare" style="font-size:11px; padding:3px 9px; display:none;">● da prezzare</span>
+      <span class="badge orange" id="editor-daprezzare-badge" title="Richiesta caricata dall'amministrazione, da prezzare" style="font-size:11px; padding:3px 9px; display:none;">● da prezzare</span>
     </div>
     <div class="strip-fields">
       <div class="strip-field" style="flex:2; min-width:180px;">
@@ -2486,7 +2486,7 @@ tr.row-warn:hover { background: #FEF3C7; }
       <div class="card-header"><h3>Export disegni per officina</h3></div>
       <div class="card-body">
         <div class="form-field">
-          <label>Cartella disegni per Mirko</label>
+          <label>Cartella disegni per il laser</label>
           <input type="text" id="cfg-disegni-export-root" placeholder='es. C:\Disegni  oppure  \\server\condivisa\disegni'>
           <div style="font-size:11px;color:var(--text-3);margin-top:4px;">
             Ogni volta che pulisci un pezzo (click "Modifica pezzo" → click sul pezzo), il DXF pulito viene copiato automaticamente in:
@@ -3041,6 +3041,9 @@ function _pesoArticoloKg(a) {
 
 // ---------- session / topbar ----------
 window.addEventListener('load', () => {
+  // Prima di tutto: la sessione salvata vale ancora? Se no si torna
+  // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
+  _sessioneAncoraValida();
   const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
   if (!user.id) { window.location.href = '/login.html'; return; }
   currentUser = user;
@@ -4033,8 +4036,8 @@ function _updatePipelineSummary(items) {
   if (banner) {
     if (daPrezzare > 0) {
       document.getElementById('da-prezzare-text').textContent =
-        daPrezzare === 1 ? '1 richiesta da prezzare (caricata da Elena)'
-                         : `${daPrezzare} richieste da prezzare (caricate da Elena)`;
+        daPrezzare === 1 ? '1 richiesta da prezzare (dall\'amministrazione)'
+                         : `${daPrezzare} richieste da prezzare (dall\'amministrazione)`;
       banner.style.display = 'flex';
     } else { banner.style.display = 'none'; }
   }
@@ -8875,7 +8878,7 @@ async function confermaAccetta() {
       dxfNote = ` · DXF officina: ${parts.join(', ')}`;
     }
     showMsg('msg-workflow',
-      `✓ Ordine ${d.numero_ordine} creato. Cartellino aperto: STAMPALO per l'officina (Mirko).${dxfNote}`,
+      `✓ Ordine ${d.numero_ordine} creato. Cartellino aperto: STAMPALO per l'officina.${dxfNote}`,
       tr.copied_original_fallback || tr.missing ? 'var(--orange)' : 'var(--green)');
   } catch (e) {
     if (cartWin) cartWin.close();
@@ -9335,6 +9338,31 @@ function rifiutaFromRiepilogo() {
 }
 </script>
 <script src="https://unpkg.com/lucide@latest"></script>
-<script>if (window.lucide) lucide.createIcons();</script>
+<script>if (window.lucide) lucide.createIcons();
+/** La sessione salvata nel browser vale ancora?
+    Passando alle postazioni, una memoria vecchia diventa un'utenza che non
+    esiste piu': la pagina si aprirebbe e poi rifiuterebbe ogni salvataggio,
+    senza dire perche'. Meglio rimandare all'ingresso.
+    Non e' un permesso: quelli li decide il server a ogni richiesta. */
+async function _sessioneAncoraValida() {
+  let u = null;
+  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
+  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
+  try {
+    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
+    if (!r.ok) return true;                 // server irraggiungibile: si prosegue
+    const d = await r.json();
+    if (!d.valida) {
+      localStorage.removeItem('currentUser');
+      window.location.href = '/login.html';
+      return false;
+    }
+    // Ruolo e permessi possono essere cambiati da quando si e' entrati.
+    localStorage.setItem('currentUser', JSON.stringify({ ...u, ...d.utente }));
+  } catch (_) { /* rete assente: si prosegue con quello che c'e' */ }
+  return true;
+}
+
+</script>
 </body>
 </html>

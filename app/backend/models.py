@@ -145,7 +145,11 @@ class User(Base):
     phase = Column(String)  # 'LASER', 'PIEGA', 'SALDATURA', 'ALL'
     permissions = Column(JSON, default=list)  # ['overview', 'lavorazione', 'supervisione', 'archive']
     machines = Column(JSON, default=list)  # ['CNC 01', 'Laser CO₂']
-    is_capo = Column(Boolean, default=False)  # True = capo officina, controllo totale
+    is_capo = Column(Boolean, default=False)
+    # True = e' una POSTAZIONE, e compare all'ingresso.
+    # False = e' una PERSONA di cui si contano le ore (bacheca timbratrice),
+    #         che nel programma non entra.
+    e_postazione = Column(Boolean, default=False, nullable=False)  # True = capo officina, controllo totale
     is_active = Column(Boolean, default=True)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -423,47 +427,88 @@ def get_session():
     return SessionLocal()
 
 def seed_users():
-    """Inserisce gli utenti di default se non esistono e rimuove quelli vecchi"""
+    """Crea le postazioni da cui si entra e gli operai di cui si contano le ore.
+
+    Sono due elenchi separati perche' sono due cose diverse: una postazione e'
+    un posto (il laser, la timbratrice, l'ufficio), un operaio e' una persona.
+    Non cancella nulla di gia' presente: aggiorna i nomi e i permessi e lascia
+    stare tutto il resto, comprese le utenze vecchie ormai spente, che servono
+    a rileggere l'archivio delle azioni.
+    """
     session = SessionLocal()
     try:
         # Utenti reali del sistema
         default_users = [
+            # ---------------------------------------------------------------
+            # POSTAZIONI: compaiono all'ingresso, portano i permessi del posto.
+            # ---------------------------------------------------------------
             {
-                'id': 'elena-impiegata',
-                'name': 'Elena Colombo',
-                'role': 'Impiegata',
-                'initials': 'EC',
+                'id': 'postazione-timbratrice',
+                'name': 'Tablet timbratrice',
+                'role': 'Timbratrice',
+                'initials': 'TT',
                 'phase': None,
+                'e_postazione': True,
+                # Solo le ore: da qui non si tocca nessun ordine.
+                'permissions': ['ore'],
+                'machines': []
+            },
+            {
+                'id': 'postazione-visione',
+                'name': 'Tablet di visione',
+                'role': 'Visione',
+                'initials': 'TV',
+                'phase': None,
+                'e_postazione': True,
+                # Sola consultazione: i due tablet in officina guardano e basta.
+                'permissions': ['overview'],
+                'machines': []
+            },
+            {
+                'id': 'postazione-amministrazione',
+                'name': 'Amministrazione',
+                'role': 'Amministrazione',
+                'initials': 'AM',
+                'phase': None,
+                'e_postazione': True,
                 'permissions': ['overview', 'supervisione'],
                 'machines': []
             },
             {
-                'id': 'paolo-responsabile',
-                'name': 'Paolo Scola',
-                'role': 'Capo Officina',
-                'initials': 'PS',
-                'phase': 'ALL',
+                'id': 'postazione-laser',
+                'name': 'Laser',
+                'role': 'Laser',
+                'initials': 'LA',
+                'phase': 'LASER',
+                'e_postazione': True,
+                # Al laser sta anche il capo: da qui passano le decisioni che
+                # prima richiedevano l'utenza del responsabile.
                 'is_capo': True,
                 'permissions': ['overview', 'supervisione', 'lavorazione', 'archive'],
-                'machines': ['Tutte']
+                'machines': ['Laser CO₂']
             },
             {
-                'id': 'stefano-responsabile',
-                'name': 'Stefano Villa',
-                'role': 'Capo Officina',
-                'initials': 'SV',
-                'phase': 'ALL',
-                'is_capo': True,
-                'permissions': ['overview', 'supervisione', 'lavorazione', 'archive'],
-                'machines': ['Tutte']
+                'id': 'postazione-commerciale',
+                'name': 'Commerciale',
+                'role': 'Commerciale',
+                'initials': 'CO',
+                'phase': None,
+                'e_postazione': True,
+                'permissions': ['preventivi'],
+                'machines': []
             },
+            # ---------------------------------------------------------------
+            # OPERAI: persone di cui si contano le ore. Non entrano nel
+            # programma: toccano il proprio nome sul tablet della timbratrice.
+            # ---------------------------------------------------------------
             {
                 'id': 'mirko-laser',
                 'name': 'Mirko Sandionigi',
                 'role': 'Operaio Laser',
                 'initials': 'MS',
                 'phase': 'LASER',
-                'permissions': ['overview', 'lavorazione'],
+                'e_postazione': False,
+                'permissions': [],
                 'machines': ['Laser CO₂']
             },
             {
@@ -472,7 +517,8 @@ def seed_users():
                 'role': 'Operaio Officina',
                 'initials': 'EM',
                 'phase': 'OFFICINA',
-                'permissions': ['overview', 'lavorazione'],
+                'e_postazione': False,
+                'permissions': [],
                 'machines': []
             }
         ]
@@ -488,8 +534,27 @@ def seed_users():
                 user = User(**user_data)
                 session.add(user)
 
+        # Le utenze personali da cui prima si entrava sono state sostituite
+        # dalle postazioni. Si spengono, non si cancellano: l'archivio delle
+        # azioni le nomina, e senza la riga lo storico diventa illeggibile.
+        sostituite = {
+            'elena-impiegata':      'postazione-amministrazione',
+            'paolo-responsabile':   'postazione-visione',
+            'stefano-responsabile': 'postazione-timbratrice',
+            'commerciale-test':     'postazione-commerciale',
+        }
+        for vecchio in sostituite:
+            riga = session.query(User).filter(User.id == vecchio).first()
+            if riga is not None and (riga.is_active or riga.e_postazione):
+                riga.is_active = False
+                riga.e_postazione = False
+                logger.info('seed_users: utenza %s spenta (sostituita da %s)',
+                            vecchio, sostituite[vecchio])
+
         session.commit()
-        logger.info("Seed users completato — 5 utenti reali")
+        logger.info('Seed users completato — %d postazioni, %d operai',
+                    sum(1 for u in default_users if u.get('e_postazione')),
+                    sum(1 for u in default_users if not u.get('e_postazione')))
     except Exception as e:
         session.rollback()
         logger.warning("Seed users error: %s", e)

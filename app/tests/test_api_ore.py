@@ -93,7 +93,8 @@ def main():
     # Il client dichiara di essere l'impiegata: NON deve contare nulla.
     r = c.post('/api/ore/giornata', headers=H(t_ore), json={
         'operatore_id': 'op1', 'data': '2020-01-02', 'righe': [],
-        'user_id': 'elena-impiegata', 'role': 'Impiegata', 'is_capo': True,
+        'user_id': 'postazione-amministrazione', 'role': 'Amministrazione',
+        'is_capo': True,
     })
     check('user_id/ruolo dichiarati dal client ignorati (giorno passato negato)',
           r.status_code == 403 and r.get_json().get('codice') == 'giorno_non_corrente',

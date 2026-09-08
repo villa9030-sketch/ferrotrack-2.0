@@ -1145,7 +1145,7 @@ body {
         </div>
         <div class="feature">
           <div class="feature-icon">✓</div>
-          <span>Dashboard personalizzato per ogni operaio</span>
+          <span>Ore dichiarate dagli operai sul tablet</span>
         </div>
         <div class="feature">
           <div class="feature-icon">✓</div>
@@ -1158,7 +1158,7 @@ body {
   <div class="login-right">
     <div class="login-form" id="loginForm">
       <h2>Login</h2>
-      <p>Seleziona il tuo profilo per accedere</p>
+      <p>Scegli la postazione da cui stai lavorando</p>
 
       <div class="error-message" id="loginError"></div>
 
@@ -1416,16 +1416,38 @@ async function loadUsers() {
     const resp = await fetch(`${API_BASE}/api/users`);
     if (!resp.ok) throw new Error('Failed to load users');
     const data = await resp.json();
-    allUsers = data.users || [];
+    // Solo le postazioni: gli operai non entrano nel programma, dichiarano
+    // le ore dal tablet della timbratrice toccando il proprio nome.
+    allUsers = (data.users || []).filter(u => u.e_postazione);
+    if (!allUsers.length) {
+      // Un database non ancora aggiornato non ha le postazioni: meglio
+      // mostrare quello che c'e' che una schermata vuota.
+      allUsers = (data.users || []).filter(u => u.is_active !== false);
+    }
 
     const demoButtons = document.getElementById('demoButtons');
     demoButtons.innerHTML = '';
+    // Cosa si fa da ogni posto. Ripetere il nome ("Laser / Laser") occupa
+    // una riga senza dire niente; questo invece fa capire, a chi si trova
+    // davanti al tablet, se e' quello giusto.
+    const COSA_CI_SI_FA = {
+      'Timbratrice':     'Ore di lavoro di fine giornata',
+      'Visione':         'Ordini in corso, sola lettura',
+      'Amministrazione': 'Ordini, consegne e fatturazione',
+      'Laser':           'Coda di taglio',
+      'Commerciale':     'Preventivi',
+    };
+
     allUsers.forEach(user => {
-      const initials = user.name.split(' ').map(w => w[0]).join('').toUpperCase();
+      // Le iniziali sono gia' decise accanto alla postazione: ricalcolarle dal
+      // nome dava "TDV" per "Tablet di visione".
+      const initials = (user.initials
+        || user.name.split(' ').map(w => w[0]).join('')).toUpperCase().slice(0, 2);
+      const sotto = COSA_CI_SI_FA[user.role] || user.role;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-demo';
-      btn.innerHTML = `<div class="btn-demo-icon">${initials}</div><div class="btn-demo-info"><span class="btn-demo-name">${user.name}</span><span class="btn-demo-role">${user.role}</span></div>`;
+      btn.innerHTML = `<div class="btn-demo-icon">${initials}</div><div class="btn-demo-info"><span class="btn-demo-name">${user.name}</span><span class="btn-demo-role">${sotto}</span></div>`;
       btn.onclick = () => loginUser(user.id);
       demoButtons.appendChild(btn);
     });
@@ -1465,32 +1487,50 @@ async function loginUser(userId) {
     currentUser = { id: userId, ...userData };
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
 
-    // Redirect impiegata alla sua pagina
-    if (currentUser.role === 'Impiegata') {
+    // Ogni postazione apre sulla cosa che da li' si fa. Nessuno deve cercarla.
+    //
+    // L'ordine conta: la postazione laser ha la delega del capo, quindi va
+    // riconosciuta prima del controllo sul comando, altrimenti finirebbe sul
+    // pannello capo invece che davanti ai pezzi da tagliare.
+
+    // Timbratrice: si dichiarano le ore, e basta.
+    if (currentUser.role === 'Timbratrice') {
+      window.location.href = '/ore.html';
+      return;
+    }
+
+    // I due tablet in officina: gli ordini in corso, in sola lettura.
+    if (currentUser.role === 'Visione') {
+      window.location.href = '/operaio-info.html';
+      return;
+    }
+
+    // Laser: la coda da tagliare. Il pannello del capo e' raggiungibile
+    // da li', ma non e' quello che serve aprendo.
+    if (currentUser.role === 'Laser' || currentUser.role === 'Operaio Laser') {
+      window.location.href = '/laser.html';
+      return;
+    }
+
+    // Amministrazione: ordini, consegne, fatturazione.
+    if (currentUser.role === 'Amministrazione' || currentUser.role === 'Impiegata') {
       window.location.href = '/impiegata.html';
       return;
     }
 
-    // Commerciale → modulo preventivi (merge Preventivatore desktop)
+    // Commerciale: i preventivi.
     if (currentUser.role === 'Commerciale') {
       window.location.href = '/preventivi.html';
       return;
     }
 
-    // Capi officina / Amministratore → Pannello Capo (KPI, ordini, calendario, pistole)
+    // Utenze vecchie ancora attive (capi seedati prima delle postazioni).
     if (currentUser.is_capo || currentUser.role === 'Capo Officina' || currentUser.role === 'Amministratore') {
       window.location.href = '/capo-officina.html';
       return;
     }
 
-    // Operaio Laser → pagina laser dedicata (marca "taglio fatto")
-    if (currentUser.role === 'Operaio Laser') {
-      window.location.href = '/laser.html';
-      return;
-    }
-
-    // Operai officina: bacheca ordini in SOLA LETTURA + dichiarazione ore.
-    // Nessuna pistola, nessun timer, nessun avanzamento di fase.
+    // Chiunque altro: gli ordini in corso, in sola lettura.
     window.location.href = '/operaio-info.html';
     return;
 
