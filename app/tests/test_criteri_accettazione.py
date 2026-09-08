@@ -77,7 +77,11 @@ BarcodeManager._CONFIG_PATH = _CFG
 def setup():
     s = models.SessionLocal()
     try:
-        s.add(User(id='enzo', name='Enzo Bianchi', role='Operaio Officina', is_active=True))
+        # In officina da mesi: da quando uno e' sulla bacheca conta, e
+        # a chi arriva oggi non si chiede conto di ieri.
+        _PRESENTE_DA = datetime.now() - timedelta(days=180)
+        s.add(User(id='enzo', name='Enzo Bianchi', role='Operaio Officina',
+                   is_active=True, created_at=_PRESENTE_DA))
         s.add(User(id='elena', name='Elena Colombo', role='Impiegata', is_active=True))
         for n in ('Cliente Y', 'Cliente Z'):
             s.add(Cliente(id=str(uuid.uuid4()), nome=n, attivo=True))

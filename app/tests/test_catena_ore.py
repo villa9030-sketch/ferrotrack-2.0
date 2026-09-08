@@ -69,9 +69,13 @@ def main():
         # L'amministrazione col nome NUOVO: e' il caso che si era rotto.
         s.add(User(id='postazione-amministrazione', name='Amministrazione',
                    role='Amministrazione', is_active=True, e_postazione=True))
-        # Un operaio che deve dichiarare, e non dichiara.
+        # Un operaio che sta sulla bacheca da un mese e non dichiara. La data
+        # di arrivo conta: a chi e' appena entrato non si chiede conto dei
+        # giorni in cui non c'era.
+        from datetime import datetime as _dt
         s.add(User(id='op-catena', name='Operaio Catena',
-                   role='Operaio Officina', is_active=True, e_postazione=False))
+                   role='Operaio', is_active=True, e_postazione=False,
+                   created_at=_dt.now() - timedelta(days=30)))
         s.add(OreAttese(id=str(uuid.uuid4()), operatore_id='op-catena',
                         tenuto_alla_compilazione=True, minuti_attesi=480,
                         giorni_settimana=[1, 2, 3, 4, 5]))

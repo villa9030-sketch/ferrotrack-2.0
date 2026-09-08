@@ -89,6 +89,13 @@ def _migra_colonne_sottosistema(engine, insp):
                     conn.execute(text(f'ALTER TABLE {tabella} ADD COLUMN {col} {tipo}'))
                     logger.info('migrations_ore: aggiunta colonna %s.%s', tabella, col)
                     aggiunte += 1
+                    # Una colonna nuova nasce vuota sulle righe che c'erano
+                    # gia', e "vuoto" non e' "falso": una domanda come "chi
+                    # non e' una postazione?" non le troverebbe. Si riempie
+                    # subito col valore di partenza.
+                    if tipo == 'BOOLEAN':
+                        conn.execute(text(
+                            f'UPDATE {tabella} SET {col} = 0 WHERE {col} IS NULL'))
         conn.commit()
     return aggiunte
 

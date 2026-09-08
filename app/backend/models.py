@@ -42,9 +42,15 @@ RUOLI_COMANDO = ('Laser', 'Capo Officina', 'Amministratore')
 # Chi sta al laser e puo' marcare un taglio come fatto.
 RUOLI_LASER = ('Laser', 'Operaio Laser')
 
-# Le persone di cui si contano le ore. Non sono postazioni: non entrano nel
-# programma, toccano il proprio nome sul tablet della timbratrice.
-RUOLI_OPERAI = ('Operaio Laser', 'Operaio Officina')
+# I nomi che compaiono sulla bacheca della timbratrice. Non sono utenze: non
+# entrano nel programma e non hanno permessi. Servono a non sovrascriversi a
+# vicenda e a sapere che oggi manca qualcuno; i conti si fanno per cliente.
+#
+# 'Operaio' e' il ruolo di chi viene aggiunto da oggi in avanti: scrivendo un
+# nome, senza scegliere niente. Gli altri due sono i nomi vecchi, tenuti perche'
+# nel database ci sono ancora righe che li usano.
+RUOLO_OPERAIO = 'Operaio'
+RUOLI_OPERAI = ('Operaio', 'Operaio Laser', 'Operaio Officina')
 
 class FaseCorrente(str, enum.Enum):
     LASER = "LASER"
@@ -164,12 +170,27 @@ class OrderNotification(Base):
     order = relationship('Order', back_populates='notifications')
 
 class User(Base):
-    """Utenti del sistema con ruoli e permessi"""
+    """Due cose diverse che stanno nella stessa tabella.
+
+    POSTAZIONE (`e_postazione` vera): un posto da cui si lavora — la
+    timbratrice, i due tablet di consultazione, l'amministrazione, il laser, il
+    commerciale. Compare all'ingresso e porta con se' i permessi di quel posto.
+    Sono cinque, e sono sempre le stesse.
+
+    PERSONA (`e_postazione` falsa): un nome sulla bacheca della timbratrice, di
+    cui si contano le ore. Non entra nel programma e non ha permessi. Si
+    aggiunge scrivendo il nome, si toglie dall'ufficio.
+
+    Stanno insieme perche' sei tabelle puntano qui con un vincolo — le giornate
+    dichiarate, le ore attese, le mancanze — e separarle vorrebbe dire
+    ricostruirle rischiando lo storico delle ore. Ma e' un dettaglio interno:
+    da fuori si vedono due cose distinte.
+    """
     __tablename__ = 'users'
-    id = Column(String, primary_key=True)  # es: 'mirko-laser'
-    name = Column(String, nullable=False)  # 'Mirko Sandionigi'
-    role = Column(String, nullable=False)  # 'Operaio Laser', 'Amministratore', ecc
-    initials = Column(String)  # 'LV'
+    id = Column(String, primary_key=True)      # es: 'postazione-laser', 'mario-rossi'
+    name = Column(String, nullable=False)      # 'Laser', 'Mario Rossi'
+    role = Column(String, nullable=False)      # 'Laser', 'Amministrazione', 'Operaio'
+    initials = Column(String)                  # 'LA', 'MR'
     phase = Column(String)  # 'LASER', 'PIEGA', 'SALDATURA', 'ALL'
     permissions = Column(JSON, default=list)  # ['overview', 'lavorazione', 'supervisione', 'archive']
     machines = Column(JSON, default=list)  # ['CNC 01', 'Laser CO₂']
@@ -526,29 +547,14 @@ def seed_users():
                 'machines': []
             },
             # ---------------------------------------------------------------
-            # OPERAI: persone di cui si contano le ore. Non entrano nel
-            # programma: toccano il proprio nome sul tablet della timbratrice.
+            # Qui NON ci vanno persone.
+            #
+            # I nomi sulla bacheca della timbratrice li mette chi lavora,
+            # scrivendoli. Scriverne qualcuno nel codice vuol dire ricrearlo a
+            # ogni avvio: toglierlo dalla bacheca non servirebbe a niente,
+            # tornerebbe da solo. Le postazioni sopra invece sono cinque e sono
+            # sempre le stesse, quindi stanno bene qui.
             # ---------------------------------------------------------------
-            {
-                'id': 'mirko-laser',
-                'name': 'Mirko Sandionigi',
-                'role': 'Operaio Laser',
-                'initials': 'MS',
-                'phase': 'LASER',
-                'e_postazione': False,
-                'permissions': [],
-                'machines': ['Laser CO₂']
-            },
-            {
-                'id': 'enzo-officina',
-                'name': 'Enzo Masciari',
-                'role': 'Operaio Officina',
-                'initials': 'EM',
-                'phase': 'OFFICINA',
-                'e_postazione': False,
-                'permissions': [],
-                'machines': []
-            }
         ]
 
         # Inserisci/aggiorna utenti reali (non cancella utenti creati dinamicamente)

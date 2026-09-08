@@ -218,8 +218,13 @@ def controlla_periodo(dal=None, al=None) -> dict:
         if not cfgs:
             return {**esiti, 'giorni': 0, 'nota': 'nessun operaio configurato'}
         ecc = _eccezioni(session, da_giorno, a_giorno)
-        attivi = {u.id for u in session.query(User).filter(
-            User.is_active == True).all()}  # noqa: E712
+        # Da quando ciascuno e' sulla bacheca. Chi e' arrivato la settimana
+        # scorsa non deve rispondere del mese prima: sarebbe una colonna di
+        # allarmi finti addosso a una persona appena entrata.
+        attivi = {}
+        for u in session.query(User).filter(User.is_active == True).all():  # noqa: E712
+            da = getattr(u, 'created_at', None)
+            attivi[u.id] = da.date() if da is not None else None
 
         giorno = da_giorno
         n_giorni = 0
@@ -227,6 +232,9 @@ def controlla_periodo(dal=None, al=None) -> dict:
             n_giorni += 1
             for op_id, cfg in cfgs.items():
                 if op_id not in attivi:
+                    continue
+                sulla_bacheca_dal = attivi[op_id]
+                if sulla_bacheca_dal and giorno < sulla_bacheca_dal:
                     continue
                 attesi = _minuti_attesi(cfg, ecc.get((op_id, giorno)), giorno)
                 if attesi is None:
@@ -378,12 +386,21 @@ def elenco_anomalie(stato: str = 'aperta', dal=None, al=None, limite: int = 200)
 # Configurazione ed eccezioni (gestite dall'impiegata)
 # ---------------------------------------------------------------------------
 def elenco_configurazione() -> list:
-    """Chi e' tenuto a compilare, quanto e in quali giorni."""
+    """Chi e' tenuto a compilare, quanto e in quali giorni.
+
+    Solo le persone. Le postazioni — la timbratrice, i tablet, l'ufficio, il
+    laser — non dichiarano ore: comparire qui le farebbe sembrare gente a cui
+    si puo' chiedere una giornata di lavoro.
+    """
     session = get_session()
     try:
         cfgs = {c.operatore_id: c for c in session.query(OreAttese).all()}
         out = []
-        for u in session.query(User).filter(User.is_active == True).all():  # noqa: E712
+        # `isnot(True)` invece di `== False`: prende anche le righe in cui la
+        # colonna e' rimasta vuota, che sono persone a tutti gli effetti.
+        for u in session.query(User).filter(
+                User.is_active == True,               # noqa: E712
+                User.e_postazione.isnot(True)).all():
             c = cfgs.get(u.id)
             out.append({
                 'operatore_id': u.id, 'operatore': u.name, 'ruolo': u.role,

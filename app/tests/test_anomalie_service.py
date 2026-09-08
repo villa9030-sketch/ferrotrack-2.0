@@ -14,7 +14,7 @@ import os
 import sys
 import tempfile
 import uuid
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta
 
 _QUI = os.path.dirname(os.path.abspath(__file__))
 _APP = os.path.dirname(_QUI)
@@ -66,9 +66,15 @@ DOM = LUN + timedelta(days=6)
 def setup():
     s = models.SessionLocal()
     try:
-        s.add(User(id='op1', name='Mario Rossi', role='Operaio Officina', is_active=True))
-        s.add(User(id='op2', name='Luca Bianchi', role='Operaio Laser', is_active=True))
-        s.add(User(id='op3', name='Nino Verdi', role='Operaio Officina', is_active=True))
+        # In officina da mesi: da quando uno e' sulla bacheca conta, e
+        # a chi arriva oggi non si chiede conto di ieri.
+        _PRESENTE_DA = datetime.now() - timedelta(days=180)
+        s.add(User(id='op1', name='Mario Rossi', role='Operaio Officina',
+                   is_active=True, created_at=_PRESENTE_DA))
+        s.add(User(id='op2', name='Luca Bianchi', role='Operaio Laser',
+                   is_active=True, created_at=_PRESENTE_DA))
+        s.add(User(id='op3', name='Nino Verdi', role='Operaio Officina',
+                   is_active=True, created_at=_PRESENTE_DA))
         s.add(User(id='elena', name='Elena', role='Impiegata', is_active=True))
         s.add(Cliente(id=str(uuid.uuid4()), nome='Cliente Y', attivo=True))
         # op1: 8h lun-ven ; op2: 4h solo lun-mer ; op3: NON tenuto

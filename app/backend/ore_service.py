@@ -25,7 +25,7 @@ except Exception:  # pragma: no cover - fallback estremo
     _TZ = None
 
 from .database import get_session
-from .models import RUOLI_OPERAI, User
+from .models import RUOLI_OPERAI, RUOLO_OPERAIO, User
 from .models_ore import Cliente, GiornataOre, RigaOre
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,180 @@ def elenco_operai() -> list:
         return out
     finally:
         session.close()
+
+
+def _identificativo_da_nome(nome: str, presi: set) -> str:
+    """Costruisce un identificativo leggibile dal nome, senza chiederlo a nessuno.
+
+    "Mario Rossi" diventa "mario-rossi". Se c'e' gia', "mario-rossi-2". Serve
+    solo al programma: chi aggiunge un operaio scrive un nome e basta.
+    """
+    import re
+    import unicodedata
+    piatto = unicodedata.normalize('NFKD', nome or '')
+    piatto = piatto.encode('ascii', 'ignore').decode('ascii').lower()
+    base = re.sub(r'[^a-z0-9]+', '-', piatto).strip('-') or 'operaio'
+    base = base[:40]
+    if base not in presi:
+        return base
+    n = 2
+    while '%s-%d' % (base, n) in presi:
+        n += 1
+    return '%s-%d' % (base, n)
+
+
+def aggiungi_operaio(nome: str, aggiunto_da: str = 'tablet') -> dict:
+    """Aggiunge un nome alla bacheca. Serve solo il nome.
+
+    Da oggi in avanti il nuovo operaio e' tenuto a dichiarare, ma NON per i
+    giorni prima di adesso: chi arriva oggi non deve trovarsi addosso le
+    mancanze di un mese in cui non c'era.
+    """
+    from datetime import date as _date
+    from .models_ore import OreAttese
+
+    nome = (nome or '').strip()
+    if len(nome) < 2:
+        return {'success': False, 'error': 'Scrivi il nome.',
+                'codice': 'nome_mancante'}
+    if len(nome) > 60:
+        return {'success': False, 'error': 'Nome troppo lungo.',
+                'codice': 'nome_lungo'}
+
+    session = get_session()
+    try:
+        esistenti = session.query(User).filter(User.is_active == True).all()  # noqa: E712
+        # Stesso nome, scritto uguale a meno di maiuscole e spazi: e' lui.
+        piatto = ' '.join(nome.split()).lower()
+        for u in esistenti:
+            if ' '.join((u.name or '').split()).lower() == piatto:
+                return {'success': False,
+                        'error': 'C\'e\' gia\' %s sulla bacheca.' % u.name,
+                        'codice': 'gia_presente', 'operatore_id': u.id}
+
+        presi = {u.id for u in session.query(User).all()}
+        oid = _identificativo_da_nome(nome, presi)
+        iniziali = ''.join(p[0] for p in nome.split()[:2]).upper() or nome[:2].upper()
+
+        session.add(User(
+            id=oid, name=nome, role=RUOLO_OPERAIO, initials=iniziali,
+            phase=None, permissions=[], machines=[],
+            is_capo=False, is_active=True, e_postazione=False,
+            created_at=datetime.utcnow(),
+        ))
+        # Tenuto a dichiarare dal giorno in cui e' stato aggiunto, non prima.
+        session.add(OreAttese(
+            id=str(uuid.uuid4()), operatore_id=oid,
+            tenuto_alla_compilazione=True, minuti_attesi=480,
+            giorni_settimana=[1, 2, 3, 4, 5],
+            aggiornata_il=datetime.utcnow(), aggiornata_da=aggiunto_da,
+        ))
+        session.commit()
+        logger.info('operaio aggiunto alla bacheca: %s (%s)', nome, oid)
+        return {'success': True, 'operatore_id': oid, 'nome': nome,
+                'attivo_dal': _date.today().isoformat()}
+    except Exception as e:
+        session.rollback()
+        logger.exception('aggiunta operaio fallita')
+        return {'success': False, 'error': str(e), 'codice': 'errore'}
+    finally:
+        session.close()
+
+
+def togli_operaio(operatore_id: str) -> dict:
+    """Toglie un nome dalla bacheca senza cancellare le ore gia' dichiarate.
+
+    Chi se ne va non deve sparire dallo storico: le sue giornate restano dove
+    sono, e restano attribuite a lui. Semplicemente non gli si chiede piu'
+    niente e non compare piu' fra i pulsanti.
+    """
+    from .models_ore import OreAttese
+    session = get_session()
+    try:
+        u = session.query(User).filter(User.id == operatore_id).first()
+        if not u or u.e_postazione:
+            return {'success': False, 'error': 'Non e\' un nome della bacheca.',
+                    'codice': 'non_trovato'}
+        u.is_active = False
+        cfg = session.query(OreAttese).filter(
+            OreAttese.operatore_id == operatore_id).first()
+        if cfg is not None:
+            # Cosi' smette anche di risultare "mancante" da domani in poi.
+            cfg.tenuto_alla_compilazione = False
+        session.commit()
+        return {'success': True, 'nome': u.name}
+    except Exception as e:
+        session.rollback()
+        logger.exception('rimozione operaio fallita')
+        return {'success': False, 'error': str(e), 'codice': 'errore'}
+    finally:
+        session.close()
+
+
+# Forme societarie: due scritture che differiscono solo per queste sono lo
+# stesso cliente. Non si toccano i dati, si raggruppa quando si fanno i conti.
+_FORME = ('srl', 's r l', 'srls', 'spa', 's p a', 'snc', 'sas', 'sapa',
+          'ss', 'scarl', 'soc coop', 'coop')
+
+
+def chiave_cliente(nome: str) -> str:
+    """Come si riconosce che due nomi sono lo stesso cliente.
+
+    Ignora maiuscole, punteggiatura, spazi doppi e la forma societaria: cosi'
+    "DECA", "deca" e "DECA S.r.l." finiscono nello stesso conto. Torna stringa
+    vuota se non c'e' un nome: quel caso lo tratta chi chiama.
+    """
+    import re
+    import unicodedata
+    piatto = unicodedata.normalize('NFKD', nome or '')
+    piatto = piatto.encode('ascii', 'ignore').decode('ascii').lower()
+    piatto = re.sub(r'[^a-z0-9]+', ' ', piatto).strip()
+    if not piatto:
+        return ''
+    parole = piatto.split()
+    # Toglie la forma societaria solo se sta in coda: "SRL COSTRUZIONI" e'
+    # un nome, "COSTRUZIONI SRL" e' "COSTRUZIONI".
+    for n in (3, 2, 1):
+        if len(parole) > n and ' '.join(parole[-n:]) in _FORME:
+            parole = parole[:-n]
+            break
+    return ' '.join(parole) or piatto
+
+
+def _nome_migliore(a: str, b: str) -> str:
+    """Fra due scritture dello stesso cliente, quella da mostrare.
+
+    Si tiene la piu' completa — "DECA S.r.l." dice piu' di "deca" — e a parita'
+    quella con le maiuscole, che e' come si scrive il nome di un'azienda.
+    """
+    if not a:
+        return b
+    if not b:
+        return a
+    if len(a) != len(b):
+        return a if len(a) > len(b) else b
+    return a if sum(1 for c in a if c.isupper()) >= sum(1 for c in b if c.isupper()) else b
+
+
+def raggruppa_per_cliente(voci) -> list:
+    """Somma per cliente, unendo le scritture diverse dello stesso nome.
+
+    `voci` sono coppie (nome, minuti). Torna un elenco ordinato dal cliente
+    piu' lavorato, con il nome scritto per esteso.
+    """
+    somme = {}
+    for nome, minuti in voci:
+        k = chiave_cliente(nome)
+        if not k:
+            continue
+        v = somme.get(k) or {'cliente': nome, 'minuti': 0}
+        v['cliente'] = _nome_migliore(v['cliente'], nome)
+        v['minuti'] += int(minuti or 0)
+        somme[k] = v
+    fuori = sorted(somme.values(), key=lambda x: -x['minuti'])
+    for v in fuori:
+        v['ore'] = round(v['minuti'] / 60.0, 2)
+    return fuori
 
 
 def elenco_clienti() -> list:
@@ -157,11 +331,21 @@ def giornata_tutti(data=None) -> list:
                     'scostamento_confermato': bool(g.scostamento_confermato) if g else False}
             if g is not None:
                 righe = righe_per_giornata.get(g.id, [])
-                voce['righe'] = sorted(
-                    [{'cliente': r.cliente,
-                      'attivita_interna': bool(r.attivita_interna),
-                      'minuti': int(r.minuti or 0)} for r in righe],
-                    key=lambda x: (x['attivita_interna'], (x['cliente'] or '').lower()))
+                # Sulla bacheca si guarda, non si modifica: le righe si
+                # raggruppano per cliente, con la stessa regola del totale in
+                # cima. Altrimenti la scheda mostra "deca 6 h" e "DECA 2 h"
+                # mentre sopra c'e' scritto "DECA 8 h", e i due numeri della
+                # stessa schermata sembrano non tornare. Chi corregge la
+                # giornata vede invece le righe come le ha scritte.
+                interne = sum(int(r.minuti or 0) for r in righe if r.attivita_interna)
+                per_cliente = raggruppa_per_cliente(
+                    [(r.cliente, r.minuti) for r in righe if not r.attivita_interna])
+                voce['righe'] = [
+                    {'cliente': v['cliente'], 'attivita_interna': False,
+                     'minuti': v['minuti']} for v in per_cliente]
+                if interne:
+                    voce['righe'].append(
+                        {'cliente': None, 'attivita_interna': True, 'minuti': interne})
                 voce['totale_minuti'] = sum(x['minuti'] for x in voce['righe'])
             out.append(voce)
         return out

@@ -69,6 +69,13 @@
   .tot{font-size:22px; font-weight:800; font-variant-numeric:tabular-nums}
   [hidden]{display:none !important}
   @media (max-width:640px){ .wrap{padding:12px} .row{flex-direction:column; align-items:stretch} }
+
+  /* Aggiungere una persona: un campo e un pulsante, niente moduli. */
+  .riga-aggiungi{display:flex; gap:10px; margin:0 0 16px; flex-wrap:wrap}
+  .riga-aggiungi input{flex:1 1 260px; padding:10px 12px; font-size:15px;
+    border:1px solid var(--border,#ddd); border-radius:9px}
+  button.sec.via{color:#9E2A20; border-color:#e6c9c5; margin-left:6px}
+  button.sec.via:hover{background:#fbf0ee}
 </style>
 </head>
 <body>
@@ -221,13 +228,22 @@
   <section id="s-config" hidden>
     <div class="card">
       <h2>Chi compila le ore</h2>
-      <p class="sub">Ore attese e giorni lavorativi per operaio. Non si assume che siano
-         8 ore per tutti.</p>
+      <p class="sub">Ore attese e giorni lavorativi per persona. Non si assume che siano
+         8 ore per tutti. Chi se ne va si toglie da qui: le ore che ha gi&agrave;
+         dichiarato restano dove sono.</p>
+      <div class="riga-aggiungi">
+        <input type="text" id="nuovo-nome" placeholder="Nome della persona da aggiungere"
+               autocomplete="off">
+        <button class="sec" onclick="aggiungiPersona()">+ Aggiungi</button>
+      </div>
       <div class="msg" id="msg-cfg" hidden></div>
       <div class="scroll"><table>
-        <thead><tr><th>Operaio</th><th>Ruolo</th><th>Compila</th>
+        <!-- Niente colonna "Ruolo": adesso i nomi sono etichette, non utenze,
+             e mostrare "Operaio Laser" accanto a "Operaio" fa sembrare che ci
+             sia una differenza che non c'e' piu'. -->
+        <thead><tr><th>Persona</th><th>Compila</th>
           <th class="n">Ore attese</th><th>Giorni</th><th></th></tr></thead>
-        <tbody id="cfg-body"><tr><td colspan="6" class="vuoto">Caricamento…</td></tr></tbody>
+        <tbody id="cfg-body"><tr><td colspan="5" class="vuoto">Caricamento…</td></tr></tbody>
       </table></div>
     </div>
   </section>
@@ -247,6 +263,10 @@ async function api(path, opts = {}) {
   return {status: r.status, ok: r.ok, data: d};
 }
 
+// Un nome che finisce dentro un attributo onclick va protetto a parte: in
+// Italia "D'Angelo" e' un cognome normale, e un apostrofo li' dentro chiude la
+// stringa e rompe il pulsante.
+function escAttr(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function h(min){const v=(min||0)/60; return Number.isInteger(v)?String(v):v.toFixed(1).replace('.',',');}
 function eur(v){return v==null?'—':(v).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
@@ -499,14 +519,48 @@ async function caricaConfig(){
   const b=document.getElementById('cfg-body');
   const rows=(r.data.operai)||[];
   b.innerHTML=rows.map((o,i)=>`<tr>
-    <td><b>${esc(o.operatore)}</b></td><td>${esc(o.ruolo||'')}</td>
+    <td><b>${esc(o.operatore)}</b></td>
     <td><input type="checkbox" id="c-t-${i}" ${o.tenuto?'checked':''}></td>
     <td class="n"><input type="number" id="c-m-${i}" step="0.5" min="0" value="${o.minuti_attesi/60}" style="width:80px"> h</td>
     <td>${[1,2,3,4,5,6,7].map(g=>`<label style="display:inline-block;margin-right:6px;font-weight:400">
         <input type="checkbox" id="c-g-${i}-${g}" ${(o.giorni_settimana||[]).includes(g)?'checked':''}> ${GG[g]}</label>`).join('')}</td>
-    <td><button class="sec" onclick="salvaCfg(${i},'${o.operatore_id}')">Salva</button></td>
-  </tr>`).join('')||'<tr><td colspan="6" class="vuoto">Nessun operaio.</td></tr>';
+    <td style="white-space:nowrap">
+      <button class="sec" onclick="salvaCfg(${i},'${o.operatore_id}')">Salva</button>
+      <button class="sec via" onclick="togliPersona('${o.operatore_id}','${escAttr(o.operatore)}')"
+              title="Togli dalla bacheca: le ore gi\u00e0 dichiarate restano">Togli</button>
+    </td>
+  </tr>`).join('')||'<tr><td colspan="5" class="vuoto">Nessuno sulla bacheca. '
+    +'Aggiungi una persona scrivendo il nome qui sopra.</td></tr>';
 }
+/** Aggiunge una persona alla bacheca: serve solo il nome. */
+async function aggiungiPersona(){
+  const campo=document.getElementById('nuovo-nome');
+  const nome=(campo.value||'').trim();
+  if(!nome){ msg('msg-cfg','Scrivi il nome della persona.','err'); return; }
+  const r=await api('/api/ore/operai',{method:'POST',body:JSON.stringify({nome:nome})});
+  if(r.ok&&r.data.success){
+    campo.value='';
+    msg('msg-cfg','"'+nome+'" \u00e8 sulla bacheca della timbratrice.','ok');
+    caricaConfig();
+  } else {
+    msg('msg-cfg',(r.data&&r.data.error)||'Non riuscito.','err');
+  }
+}
+
+/** Toglie una persona dalla bacheca. Le ore gia' dichiarate restano sue. */
+async function togliPersona(op,nome){
+  if(!confirm('Togliere '+nome+' dalla bacheca?\n\n'
+    +'Le ore che ha gi\u00e0 dichiarato restano nello storico e nei riepiloghi. '
+    +'Semplicemente non gliene verranno chieste altre.')) return;
+  const r=await api('/api/ore/operai/'+encodeURIComponent(op),{method:'DELETE'});
+  if(r.ok&&r.data.success){
+    msg('msg-cfg',nome+' non \u00e8 pi\u00f9 sulla bacheca.','ok');
+    caricaConfig();
+  } else {
+    msg('msg-cfg',(r.data&&r.data.error)||'Non riuscito.','err');
+  }
+}
+
 async function salvaCfg(i,op){
   const giorni=[1,2,3,4,5,6,7].filter(g=>document.getElementById(`c-g-${i}-${g}`).checked);
   const r=await api('/api/ore/configurazione',{method:'POST',body:JSON.stringify({

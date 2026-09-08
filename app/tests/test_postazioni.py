@@ -90,14 +90,22 @@ def main():
         check('%-28s si chiama "%s"' % (pid, nome), u.get('name') == nome, u.get('name'))
         check('%-28s ha ruolo "%s"' % (pid, ruolo), u.get('role') == ruolo, u.get('role'))
 
-    print('\n2) Gli operai restano, ma non entrano nel programma')
-    for oid in OPERAI:
-        u = utenti.get(oid, {})
-        check('%-16s c\'e\' ancora' % oid, bool(u), 'sparito')
-        check('%-16s e\' ancora attivo' % oid, u.get('is_active') is True)
-        check('%-16s NON e\' una postazione' % oid, not u.get('e_postazione'))
-        check('%-16s ha ancora un ruolo da operaio' % oid,
-              (u.get('role') or '').startswith('Operaio'), u.get('role'))
+    print("\n2) Le persone, se ci sono, non entrano nel programma")
+    # Non si pretende di trovare nomi precisi: il programma non arriva con
+    # delle persone dentro, le mette chi lavora. Un test che cerca "Mirko"
+    # fallirebbe il giorno in cui Mirko se ne va, cioe' quando tutto funziona.
+    persone = {i: u for i, u in utenti.items()
+               if not u.get('e_postazione') and u.get('is_active', True)}
+    print('   persone sulla bacheca: %s' % (sorted(u['name'] for u in persone.values())
+                                            or 'nessuna'))
+    for pid, u in persone.items():
+        check('%-20s non e\' una postazione' % pid, not u.get('e_postazione'))
+        check('%-20s non ha permessi' % pid, not (u.get('permissions') or []),
+              u.get('permissions'))
+        check('%-20s non comanda' % pid, not u.get('is_capo'))
+    check('nessuna persona compare all\'ingresso',
+          not (set(persone) & set(postazioni)))
+
 
     print('\n3) La bacheca della timbratrice ha ancora i nomi da mostrare')
     from backend.ore_service import elenco_operai

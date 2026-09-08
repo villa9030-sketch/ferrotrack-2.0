@@ -243,48 +243,29 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   <h2 class="page-title">Utenti</h2>
   <p class="page-sub">Operai, capi, impiegate e amministratori. Le pistole barcode sono dismesse (vedi <b>Impostazioni &rarr; Rilevazione delle ore</b>): gli operai dichiarano le ore dal tablet.</p>
 
-  <!-- Crea utente -->
+  <!-- Aggiungi una persona alla bacheca -->
   <div class="card">
     <div class="card-header">
-      <h3>Aggiungi utente</h3>
+      <h3>Aggiungi una persona</h3>
+      <span class="card-meta">Bacheca della timbratrice</span>
     </div>
     <div class="card-body">
+      <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
+        Serve solo il nome. La persona compare subito fra i pulsanti del tablet e
+        pu&ograve; registrare le sue ore. Non le si chiede conto dei giorni prima
+        di oggi. <b>Lo stesso si pu&ograve; fare dal tablet</b>, che &egrave; dove
+        di solito serve: un operaio nuovo arriva in officina, non in ufficio.
+      </p>
       <div class="form-row">
         <div class="form-field">
-          <label>ID utente</label>
-          <input type="text" id="new-user-id" placeholder="es. nome-reparto">
-        </div>
-        <div class="form-field">
-          <label>Nome completo</label>
+          <label>Nome</label>
           <input type="text" id="new-user-name" placeholder="es. Mario Rossi">
-        </div>
-        <div class="form-field">
-          <label>Ruolo</label>
-          <select id="new-user-role">
-            <option value="">&mdash;</option>
-            <option value="Impiegata">Impiegata</option>
-            <option value="Commerciale">Commerciale</option>
-            <option value="Capo Officina">Capo Officina</option>
-            <option value="Operaio Laser">Operaio Laser</option>
-            <option value="Operaio Officina">Operaio Officina</option>
-            <option value="Amministratore">Amministratore</option>
-          </select>
-        </div>
-        <div class="form-field" style="max-width:140px;">
-          <label>Fase</label>
-          <select id="new-user-phase">
-            <option value="">&mdash;</option>
-            <option value="LASER">LASER</option>
-            <option value="OFFICINA">OFFICINA</option>
-            <option value="ALL">ALL</option>
-          </select>
         </div>
         <div class="form-field" style="flex:0 0 auto; min-width:auto;">
           <label>&nbsp;</label>
-          <button class="btn-primary" onclick="createUser()">+ Crea utente</button>
+          <button class="btn-primary" onclick="createUser()">+ Aggiungi</button>
         </div>
       </div>
-      <div class="form-hint" style="margin-top:10px;">Permessi e stato attivo si modificano dopo la creazione.</div>
       <div class="form-msg" id="new-user-msg"></div>
     </div>
   </div>
@@ -818,35 +799,40 @@ async function loadUsers() {
   }
 }
 
+/** Aggiunge una persona alla bacheca. Serve solo il nome.
+    Usa lo stesso comando del tablet, cosi' la regola su chi c'e' gia' e da
+    quando risponde delle giornate mancanti resta UNA: due copie della stessa
+    regola, col tempo, finiscono per non tornare. */
 async function createUser() {
-  const user_id = document.getElementById('new-user-id').value.trim();
   const name = document.getElementById('new-user-name').value.trim();
-  const role = document.getElementById('new-user-role').value;
-  const phase = document.getElementById('new-user-phase').value || 'ALL';
-  if (!user_id || !name || !role) {
-    showMsg('new-user-msg', 'ID, nome e ruolo obbligatori', 'var(--red)');
+  if (!name) {
+    showMsg('new-user-msg', 'Scrivi il nome della persona.', 'var(--red)');
+    return;
+  }
+  // Le ore sono protette dal token del dispositivo, come sul tablet.
+  const tok = localStorage.getItem('ufficio_device_token');
+  if (!tok) {
+    showMsg('new-user-msg',
+      'Questo computer non e\u0300 ancora abilitato alle ore. '
+      + 'Abilitalo dalla pagina "Ore e riepilogo", oppure aggiungi la persona '
+      + 'dal tablet della timbratrice.', 'var(--red)');
     return;
   }
   try {
-    const r = await fetch(`${API_URL}/api/users`, {
+    const r = await fetch(`${API_URL}/api/ore/operai`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        user_id, name, role, phase,
-        permissions: [], machines: [],
-        created_by: currentUser ? currentUser.id : ''
-      })
+      headers: {'Content-Type': 'application/json', 'X-Device-Token': tok},
+      body: JSON.stringify({ nome: name })
     });
     const d = await r.json();
     if (r.ok && d.success) {
-      showMsg('new-user-msg', `✓ Creato "${name}"`, 'var(--green)');
-      document.getElementById('new-user-id').value = '';
+      showMsg('new-user-msg',
+        `\u2713 "${name}" e\u0300 sulla bacheca della timbratrice`, 'var(--green)');
       document.getElementById('new-user-name').value = '';
-      document.getElementById('new-user-role').value = '';
-      document.getElementById('new-user-phase').value = '';
       loadUsers();
     } else {
-      showMsg('new-user-msg', `Errore: ${d.error || 'creazione fallita'}`, 'var(--red)');
+      showMsg('new-user-msg', d.error || 'Non sono riuscito ad aggiungerla.',
+              'var(--red)');
     }
   } catch (e) {
     showMsg('new-user-msg', `Errore: ${e.message}`, 'var(--red)');

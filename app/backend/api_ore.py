@@ -85,6 +85,39 @@ def api_clienti():
     return jsonify({'success': True, 'clienti': svc.elenco_clienti()}), 200
 
 
+@bp_ore.route('/operai', methods=['POST'])
+@require_scope('ore', 'ufficio')
+def api_aggiungi_operaio():
+    """Aggiunge un nome alla bacheca. Serve solo il nome.
+
+    Si fa dal tablet perche' e' li' che serve: un operaio nuovo arriva in
+    officina, non in ufficio, e se per segnare le sue ore bisogna prima che
+    qualcuno vada al computer, il primo giorno non le segna.
+    """
+    dati = request.get_json(silent=True) or {}
+    dev = device_corrente()
+    esito = svc.aggiungi_operaio(
+        (dati.get('nome') or ''),
+        aggiunto_da=dev.get('label') or 'tablet')
+    if not esito.get('success'):
+        # 409 quando c'e' gia': non e' un errore di chi scrive, e' un doppione.
+        codice = 409 if esito.get('codice') == 'gia_presente' else 400
+        return jsonify(esito), codice
+    return jsonify(esito), 201
+
+
+@bp_ore.route('/operai/<operatore_id>', methods=['DELETE'])
+@require_scope('ufficio')
+def api_togli_operaio(operatore_id):
+    """Toglie un nome dalla bacheca. Le ore gia' dichiarate restano.
+
+    Solo dall'ufficio: togliere qualcuno dalla bacheca non e' un gesto da
+    tablet, dove basta un tocco distratto.
+    """
+    esito = svc.togli_operaio(operatore_id)
+    return jsonify(esito), (200 if esito.get('success') else 404)
+
+
 # ---------------------------------------------------------------------------
 # Giornata
 # ---------------------------------------------------------------------------
@@ -122,7 +155,26 @@ def api_bacheca():
     voci = svc.giornata_tutti(data)
     for v in voci:
         _con_attese(v, v['id'], data)
-    return jsonify({'success': True, 'data': data, 'operai': voci}), 200
+
+    # Le ore per cliente: e' il numero per cui esiste tutta la raccolta.
+    # Le somma il server, applicando la stessa regola del riepilogo mensile,
+    # cosi' i due conti non possono discordare.
+    coppie, interne = [], 0
+    for v in voci:
+        for r in (v.get('righe') or []):
+            if r.get('attivita_interna'):
+                interne += int(r.get('minuti') or 0)
+            else:
+                coppie.append((r.get('cliente'), r.get('minuti')))
+    per_cliente = svc.raggruppa_per_cliente(coppie)
+    totale = sum(x['minuti'] for x in per_cliente) + interne
+
+    return jsonify({
+        'success': True, 'data': data, 'operai': voci,
+        'per_cliente': per_cliente,
+        'minuti_interni': interne,
+        'totale_minuti': totale,
+    }), 200
 
 
 @bp_ore.route('/giornata', methods=['GET'])

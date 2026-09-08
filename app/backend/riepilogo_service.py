@@ -32,7 +32,7 @@ from .models_ore import (
     AnomaliaOre, CostoMaterialeCliente, CostoOrario, FatturatoCliente,
     GiornataOre, RigaOre,
 )
-from .ore_service import oggi_locale, parse_data
+from .ore_service import chiave_cliente, oggi_locale, parse_data
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,29 @@ def _tariffa_del_giorno(tariffe, giorno: date):
 # ---------------------------------------------------------------------------
 # Periodo
 # ---------------------------------------------------------------------------
+def _ricorda_nome(mappa: dict, chiave: str, nome: str) -> None:
+    """Tiene, fra le scritture dello stesso cliente, quella da mostrare.
+
+    Si preferisce la piu' completa — "DECA S.r.l." dice piu' di "deca" — e a
+    parita' quella con le maiuscole, che e' come si scrive il nome di
+    un'azienda.
+    """
+    nome = (nome or '').strip()
+    if not chiave or not nome:
+        return
+    attuale = mappa.get(chiave)
+    if not attuale:
+        mappa[chiave] = nome
+        return
+    if len(nome) > len(attuale):
+        mappa[chiave] = nome
+    elif len(nome) == len(attuale):
+        su_nuovo = sum(1 for c in nome if c.isupper())
+        su_vecchio = sum(1 for c in attuale if c.isupper())
+        if su_nuovo > su_vecchio:
+            mappa[chiave] = nome
+
+
 def risolvi_periodo(anno=None, mese=None, dal=None, al=None) -> dict:
     """Normalizza il periodo richiesto.
 
@@ -158,8 +181,12 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
                  .join(GiornataOre, RigaOre.giornata_id == GiornataOre.id)
                  .filter(GiornataOre.data >= d1, GiornataOre.data <= d2).all())
 
-        minuti_cli = {}          # cliente -> minuti
-        costo_cli = {}           # cliente -> euro
+        # Si somma per CHIAVE, non per come il nome e' scritto: cosi' "DECA",
+        # "deca" e "DECA S.r.l." finiscono nella stessa riga. `nomi_mostrati`
+        # tiene, per ogni chiave, la scrittura da far vedere.
+        minuti_cli = {}          # chiave cliente -> minuti
+        costo_cli = {}           # chiave cliente -> euro
+        nomi_mostrati = {}       # chiave cliente -> nome per esteso
         minuti_interni = 0
         costo_interni = 0.0
         giorni_senza_tariffa = set()
@@ -179,10 +206,13 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
                 if costo:
                     costo_interni += costo
                 continue
-            nome = r.cliente
-            minuti_cli[nome] = minuti_cli.get(nome, 0) + minuti
+            # Si somma sotto un'unica chiave, cosi' le grafie diverse dello
+            # stesso cliente non fanno righe diverse.
+            k = chiave_cliente(r.cliente)
+            _ricorda_nome(nomi_mostrati, k, r.cliente)
+            minuti_cli[k] = minuti_cli.get(k, 0) + minuti
             if costo is not None:
-                costo_cli[nome] = costo_cli.get(nome, 0.0) + costo
+                costo_cli[k] = costo_cli.get(k, 0.0) + costo
 
         # --- FATTURATO (inserito a mano dall'ufficio) ------------------------
         fatt = {}
@@ -193,7 +223,9 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
             for c in cond[1:]:
                 filtro = filtro | c
             for f in q.filter(filtro).all():
-                fatt[f.cliente] = fatt.get(f.cliente, 0.0) + float(f.importo or 0)
+                k = chiave_cliente(f.cliente)
+                _ricorda_nome(nomi_mostrati, k, f.cliente)
+                fatt[k] = fatt.get(k, 0.0) + float(f.importo or 0)
 
         # --- MATERIALI attribuiti (e non attribuiti, tenuti separati) --------
         mat = {}
@@ -206,7 +238,9 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
                 filtro = filtro | c
             for x in session.query(CostoMaterialeCliente).filter(filtro).all():
                 if x.cliente:
-                    mat[x.cliente] = mat.get(x.cliente, 0.0) + float(x.importo or 0)
+                    k = chiave_cliente(x.cliente)
+                    _ricorda_nome(nomi_mostrati, k, x.cliente)
+                    mat[k] = mat.get(k, 0.0) + float(x.importo or 0)
                 else:
                     mat_non_attribuiti += float(x.importo or 0)
 
@@ -217,19 +251,22 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
             AnomaliaOre.tipo == 'mancante').count()
 
         # --- Composizione righe cliente -------------------------------------
-        nomi = set(minuti_cli) | set(fatt) | set(mat)
+        chiavi = set(minuti_cli) | set(fatt) | set(mat)
         if cliente:
-            nomi = {n for n in nomi if n == cliente}
+            # Il filtro cerca lo stesso cliente comunque sia scritto.
+            k_cercata = chiave_cliente(cliente)
+            chiavi = {k for k in chiavi if k == k_cercata}
 
         clienti = []
-        for n in sorted(nomi, key=lambda x: (x or '').lower()):
-            minuti = minuti_cli.get(n, 0)
-            ha_fatt = n in fatt
-            ha_mat = n in mat
-            costo_ore = costo_cli.get(n)
+        for k in sorted(chiavi, key=lambda x: (nomi_mostrati.get(x) or x).lower()):
+            n = nomi_mostrati.get(k) or k
+            minuti = minuti_cli.get(k, 0)
+            ha_fatt = k in fatt
+            ha_mat = k in mat
+            costo_ore = costo_cli.get(k)
             costo_noto = (minuti == 0) or (costo_ore is not None and not giorni_senza_tariffa)
-            f = fatt.get(n)
-            m = mat.get(n)
+            f = fatt.get(k)
+            m = mat.get(k)
             residuo = None
             if ha_fatt and costo_noto:
                 residuo = float(f) - float(m or 0) - float(costo_ore or 0)
