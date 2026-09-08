@@ -294,6 +294,10 @@ body {
 }
 .barra-dxf > span { flex: none; }
 .barra-dxf a { flex: none; }
+/* Il percorso e' la cosa da leggere: prende lo spazio. Il pulsante resta
+   della sua misura invece di allargarsi a meta' barra. */
+.barra-dxf code { flex: 1 1 auto; min-width: 0; }
+.barra-dxf .btn-taglio { width: auto; flex: none; margin-top: 0; }
 .barra-dxf a {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
   background: #fff; border: 1px solid var(--border); border-radius: 7px;
@@ -462,6 +466,15 @@ body {
 }
 
 .pdf-close:hover { color: var(--black); }
+
+/* Le uniche due azioni che servono al laser: stampare e ingrandire. Tutto il
+   resto della barra del browser (zoom, ruota, disegna, annulla) e' rumore. */
+.btn-pdf {
+  border: 1px solid var(--border); background: #fff; border-radius: 8px;
+  padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+  color: var(--text-primary);
+}
+.btn-pdf:hover { border-color: var(--green); }
 
 .pdf-frame {
   flex: 1;
@@ -1418,7 +1431,13 @@ button:active {
   <div class="pdf-viewer">
     <div class="pdf-header">
       <div class="pdf-title" id="pdf-title">PDF Ordine</div>
-      <button class="pdf-close" onclick="deselectOrder()">✕</button>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button class="btn-pdf" id="btn-stampa-pdf" onclick="stampaOrdine()"
+                title="Stampa il foglio d'ordine" style="display:none;">Stampa</button>
+        <button class="btn-pdf" id="btn-apri-pdf" onclick="apriPdfScheda()"
+                title="Apri in una scheda: utile per ingrandire" style="display:none;">Ingrandisci</button>
+        <button class="pdf-close" onclick="deselectOrder()">✕</button>
+      </div>
     </div>
     <iframe id="pdf-frame" class="pdf-frame"></iframe>
     <div class="pdf-empty" id="pdf-empty">Seleziona un ordine dalla coda</div>
@@ -1858,14 +1877,43 @@ function selectOrder(orderId) {
 
   const order = allOrders.find(o => o.id === orderId);
   if (order) {
-    document.getElementById('pdf-frame').src = `${API_URL}/api/orders/${orderId}/pdf`;
+    // toolbar=0: via la barra del browser, che rubava spazio in altezza.
+    // view=FitH: il foglio si adatta alla larghezza, cosi' si legge davvero
+    // invece di stare piccolo in mezzo a due fasce nere.
+    document.getElementById('pdf-frame').src =
+      `${API_URL}/api/orders/${orderId}/pdf#toolbar=0&navpanes=0&view=FitH`;
     document.getElementById('pdf-empty').style.display = 'none';
+    for (const id of ['btn-stampa-pdf', 'btn-apri-pdf']) {
+      const b = document.getElementById(id);
+      if (b) b.style.display = '';
+    }
     document.getElementById('pdf-title').textContent =
       (order.cliente || '') + '  \u00b7  #'
       + (order.numero_ordine || order.id.substring(0, 8))
       + '  \u00b7  consegna ' + new Date(order.data_consegna).toLocaleDateString('it-IT');
     mostraDisegni(order);
   }
+}
+
+/** Stampa il foglio d'ordine: nascondendo la barra del browser si perdeva il
+    suo pulsante di stampa, che in officina serve. */
+function stampaOrdine() {
+  const f = document.getElementById('pdf-frame');
+  if (!f || !f.src) return;
+  try {
+    f.contentWindow.focus();
+    f.contentWindow.print();
+  } catch (_) {
+    // Alcuni browser non lasciano stampare da dentro l'iframe: si apre a parte.
+    window.open(f.src, '_blank', 'noopener');
+  }
+}
+
+/** Apre il PDF in una scheda a tutto schermo, per guardarlo da vicino. */
+function apriPdfScheda() {
+  const f = document.getElementById('pdf-frame');
+  if (!f || !f.src) return;
+  window.open(f.src.split('#')[0], '_blank', 'noopener');
 }
 
 /** La CARTELLA dei disegni, non i singoli file.
@@ -1935,6 +1983,10 @@ function deselectOrder() {
   document.getElementById('pdf-frame').src = '';
   document.getElementById('pdf-empty').style.display = 'flex';
   document.getElementById('pdf-title').textContent = 'PDF Ordine';
+  for (const id of ['btn-stampa-pdf', 'btn-apri-pdf']) {
+    const b = document.getElementById(id);
+    if (b) b.style.display = 'none';
+  }
   const barra = document.getElementById('barra-dxf');
   if (barra) { barra.style.display = 'none'; barra.innerHTML = ''; }
 }
