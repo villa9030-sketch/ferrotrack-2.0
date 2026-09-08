@@ -93,6 +93,24 @@
 <div class="wrap">
   <div class="msg err" id="msg-token" hidden></div>
 
+  <!-- Ingresso del computer d'ufficio: si fa una volta sola. Uguale a quello
+       del tablet, perche' il problema e' lo stesso e la soluzione anche. -->
+  <section class="card" id="abilita" hidden>
+    <h2>Questo computer non &egrave; ancora abilitato alle ore</h2>
+    <p class="sub">Le ore e il riepilogo economico sono riservati all'ufficio, quindi
+      il computer va abilitato una volta sola con un codice. Non scade e non va pi&ugrave;
+      reinserito.</p>
+    <p class="sub"><b>Come ottenerlo:</b> sul computer dove gira il programma, esegui
+      <code>python app/tools/device_token.py crea "PC ufficio" ufficio</code>.
+      Il codice compare una volta sola: copialo e incollalo qui sotto.</p>
+    <div class="riga-aggiungi">
+      <input type="password" id="in-token-ufficio" placeholder="Codice dispositivo"
+             autocomplete="off" aria-label="Codice dispositivo">
+      <button class="sec" onclick="salvaTokenUfficio()">Abilita</button>
+    </div>
+    <div class="msg" id="msg-abilita" hidden></div>
+  </section>
+
   <!-- ================= ANOMALIE ================= -->
   <section id="s-anomalie">
     <div class="card">
@@ -281,16 +299,63 @@ function vai(t){
   if(t==='config') caricaConfig();
 }
 
+/** Mostra l'ingresso e tiene chiuso il resto: senza codice le sezioni
+    fallirebbero una chiamata dopo l'altra, e chi guarda vedrebbe una fila di
+    errori rossi invece di una istruzione. */
+function chiediAbilitazione(perche){
+  document.getElementById('abilita').hidden = false;
+  const barra = document.querySelector('.tabbar');
+  if (barra) barra.hidden = true;
+  for (const id of ['s-anomalie','s-riepilogo','s-config']) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
+  if (perche) msg('msg-abilita', perche, 'err');
+}
+
+/** Salva il codice e riprova. Il codice si controlla subito: dire "abilitato" e
+    poi fallire alla prima richiesta sarebbe peggio che dire subito di no. */
+async function salvaTokenUfficio(){
+  const campo = document.getElementById('in-token-ufficio');
+  const t = (campo.value || '').trim();
+  if(!t){ msg('msg-abilita','Incolla il codice.','err'); return; }
+  const precedente = TOKEN;
+  TOKEN = t;
+  const r = await api('/api/ore/contesto');
+  if(!r.ok || (r.data && r.data.scope !== 'ufficio')){
+    TOKEN = precedente;
+    msg('msg-abilita', (r.data && r.data.scope && r.data.scope !== 'ufficio')
+      ? 'Questo codice abilita un tablet di officina, non l\'ufficio.'
+      : 'Codice non valido.', 'err');
+    return;
+  }
+  localStorage.setItem('ufficio_device_token', t);
+  campo.value = '';
+  nascondi('msg-abilita');
+  avvia();
+}
+
 // ---------- avvio ----------
 async function avvia(){
   const url=new URL(location.href), q=url.searchParams.get('token');
   if(q){ localStorage.setItem('ufficio_device_token', q); url.searchParams.delete('token');
          history.replaceState({},'',url.toString()); }
   TOKEN = localStorage.getItem('ufficio_device_token');
-  if(!TOKEN){ msg('msg-token','Dispositivo non configurato: apri questa pagina una volta con ?token=… fornito dal setup.','err'); return; }
+  if(!TOKEN){ chiediAbilitazione(); return; }
   const r = await api('/api/ore/contesto');
-  if(!r.ok){ msg('msg-token','Codice dispositivo non valido o senza permessi d\'ufficio.','err'); return; }
-  if(r.data.scope !== 'ufficio'){ msg('msg-token','Questo dispositivo non ha i permessi d\'ufficio.','err'); return; }
+  if(!r.ok){ chiediAbilitazione('Il codice non e\u0300 valido, oppure e\u0300 stato revocato.'); return; }
+  if(r.data.scope !== 'ufficio'){
+    chiediAbilitazione('Questo codice abilita un tablet di officina, non l\'ufficio.');
+    return;
+  }
+  // Abilitato: si chiude l'ingresso e si riapre la pagina sulla scheda
+  // attiva. Senza questo le sezioni resterebbero chiuse da quando erano state
+  // nascoste, e dopo aver inserito il codice si vedrebbe una pagina vuota.
+  document.getElementById('abilita').hidden = true;
+  const barra = document.querySelector('.tabbar');
+  if (barra) barra.hidden = false;
+  const attiva = document.querySelector('.tab.active');
+  vai(attiva ? attiva.dataset.t : 'anomalie');
   document.getElementById('dev').textContent = r.data.dispositivo || '';
   const oggi = r.data.oggi;
   const [y,m] = oggi.split('-').map(Number);
