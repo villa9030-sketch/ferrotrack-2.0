@@ -1880,7 +1880,7 @@ function renderDetails(order) {
 async function markLaserDone(orderId) {
   const user = JSON.parse(localStorage.getItem('currentUser'));
   const ok = await showConfirm('Taglio completato',
-    'Confermi che hai finito di tagliare?<br>L'ordine esce dalla coda del laser.',
+    'Confermi che hai finito di tagliare?<br>L\'ordine esce dalla coda del laser.',
     { icon: '&#x2705;', okText: 'Sì, taglio fatto' });
   if (!ok) return;
   actionInProgress = true;
@@ -1910,7 +1910,7 @@ async function markLaserDone(orderId) {
 async function undoLaserDone(orderId) {
   const user = JSON.parse(localStorage.getItem('currentUser'));
   const ok = await showConfirm('Annullare il taglio?',
-    'L'ordine tornera' in coda al laser.',
+    'L\'ordine tornerà in coda al laser.',
     { icon: '&#x21BA;', okText: 'Sì, annulla' });
   if (!ok) return;
   actionInProgress = true;

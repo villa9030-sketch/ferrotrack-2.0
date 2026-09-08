@@ -304,7 +304,7 @@ async function caricaAnomalie(){
     const d=a.data.split('-').reverse().join('/');
     return `<tr>
       <td>${d}</td><td>${esc(a.operatore)}</td>
-      <td><span class="badge ${cls}">${t}</span>${a.stato==='risolta'?' <span class="badge b-green">risolta</span>':''}${a.confermata_dall_operaio?' <span class="badge b-gray" title="L'operaio ha confermato queste ore sul tablet: probabile mezza giornata o permesso, non una dimenticanza">confermata dall'operaio</span>':''}</td>
+      <td><span class="badge ${cls}">${t}</span>${a.stato==='risolta'?' <span class=\"badge b-green\">risolta</span>':''}${a.confermata_dall_operaio?' <span class=\"badge b-gray\" title=\"L\'operaio ha confermato queste ore sul tablet: probabile mezza giornata o permesso, non una dimenticanza\">confermata dall\'operaio</span>':''}</td>
       <td class="n">${h(a.minuti_dichiarati)} h</td>
       <td class="n">${h(a.minuti_attesi)} h</td>
       <td><button class="sec" onclick="apriCorrezione('${a.operatore_id}','${a.data}','${esc(a.operatore)}')">Correggi</button></td>
@@ -413,7 +413,7 @@ async function caricaRiepilogo(){
       <td class="n">${c.costo_ore==null?'<span class="assente">non calcolabile</span>':eur(c.costo_ore)}</td>
       <td class="n">${c.materiali_assente?'<span class="assente">assente</span>':eur(c.materiali)}</td>
       <td class="n">${c.fatturato_assente?'<span class="assente">assente</span>':eur(c.fatturato)}</td>
-      <td class="n"><b>${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</b>${c.residuo_parziale?'<span title="Materiali non inseriti: il residuo e' sovrastimato" style="color:var(--orange);font-weight:700"> *</span>':''}</td>
+      <td class="n"><b>${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</b>${c.residuo_parziale?'<span title="Materiali non inseriti: il residuo è sovrastimato" style="color:var(--orange);font-weight:700"> *</span>':''}</td>
       <td><button class="sec" onclick="dettaglio('${esc(c.cliente).replace(/'/g,"\\'")}')">Dettaglio</button></td>
     </tr>`).join('');
 
@@ -426,7 +426,7 @@ async function caricaRiepilogo(){
       <b>${d.attivita_interne.ore.toString().replace('.',',')} h</b> — ${eur(d.attivita_interne.costo_ore)}</td></tr>`;
   const parz=d.clienti.filter(c=>c.residuo_parziale).length;
   document.getElementById('ri-note').innerHTML=
-    (parz?'<b style="color:var(--orange)">* Materiali non inseriti: per '+parz+' clienti il residuo e sovrastimato.</b><br>':'')
+    (parz?'<b style="color:var(--orange)">* Materiali non inseriti: per '+parz+' clienti il residuo è sovrastimato.</b><br>':'')
     + d.note.map(n=>'&bull; '+esc(n)).join('<br>');
   caricaTariffe();
 }
