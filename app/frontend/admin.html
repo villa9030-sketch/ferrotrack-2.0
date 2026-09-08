@@ -504,6 +504,30 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
     </div>
   </div>
 
+  <div class="card">
+    <div class="card-head">
+      <h3>Da quando valgono le ore</h3>
+      <span class="card-meta">Controllo delle giornate mancanti</span>
+    </div>
+    <div class="card-body">
+      <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
+        Il controllo segnala le giornate che un operaio doveva dichiarare e non ha
+        dichiarato. Guarda fino a 30 giorni indietro: senza una data di partenza,
+        il primo giorno di uso vero comparirebbero decine di segnalazioni per
+        giornate in cui a nessuno era stato chiesto niente, e le mancanze vere si
+        perderebbero nel mucchio.
+        <b>Metti il giorno in cui gli operai hanno cominciato a usare il tablet.</b>
+      </p>
+      <div class="form-row">
+        <div class="form-field" style="max-width:220px;">
+          <label>Le ore valgono dal</label>
+          <input type="date" id="cfg-ore-attive-dal">
+          <div class="form-hint">Vuoto: si controlla tutto lo storico.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div style="display: flex; gap: 12px; align-items: center; margin-top: 24px;">
     <button class="btn-primary" onclick="saveConfig()">Salva impostazioni</button>
     <button class="btn-secondary" onclick="loadConfig()">Ripristina</button>
@@ -969,6 +993,7 @@ async function loadConfig() {
     document.getElementById('cfg-pistole-attive').checked = attive;
     _mostraSezioniPistole(attive);
     document.getElementById('cfg-fine-turno').value    = cfg.fine_turno_hhmm || '17:30';
+    document.getElementById('cfg-ore-attive-dal').value = cfg.ore_attive_dal || '';
     const ol = cfg.orario_lavoro || [['07:30','12:00'], ['13:30','17:00']];
     document.getElementById('cfg-orario-mat-inizio').value = (ol[0] && ol[0][0]) || '07:30';
     document.getElementById('cfg-orario-mat-fine').value   = (ol[0] && ol[0][1]) || '12:00';
@@ -1002,6 +1027,7 @@ async function saveConfig() {
   const pistoleAttive = document.getElementById('cfg-pistole-attive').checked;
   const giorniScan   = parseInt(document.getElementById('cfg-giorni-scan').value, 10);
   const fineTurno    = document.getElementById('cfg-fine-turno').value.trim();
+  const oreAttiveDal = document.getElementById('cfg-ore-attive-dal').value.trim();
   const matIn  = document.getElementById('cfg-orario-mat-inizio').value.trim();
   const matFi  = document.getElementById('cfg-orario-mat-fine').value.trim();
   const pomIn  = document.getElementById('cfg-orario-pom-inizio').value.trim();
@@ -1043,12 +1069,23 @@ async function saveConfig() {
         sospetto_giorni_apertura: giorniApertura,
         pistole_attive: pistoleAttive,
         fine_turno_hhmm: fineTurno,
+        ore_attive_dal: oreAttiveDal,
         orario_lavoro: [[matIn, matFi], [pomIn, pomFi]]
       })
     });
     const d = await r.json();
-    if (r.ok && d.success) showMsg('cfg-msg', '✓ Impostazioni salvate', 'var(--green)');
-    else showMsg('cfg-msg', `Errore: ${d.error || 'operazione fallita'}`, 'var(--red)');
+    if (r.ok && d.success) {
+      // Il server dice cosa non ha potuto applicare: un "salvato" su
+      // un'impostazione rimasta com'era e' peggio di un errore dichiarato.
+      const scartate = (d.config && d.config._ignorati) || [];
+      if (scartate.length) {
+        showMsg('cfg-msg', 'Salvate, tranne: ' + scartate.join('; '), '#b45309');
+      } else {
+        showMsg('cfg-msg', '✓ Impostazioni salvate', 'var(--green)');
+      }
+    } else {
+      showMsg('cfg-msg', `Errore: ${d.error || 'operazione fallita'}`, 'var(--red)');
+    }
   } catch (e) { showMsg('cfg-msg', `Errore: ${e.message}`, 'var(--red)'); }
 }
 

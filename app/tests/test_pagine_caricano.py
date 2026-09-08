@@ -51,10 +51,16 @@ UTENTI = {
     'dashboard.html': CAPO,
 }
 
-PAGINE = ['login.html', 'welcome.html', 'laser.html', 'impiegata.html',
-          'capo-officina.html', 'admin.html', 'preventivi.html',
-          'operaio-info.html', 'ore.html', 'ufficio-ore.html',
-          'dashboard.html', 'dxf-editor.html']
+# Le pagine si leggono dalla cartella, non da un elenco scritto a mano: un
+# elenco invecchia in silenzio, e le pagine tolte continuano a risultare sane.
+_FRONTEND = os.path.join(_APP, 'frontend')
+
+# Pagine che di per se' non stanno in piedi da sole: sono pezzi aperti da
+# un'altra pagina, e da sole mostrerebbero errori che non sono guasti.
+NON_AUTONOME = {'preview-dxf.html', 'preview-step.html', 'fold3d.html'}
+
+PAGINE = sorted(f for f in os.listdir(_FRONTEND)
+                if f.endswith('.html') and f not in NON_AUTONOME)
 
 # Le pagine dei tablet vogliono un token di dispositivo: si crea al volo.
 DA_ABILITARE = {'ore.html': 'ore', 'ufficio-ore.html': 'ufficio'}
@@ -108,9 +114,20 @@ def main():
                 if u:
                     pg.evaluate(
                         'x => localStorage.setItem("currentUser", JSON.stringify(x))', u)
-                pg.goto(BASE + '/' + pagina)
+                risposta = pg.goto(BASE + '/' + pagina)
+                # Il codice HTTP va guardato: una pagina che risponde 500
+                # restituisce un JSON di errore, dentro cui non c'e' nessun
+                # JavaScript da sbagliare, e passerebbe per sana.
+                stato = risposta.status if risposta else 0
+                if stato != 200:
+                    check(f'{pagina} viene servita dal server', False,
+                          f'HTTP {stato}')
+                    continue
                 pg.wait_for_load_state('networkidle', timeout=20000)
                 pg.wait_for_timeout(1800)
+                e_html = pg.evaluate('() => !!document.querySelector("body *")')
+                check(f'{pagina} viene servita dal server', e_html,
+                      'il corpo della pagina e\' vuoto')
                 check(f'{pagina} si apre senza errori JavaScript',
                       not errori, errori[:2])
             except Exception as e:

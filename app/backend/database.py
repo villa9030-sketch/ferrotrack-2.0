@@ -3603,6 +3603,60 @@ def _v_piastre(x):
     return valida_piastre(x)
 
 
+def _ore_dovute_finora(attesa, inizio_settimana, oggi) -> float:
+    """Ore che l'operaio doveva fare nei giorni gia' trascorsi della settimana.
+
+    Il paragone onesto e' con i giorni passati: confrontare il martedi' con una
+    settimana intera fa sembrare fermo chi ha lavorato tutto. Prende i giorni
+    lavorativi e le ore al giorno dalla configurazione dell'operaio, cosi' un
+    part-time non risulta a meta' servizio.
+
+    Torna 0.0 quando non c'e' un riferimento: chi chiama mostra "non
+    calcolabile" invece di una percentuale inventata.
+    """
+    from datetime import timedelta as _td
+    if attesa is None:
+        return 0.0
+    try:
+        minuti_giorno = int(attesa.minuti_attesi or 0)
+        giorni = attesa.giorni_settimana
+        if isinstance(giorni, str):
+            import json as _json
+            giorni = _json.loads(giorni)
+        # Nel modello i giorni sono 1=lunedi'..7=domenica; date.weekday() e' 0-based.
+        lavorativi = {int(g) for g in (giorni or [])}
+    except (TypeError, ValueError):
+        return 0.0
+    if not minuti_giorno or not lavorativi:
+        return 0.0
+    minuti = 0
+    g = inizio_settimana
+    while g <= oggi:
+        if (g.weekday() + 1) in lavorativi:
+            minuti += minuti_giorno
+        g += _td(days=1)
+    return round(minuti / 60.0, 2)
+
+
+def _config_formato_sbagliato(chiave: str, valore: str):
+    """Spiega perche' un'impostazione testuale non va bene, o None se va bene.
+
+    Vuoto e' sempre ammesso: significa "non impostato".
+    """
+    if not valore:
+        return None
+    import re as _re
+    if chiave == 'fine_turno_hhmm':
+        if not _re.fullmatch(r'([01]\d|2[0-3]):[0-5]\d', valore):
+            return 'serve un orario tipo 17:30'
+    elif chiave == 'ore_attive_dal':
+        try:
+            datetime.strptime(valore, '%Y-%m-%d')
+        except ValueError:
+            return 'serve una data tipo 2026-09-08'
+    return None
+
+
 def _totale_concordato(preventivo: dict):
     """Prezzo su cui il cliente ha detto di si'.
 
@@ -4130,7 +4184,7 @@ class BarcodeManager:
         visibile e' piu' utile di un operaio che sparisce dalla lista.
         """
         from datetime import date as _date
-        from .models_ore import GiornataOre, RigaOre
+        from .models_ore import GiornataOre, OreAttese, RigaOre
 
         session = get_session()
         try:
@@ -4163,17 +4217,24 @@ class BarcodeManager:
                 if giorno >= inizio_mese:
                     v['mese'] += m
 
+            attese = {a.operatore_id: a for a in session.query(OreAttese).all()}
+
             out = []
             for u in users:
                 v = acc.get(u.id, {'oggi': 0, 'sett': 0, 'mese': 0, 'gg': set()})
                 ore_sett = round(v['sett'] / 60.0, 2)
+                ore_dovute = _ore_dovute_finora(attese.get(u.id), inizio_settimana, oggi)
                 out.append({
                     'operatore_id': u.id,
                     'nome': u.name,
                     'ore_oggi': round(v['oggi'] / 60.0, 2),
                     'ore_settimana': ore_sett,
                     'ore_mese': round(v['mese'] / 60.0, 2),
-                    'saturazione_settimana_pct': round(ore_sett / 40.0 * 100, 1) if ore_sett else 0.0,
+                    # Sui giorni gia' trascorsi, non sulla settimana intera:
+                    # altrimenti di martedi' chi ha lavorato tutto risulta fermo.
+                    'saturazione_settimana_pct': (
+                        round(ore_sett / ore_dovute * 100, 1) if ore_dovute else None),
+                    'ore_dovute_finora': ore_dovute,
                     'numero_scan_settimana': 0,
                     'giorni_dichiarati_settimana': len(v['gg']),
                     'fonte': 'dichiarazioni',
@@ -4327,8 +4388,15 @@ class BarcodeManager:
     def _get_config_path():
         import os
         if BarcodeManager._CONFIG_PATH is None:
-            here = os.path.dirname(os.path.abspath(__file__))
-            BarcodeManager._CONFIG_PATH = os.path.join(here, '..', 'app_config.json')
+            # FERROTRACK_CONFIG sposta le impostazioni altrove, come
+            # FERROTRACK_DB fa col database: senza, un'istanza di prova
+            # scriverebbe sulle impostazioni della produzione.
+            scelto = os.environ.get('FERROTRACK_CONFIG')
+            if scelto:
+                BarcodeManager._CONFIG_PATH = scelto
+            else:
+                here = os.path.dirname(os.path.abspath(__file__))
+                BarcodeManager._CONFIG_PATH = os.path.join(here, '..', 'app_config.json')
         return BarcodeManager._CONFIG_PATH
 
     @staticmethod
@@ -4345,6 +4413,11 @@ class BarcodeManager:
             # Criterio "ordine fermo" quando le pistole sono spente: giorni
             # dall'arrivo dell'ordine senza completamento operativo registrato.
             'sospetto_giorni_apertura': 10,
+            # Data da cui il sistema delle ore e' in uso davvero. Prima di
+            # questa non si segnalano giornate mancanti: a nessuno era stato
+            # chiesto di dichiararle, e le finte anomalie seppellirebbero le
+            # vere. Vuota = si controlla comunque tutto lo storico.
+            'ore_attive_dal': '',
             'fine_turno_hhmm': '17:30',
             'orario_lavoro': [['07:30', '12:00'], ['13:30', '17:00']],
         }
@@ -4378,10 +4451,15 @@ class BarcodeManager:
         # - dict object: sezioni di config strutturate (laser_config, preventivi_config,
         #   dxf_detection). Vengono sostituite in blocco.
         int_keys = {'sospetto_giorni_dal_taglio', 'sospetto_giorni_da_ultima_scan',
-                    'sospetto_giorni_apertura'}
+                    'sospetto_giorni_apertura', 'alert_taglio_ore'}
         dict_keys = {'laser_config', 'preventivi_config', 'dxf_detection'}
-        str_keys = {'disegni_export_root'}  # path cartella export DXF puliti per officina
+        # Percorsi, orari e date. `fine_turno_hhmm` e `ore_attive_dal` erano
+        # spediti dalla pagina Admin ma non elencati qui: venivano scartati in
+        # silenzio, e l'utente credeva di averli salvati.
+        str_keys = {'disegni_export_root', 'fine_turno_hhmm', 'ore_attive_dal'}
+        list_keys = {'orario_lavoro'}
         bool_keys = {'pistole_attive'}
+        ignorati = []
         for k, v in (updates or {}).items():
             if k in bool_keys:
                 current[k] = bool(v) if not isinstance(v, str) else v.strip().lower() in ('1', 'true', 'si', 'on')
@@ -4389,22 +4467,36 @@ class BarcodeManager:
                 try:
                     current[k] = int(v)
                 except (ValueError, TypeError):
-                    pass
+                    ignorati.append('%s: non e\' un numero' % k)
             elif k in dict_keys and isinstance(v, dict):
                 current[k] = v
+            elif k in list_keys:
+                if isinstance(v, list):
+                    current[k] = v
+                else:
+                    ignorati.append('%s: serve un elenco' % k)
             elif k in str_keys:
-                # String allowlist (paths). Trim + accetta stringa vuota per disabilitare.
-                try:
-                    current[k] = str(v).strip() if v is not None else ''
-                except Exception:
-                    pass
+                testo = '' if v is None else str(v).strip()
+                errore = _config_formato_sbagliato(k, testo)
+                if errore:
+                    ignorati.append('%s: %s' % (k, errore))
+                else:
+                    current[k] = testo
+            else:
+                ignorati.append('%s: impostazione sconosciuta' % k)
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(current, f, indent=2, ensure_ascii=False)
         except Exception as e:
             logger.error('save_config failed: %s', e)
             return {'error': str(e)}
-        return BarcodeManager.load_config()
+        fuori = BarcodeManager.load_config()
+        # Quello che non si e' potuto salvare va detto: un "salvato" su
+        # un'impostazione rimasta com'era e' peggio di un errore.
+        if ignorati:
+            logger.warning('save_config: ignorati %s', ignorati)
+            fuori['_ignorati'] = ignorati
+        return fuori
 
     @staticmethod
     def pistole_attive() -> bool:

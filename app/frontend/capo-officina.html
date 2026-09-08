@@ -130,6 +130,11 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   font-family: 'Geist'; font-weight: 900; font-size: 44px; line-height: 1.05; letter-spacing: -1.5px;
   font-variant-numeric: tabular-nums; margin-top: 6px; color: var(--black);
 }
+/* Il testo piccolo dentro il numero grande deve ripartire da spaziatura
+   normale: -1.5px per lettera, che a 44px stringe appena, a 10px accavalla le
+   lettere e rende il badge una macchia illeggibile. */
+.kpi-hero .value .unit,
+.kpi-hero .value .trend { letter-spacing: normal; }
 .kpi-hero .value .unit { font-size: 18px; font-weight: 700; color: var(--gray-muted); margin-left: 4px; letter-spacing: 0; }
 .kpi-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
 .kpi-label { font-size: 12px; color: var(--gray-text); }
@@ -736,26 +741,42 @@ async function loadKpi() {
     const data = await r.json();
     const grid = document.getElementById('kpi-grid');
     if (!data.length) {
-      grid.innerHTML = '<div class="empty">Nessun operaio con pistola registrata. Vai in Admin → Gestione pistole.</div>';
+      grid.innerHTML = '<div class="empty">Nessun operaio in elenco. Gli operai si aggiungono da <b>Admin → Utenti</b>; le ore le dichiarano loro dal tablet della timbratrice.</div>';
       meta.textContent = '0 operai';
       return;
     }
     let html = '';
     for (const k of data) {
-      const sat = Math.min(k.saturazione_settimana_pct || 0, 130);
-      const barClass = sat < 60 ? '' : sat < 85 ? '' : sat < 110 ? 'warn' : 'crit';
+      // Senza orario configurato non c'e' un riferimento: si dice, invece di
+      // mostrare una percentuale inventata.
+      const haSat = k.saturazione_settimana_pct !== null
+                    && k.saturazione_settimana_pct !== undefined;
+      const sat = haSat ? Math.min(k.saturazione_settimana_pct, 130) : 0;
+      // Il riferimento e' cio' che l'operaio DOVEVA fare: il 100% e' il
+      // bersaglio, non un allarme. Quello che deve saltare all'occhio e' cio'
+      // che manca; lo straordinario si segnala, ma piu' pacatamente.
+      const barClass = !haSat ? ''
+        : sat < 80 ? 'crit'
+        : sat < 95 ? 'warn'
+        : sat <= 110 ? ''
+        : 'warn';
       const initials = (k.nome || '').split(' ').map(w => w[0]).join('').toUpperCase() || '?';
       const avatarColor = colorFromName(k.nome);
-      // Trend: ore oggi vs media giornaliera della settimana (5 giorni lavorativi)
-      const mediaGiornaliera = k.ore_settimana / 5;
+      // Media sui giorni davvero dichiarati, non su 5 fissi: di martedi'
+      // dividere per 5 abbassa la media e fa sembrare oggi sempre un buon
+      // giorno.
+      const ggFatti = k.giorni_dichiarati_settimana || 0;
+      const mediaGiornaliera = ggFatti ? (k.ore_settimana / ggFatti) : 0;
       const trendDelta = k.ore_oggi - mediaGiornaliera;
       let trendBadge = '';
-      if (mediaGiornaliera > 0.3) {
+      // Sotto la mezz'ora lo scarto non e' una notizia: un badge "0.0h vs
+      // media" occupa spazio senza dire niente.
+      if (mediaGiornaliera > 0.3 && Math.abs(trendDelta) >= 0.5) {
         const isUp = trendDelta >= 0;
         const arrow = isUp ? '↗' : '↘';
         const color = isUp ? 'var(--green-badge)' : '#b45309';
         const bg = isUp ? 'var(--green-badge-bg)' : '#fff4d6';
-        trendBadge = `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:100px;background:${bg};color:${color};font-size:10px;font-weight:700;margin-left:8px;">${arrow} ${Math.abs(trendDelta).toFixed(1)}h vs media</span>`;
+        trendBadge = `<span class="trend" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:100px;background:${bg};color:${color};font-size:11px;font-weight:700;margin-left:10px;white-space:nowrap;vertical-align:middle;">${arrow} ${Math.abs(trendDelta).toFixed(1)}h vs media</span>`;
       }
       html += `<div class="kpi-card">
         <div class="name"><div class="avatar" style="background:${avatarColor}">${escapeHtml(initials)}</div>${escapeHtml(k.nome)}</div>
@@ -767,7 +788,9 @@ async function loadKpi() {
         <div class="kpi-row"><span class="kpi-label">Mese</span><span class="kpi-value">${k.ore_mese.toFixed(1)}h</span></div>
         <div class="kpi-bar-wrap">
           <div class="kpi-bar-bg"><div class="kpi-bar ${barClass}" style="width:${Math.min(sat,100)}%"></div></div>
-          <div class="kpi-pct">Saturazione settimanale ${k.saturazione_settimana_pct}%</div>
+          <div class="kpi-pct">${haSat
+            ? `${k.saturazione_settimana_pct}% delle ${k.ore_dovute_finora}h dovute finora`
+            : 'Saturazione non calcolabile: orario non configurato'}</div>
         </div>
       </div>`;
     }

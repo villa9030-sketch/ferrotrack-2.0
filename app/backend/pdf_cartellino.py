@@ -37,6 +37,21 @@ def _render_barcode_png(value: str) -> bytes:
     return buf.getvalue()
 
 
+def _barcode_da_stampare() -> bool:
+    """Il barcode ha senso solo se qualcuno puo' leggerlo.
+
+    Le pistole sono dismesse: stampare un codice che nessuno scansiona occupa
+    meta' etichetta e fa credere a chi la vede che ci sia un passaggio da fare.
+    Se un domani le pistole tornano, torna anche il barcode.
+    """
+    try:
+        from .database import BarcodeManager
+        return BarcodeManager.pistole_attive()
+    except Exception:
+        logger.warning('stato pistole non leggibile: cartellino senza barcode')
+        return False
+
+
 def genera_cartellino_pdf(
     codice: str,
     cliente: str = '',
@@ -81,26 +96,34 @@ def genera_cartellino_pdf(
     c.setLineWidth(0.4)
     c.line(6 * mm, h - 10 * mm, w - 6 * mm, h - 10 * mm)
 
-    # Barcode al centro
-    try:
-        png_bytes = _render_barcode_png(codice)
-        img = ImageReader(io.BytesIO(png_bytes))
-        # Posizionamento barcode: centrato orizzontalmente, ~metà altezza
-        bw_mm = 88  # larghezza barcode in mm (max ~93 per A6)
-        bh_mm = 30  # altezza barcode in mm
-        bw = bw_mm * mm
-        bh = bh_mm * mm
-        x = (w - bw) / 2
-        y = h - 60 * mm  # un po' sotto l'header
-        c.drawImage(img, x, y, width=bw, height=bh, preserveAspectRatio=True, anchor='c')
-    except Exception as e:
-        logger.error('Errore rendering barcode per %s: %s', codice, e)
-        c.setFont('Helvetica-Bold', 10)
-        c.drawCentredString(w / 2, h - 40 * mm, f'[ERRORE BARCODE: {e}]')
+    col_barcode = _barcode_da_stampare()
 
-    # Numero ordine in chiaro grande, sotto il barcode
-    c.setFont('Helvetica-Bold', 18)
-    c.drawCentredString(w / 2, h - 70 * mm, codice)
+    # Barcode al centro, solo se c'e' qualcosa che lo legge
+    if col_barcode:
+        try:
+            png_bytes = _render_barcode_png(codice)
+            img = ImageReader(io.BytesIO(png_bytes))
+            # Posizionamento barcode: centrato orizzontalmente, ~metà altezza
+            bw_mm = 88  # larghezza barcode in mm (max ~93 per A6)
+            bh_mm = 30  # altezza barcode in mm
+            bw = bw_mm * mm
+            bh = bh_mm * mm
+            x = (w - bw) / 2
+            y = h - 60 * mm  # un po' sotto l'header
+            c.drawImage(img, x, y, width=bw, height=bh, preserveAspectRatio=True, anchor='c')
+        except Exception as e:
+            logger.error('Errore rendering barcode per %s: %s', codice, e)
+            c.setFont('Helvetica-Bold', 10)
+            c.drawCentredString(w / 2, h - 40 * mm, f'[ERRORE BARCODE: {e}]')
+
+    # Il numero dell'ordine: e' quello che si legge sul faldone, da lontano.
+    # Senza barcode c'e' lo spazio per scriverlo grande davvero.
+    if col_barcode:
+        c.setFont('Helvetica-Bold', 18)
+        c.drawCentredString(w / 2, h - 70 * mm, codice)
+    else:
+        c.setFont('Helvetica-Bold', 30 if len(codice) <= 16 else 22)
+        c.drawCentredString(w / 2, h - 45 * mm, codice)
 
     # Note opzionali in basso
     if note:
@@ -120,7 +143,10 @@ def genera_cartellino_pdf(
     # Footer
     c.setFont('Helvetica', 7)
     c.setFillColorRGB(0.55, 0.55, 0.55)
-    c.drawCentredString(w / 2, 6 * mm, 'FerroTrack — scansiona col lettore barcode')
+    c.drawCentredString(
+        w / 2, 6 * mm,
+        'FerroTrack — scansiona col lettore barcode' if col_barcode
+        else 'FerroTrack — incolla sul faldone dell\'ordine')
 
     c.showPage()
     c.save()

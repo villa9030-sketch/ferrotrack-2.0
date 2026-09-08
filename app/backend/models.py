@@ -9,7 +9,11 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-DATABASE_PATH = os.path.join(os.path.dirname(__file__), '..', 'database', 'scheduler.db')
+# Di norma il database e' quello dell'installazione. FERROTRACK_DB lo sposta
+# altrove: serve per provare l'applicazione su una COPIA, senza il rischio di
+# scrivere per sbaglio sui dati veri della produzione.
+DATABASE_PATH = os.environ.get('FERROTRACK_DB') or os.path.join(
+    os.path.dirname(__file__), '..', 'database', 'scheduler.db')
 DATABASE_URL = f'sqlite:///{DATABASE_PATH.replace(chr(92), "/")}'
 
 Base = declarative_base()

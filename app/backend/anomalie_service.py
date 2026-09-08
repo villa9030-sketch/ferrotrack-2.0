@@ -178,6 +178,17 @@ def rivaluta_giornata(operatore_id: str, giorno) -> dict:
         session.close()
 
 
+def _data_avvio():
+    """Giorno da cui il sistema delle ore e' in uso (None se non impostato)."""
+    try:
+        from .database import BarcodeManager
+        valore = (BarcodeManager.load_config() or {}).get('ore_attive_dal')
+        return parse_data(valore) if valore else None
+    except Exception:
+        logger.warning('data di avvio ore non leggibile: controllo tutto lo storico')
+        return None
+
+
 def controlla_periodo(dal=None, al=None) -> dict:
     """Controlla tutte le giornate dovute nel periodo.
 
@@ -188,8 +199,17 @@ def controlla_periodo(dal=None, al=None) -> dict:
     oggi = oggi_locale()
     a_giorno = parse_data(al) or (oggi - timedelta(days=1))
     da_giorno = parse_data(dal) or (a_giorno - timedelta(days=GIORNI_RECUPERO - 1))
+
+    # Prima dell'avvio del sistema non c'e' niente da segnalare: nessuno era
+    # tenuto a dichiarare, e riempire la pagina di anomalie finte nasconde
+    # quelle vere.
+    avvio = _data_avvio()
+    if avvio and da_giorno < avvio:
+        da_giorno = avvio
+
     if da_giorno > a_giorno:
-        return {'creata': 0, 'aggiornata': 0, 'risolta': 0, 'giorni': 0}
+        return {'creata': 0, 'aggiornata': 0, 'risolta': 0, 'giorni': 0,
+                'nota': 'nessun giorno da controllare nel periodo'}
 
     session = get_session()
     esiti = {'creata': 0, 'aggiornata': 0, 'risolta': 0}

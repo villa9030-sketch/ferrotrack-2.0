@@ -222,6 +222,29 @@ def main():
           'ord-vecchio' not in fermi2 or fermi2['ord-vecchio']['numero_scan'] > 0,
           fermi2.get('ord-vecchio'))
 
+    # --- il cartellino non deve chiedere di scansionare l'inscansionabile ---
+    from backend.pdf_cartellino import genera_cartellino_pdf
+    import datetime as _dt
+
+    def _cartellino():
+        return genera_cartellino_pdf('PREV-2026-0007', 'DECA S.r.l.',
+                                     _dt.datetime(2026, 8, 20), 'URGENTE')
+
+    BarcodeManager.save_config({'pistole_attive': False})
+    senza = _cartellino()
+    check('senza pistole il cartellino non stampa il barcode',
+          b'/Subtype /Image' not in senza and b'/Subtype/Image' not in senza,
+          '%d byte' % len(senza))
+    check('e non dice di scansionarlo', b'scansiona' not in senza.lower())
+
+    BarcodeManager.save_config({'pistole_attive': True})
+    con = _cartellino()
+    check('riattivando le pistole il barcode torna',
+          b'/Subtype /Image' in con or b'/Subtype/Image' in con,
+          '%d byte' % len(con))
+    BarcodeManager.save_config({'pistole_attive': False})
+
+
     print('\n' + '=' * 60)
     print(f'PASSATI: {OK}   FALLITI: {len(KO)}')
     if KO:

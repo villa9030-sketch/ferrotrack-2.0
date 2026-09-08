@@ -1,5 +1,6 @@
 """Flask Backend per Schedulatore Laser"""
 from flask import Flask, request, jsonify, send_file, send_from_directory, redirect
+from werkzeug.exceptions import HTTPException
 from flask_cors import CORS
 from datetime import datetime, timedelta
 import os
@@ -113,6 +114,20 @@ os.makedirs(DRAWINGS_FOLDER, exist_ok=True)
 os.makedirs(PDFS_FOLDER, exist_ok=True)
 
 # Error handler globale — no stack trace nelle risposte
+@app.errorhandler(HTTPException)
+def handle_http_error(e):
+    """Risposte HTTP normali: passano con il loro codice, non diventano 500.
+
+    "Non trovato" e "metodo non ammesso" non sono guasti: trasformarli in 500
+    riempiva i log di allarmi falsi e impediva al browser di capire che aveva
+    solo sbagliato indirizzo. Alle chiamate API si risponde in JSON, perche'
+    e' quello che il codice del frontend si aspetta di leggere.
+    """
+    if request.path.startswith('/api/'):
+        return jsonify({'error': e.description, 'codice': e.code}), e.code
+    return e
+
+
 @app.errorhandler(Exception)
 def handle_unexpected_error(e):
     logging.error(f"Errore non gestito: {e}", exc_info=True)
@@ -616,7 +631,10 @@ def api_admin_config_update():
         user_id = (data.get('admin_id') or '').strip()
         if not _require_capo(user_id):
             return jsonify({'error': 'Permesso negato'}), 403
-        updates = {k: v for k, v in data.items() if k != 'admin_id'}
+        # `user_id` e `admin_id` servono al controllo dei permessi, non sono
+        # impostazioni: senza toglierli finirebbero fra quelle "sconosciute".
+        updates = {k: v for k, v in data.items()
+                   if k not in ('admin_id', 'user_id')}
         new_cfg = BarcodeManager.save_config(updates)
         if 'error' in new_cfg:
             return jsonify({'success': False, 'error': new_cfg['error']}), 500
