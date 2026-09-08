@@ -3013,7 +3013,7 @@ async function fetchPreventiviCfg(force = false) {
 
 /**
  * Ricalcola costo_piega, costo_saldatura, costo_filettatura, costo_svasatura,
- * costo_mat_apporto, costo_pulizia per un articolo, usando i coefficienti globali.
+ * costo_apporto, costo_pulizia per un articolo, usando i coefficienti globali.
  * Modifica l'articolo in-place. Chiamare dopo cambio pieghe/saldatura_ml/filettatura_pz/
  * svasatura_pz o dopo import DXF.
  */
@@ -3034,7 +3034,10 @@ function recalcLavorazioniArt(a) {
   } else {
     a.costo_saldatura = round2(sm * (C.costo_saldatura_metro || 0));
   }
-  a.costo_mat_apporto = round2(sm * (C.costo_materiale_apporto_metro || 0));
+  // Nome allineato alla colonna sul database e a tutte le somme: prima
+  // finiva in `costo_mat_apporto`, che nessuno leggeva, e il costo di filo e
+  // gas spariva dal totale.
+  a.costo_apporto = round2(sm * (C.costo_materiale_apporto_metro || 0));
   a.costo_pulizia = round2(sm * (C.costo_pulizia_saldatura_metro || 0));
   // Filettatura + svasatura
   a.costo_filettatura = round2(parseInt(a.filettatura_pz || 0) * (C.costo_filettatura || 0));

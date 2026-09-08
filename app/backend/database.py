@@ -182,6 +182,9 @@ class OrderManager:
                 note=note_full,
                 origine='PREVENTIVO',
                 preventivo_id_origine=preventivo['id'],
+                # Il prezzo concordato accompagna l'ordine: senza questo il
+                # riepilogo dell'ufficio mostrava commesse senza valore.
+                prezzo_quotato=_totale_concordato(preventivo),
             )
             session.add(order)
             session.commit()
@@ -190,6 +193,27 @@ class OrderManager:
         except Exception as e:
             session.rollback()
             raise e
+        finally:
+            session.close()
+
+    @staticmethod
+    def soft_delete_order(order_id: str, motivo: str = '') -> bool:
+        """Annulla un ordine senza cancellarlo: serve a rimediare a un ordine
+        creato durante un'operazione poi fallita. I dati restano consultabili."""
+        session = get_session()
+        try:
+            order = session.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                return False
+            order.is_deleted = True
+            if motivo:
+                order.note = ((order.note or '') + chr(10) + '[annullato] ' + motivo).strip()
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.exception('soft_delete_order fallita per %s: %s', order_id, e)
+            return False
         finally:
             session.close()
 
@@ -3543,6 +3567,26 @@ class SupportManager:
 #  BARCODE / OFFICINA SCAN — rilevazione tempi via pistola WiFi
 # ============================================================================
 
+def _totale_concordato(preventivo: dict):
+    """Prezzo su cui il cliente ha detto di si'.
+
+    E' il "TOTALE ORDINE" del PDF, cioe' `totale_lotto`. Se manca si ripiega
+    sul totale pezzo per la quantita'; se non c'e' nemmeno quello si lascia
+    vuoto invece di scrivere zero, che sarebbe un prezzo confermato falso.
+    """
+    try:
+        v = preventivo.get('totale_lotto')
+        if v not in (None, '', 0):
+            return float(v)
+        pezzo = preventivo.get('totale_pezzo_con_margine') or preventivo.get('totale_pezzo')
+        qta = preventivo.get('quantita') or 1
+        if pezzo:
+            return round(float(pezzo) * int(qta), 2)
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
 def _fase_ordine(order) -> str:
     """Fase amministrativa dell'ordine (aperto / pronto_ddt / consegnato /
     archivio). Import differito: ordini_service dipende da questo modulo."""
@@ -5054,18 +5098,22 @@ class PreventivoManager:
                               articoli=None, tubolari=None, piastre=None, assiemi=None,
                               totali=None,
                               note_aggiuntive=None, data_consegna_override=None):
-        """Workflow critico: INVIATO -> ACCETTATO + creazione Order FerroTrack.
+        """INVIATO -> ACCETTATO + creazione Order FerroTrack.
 
-        Atomica end-to-end:
-          1. Persist articoli (se passati dal frontend)
-          2. Aggiorna totali sul preventivo (se passati)
-          3. Transizione status INVIATO -> ACCETTATO
-          4. Crea Order FerroTrack con origine='PREVENTIVO', numero PREV-{anno}-{NNNN}
-          5. Notifica capi
-          6. Pubblica evento OrderEventBus
-          7. Audit log
+        Ordine delle operazioni scelto per non lasciare mai uno stato parziale:
 
-        Ritorna: {success, order_id, numero_ordine, preventivo} oppure {error}.
+          1. se un ordine per questo preventivo esiste gia', lo si restituisce
+             (doppio clic o retry: nessun ordine doppio)
+          2. persist di articoli/assiemi/tubolari/piastre, con lo status
+             SEMPRE ripristinato anche se qualcosa esplode a meta'
+          3. si crea PRIMA l'ordine, col preventivo ancora INVIATO
+          4. solo a ordine creato si passa ad ACCETTATO; se questo fallisce
+             l'ordine appena creato viene annullato e il preventivo resta
+             INVIATO, quindi riprovabile
+
+        Cosi' non puo' esistere un preventivo ACCETTATO senza ordine, che era
+        il caso peggiore: la commessa risultava presa e in officina non
+        arrivava niente.
         """
         session = get_session()
         try:
@@ -5075,51 +5123,80 @@ class PreventivoManager:
             ).first()
             if not p:
                 return {'error': 'Preventivo non trovato'}
-            if p.status != 'INVIATO':
-                return {'error': 'Preventivo deve essere INVIATO (attuale: ' + p.status + ')'}
 
-            # 1. Persist articoli/assiemi/tubolari/piastre. Sblocca status BOZZA
-            #    temporaneamente per consentire ai replace_* di passare la guardia immutabile.
+            # --- 1. Ordine gia' esistente per questo preventivo -------------
+            gia = session.query(Order).filter(
+                Order.preventivo_id_origine == preventivo_id,
+                Order.is_deleted == False,  # noqa: E712
+            ).first()
+            if gia:
+                if p.status != 'ACCETTATO':
+                    # Stato incoerente da un tentativo precedente interrotto:
+                    # l'ordine c'e', il preventivo no. Si allinea.
+                    p.status = 'ACCETTATO'
+                    session.commit()
+                return {'success': True, 'gia_creato': True,
+                        'order_id': gia.id, 'numero_ordine': gia.numero_ordine,
+                        'cartellino_url': '/api/orders/' + gia.id + '/cartellino',
+                        'preventivo': PreventivoManager._serialize(p)}
+
+            # ACCETTATO senza ordine: e' lo stato rotto lasciato dalla vecchia
+            # implementazione. Si consente il recupero creando l'ordine mancante.
+            if p.status not in ('INVIATO', 'ACCETTATO'):
+                return {'error': 'Preventivo deve essere INVIATO (attuale: ' + p.status + ')'}
+            recupero = (p.status == 'ACCETTATO')
+            status_iniziale = p.status
+
+            # --- 2. Persist, con ripristino garantito dello status ----------
             if any(x is not None for x in (articoli, assiemi, tubolari, piastre)):
-                p.status = 'BOZZA'
+                p.status = 'BOZZA'   # i replace_* rifiutano di toccare un preventivo non in bozza
                 session.commit()
                 errors = []
-                if articoli is not None:
-                    r = PreventivoManager.replace_articoli(preventivo_id, articoli)
-                    if isinstance(r, dict) and r.get('error'): errors.append('articoli: ' + r['error'])
-                if assiemi is not None:
-                    r = PreventivoManager.replace_assiemi(preventivo_id, assiemi)
-                    if isinstance(r, dict) and r.get('error'): errors.append('assiemi: ' + r['error'])
-                if tubolari is not None:
-                    r = PreventivoManager.replace_tubolari(preventivo_id, tubolari)
-                    if isinstance(r, dict) and r.get('error'): errors.append('tubolari: ' + r['error'])
-                if piastre is not None:
-                    r = PreventivoManager.replace_piastre(preventivo_id, piastre)
-                    if isinstance(r, dict) and r.get('error'): errors.append('piastre: ' + r['error'])
-                # Riprendi sessione
-                p = session.query(Preventivo).filter(Preventivo.id == preventivo_id).first()
-                p.status = 'INVIATO'
+                try:
+                    if articoli is not None:
+                        r = PreventivoManager.replace_articoli(preventivo_id, articoli)
+                        if isinstance(r, dict) and r.get('error'):
+                            errors.append('articoli: ' + r['error'])
+                    if assiemi is not None:
+                        r = PreventivoManager.replace_assiemi(preventivo_id, assiemi)
+                        if isinstance(r, dict) and r.get('error'):
+                            errors.append('assiemi: ' + r['error'])
+                    if tubolari is not None:
+                        r = PreventivoManager.replace_tubolari(preventivo_id, tubolari)
+                        if isinstance(r, dict) and r.get('error'):
+                            errors.append('tubolari: ' + r['error'])
+                    if piastre is not None:
+                        r = PreventivoManager.replace_piastre(preventivo_id, piastre)
+                        if isinstance(r, dict) and r.get('error'):
+                            errors.append('piastre: ' + r['error'])
+                except Exception as exc:
+                    logger.exception('persist in accettazione fallito: %s', exc)
+                    errors.append('errore interno nel salvataggio degli articoli')
+                finally:
+                    # Qualunque cosa sia successa, il preventivo non resta in BOZZA.
+                    p = session.query(Preventivo).filter(
+                        Preventivo.id == preventivo_id).first()
+                    if p is not None:
+                        p.status = status_iniziale
+                        session.commit()
                 if errors:
-                    session.commit()
                     return {'error': 'persist failed: ' + ' | '.join(errors)}
 
-            # 2. Aggiorna totali
+            # --- 3. Totali concordati --------------------------------------
             if totali:
-                if 'totale_pezzo' in totali: p.totale_pezzo = float(totali['totale_pezzo'])
-                if 'totale_pezzo_con_margine' in totali: p.totale_pezzo_con_margine = float(totali['totale_pezzo_con_margine'])
-                if 'totale_lotto' in totali: p.totale_lotto = float(totali['totale_lotto'])
+                if 'totale_pezzo' in totali:
+                    p.totale_pezzo = float(totali['totale_pezzo'])
+                if 'totale_pezzo_con_margine' in totali:
+                    p.totale_pezzo_con_margine = float(totali['totale_pezzo_con_margine'])
+                if 'totale_lotto' in totali:
+                    p.totale_lotto = float(totali['totale_lotto'])
+                session.commit()
 
-            # 3. Transizione status
-            p.status = 'ACCETTATO'
-            session.commit()
-
-            # Preparo dict preventivo per il chiamante e l'OrderManager
             preventivo_dict = PreventivoManager._serialize(p)
         finally:
             session.close()
 
-        # 4. Crea Order FerroTrack
-        # Data consegna: override > data proposta del preventivo > oggi+30g
+        # --- 4. Ordine PRIMA del cambio di stato ---------------------------
         if data_consegna_override:
             data_cons_str = data_consegna_override[:10]
         elif preventivo_dict.get('data_consegna_proposta'):
@@ -5137,36 +5214,51 @@ class PreventivoManager:
             )
         except Exception as e:
             logger.exception('create_order_from_preventivo failed: %s', e)
-            return {'error': 'Order creation failed: ' + str(e)}
+            # Il preventivo e' ancora INVIATO: si puo' riprovare senza rimediare a nulla.
+            return {'error': 'Creazione ordine fallita: ' + str(e)}
 
-        # 5. Notifica capi (produzione) + impiegata (amministrativa: DDT/fattura)
+        # --- 5. Ora, e solo ora, il preventivo e' ACCETTATO ----------------
+        if not recupero:
+            session = get_session()
+            try:
+                p = session.query(Preventivo).filter(
+                    Preventivo.id == preventivo_id).first()
+                p.status = 'ACCETTATO'
+                session.commit()
+                preventivo_dict = PreventivoManager._serialize(p)
+            except Exception as e:
+                session.rollback()
+                logger.exception('transizione ad ACCETTATO fallita: %s', e)
+                # Si annulla l'ordine appena creato: meglio nessun ordine che un
+                # ordine orfano di un preventivo che risulta ancora da accettare.
+                try:
+                    OrderManager.soft_delete_order(order.id)
+                except Exception:
+                    logger.error('ordine %s creato ma non annullabile dopo errore', order.id)
+                return {'error': 'Accettazione non riuscita, nessuna modifica applicata. Riprova.'}
+            finally:
+                session.close()
+
+        # --- 6. Notifiche, eventi, audit (non bloccanti) -------------------
         try:
             for u in UserManager.get_all_users() or []:
                 if not u.get('is_active', True):
                     continue
                 if u.get('is_capo'):
                     NotificationManager.create_notification(
-                        user_id=u['id'],
-                        order_id=order.id,
+                        user_id=u['id'], order_id=order.id,
                         title='Nuovo ordine da preventivo',
                         message='Ordine #' + numero + ' (' + order.cliente + ') accettato dal commerciale',
-                        notification_type='order',
-                        notification_category='informativa',
-                    )
+                        notification_type='order', notification_category='informativa')
                 elif u.get('role') == 'Impiegata':
-                    # Elena deve protocollare l'ordine (DDT/fattura) una volta accettato.
                     NotificationManager.create_notification(
-                        user_id=u['id'],
-                        order_id=order.id,
+                        user_id=u['id'], order_id=order.id,
                         title='Nuovo ordine da protocollare',
-                        message='Ordine #' + numero + ' (' + order.cliente + ') accettato dal commerciale — da registrare (DDT/fattura)',
-                        notification_type='order',
-                        notification_category='attiva',
-                    )
+                        message='Ordine #' + numero + ' (' + order.cliente + ') accettato dal commerciale \u2014 da registrare (DDT/fattura)',
+                        notification_type='order', notification_category='attiva')
         except Exception as exc:
             logger.warning('notifica nuovo ordine da preventivo fallita: %s', exc)
 
-        # 6. Event bus (no-op oggi, hook per gestionale futuro)
         try:
             from .events import OrderEventBus
             OrderEventBus.publish('order.created', {
@@ -5180,12 +5272,12 @@ class PreventivoManager:
         except Exception:
             pass
 
-        # 7. Audit
         try:
             AuditManager.log(
                 user_id=user_id, action='ACCEPT_PREVENTIVO_CREATE_ORDER',
                 entity_type='preventivi', entity_id=preventivo_id,
-                detail='Order ' + order.id + ' (' + numero + ') creato da preventivo',
+                detail='Order ' + order.id + ' (' + numero + ') creato da preventivo'
+                       + (' [recupero]' if recupero else ''),
             )
         except Exception:
             pass

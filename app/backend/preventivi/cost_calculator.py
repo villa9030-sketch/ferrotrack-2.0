@@ -72,7 +72,11 @@ def calcola_preventivo(
         costo_saldatura = sum(a.get('costo_saldatura', 0) for a in articoli)
         costo_filettatura = sum(a.get('costo_filettatura', 0) for a in articoli)
         costo_svasatura = sum(a.get('costo_svasatura', 0) for a in articoli)
-        costo_mat_apporto = sum(a.get('costo_mat_apporto', 0) for a in articoli)
+        # `costo_apporto` e' il nome canonico (colonna del database). Il
+        # ripiego su `costo_mat_apporto` serve ai payload vecchi ancora in giro.
+        costo_mat_apporto = sum(
+            a.get('costo_apporto', a.get('costo_mat_apporto', 0)) or 0
+            for a in articoli)
         costo_pulizia = sum(a.get('costo_pulizia', 0) for a in articoli)
     else:
         # Fallback: calcolo singolo pezzo (senza articoli importati)
@@ -206,7 +210,8 @@ def calcola_preventivo(
             costo_f = art.get('costo_filettatura', 0)
             costo_v = art.get('costo_svasatura', 0)
             costo_art = (art['costo'] + costo_p + costo_s + costo_f + costo_v
-                         + art.get('costo_mat_apporto', 0) + art.get('costo_pulizia', 0))
+                         + (art.get('costo_apporto', art.get('costo_mat_apporto', 0)) or 0)
+                         + art.get('costo_pulizia', 0))
 
             # Calcola prezzo unitario con margine
             if margine > 0:

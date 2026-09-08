@@ -142,6 +142,10 @@ def importa_xlsx(path: str) -> list[dict]:
         articoli.append({
             "codice": str(codice),
             "costo": costo_unit,
+            # La quantita' del file veniva letta per ricavare il costo unitario
+            # e poi buttata via: una riga da 50 pezzi diventava 1 pezzo, e il
+            # totale del preventivo usciva 50 volte piu' basso.
+            "quantita": quantita,
             "area": area_m2,
             "row": row_idx,
             # --- Extension ---
@@ -161,21 +165,27 @@ def importa_xlsx(path: str) -> list[dict]:
     if not articoli:
         raise ValueError("Nessun articolo trovato nel file.")
 
-    # Aggrega duplicati (stesso codice → somma quantità e costi)
+    # Aggrega i duplicati sommando le QUANTITA' dichiarate nel file, non
+    # contando le righe: tre righe da 20 pezzi fanno 60, non 3.
     aggregati = {}
     for art in articoli:
         codice = art['codice']
+        qta = int(art.get('quantita') or 1)
         if codice in aggregati:
-            aggregati[codice]['quantita'] += 1
-            aggregati[codice]['costo_totale'] += art['costo']
-            aggregati[codice]['area'] += art['area']
-            aggregati[codice]['area_dm2'] += art['area_dm2']
-            aggregati[codice]['peso_kg'] += art['peso_kg']
+            a = aggregati[codice]
+            a['quantita'] += qta
+            a['costo_totale'] += art['costo'] * qta
+            a['area'] += art['area']
+            a['area_dm2'] += art['area_dm2']
+            a['peso_kg'] += art['peso_kg']
+            # Il costo unitario resta quello del pezzo: si ricalcola sulla
+            # quantita' complessiva per restare coerente col totale.
+            a['costo'] = round(a['costo_totale'] / a['quantita'], 6) if a['quantita'] else 0.0
         else:
             aggregati[codice] = {
                 **art,
-                'costo_totale': art['costo'],
-                'quantita': 1,
+                'costo_totale': art['costo'] * qta,
+                'quantita': qta,
             }
 
     return list(aggregati.values())
