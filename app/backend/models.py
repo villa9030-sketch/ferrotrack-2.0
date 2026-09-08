@@ -18,6 +18,23 @@ DATABASE_URL = f'sqlite:///{DATABASE_PATH.replace(chr(92), "/")}'
 
 Base = declarative_base()
 
+
+def e_istanza_di_prova() -> bool:
+    """Vero se il programma sta lavorando su una COPIA, non sui dati veri.
+
+    Serve alle prove: quelle che scrivono devono potersi rifiutare di partire
+    quando l'indirizzo punta alla produzione. Un commento che dice "usa il
+    server di prova" non ferma nessuno; un controllo si'.
+
+    Il criterio e' semplice e non si puo' sbagliare: il database di lavoro sta
+    in `app/database/scheduler.db`. Qualunque altro percorso e' una copia.
+    """
+    vero = os.path.join(os.path.dirname(__file__), '..', 'database', 'scheduler.db')
+    try:
+        return os.path.abspath(DATABASE_PATH) != os.path.abspath(vero)
+    except Exception:
+        return False
+
 # ---------------------------------------------------------------------------
 # I ruoli, dichiarati una volta sola.
 #
@@ -96,6 +113,18 @@ class Order(Base):
     # Storico: serviva a sbloccare le scansioni con la pistola. Dismesse le
     # pistole, resta come pre-conferma del laser per la sua coda di lavoro; non
     # blocca piu' nulla a valle.
+    # Lo smistamento del laser, a TRE stati:
+    #   None  = non ancora guardato dal laser
+    #   True  = va tagliato (entra nella coda del laser)
+    #   False = non passa dal laser (tubolari, assiemi di tubo): va dritto in
+    #           officina ed e' subito lavorabile
+    # Tre stati e non un si'/no perche' "non ancora deciso" e' diverso da
+    # "deciso di no": confonderli manderebbe in officina roba che il laser non
+    # ha ancora guardato.
+    taglio_richiesto = Column(Boolean, nullable=True, default=None)
+    smistato_il = Column(DateTime, nullable=True)
+    smistato_da = Column(String, nullable=True)
+
     taglio_completato = Column(Boolean, default=False)
     data_taglio_completato = Column(DateTime, nullable=True)
     taglio_completato_da = Column(String, ForeignKey('users.id'), nullable=True)

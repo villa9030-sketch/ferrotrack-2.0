@@ -259,6 +259,79 @@ class OrderManager:
         return {'success': True, 'order_id': order_id, 'scan_chiuse': n, 'nuovo_status': 'DA_FATTURARE'}
 
     @staticmethod
+    def smista(order_id: str, va_tagliato: bool, user_id: str = '') -> dict:
+        """Il laser decide se un ordine passa da lui.
+
+        `va_tagliato=True`  -> entra nella coda del laser; in officina si vede
+                               "in taglio", e diventa lavorabile quando il
+                               taglio e' fatto.
+        `va_tagliato=False` -> salta il laser (tubolari, assiemi di tubo) ed e'
+                               subito lavorabile in officina.
+
+        Si puo' cambiare idea finche' il taglio non e' stato fatto: dopo no,
+        perche' dire "non passava dal laser" di un pezzo gia' tagliato
+        renderebbe incomprensibile lo storico.
+        """
+        session = get_session()
+        try:
+            order = session.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                return {'success': False, 'error': 'Ordine non trovato',
+                        'codice': 'non_trovato'}
+            if order.taglio_completato and not va_tagliato:
+                return {'success': False,
+                        'error': 'Questo ordine risulta gia\' tagliato: non si '
+                                 'puo\' dire che non passava dal laser.',
+                        'codice': 'gia_tagliato'}
+            order.taglio_richiesto = bool(va_tagliato)
+            order.smistato_il = datetime.utcnow()
+            order.smistato_da = user_id or None
+            session.commit()
+            try:
+                AuditManager.log(
+                    user_id=user_id, action='SMISTA_ORDINE',
+                    entity_type='order', entity_id=order_id,
+                    detail='va tagliato' if va_tagliato else 'non passa dal laser',
+                )
+            except Exception:
+                pass
+            return {'success': True, 'order_id': order_id,
+                    'taglio_richiesto': bool(va_tagliato)}
+        except Exception as e:
+            session.rollback()
+            logger.exception('smistamento fallito')
+            return {'success': False, 'error': str(e), 'codice': 'errore'}
+        finally:
+            session.close()
+
+    @staticmethod
+    def annulla_smistamento(order_id: str, user_id: str = '') -> dict:
+        """Rimette un ordine fra quelli da guardare.
+
+        Serve quando si e' toccato il pulsante sbagliato: meglio un modo per
+        tornare indietro che una decisione irreversibile presa di fretta.
+        """
+        session = get_session()
+        try:
+            order = session.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                return {'success': False, 'error': 'Ordine non trovato'}
+            if order.taglio_completato:
+                return {'success': False,
+                        'error': 'Il taglio e\' gia\' stato fatto.',
+                        'codice': 'gia_tagliato'}
+            order.taglio_richiesto = None
+            order.smistato_il = None
+            order.smistato_da = None
+            session.commit()
+            return {'success': True, 'order_id': order_id}
+        except Exception as e:
+            session.rollback()
+            return {'success': False, 'error': str(e)}
+        finally:
+            session.close()
+
+    @staticmethod
     def mark_laser_done(order_id: str, user_id: str = '') -> dict:
         """Marca il taglio laser come completato: da questo momento gli operai
         officina possono scansionare il cartellino col barcode.
@@ -704,6 +777,7 @@ class OrderManager:
                     'visto_da_operatore': bool(order.visto_da_operatore),
                     'data_presa_visione': order.data_presa_visione.isoformat() if order.data_presa_visione else None,
                     'taglio_completato': bool(getattr(order, 'taglio_completato', False)),
+                    'taglio_richiesto': getattr(order, 'taglio_richiesto', None),
                     'data_taglio_completato': order.data_taglio_completato.isoformat() if getattr(order, 'data_taglio_completato', None) else None,
                     'taglio_completato_da': getattr(order, 'taglio_completato_da', None),
                     'fase': _fase_ordine(order),
@@ -1856,6 +1930,7 @@ class OrderManager:
                 "visto_da_operatore": bool(order.visto_da_operatore),
                 "data_presa_visione": order.data_presa_visione.isoformat() if order.data_presa_visione else None,
                 "taglio_completato": bool(getattr(order, 'taglio_completato', False)),
+                "taglio_richiesto": getattr(order, 'taglio_richiesto', None),
                 "data_taglio_completato": order.data_taglio_completato.isoformat() if getattr(order, 'data_taglio_completato', None) else None,
                 "taglio_completato_da": getattr(order, 'taglio_completato_da', None),
             }

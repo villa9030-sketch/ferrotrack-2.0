@@ -89,6 +89,7 @@ def _riga(order, nomi: dict) -> dict:
         # in officina. Lo marca il laser, non blocca nulla, ma all'ufficio
         # serve per rispondere al cliente che chiede "a che punto siamo".
         'taglio_fatto': bool(getattr(order, 'taglio_completato', False)),
+        'taglio_richiesto': getattr(order, 'taglio_richiesto', None),
         'taglio_il': _quando(order, 'data_taglio_completato'),
         'completamento': _quando(order, 'data_completamento_operativo'),
         'completato_da_id': getattr(order, 'completato_operativo_da', None),

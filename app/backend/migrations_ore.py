@@ -49,6 +49,22 @@ _NUOVE_TABELLE_COLS = {
     # Distingue una POSTAZIONE da cui si entra (timbratrice, laser, ufficio)
     # da una PERSONA di cui si contano le ore. Prima stavano mescolate.
     'users': {'e_postazione': 'BOOLEAN'},
+    # Lo smistamento del laser: quali ordini passano da lui e quali no.
+    'orders': {'taglio_richiesto': 'BOOLEAN',
+               'smistato_il': 'DATETIME',
+               'smistato_da': 'VARCHAR'},
+}
+
+# Con che valore nasce una colonna nuova sulle righe che c'erano gia'.
+# Quello che NON e' elencato qui resta vuoto, di proposito: per un campo a tre
+# stati "vuoto" e' lo stato "non ancora deciso", e riempirlo vorrebbe dire
+# decidere al posto di qualcuno.
+_VALORE_DI_PARTENZA = {
+    # Chi c'era prima delle postazioni e' una persona, non un posto.
+    ('users', 'e_postazione'): 0,
+    # `orders.taglio_richiesto` NON sta qui: 0 vorrebbe dire "il laser ha
+    # deciso che non va tagliato", e nessuno lo ha deciso. Se ne occupa
+    # _smistamento_iniziale(), che guarda cosa e' gia' stato tagliato.
 }
 
 # Ruoli considerati "operai di officina" per il seed della compilazione ore.
@@ -90,14 +106,67 @@ def _migra_colonne_sottosistema(engine, insp):
                     logger.info('migrations_ore: aggiunta colonna %s.%s', tabella, col)
                     aggiunte += 1
                     # Una colonna nuova nasce vuota sulle righe che c'erano
-                    # gia', e "vuoto" non e' "falso": una domanda come "chi
-                    # non e' una postazione?" non le troverebbe. Si riempie
-                    # subito col valore di partenza.
-                    if tipo == 'BOOLEAN':
+                    # gia', e "vuoto" non e' "falso": una domanda come "chi non
+                    # e' una postazione?" non le troverebbe.
+                    #
+                    # Ma il valore di partenza non e' lo stesso per tutte, e
+                    # sbagliarlo non da' errori: cambia solo, in silenzio, il
+                    # significato dei dati. Per questo si dichiara colonna per
+                    # colonna, e dove non e' dichiarato la colonna resta vuota.
+                    partenza = _VALORE_DI_PARTENZA.get((tabella, col))
+                    if partenza is not None:
                         conn.execute(text(
-                            f'UPDATE {tabella} SET {col} = 0 WHERE {col} IS NULL'))
+                            f'UPDATE {tabella} SET {col} = {partenza} '
+                            f'WHERE {col} IS NULL'))
+                        logger.info('migrations_ore: %s.%s parte da %s',
+                                    tabella, col, partenza)
         conn.commit()
     return aggiunte
+
+
+def _smistamento_iniziale(engine, insp):
+    """Segna come "da tagliare" gli ordini che risultano gia' tagliati.
+
+    E' l'unica deduzione sicura: se il taglio e' stato fatto, il pezzo passava
+    dal laser. Tutto il resto resta da smistare, perche' distinguere un
+    tubolare da una lamiera guardando il database non si puo', e sbagliare
+    vorrebbe dire o riempire la coda del laser di roba che non lo riguarda, o
+    far comparire in officina pezzi che nessuno ha ancora tagliato.
+    """
+    if 'orders' not in insp.get_table_names():
+        return 0
+    for col in ('taglio_richiesto', 'smistato_il'):
+        if not _column_exists(insp, 'orders', col):
+            return 0
+
+    with engine.connect() as conn:
+        # `smistato_il` c'e' solo se qualcuno ha deciso davvero. Dove manca, il
+        # valore di `taglio_richiesto` non e' di nessuno: o non c'e' mai stato,
+        # o ce l'ha messo una migrazione. In entrambi i casi si puo' sistemare.
+        gia_tagliati = conn.execute(text(
+            'UPDATE orders SET taglio_richiesto = 1 '
+            'WHERE smistato_il IS NULL '
+            '  AND taglio_completato = 1 '
+            '  AND (taglio_richiesto IS NULL OR taglio_richiesto = 0)'))
+
+        # Un ordine mai tagliato e mai smistato da nessuno deve tornare "da
+        # guardare": lasciarlo a 0 vorrebbe dire mandarlo in officina dicendo
+        # che il laser lo ha scartato, cosa che non e' successa.
+        mai_visti = conn.execute(text(
+            'UPDATE orders SET taglio_richiesto = NULL '
+            'WHERE smistato_il IS NULL '
+            '  AND (taglio_completato IS NULL OR taglio_completato = 0) '
+            '  AND taglio_richiesto IS NOT NULL'))
+        conn.commit()
+        n, m = gia_tagliati.rowcount or 0, mai_visti.rowcount or 0
+
+    if n:
+        logger.info('migrations_ore: %d ordini gia\' tagliati segnati come '
+                    '"da tagliare"', n)
+    if m:
+        logger.warning('migrations_ore: %d ordini rimessi fra quelli da '
+                       'smistare (avevano un valore che nessuno aveva deciso)', m)
+    return n + m
 
 
 def _seed_clienti(engine, insp):
@@ -183,6 +252,7 @@ def migrate_ore(engine):
         insp = inspect(engine)  # ricarica dopo gli ALTER
         cols += _migra_colonne_sottosistema(engine, insp)
         insp = inspect(engine)
+        _smistamento_iniziale(engine, insp)
         cli = _seed_clienti(engine, insp)
         ore = _seed_ore_attese(engine, insp)
         if cols or cli or ore:

@@ -100,7 +100,12 @@ header {
   padding:4px 9px; border-radius:7px; font-size:11px; font-weight:600;
   background:#eef2f4; color:#41494d;
 }
-.tag.tagliato { background:#e7f5ee; color:#186c42; }
+/* Le tre situazioni, distinguibili da lontano: verde = si puo' fare,
+   giallo = sta arrivando, grigio = non e' ancora roba tua. */
+.tag.lavorabile  { background:#e7f5ee; color:#186c42; font-weight:700; }
+.tag.in-taglio   { background:#fff4d6; color:#8a5a0b; font-weight:700; }
+.tag.da-smistare { background:#eef2f4; color:#5b6558; }
+.tag.tagliato    { background:#e7f5ee; color:#186c42; }
 .dettaglio { margin-top:12px; border-top:1px solid #eef1f2; padding-top:12px; font-size:13px; }
 .dettaglio .nota { color:#41494d; line-height:1.5; white-space:pre-wrap; }
 .dettaglio h4 { font-size:12px; text-transform:uppercase; letter-spacing:0.4px; color:#6b7478; margin-bottom:6px; }
@@ -314,6 +319,24 @@ function giorniA(iso) {
   return Math.round((d - oggi) / 86400000);
 }
 
+/** A che punto e' l'ordine rispetto al laser.
+    `taglio_richiesto` ha tre stati: vuoto = il laser non l'ha ancora guardato,
+    vero = va tagliato, falso = non passa dal laser (tubolari, assiemi di tubo). */
+function statoLaser(o) {
+  if (o.taglio_completato) {
+    return '<span class="tag lavorabile">Lavorabile &middot; tagliato</span>';
+  }
+  if (o.taglio_richiesto === true) {
+    return '<span class="tag in-taglio">In taglio</span>';
+  }
+  if (o.taglio_richiesto === false) {
+    // Non passa dal laser: e' gia' roba da officina, e va detto chiaro,
+    // altrimenti resta li' che nessuno lo prende in mano.
+    return '<span class="tag lavorabile">Lavorabile &middot; non passa dal laser</span>';
+  }
+  return '<span class="tag da-smistare">Da smistare</span>';
+}
+
 function etichettaConsegna(g) {
   if (g === null) return { cls: 'futuro', txt: '' };
   if (g < 0)  return { cls: 'scaduto', txt: g === -1 ? 'ieri' : `${-g} gg fa` };
@@ -360,7 +383,7 @@ function disegna() {
       : '—';
     const tags = [];
     if (o.lotto_numero) tags.push(`<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>`);
-    if (o.taglio_completato) tags.push('<span class="tag tagliato">Tagliato</span>');
+    tags.push(statoLaser(o));
     if (o.origine && o.origine !== 'PDF') tags.push(`<span class="tag">${esc(o.origine)}</span>`);
 
     return `

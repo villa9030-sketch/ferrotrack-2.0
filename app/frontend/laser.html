@@ -270,6 +270,15 @@ body {
 }
 .riga-sotto .num { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .data-consegna { flex: none; font-weight: 600; color: var(--text-primary); }
+/* I due pulsanti dello smistamento, affiancati: la decisione e' fra due
+   cose, e vederle vicine aiuta a sceglierle. */
+.riga-smista { display: flex; gap: 8px; margin-top: 2px; }
+.riga-smista .btn-taglio { margin-top: 0; }
+.btn-si  { border-color: var(--green); color: var(--green); font-weight: 800; }
+.btn-si:hover  { background: var(--green); color: #fff; }
+.btn-no  { color: var(--text-secondary); }
+.btn-no:hover  { background: #f1f3f4; }
+
 .btn-taglio {
   width: 100%; border: 1px solid var(--border); background: #fff;
   border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 700;
@@ -326,8 +335,13 @@ body {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
+  /* Le viste sono quattro e la colonna e' stretta: se non possono andare a
+     capo l'ultima resta tagliata fuori, e nessuno la trova. */
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
 }
+.view-toggle-btn { border-radius: 8px; }
 .view-toggle-btn {
   padding: 6px 14px;
   font-size: 12px;
@@ -1422,9 +1436,10 @@ button:active {
     <!-- CALENDAR -->
     <div class="calendar" id="calendar">
     <div class="calendar-header">
-      <div class="calendar-title" id="calendar-view-title">Da tagliare</div>
+      <div class="calendar-title" id="calendar-view-title">Da smistare</div>
       <div class="view-toggle">
-        <button class="view-toggle-btn active" id="vt-scadenza" onclick="switchLaserView('scadenza')">Da tagliare</button>
+        <button class="view-toggle-btn active" id="vt-smistare" onclick="switchLaserView('smistare')">Da smistare <span id="conta-smistare"></span></button>
+        <button class="view-toggle-btn" id="vt-scadenza" onclick="switchLaserView('scadenza')">Da tagliare</button>
         <button class="view-toggle-btn" id="vt-fatti" onclick="switchLaserView('fatti')">Tagliati oggi</button>
         <button class="view-toggle-btn" id="vt-cliente" onclick="switchLaserView('cliente')">Per cliente</button>
       </div>
@@ -1510,7 +1525,9 @@ const API_URL = '';
 const PHASE = 'LASER';  // Change to PIEGA, SALDATURA for different stations
 let allOrders = [];
 let selectedOrderId = null;
-let laserViewMode = 'scadenza'; // 'scadenza' | 'cliente'
+// Si apre su "da smistare": e' la prima cosa da fare quando arriva roba
+// nuova, e lasciarla in fondo vorrebbe dire non farla.
+let laserViewMode = 'smistare';
 let actionInProgress = false;
 
 // === USER PILL ===
@@ -1580,14 +1597,27 @@ function _ordersFingerprint(orders) {
     const steps = (o.processing_steps || []);
     const activeStep = steps.find(s => s.sessione_attiva);
     const pauseCount = steps.filter(s => s.in_pausa).length;
-    return `${o.id}|${o.fase_corrente}|${o.status}|${steps.length}|${pauseCount}|${activeStep ? activeStep.id + ':' + activeStep.sessione_attiva_inizio : '-'}`;
+    // Nell'impronta va TUTTO cio' che cambia quello che si vede. Mancavano lo
+    // stato del taglio e lo smistamento: marcando un ordine l'elenco restava
+    // com'era, perche' per l'impronta non era successo niente.
+    return `${o.id}|${o.fase_corrente}|${o.status}|${steps.length}|${pauseCount}`
+         + `|${o.taglio_completato ? 1 : 0}|${o.taglio_richiesto === null || o.taglio_richiesto === undefined ? '-' : (o.taglio_richiesto ? 1 : 0)}`
+         + `|${activeStep ? activeStep.id + ':' + activeStep.sessione_attiva_inizio : '-'}`;
   });
   parts.sort();
   return parts.join(';');
 }
 
-async function loadOrders() {
-  if (actionInProgress) return;
+/** Ricarica gli ordini.
+
+    `forzato` distingue le due cose che prima si confondevano:
+      - il giro automatico ogni cinque secondi, che deve stare fermo mentre
+        l'utente sta facendo qualcosa, per non sovrascrivergli la pagina;
+      - un ricaricamento chiesto apposta dopo un'azione, che deve passare
+        sempre — altrimenti l'utente preme, il server registra, e lo schermo
+        non cambia finche' non scatta il giro dopo. */
+async function loadOrders(forzato) {
+  if (actionInProgress && !forzato) return;
   try {
     // Nel nuovo workflow non ci sono più fasi: la pagina LASER mostra
     // tutti gli ordini ancora da tagliare (taglio_completato=False).
@@ -1673,13 +1703,13 @@ function groupOrdersByDate() {
 // === VIEW SWITCH ===
 function switchLaserView(mode) {
   laserViewMode = mode;
-  for (const [id, m] of [['vt-scadenza', 'scadenza'], ['vt-fatti', 'fatti'],
-                         ['vt-cliente', 'cliente']]) {
+  for (const [id, m] of [['vt-smistare', 'smistare'], ['vt-scadenza', 'scadenza'],
+                         ['vt-fatti', 'fatti'], ['vt-cliente', 'cliente']]) {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('active', mode === m);
   }
-  const titoli = {scadenza: 'Da tagliare', fatti: 'Tagliati oggi',
-                  cliente: 'Da tagliare, per cliente'};
+  const titoli = {smistare: 'Da smistare', scadenza: 'Da tagliare',
+                  fatti: 'Tagliati oggi', cliente: 'Da tagliare, per cliente'};
   document.getElementById('calendar-view-title').textContent = titoli[mode] || 'Da tagliare';
   renderCalendar();
 }
@@ -1691,8 +1721,22 @@ function switchLaserView(mode) {
 // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 const CHIUSI = ['CHIUSO', 'SPEDITO', 'ARCHIVIATO'];
 
+/** Cio' che e' arrivato e nessuno ha ancora guardato.
+    `taglio_richiesto` a tre stati: vuoto = da guardare, vero = va tagliato,
+    falso = non passa dal laser. "Non ancora deciso" e' diverso da "deciso di
+    no", e confonderli manderebbe in officina roba mai vista. */
+function ordiniDaSmistare() {
+  return (allOrders || []).filter(o =>
+    (o.taglio_richiesto === null || o.taglio_richiesto === undefined)
+    && !o.taglio_completato
+    && !CHIUSI.includes(o.status));
+}
+
+/** La coda vera: quello che il laser ha detto di tagliare e non ha ancora
+    tagliato. Prima ci finiva dentro tutto, tubolari compresi. */
 function ordiniDaTagliare() {
-  return (allOrders || []).filter(o => !o.taglio_completato
+  return (allOrders || []).filter(o => o.taglio_richiesto === true
+                                    && !o.taglio_completato
                                     && !CHIUSI.includes(o.status));
 }
 
@@ -1707,9 +1751,64 @@ function ordiniTagliatiOggi() {
 
 // === RENDER CALENDAR (dispatch) ===
 function renderCalendar() {
-  if (laserViewMode === 'cliente') renderByClient();
+  aggiornaContaSmistare();
+  if (laserViewMode === 'smistare') renderDaSmistare();
+  else if (laserViewMode === 'cliente') renderByClient();
   else if (laserViewMode === 'fatti') renderTagliatiOggi();
   else renderByDeadline();
+}
+
+/** Quanti ordini aspettano una decisione. Sta sulla scheda perche' e' la cosa
+    che, se non si fa, blocca tutto il resto: finche' un ordine non e' smistato
+    non entra in coda al laser e non compare come lavorabile in officina. */
+function aggiornaContaSmistare() {
+  const el = document.getElementById('conta-smistare');
+  if (!el) return;
+  const n = ordiniDaSmistare().length;
+  el.textContent = n ? ('(' + n + ')') : '';
+}
+
+/** Cio' che e' arrivato e aspetta una decisione, il piu' urgente per primo. */
+function renderDaSmistare() {
+  const container = document.getElementById('calendar-list');
+  const da = ordiniDaSmistare().sort(
+    (a, b) => new Date(a.data_consegna) - new Date(b.data_consegna));
+
+  if (!da.length) {
+    container.innerHTML = '<div style="padding:28px; color:var(--text-secondary); '
+      + 'text-align:center; font-size:13px;">Niente da smistare: tutto quello '
+      + 'che e\u0300 arrivato ha gia\u0300 una destinazione.</div>';
+    return;
+  }
+
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  container.innerHTML = `<div class="date-group">
+    <div class="date-group-header">DA SMISTARE (${da.length})</div>
+    <div style="padding:8px 12px 12px; font-size:12px; color:var(--text-secondary);">
+      Decidi cosa passa dal laser. Quello che scarti diventa subito lavorabile
+      in officina.
+    </div>
+    ${da.map(o => {
+      const cons = new Date(o.data_consegna); cons.setHours(0, 0, 0, 0);
+      const giorni = Math.round((cons - oggi) / 86400000);
+      const cls = giorni < 0 ? 'overdue' : (giorni <= 3 ? 'urgent' : '');
+      return `
+        <div class="order-item ${selectedOrderId === o.id ? 'selected' : ''}"
+             onclick="selectOrder('${o.id}')">
+          <div class="riga-testa">
+            <span class="order-client">${escapeHtml(o.cliente || '')}</span>
+            <span class="data-consegna">${new Date(o.data_consegna).toLocaleDateString('it-IT')}</span>
+          </div>
+          <div class="riga-sotto">
+            <span class="num">#${escapeHtml(o.numero_ordine || o.id.substring(0, 8))}</span>
+            <span class="order-date-badge ${cls}">
+              ${giorni < 0 ? (-giorni) + 'g in ritardo' : 'fra ' + giorni + 'g'}
+            </span>
+          </div>
+          ${bottoniSmistamento(o)}
+        </div>`;
+    }).join('')}
+  </div>`;
 }
 
 /** Cosa ha gia' fatto oggi: serve a sapere dove si e' arrivati, non a decidere. */
@@ -1742,6 +1841,19 @@ function renderTagliatiOggi() {
 /** Stato e azione del taglio, direttamente sulla riga: un solo gesto, senza
     passare da un pannello di dettaglio. Il clic non deve selezionare l'ordine,
     altrimenti ricaricherebbe il PDF a ogni marcatura. */
+/** I due pulsanti dello smistamento. Stanno sulla riga: decidere e' un
+    gesto, non deve costare l'apertura di un pannello. */
+function bottoniSmistamento(order) {
+  return `<div class="riga-smista">
+    <button class="btn-taglio btn-si"
+      onclick="event.stopPropagation(); smista('${order.id}', true)"
+      title="Entra nella coda di taglio">Va tagliato</button>
+    <button class="btn-taglio btn-no"
+      onclick="event.stopPropagation(); smista('${order.id}', false)"
+      title="Salta il laser: subito lavorabile in officina">Non passa da qui</button>
+  </div>`;
+}
+
 function bottoneTaglio(order) {
   if (order.taglio_completato) {
     const q = order.data_taglio_completato
@@ -2002,6 +2114,35 @@ function deselectOrder() {
 // === MARK LASER DONE ===
 // Quando l'operatore laser ha finito di tagliare, segna l'ordine come tagliato.
 // Serve alla sola coda del laser: non sblocca ne' blocca nulla a valle.
+/** Il laser decide se un ordine passa da lui.
+    Non si chiede conferma: e' una scelta che si cambia in un attimo — l'ordine
+    riappare fra quelli da smistare — e chiedere ad ogni riga di un elenco di
+    venti renderebbe il lavoro insopportabile. */
+async function smista(orderId, vaTagliato) {
+  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+  actionInProgress = true;
+  try {
+    const r = await fetch(`${API_URL}/api/orders/${orderId}/smistamento`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: user.id, va_tagliato: !!vaTagliato }),
+    });
+    const d = await r.json();
+    if (d.success) {
+      showToast(vaTagliato
+        ? 'In coda al laser'
+        : 'Mandato in officina: non passa dal laser');
+      await loadOrders(true);
+    } else {
+      showToast('Errore: ' + (d.error || 'non riuscito'), 'error');
+    }
+  } catch (e) {
+    showToast('Errore di rete: ' + e.message, 'error');
+  } finally {
+    actionInProgress = false;
+  }
+}
+
 async function markLaserDone(orderId) {
   const user = JSON.parse(localStorage.getItem('currentUser'));
   const ok = await showConfirm('Taglio completato',
@@ -2628,8 +2769,12 @@ function showToast(message, type = 'success') {
 // Wrappa la loadOrders originale per aggiornare anche il calendario view + KPI
 // (nel nuovo workflow la fetch e il filtering vivono dentro loadOrders sopra)
 const _originalLoadOrders = loadOrders;
-loadOrders = async function() {
-  await _originalLoadOrders();
+loadOrders = async function(forzato) {
+  // `forzato` va PASSATO oltre. Questo involucro lo buttava via chiamando la
+  // funzione senza argomenti: chi chiedeva un ricaricamento immediato dopo
+  // un'azione se lo vedeva scartare dalla guardia, e l'elenco cambiava solo al
+  // giro automatico successivo — quasi sette secondi dopo il clic.
+  await _originalLoadOrders(forzato);
   if (currentTab === 'calendario') {
     renderCalendarView();
     updateKPIs();

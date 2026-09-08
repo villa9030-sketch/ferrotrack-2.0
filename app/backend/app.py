@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # Importa moduli locali
 from . import email_sender as _email_sender
 from .models import (initialize_database, Order, OrderFile, get_session,
+                     e_istanza_di_prova,
                      RUOLI_UFFICIO, RUOLI_COMANDO, RUOLI_LASER)
 from .database import OrderManager, UserManager, AuditManager, ArchiveManager, FatturazioneManager, NotificationManager, AlertManager, KPIManager, BarcodeManager, PreventivoManager
 from .pdf_cartellino import genera_cartellino_pdf
@@ -567,6 +568,40 @@ def mark_laser_done(order_id):
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
         logger.exception('mark_laser_done endpoint failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/smistamento', methods=['POST'])
+def smista_ordine(order_id):
+    """Il laser dice se un ordine passa da lui.
+
+    Corpo: {"va_tagliato": true|false} oppure {"annulla": true} per rimettere
+    l'ordine fra quelli da guardare.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = (data.get('user_id') or '').strip()
+        if not user_id:
+            return jsonify({'error': 'user_id obbligatorio'}), 400
+        user = UserManager.get_user(user_id)
+        if not user:
+            return jsonify({'error': 'utente non trovato'}), 403
+        # Smistare e' una decisione del laser: la stessa porta della marcatura
+        # del taglio, non una piu' larga.
+        if not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
+            return jsonify({'error': 'Solo la postazione laser o un capo '
+                                     'puo\' smistare gli ordini'}), 403
+
+        if data.get('annulla'):
+            result = OrderManager.annulla_smistamento(order_id, user_id=user_id)
+        else:
+            if 'va_tagliato' not in data:
+                return jsonify({'error': 'va_tagliato obbligatorio'}), 400
+            result = OrderManager.smista(
+                order_id, bool(data.get('va_tagliato')), user_id=user_id)
+        return jsonify(result), (200 if result.get('success') else 400)
+    except Exception as e:
+        logger.exception('smistamento endpoint fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -1304,8 +1339,17 @@ def upload_drawing():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
-    return jsonify({'status': 'online', 'timestamp': datetime.utcnow().isoformat()}), 200
+    """Dice che il programma risponde, e su quali dati sta lavorando.
+
+    `istanza_di_prova` serve alle prove automatiche: quelle che scrivono lo
+    controllano e si fermano se la risposta e' falsa. Un commento che dice "usa
+    il server di prova" non ferma nessuno; questo si'.
+    """
+    return jsonify({
+        'status': 'online',
+        'timestamp': datetime.utcnow().isoformat(),
+        'istanza_di_prova': e_istanza_di_prova(),
+    }), 200
 
 
 @app.route('/api/dashboard-live', methods=['GET'])
