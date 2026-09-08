@@ -1,5 +1,17 @@
 """scan_hub.py — bridge tra pistole barcode e FerroTrack.
 
+DISMESSO (settembre 2026). Le pistole barcode non sono piu' in uso: gli operai
+dichiarano le ore dal tablet della timbratrice. Il server risponde 410 a ogni
+scansione, quindi questo servizio non ha piu' nulla da fare e va FERMATO sul PC
+di Elena:
+
+    nssm stop FerroTrackScanHub
+    nssm remove FerroTrackScanHub confirm
+
+Il file resta per poter tornare indietro: riattivando `pistole_attive` in
+Admin -> Soglie sistema -> Rilevazione delle ore, e riavviando questo servizio,
+tutto torna a funzionare come prima.
+
 Gira sul PC di Elena (sempre acceso, in officina/soppalco con vista vetri).
 I dongle USB 2.4GHz delle 5 pistole sono collegati al PC. Quando un operaio
 scansiona, la pistola "digita" via HID nel sistema operativo. Questo script:
@@ -95,6 +107,10 @@ class ScanHub:
         # Prefissi ordinati per lunghezza decrescente: "AB:" matcha prima di "A:".
         self.sorted_prefixes = sorted(self.prefix_map.keys(), key=len, reverse=True)
 
+        # Il server ha risposto che le pistole sono dismesse: si smette di
+        # provare invece di riempire il log a ogni scansione.
+        self.dismesso = False
+
         # Stato di parsing
         self._buffer = ''
         self._collecting = False
@@ -182,12 +198,22 @@ class ScanHub:
         if not pistola_id:
             logger.warning('Prefisso "%s" non mappato — scan ignorata', prefix)
             return
+        if self.dismesso:
+            return
         url = f'{self.server_url}{self.endpoint}'
         payload = {'pistola_id': pistola_id, 'codice': codice}
         try:
             r = requests.post(url, json=payload, timeout=self.timeout)
             if r.ok:
                 logger.info('OK pistola=%s codice=%s', pistola_id, codice)
+            elif r.status_code == 410:
+                # Le pistole sono state dismesse lato server: continuare a
+                # riprovare riempirebbe il log senza costrutto.
+                logger.error(
+                    'Rilevazione con pistola DISATTIVATA sul server: questo servizio '
+                    'non serve più. Fermalo (nssm stop FerroTrackScanHub). '
+                    'Le ore si registrano dal tablet della timbratrice.')
+                self.dismesso = True
             else:
                 logger.error('Server %s: HTTP %s — %s', pistola_id, r.status_code, r.text[:200])
         except requests.exceptions.RequestException as e:

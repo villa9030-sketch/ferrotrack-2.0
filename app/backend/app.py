@@ -484,7 +484,10 @@ def update_order(order_id):
         result = OrderManager.update_order(order_id, data)
         if result.get('success'):
             return jsonify(result), 200
-        return jsonify(result), 404
+        # 404 solo se l'ordine non c'e': un dato non valido e' 400, altrimenti
+        # chi chiama non distingue "non esiste" da "hai sbagliato a scrivere".
+        manca = 'non trovato' in (result.get('error') or '').lower()
+        return jsonify(result), 404 if manca else 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1591,13 +1594,43 @@ _RUOLI_UFFICIO = ['Impiegata', 'CAPO']
 
 
 def _utente_ufficio():
-    """Ritorna (user_id, None) se autorizzato, altrimenti (None, risposta 403)."""
+    """Ritorna (user_id, None) se autorizzato, altrimenti (None, risposta 403).
+
+    Se la richiesta arriva da un DISPOSITIVO registrato (tablet), comanda lo
+    scope del dispositivo e non lo user_id scritto nel corpo: un tablet di
+    officina o di reparto viene respinto anche se dichiara di essere
+    l'impiegata. Senza dispositivo si ricade sul controllo di ruolo classico,
+    usato dai PC dell'ufficio che entrano col login.
+    """
     dati = request.get_json(silent=True) or {}
     user_id = (dati.get('user_id') or request.args.get('user_id') or '').strip()
-    if not _require_role(user_id, _RUOLI_UFFICIO):
+
+    def negato():
         return None, (jsonify({
-            'error': 'Solo l\'ufficio puo\' registrare i passaggi di un ordine.',
+            'error': "Solo l'ufficio puo' registrare i passaggi di un ordine.",
             'codice': 'permesso_negato'}), 403)
+
+    try:
+        from .auth_device import risolvi_dispositivo
+        dispositivo = risolvi_dispositivo()
+    except Exception:
+        dispositivo = None
+
+    if dispositivo:
+        if dispositivo.get('scope') != 'ufficio':
+            logger.warning(
+                'Transizione ordine rifiutata: dispositivo "%s" (scope=%s) '
+                'si dichiarava utente "%s"',
+                dispositivo.get('label'), dispositivo.get('scope'), user_id)
+            return negato()
+        # Dispositivo d'ufficio: identita' verificata dal server. Lo user_id
+        # serve solo a registrare CHI ha agito, e deve comunque essere valido.
+        if user_id and not _require_role(user_id, _RUOLI_UFFICIO):
+            return negato()
+        return user_id or ('dispositivo:' + (dispositivo.get('label') or '')), None
+
+    if not _require_role(user_id, _RUOLI_UFFICIO):
+        return negato()
     return user_id, None
 
 

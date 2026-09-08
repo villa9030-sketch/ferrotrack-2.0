@@ -737,20 +737,36 @@ class OrderManager:
             if not order:
                 return {'success': False, 'error': 'Ordine non trovato'}
 
+            # Prima si diceva 'success' anche quando non era stato applicato
+            # nulla: un campo fuori elenco o una data illeggibile sparivano in
+            # silenzio e chi chiamava credeva di aver salvato.
             allowed = ['cliente', 'note', 'data_consegna', 'numero_ordine']
-            for field in allowed:
-                if field in updates and updates[field] is not None:
-                    if field == 'data_consegna':
-                        try:
-                            val = datetime.strptime(str(updates[field])[:10], '%Y-%m-%d')
-                            setattr(order, field, val)
-                        except ValueError:
-                            pass
-                    else:
-                        setattr(order, field, updates[field])
+            applicati, ignorati = [], []
+            for campo, valore in (updates or {}).items():
+                if campo in ('order_id', 'user_id', 'id'):
+                    continue
+                if campo not in allowed:
+                    ignorati.append(campo)
+                    continue
+                if valore is None:
+                    continue
+                if campo == 'data_consegna':
+                    try:
+                        valore = datetime.strptime(str(valore)[:10], '%Y-%m-%d')
+                    except ValueError:
+                        return {'success': False,
+                                'error': f'Data di consegna non valida: {updates[campo]}'}
+                setattr(order, campo, valore)
+                applicati.append(campo)
+
+            if not applicati:
+                return {'success': False,
+                        'error': 'Nessun campo modificabile nella richiesta',
+                        'ignorati': ignorati}
 
             session.commit()
-            return {'success': True, 'order_id': order_id}
+            return {'success': True, 'order_id': order_id,
+                    'applicati': applicati, 'ignorati': ignorati}
         except Exception as e:
             session.rollback()
             raise e
