@@ -704,6 +704,9 @@ class OrderManager:
                     'data_taglio_completato': order.data_taglio_completato.isoformat() if getattr(order, 'data_taglio_completato', None) else None,
                     'taglio_completato_da': getattr(order, 'taglio_completato_da', None),
                     'fase': _fase_ordine(order),
+                    # Cartella da aprire in Lantek: il percorso serve
+                    # all'operatore, i singoli file scaricati no.
+                    'cartella_disegni': _cartella_disegni(order),
                 })
 
             return result
@@ -3615,6 +3618,16 @@ def _totale_concordato(preventivo: dict):
     except (TypeError, ValueError):
         pass
     return None
+
+
+def _cartella_disegni(order) -> str:
+    """Percorso della cartella disegni dell'ordine. Import differito: la logica
+    sta in app.py, che conosce configurazione e percorsi."""
+    try:
+        from .app import _cartella_disegni_ordine
+        return _cartella_disegni_ordine(order)
+    except Exception:
+        return ''
 
 
 def _fase_ordine(order) -> str:

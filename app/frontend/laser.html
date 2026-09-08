@@ -1862,20 +1862,63 @@ function selectOrder(orderId) {
   }
 }
 
-/** I disegni da tagliare, sotto l'anteprima. Erano nella colonna che abbiamo
-    tolto, e senza di loro all'operatore mancherebbe il file. */
+/** La CARTELLA dei disegni, non i singoli file.
+    Scaricarli uno per uno dal browser non serve a nulla: in Lantek si apre la
+    cartella. Qui si mostra il percorso e lo si copia con un clic, pronto da
+    incollare in Esplora risorse. */
 function mostraDisegni(order) {
   const barra = document.getElementById('barra-dxf');
   if (!barra) return;
   const files = (order.dxf_files || []).map(f =>
     typeof f === 'string' ? f : (f.filename || f.nome || '')).filter(Boolean);
-  if (!files.length) { barra.style.display = 'none'; barra.innerHTML = ''; return; }
+  const cartella = order.cartella_disegni || '';
+  if (!files.length && !cartella) {
+    barra.style.display = 'none';
+    barra.innerHTML = '';
+    return;
+  }
   barra.style.display = 'flex';
-  barra.innerHTML = '<span style="color:var(--text-secondary); font-weight:600;">Disegni ('
-    + files.length + ')</span>'
-    + files.slice(0, 40).map(f =>
-        `<a href="${API_URL}/api/orders/${order.id}/dxf/${encodeURIComponent(f)}"
-            target="_blank" rel="noopener">\uD83D\uDCC0 ${escapeHtml(f)}</a>`).join('');
+  if (!cartella) {
+    barra.innerHTML = '<span style="color:var(--text-secondary);">'
+      + files.length + ' disegni per questo ordine, ma la cartella non risulta '
+      + 'pronta. Avvisa l\'ufficio.</span>';
+    return;
+  }
+  barra.innerHTML =
+    '<span style="color:var(--text-secondary); font-weight:600;">Disegni ('
+      + files.length + ')</span>'
+    + '<code id="dxf-cartella" style="font-size:12px; padding:5px 10px; '
+      + 'background:#fff; border:1px solid var(--border); border-radius:7px; '
+      + 'white-space:nowrap; max-width:58vw; overflow:hidden; '
+      + 'text-overflow:ellipsis;" title="' + escapeHtml(cartella) + '">'
+      + escapeHtml(cartella) + '</code>'
+    + '<button class="btn-taglio" onclick="copiaCartella()">Copia percorso</button>'
+    + '<span id="dxf-copiato" style="color:var(--green); font-weight:700; '
+      + 'display:none;">copiato</span>';
+}
+
+/** Copia il percorso: si incolla in Esplora risorse o nella finestra di
+    apertura di Lantek. */
+function copiaCartella() {
+  const el = document.getElementById('dxf-cartella');
+  if (!el) return;
+  const conferma = () => {
+    const s = document.getElementById('dxf-copiato');
+    if (s) { s.style.display = 'inline'; setTimeout(() => { s.style.display = 'none'; }, 2000); }
+  };
+  const ripiego = () => {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    try { document.execCommand('copy'); conferma(); } catch (_) {}
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(el.textContent).then(conferma).catch(ripiego);
+  } else {
+    ripiego();
+  }
 }
 
 // === DESELECT ORDER ===

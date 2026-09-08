@@ -4586,6 +4586,76 @@ def api_preventivi_calcola(preventivo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _cartella_disegni_ordine(order) -> str:
+    """Percorso della cartella da aprire in Lantek per quest'ordine.
+
+    Preferisce quella leggibile sulla rete (<root>/<cliente>/<numero>), che e'
+    quella che l'operatore riconosce; ripiega su uploads/drawings/<id> se la
+    cartella di rete non e' configurata. Ritorna stringa vuota se non c'e'
+    niente da aprire.
+    """
+    try:
+        numero = (order.get('numero_ordine') if isinstance(order, dict)
+                  else getattr(order, 'numero_ordine', None)) or ''
+        cliente = (order.get('cliente') if isinstance(order, dict)
+                   else getattr(order, 'cliente', None)) or ''
+        oid = (order.get('id') if isinstance(order, dict)
+               else getattr(order, 'id', None)) or ''
+        root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+        if root and numero:
+            from .preventivi.dxf_cleanup import _sanitize_path_part
+            leggibile = os.path.join(root,
+                                     _sanitize_path_part(cliente, 'cliente_sconosciuto'),
+                                     _sanitize_path_part(numero, 'ordine'))
+            if os.path.isdir(leggibile):
+                return os.path.normpath(leggibile)
+        interna = os.path.join(DRAWINGS_FOLDER, oid)
+        # normpath: senza, il percorso esce con un ".." in mezzo e non si puo'
+        # incollare in Esplora risorse.
+        return os.path.normpath(interna) if os.path.isdir(interna) else ''
+    except Exception:
+        logger.exception('cartella disegni non determinabile')
+        return ''
+
+
+def _esporta_disegni_per_officina(order_id: str, cliente: str, numero_ordine: str) -> dict:
+    """Copia i disegni dell'ordine nella cartella di rete, con nome leggibile.
+
+    Serve perche' l'operatore apre quella cartella in Lantek: `uploads/drawings/
+    <uuid>` non e' un posto dove uno va a cercare.
+    """
+    esito = {'esportati': 0, 'percorso': None, 'error': None}
+    root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+    if not root:
+        esito['error'] = 'cartella di rete non configurata'
+        return esito
+    sorgente = os.path.join(DRAWINGS_FOLDER, order_id)
+    if not os.path.isdir(sorgente):
+        esito['error'] = 'nessun disegno da esportare'
+        return esito
+    try:
+        import shutil
+        from .preventivi.dxf_cleanup import _sanitize_path_part
+        destinazione = os.path.join(root,
+                                    _sanitize_path_part(cliente, 'cliente_sconosciuto'),
+                                    _sanitize_path_part(numero_ordine or order_id[:8], 'ordine'))
+        os.makedirs(destinazione, exist_ok=True)
+        n = 0
+        for nome in os.listdir(sorgente):
+            src = os.path.join(sorgente, nome)
+            if not os.path.isfile(src):
+                continue
+            shutil.copy2(src, os.path.join(destinazione, nome))
+            n += 1
+        esito['esportati'] = n
+        esito['percorso'] = destinazione
+        logger.info('Disegni ordine %s esportati in %s (%d file)', order_id, destinazione, n)
+    except Exception as e:
+        esito['error'] = str(e)
+        logger.exception('export disegni in cartella di rete fallito')
+    return esito
+
+
 def _nome_disegno_libero(cartella: str, nome: str) -> str:
     """Nome di file che non ne sovrascrive un altro.
 
@@ -5359,6 +5429,16 @@ def api_preventivi_accetta(preventivo_id):
         if order_id:
             dxf_stats = _copy_cleaned_dxf_to_drawings(preventivo_id, order_id)
             result['dxf_transfer'] = dxf_stats
+            # Copia leggibile sulla cartella di rete: e' quella che
+            # l'operatore apre in Lantek. Non blocca l'accettazione.
+            try:
+                result['export_disegni'] = _esporta_disegni_per_officina(
+                    order_id,
+                    (result.get('preventivo') or {}).get('cliente') or '',
+                    result.get('numero_ordine') or '')
+            except Exception as _e:
+                logger.warning('export disegni in cartella di rete: %s', _e)
+
             # Allega il PDF ordine (disegni/lavorazioni) così Mirko vede cosa fare.
             pdf_stats = _copy_order_pdf_to_order(preventivo_id, order_id)
             result['pdf_transfer'] = pdf_stats
