@@ -85,9 +85,13 @@ def calcola_preventivo(
         if n_pieghe > soglia:
             costo_piegatura += config["costo_setup_piega"]
         # Saldatura a tempo (min/60 × tariffa) se abilitato, altrimenti €/metro
-        if config.get("saldatura_a_tempo"):
+        if config.get("saldatura_a_tempo") and saldatura_min > 0:
             costo_saldatura = (saldatura_min / 60.0) * float(config.get("tariffa_oraria", 45))
+        elif config.get("saldatura_a_tempo") and saldatura <= 0:
+            costo_saldatura = 0.0
         else:
+            # A metro, oppure "a tempo" senza minuti ma con metri (dal CAD):
+            # stessa stima a metro dell'editor, invece di una saldatura gratis.
             costo_saldatura = saldatura * config["costo_saldatura_metro"]
         costo_filettatura = filettatura * config["costo_filettatura"]
         costo_svasatura = svasatura * config["costo_svasatura"]

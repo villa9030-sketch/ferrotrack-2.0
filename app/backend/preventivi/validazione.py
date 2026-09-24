@@ -24,6 +24,17 @@ CAMPI_COSTO_ARTICOLO = (
     'costo_piega', 'costo_saldatura', 'costo_filettatura', 'costo_svasatura',
     'costo_apporto', 'costo_pulizia',
 )
+# Misure dell'articolo (geometria e lavorazioni): zero e vuoto vanno bene in
+# bozza, negativi e valori fuori da ogni lamiera reale no. I massimi sono
+# larghi apposta: fermano le battiture (mm scritti come m, 10000 al posto di
+# 10), non i pezzi grandi.
+MISURE_ARTICOLO = {
+    'spessore_mm': 300.0,          # lamiera/piatto: oltre e' un errore di unita'
+    'area_dm2': 100_000.0,         # 1000 m² di pezzo
+    'perimetro_taglio_m': 10_000.0,
+    'saldatura_ml': 10_000.0,
+    'saldatura_min': 100_000.0,    # ~1700 ore per pezzo
+}
 CAMPI_COSTO_ASSIEME = ('costo', 'costo_puntatura', 'costo_saldatura_assieme')
 CAMPI_COSTO_TUBOLARE = ('costo_materiale', 'costo_taglio_totale')
 CAMPI_COSTO_PIASTRA = ('costo',)
@@ -83,13 +94,35 @@ def valida_conteggio(valore, campo: str, dove: str):
     return None
 
 
-def _valida_righe(righe, campi_costo, campi_quantita, campi_conteggio=()):
+def valida_misura(valore, campo: str, dove: str, massimo: float):
+    """Misura fisica: vuoto/zero ammessi (bozza), negativo o assurdo no."""
+    if valore is None or valore == '':
+        return None
+    try:
+        v = float(valore)
+    except (TypeError, ValueError):
+        return f'{dove}: "{campo}" non e\' un numero ({valore!r})'
+    if not math.isfinite(v):
+        return f'{dove}: "{campo}" non e\' un valore finito'
+    if v < 0:
+        return f'{dove}: "{campo}" non puo\' essere negativo ({v:g})'
+    if v > massimo:
+        return (f'{dove}: "{campo}" fuori scala ({v:g}, massimo {massimo:g}): '
+                'controlla l\'unita\' di misura.')
+    return None
+
+
+def _valida_righe(righe, campi_costo, campi_quantita, campi_conteggio=(), misure=None):
     errori = []
     for i, r in enumerate(righe or []):
         if not isinstance(r, dict):
             errori.append(f'riga {i + 1}: formato non valido')
             continue
         dove = _etichetta(r, i)
+        for c, massimo in (misure or {}).items():
+            e = valida_misura(r.get(c), c, dove, massimo)
+            if e:
+                errori.append(e)
         for c in campi_costo:
             e = valida_costo(r.get(c), c, dove)
             if e:
@@ -109,7 +142,8 @@ def valida_articoli(articoli):
     # `quantita` sono i pezzi: almeno 1. Pieghe, filettature e svasature sono
     # conteggi di lavorazioni: zero e' del tutto normale.
     return _valida_righe(articoli, CAMPI_COSTO_ARTICOLO, ('quantita',),
-                         ('pieghe', 'filettatura_pz', 'svasatura_pz'))
+                         ('pieghe', 'filettatura_pz', 'svasatura_pz', 'n_forature'),
+                         MISURE_ARTICOLO)
 
 
 def valida_assiemi(assiemi):
@@ -117,11 +151,11 @@ def valida_assiemi(assiemi):
 
 
 def valida_tubolari(tubolari):
-    return _valida_righe(tubolari, CAMPI_COSTO_TUBOLARE, ())
+    return _valida_righe(tubolari, CAMPI_COSTO_TUBOLARE, ('qty',))
 
 
 def valida_piastre(piastre):
-    return _valida_righe(piastre, CAMPI_COSTO_PIASTRA, ())
+    return _valida_righe(piastre, CAMPI_COSTO_PIASTRA, ('qty',))
 
 
 def valida_testata(dati: dict):

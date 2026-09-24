@@ -17,6 +17,8 @@ import math
 import re
 from typing import Any
 
+from .step_parser import carica_entita, GeometriaStep, tipo_entita
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -66,8 +68,7 @@ def _parse_entities(content: str) -> dict[int, str]:
     return entities
 
 def _etype(val: str) -> str:
-    m = re.match(r'(\w+)', val)
-    return m.group(1) if m else ''
+    return tipo_entita(val)  # gestisce anche le entita' complesse "( A() B() )"
 
 def _refs(val: str) -> list[int]:
     return [int(x) for x in re.findall(r'#(\d+)', val)]
@@ -645,6 +646,18 @@ def _detect_bends_3d(entities: dict[int, str], face_refs: list[int]) -> list[dic
         bend_angle = 180.0 - abs(angle_between_normals)
 
         used_cyls.add(cyl_fref)
+        # Il cilindro interno (r) e quello esterno (r+t) sono la STESSA piega:
+        # marca come usati i cilindri coassiali per non contarla due volte.
+        ax_n = _vec_norm(cyl_axis)
+        for other_fref, other_data in bend_cyls:
+            if other_fref in used_cyls:
+                continue
+            if abs(_vec_dot(_vec_norm(other_data['axis']), ax_n)) < 0.999:
+                continue
+            d = _vec_sub(other_data['origin'], cyl_origin)
+            off = _vec_sub(d, _vec_scale(ax_n, _vec_dot(d, ax_n)))
+            if _vec_len(off) < 0.1:
+                used_cyls.add(other_fref)
         bends.append({
             'angolo': round(bend_angle, 1),
             'lunghezza_mm': round(bend_length, 1),
@@ -933,7 +946,11 @@ def analizza_features(step_path: str) -> dict:
         empty_result['errore'] = str(e)
         return empty_result
 
-    entities = _parse_entities(content)
+    # Tokenizer condiviso (stringhe, entita' complesse, unita' -> mm)
+    try:
+        entities, _ = carica_entita(step_path)
+    except (IOError, OSError):
+        entities = _parse_entities(content)
     body_ids = _get_body_ids(entities)
 
     if not body_ids:
@@ -993,19 +1010,25 @@ def analizza_features(step_path: str) -> dict:
         tacche = []
 
     # --- Surface area, volume, weight ---
+    # Area e volume dalla geometria B-rep condivisa (anelli ORDINATI, fori
+    # sottratti; volume col teorema della divergenza). Prima: shoelace su
+    # vertici non ordinati e peso = bbox x 0.3.
+    STEEL_DENSITY_KG_MM3 = 7.85e-6  # 7850 kg/m^3
+    geo = GeometriaStep(entities)
     try:
-        area_mm2 = _calc_surface_area(entities, all_face_refs)
+        area_mm2 = sum(f['area'] for bid in body_ids for f in geo.facce(bid))
     except Exception as e:
         logger.warning("Errore calcolo area: %s", e)
-        area_mm2 = 0.0
+        area_mm2 = _calc_surface_area(entities, all_face_refs)
 
-    volume_mm3 = _calc_volume_bbox(all_pts)
-
-    # Rough weight: use bbox volume * fill factor * steel density
-    # fill_factor ~0.3 for typical machined parts
-    FILL_FACTOR = 0.3
-    STEEL_DENSITY_KG_MM3 = 7.85e-6  # 7850 kg/m^3
-    peso_kg = round(volume_mm3 * FILL_FACTOR * STEEL_DENSITY_KG_MM3, 3)
+    volumi = [geo.volume_corpo(bid) for bid in body_ids]
+    if volumi and all(v is not None for v in volumi):
+        volume_mm3 = sum(volumi)
+        peso_kg = round(volume_mm3 * STEEL_DENSITY_KG_MM3, 3)
+    else:
+        # superfici non analitiche: stima grossolana bbox x fill factor 0.3
+        volume_mm3 = _calc_volume_bbox(all_pts)
+        peso_kg = round(volume_mm3 * 0.3 * STEEL_DENSITY_KG_MM3, 3)
 
     # --- Complexity ---
     n_corpi = len(body_ids)

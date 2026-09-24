@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 
-from .lantek_lookup import lookup_ricetta, default_gas
+from .lantek_lookup import lookup_ricetta, default_gas, normalizza_materiale
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,10 @@ DEFAULT_LASER_CONFIG = {
     # Setup fisso per pezzo (carico foglio, avviamento) — modesto per il modello
     # attuale, il grosso del setup è già dentro il tempo pierce
     'setup_eur_default': 0.10,
+    # Resa del nesting (0-1]: quota di lamiera che diventa pezzo. Il materiale
+    # si paga sul LORDO = netto / resa. 1.0 = nessuno sfrido (comportamento
+    # storico); 0.8 = il 20% del foglio va in sfrido.
+    'resa_nesting': 1.0,
     # €/kg materie prime + densità fisica
     'materiali': {
         'S235':     {'densita_kg_dm3': 7.85, 'euro_kg': 0.80, 'setup_eur': 0.10},
@@ -89,19 +93,40 @@ def _resolve_material(materiale: str, materiali_map: dict) -> tuple[str, dict | 
             canonical = _MATERIAL_ALIASES[prefix]
             if canonical in materiali_map:
                 return canonical, materiali_map[canonical]
-    # 4. Fallback: cerca il primo canonical che è prefix del richiesto
+    # 4. Famiglia di ricetta (S235JR → S235, INOX_316L → INOX_304, ALU_6082 → ALU…):
+    #    la stessa tabella di sinonimi usata per le ricette di taglio.
+    famiglia = normalizza_materiale(mat_upper)
+    if famiglia and famiglia in materiali_map:
+        return famiglia, materiali_map[famiglia]
+    # 5. Fallback: cerca il primo canonical che è prefix del richiesto
     for canonical in materiali_map:
         if mat_upper.startswith(canonical):
             return canonical, materiali_map[canonical]
     return mat_upper, None
 
 
-def _empty_result(warnings: list[str]) -> dict:
-    return {
+def _empty_result(warnings: list[str], **flag) -> dict:
+    out = {
         'peso_kg': 0.0, 'costo_materiale': 0.0, 'costo_lavoro': 0.0,
         'tempo_taglio_s': 0.0, 'tempo_pierce_s': 0.0, 'tempo_totale_min': 0.0,
         'setup_eur': 0.0, 'base': 0.0, 'warnings': warnings, 'notes': [],
+        'ricetta_mancante': False, 'materiale_sconosciuto': False,
+        'spessore_fuori_tabella': False,
     }
+    out.update(flag)
+    return out
+
+
+def _resa_nesting(cfg: dict, warnings: list) -> float:
+    """Resa del nesting valida in (0, 1]. Valori impossibili → 1 con avviso."""
+    try:
+        resa = float(cfg.get('resa_nesting', 1.0) or 1.0)
+    except (TypeError, ValueError):
+        resa = 1.0
+    if resa <= 0 or resa > 1:
+        warnings.append(f'Resa nesting {resa} non valida (deve stare tra 0 e 1): usata 1.')
+        return 1.0
+    return resa
 
 
 def stima_base(articolo: dict, config: dict | None = None) -> dict:
@@ -144,10 +169,14 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
     if warnings:
         return _empty_result(warnings)
 
-    # Risolvi alias (INOX_316 → INOX_304, ALU_5754 → ALU, ecc.)
+    # Risolvi alias (INOX_316 → INOX_304, ALU_5754 → ALU, S235JR → S235, ecc.)
     canonical, mat = _resolve_material(materiale, materiali)
     if not mat:
-        return _empty_result([f'Materiale "{materiale}" non in tabella coefficienti'])
+        return _empty_result(
+            [f'Materiale "{materiale}" sconosciuto: non ci sono prezzo al kg ne\' '
+             'ricetta di taglio. Scegli un materiale dall\'elenco o inserisci un '
+             'prezzo manuale.'],
+            materiale_sconosciuto=True, ricetta_mancante=True)
     if canonical != materiale:
         notes.append(f'Materiale "{materiale}" mappato su "{canonical}" per coefficienti')
 
@@ -168,23 +197,53 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
         peso_kg = area_dm2 * (spessore_mm / 100.0) * densita
         peso_source = 'calcolato'
 
-    costo_materiale = peso_kg * euro_kg
+    # Sfrido di nesting: si compra il foglio, non il pezzo. Con resa 1 (default)
+    # il lordo coincide col netto e il prezzo non cambia.
+    resa = _resa_nesting(cfg, warnings)
+    peso_lordo_kg = peso_kg / resa
+    costo_materiale = peso_lordo_kg * euro_kg
 
     # --- Ricetta Lantek per velocità + pierce ---
     # Se l'utente ha configurato le velocità nelle Impostazioni (laser_config.ricette_taglio)
     # usiamo quelle; altrimenti il fallback è il file JSON calibrato di default.
+    # La ricetta si cerca per FAMIGLIA (S235JR → S235, INOX_316L → INOX_304):
+    # prima si passava la sigla originale e per le varianti non si trovava nulla.
+    famiglia = normalizza_materiale(materiale) or canonical
     ricette_cfg = cfg.get('ricette_taglio') or None
-    ricetta = lookup_ricetta(materiale, spessore_mm, gas_richiesto, ricette_override=ricette_cfg)
+    ricetta = lookup_ricetta(famiglia, spessore_mm, gas_richiesto, ricette_override=ricette_cfg)
+    if ricetta and float(ricetta.get('velocita_mm_min') or 0) <= 0:
+        ricetta = None
     if not ricetta:
-        return _empty_result([
-            f'Ricetta Lantek non trovata per {materiale} {spessore_mm}mm '
-            f'(gas={gas_richiesto or default_gas(materiale, spessore_mm)}).'
-        ])
+        # Senza ricetta il TAGLIO non e' stimabile, ma il materiale si': meglio
+        # un costo parziale dichiarato che uno zero spacciato per stima.
+        base_parziale = costo_materiale + setup_eur
+        warnings.append(
+            f'Ricetta di taglio non trovata per {materiale} {spessore_mm:g} mm '
+            f'(gas {gas_richiesto or default_gas(famiglia, spessore_mm)}): '
+            'il costo NON comprende il taglio laser. Inserisci un prezzo manuale.')
+        return {
+            'peso_kg': round(peso_kg, 4),
+            'peso_lordo_kg': round(peso_lordo_kg, 4),
+            'resa_nesting': resa,
+            'costo_materiale': round(costo_materiale, 4),
+            'costo_lavoro': 0.0,
+            'tempo_taglio_s': 0.0, 'tempo_pierce_s': 0.0, 'tempo_totale_min': 0.0,
+            'setup_eur': round(setup_eur, 4),
+            'base': round(base_parziale, 2),
+            'warnings': warnings, 'notes': notes,
+            'ricetta_mancante': True, 'materiale_sconosciuto': False,
+            'spessore_fuori_tabella': False,
+            '_peso_source': peso_source, '_euro_kg': euro_kg,
+            '_euro_h_macchina': eur_h_macchina, '_euro_h_operaio': eur_h_operaio,
+            '_euro_h_tot': eur_h_tot,
+        }
+    if ricetta.get('ricetta_di_fabbrica'):
+        warnings.append(
+            f'Velocita\' di taglio configurata non valida per {famiglia} '
+            f'{spessore_mm:g} mm: usata la ricetta Lantek di fabbrica.')
 
     vel_mm_min = float(ricetta['velocita_mm_min'])
     pierce_s = float(ricetta['pierce_time_s'])
-    if vel_mm_min <= 0:
-        return _empty_result([f'Velocità di taglio invalida per {materiale} {spessore_mm}mm'])
 
     # --- Tempi ---
     perim_mm = perimetro_m * 1000.0
@@ -202,10 +261,13 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
     # interpolazione lineare tra le due ricette Lantek adiacenti (prassi
     # standard CAM). Non deve allarmare l'utente.
     src = ricetta.get('source', 'exact')
-    if src in ('clamped_min', 'clamped_max'):
+    fuori_tabella = src in ('clamped_min', 'clamped_max')
+    if fuori_tabella:
         warnings.append(
-            f'Spessore {spessore_mm}mm fuori range tabella Lantek '
-            f'({materiale}/{ricetta["gas"]}) — usato valore limite.'
+            f'Spessore {spessore_mm:g} mm fuori tabella Lantek '
+            f'({famiglia}/{ricetta["gas"]}): usata la velocita\' dello spessore '
+            f'limite {"minimo" if src == "clamped_min" else "massimo"}, '
+            'stima del taglio da verificare.'
         )
     elif src == 'interpolated':
         notes.append(
@@ -230,6 +292,11 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
 
     return {
         'peso_kg': round(peso_kg, 4),
+        'peso_lordo_kg': round(peso_lordo_kg, 4),
+        'resa_nesting': resa,
+        'ricetta_mancante': False,
+        'materiale_sconosciuto': False,
+        'spessore_fuori_tabella': fuori_tabella,
         'costo_materiale': round(costo_materiale, 4),
         'costo_lavoro': round(costo_lavoro, 4),
         'tempo_taglio_s': round(tempo_taglio_s, 2),

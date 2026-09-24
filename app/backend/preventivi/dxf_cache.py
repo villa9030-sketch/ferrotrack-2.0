@@ -13,8 +13,9 @@ il risultato cachato istantaneamente. Utile per:
 Storage: file SQLite dedicato `database/dxf_cache.db` (non tocca il DB
 principale scheduler.db).
 
-Chiave: hash SHA256 dei bytes del file DXF (deterministico anche se il file
-viene rinominato o spostato).
+Chiave: `chiave_cache()` = SHA256 di (hash dei bytes del DXF + nome file +
+config di rilevamento + disponibilità Gemini + versione parser). La colonna
+si chiama ancora `file_hash` per compatibilità dello schema.
 
 Payload cachato:
 - geometria (area, perimetro, n_forature, bbox)
@@ -68,7 +69,11 @@ _INITIALIZED = False
 # v8 (2026-07-12): + assorbimento fori interni (entità isolate il cui bbox è
 #                  interamente contenuto nel bbox del cluster vincente).
 #                  Risolve fori CIRCLE piccoli persi dal clustering.
-PARSER_VERSION = 8
+# v9 (2026-09-24): revisione estrazione DXF — INSERT espansi, $INSUNITS,
+#                  entità duplicate, cornici vs piastre con fori, svasature,
+#                  confidence, pieghe/materiale/spessore più rigorosi.
+#                  Chiave cache = contenuto + nome file + config + Gemini.
+PARSER_VERSION = 9
 
 
 def _init_db() -> None:
@@ -110,6 +115,34 @@ def hash_file(path: str) -> str:
         while chunk := f.read(1 << 20):  # 1 MB chunks
             h.update(chunk)
     return h.hexdigest()
+
+
+def chiave_cache(file_hash: str, filename: str, config: dict | None = None,
+                 extra: dict | None = None) -> str:
+    """Chiave di cache del parsing (BUG FIX D12).
+
+    Il risultato NON dipende solo dai bytes del DXF:
+    - nome file: fonte dello spessore (`_sp3`, `_10mm`)
+    - config `dxf_detection` (colori piega/saldatura, soglie svasatura…)
+    - disponibilità Gemini (materiale riconosciuto o no)
+    - versione del parser
+    Quindi la chiave è l'hash di tutti questi elementi insieme all'hash file.
+    """
+    try:
+        from . import llm_material_normalizer
+        llm = llm_material_normalizer.is_available()
+    except Exception:
+        llm = False
+    parti = {
+        'file': file_hash,
+        'nome': os.path.basename(filename or '').lower(),
+        'cfg': config or {},
+        'llm': llm,
+        'v': PARSER_VERSION,
+        **(extra or {}),
+    }
+    blob = json.dumps(parti, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode('utf-8')).hexdigest()
 
 
 def get(file_hash: str) -> dict | None:

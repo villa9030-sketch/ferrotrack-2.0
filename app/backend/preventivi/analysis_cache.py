@@ -301,7 +301,7 @@ def cached_analizza_step_assieme(
     step_path: str, cache: AnalysisCache | None = None
 ) -> dict:
     """Wrapper around analizza_step_assieme with caching."""
-    from preventivatore.services.step_assieme import analizza_step_assieme
+    from .step_assieme import analizza_step_assieme
 
     if cache:
         cached = cache.get(step_path, "step_assieme")
@@ -318,7 +318,7 @@ def cached_analizza_step_tubolari(
     step_path: str, profili_db: dict, cache: AnalysisCache | None = None
 ) -> dict:
     """Wrapper around analizza_step_tubolari with caching."""
-    from preventivatore.services.step_tubolari import analizza_step_tubolari
+    from .step_tubolari import analizza_step_tubolari
 
     if cache:
         cached = cache.get(step_path, "step_tubolari")
@@ -337,7 +337,7 @@ def cached_analizza_step_piastre(
     step_path: str, densita: float = 7.85, cache: AnalysisCache | None = None
 ) -> dict:
     """Wrapper around analizza_step_piastre with caching."""
-    from preventivatore.services.step_piastre import analizza_step_piastre
+    from .step_piastre import analizza_step_piastre
 
     if cache:
         cached = cache.get(step_path, "step_piastre")
@@ -354,13 +354,14 @@ def cached_conta_istanze_nauo(
     step_path: str, cache: AnalysisCache | None = None
 ) -> dict:
     """Wrapper around conta_istanze_nauo with caching."""
-    from preventivatore.services.step_assieme import conta_istanze_nauo
+    from .step_assieme import conta_istanze_nauo
 
     if cache:
         cached = cache.get(step_path, "step_nauo")
         if cached is not None:
             logger.info("Cache HIT: step_nauo for %s", os.path.basename(step_path))
-            return cached
+            # JSON salva le chiavi come stringhe: body_id torna intero
+            return {int(k): v for k, v in cached.items()}
     result = conta_istanze_nauo(step_path)
     if cache:
         cache.put(step_path, "step_nauo", result)
@@ -371,7 +372,7 @@ def cached_scansiona_dxf(
     path: str, config: dict, cache: AnalysisCache | None = None
 ) -> tuple:
     """Wrapper around scansiona_dxf_dettagli with caching."""
-    from preventivatore.services.dxf_scanner import scansiona_dxf_dettagli
+    from .dxf_scanner import scansiona_dxf_dettagli
 
     if cache:
         cached = cache.get(path, "dxf_dettagli")
@@ -391,7 +392,7 @@ def cached_parse_step_geometry(
 
     Note: geometry data can be large, only cache if file is not huge.
     """
-    from preventivatore.services.step_parser import parse_step_geometry
+    from .step_parser import parse_step_geometry
 
     if cache:
         cached = cache.get(step_path, "step_geometry")

@@ -59,13 +59,61 @@ from .dxf_polygon_detector_v3 import (
     TOL_CARTIGLIO_PCT,
     _layer_da_escludere,
     _entity_color_excluded,
+    _dedup_poligoni,
+    _riduci_fori_annidati,
+    entita_espanse,
+    scala_unita_mm,
 )
+try:
+    from shapely.prepared import prep
+except ImportError:
+    pass
+
+
+def _campi_forature(holes) -> dict:
+    """Conteggi forature uniformi con v3/scanner/preventivo (BUG FIX D14):
+    n_forature = PIERCE = 1 contorno esterno + fori (prima qui era solo i fori
+    e il percorso manuale perdeva un innesco); n_fori = soli fori interni."""
+    n = len(holes)
+    return {'n_forature': 1 + n, 'n_pierce': 1 + n, 'n_fori': n}
+
+# UNITÀ: tutta la pipeline di pick_part lavora in MILLIMETRI. Il DXF viene
+# scalato secondo $INSUNITS (pollici, cm, m…) già in estrazione, e anche il
+# viewer CAD (geometry_json) riceve coordinate in mm: click, contorni
+# (outer_xy/holes_xy) e DXF canonico sono quindi coerenti in mm.
+
+
+def _scala(msp) -> float:
+    """Fattore unità disegno → mm del documento di `msp`."""
+    try:
+        return scala_unita_mm(msp.doc)[0]
+    except Exception:
+        return 1.0
+
+
+def _cache_doc(msp, chiave, fn):
+    """Memoizza calcoli costosi (facce, fori) per documento: pick_candidates
+    chiama _holes_inside per ogni loop candidato."""
+    doc = getattr(msp, 'doc', None)
+    store = getattr(doc, '_ft_cache_pick', None) if doc is not None else None
+    if store is None and doc is not None:
+        store = {}
+        try:
+            doc._ft_cache_pick = store
+        except Exception:
+            store = None
+    if store is not None and chiave in store:
+        return store[chiave]
+    val = fn()
+    if store is not None:
+        store[chiave] = val
+    return val
 
 
 # ── Estrazione segmenti ────────────────────────────────────────────────────
 
-def _entity_segments(entity, distance: float = FLATTEN_DISTANCE_MM) -> list[tuple]:
-    """Flatten una entità DXF in una lista di segmenti [(x1,y1,x2,y2), ...].
+def _entity_segments(entity, distance: float = FLATTEN_DISTANCE_MM, scala: float = 1.0) -> list[tuple]:
+    """Flatten una entità DXF in una lista di segmenti [(x1,y1,x2,y2), ...] in mm.
 
     Ritorna lista vuota se l'entità non è flattabile (es. TEXT).
     """
@@ -73,14 +121,14 @@ def _entity_segments(entity, distance: float = FLATTEN_DISTANCE_MM) -> list[tupl
         p = make_path(entity)
         if len(p) == 0:
             return []
-        pts = [(v.x, v.y) for v in p.flattening(distance)]
+        pts = [(v.x * scala, v.y * scala) for v in p.flattening(distance / scala)]
     except Exception:
         # LINE non ha make_path in alcune versioni: fallback manuale
         if entity.dxftype() == 'LINE':
             try:
                 s = entity.dxf.start
                 e = entity.dxf.end
-                return [(s.x, s.y, e.x, e.y)]
+                return [(s.x * scala, s.y * scala, e.x * scala, e.y * scala)]
             except Exception:
                 return []
         return []
@@ -91,25 +139,111 @@ def _entity_segments(entity, distance: float = FLATTEN_DISTANCE_MM) -> list[tupl
     return segs
 
 
-def _collect_segments(msp, colori_esclusi: set[int]) -> list[tuple]:
-    """Raccoglie tutti i segmenti geometrici, escludendo annotazioni/cartiglio.
-
-    Esclude: tipi annotazione (TEXT/DIMENSION/...), layer cartiglio/quote/note,
-    entità di colore escluso (pieghe/saldature configurabili).
-    """
-    segs = []
-    for entity in msp:
-        if entity.dxftype() in TIPI_ANNOTAZIONE:
-            continue
+def _entita_chiusa(entity) -> bool:
+    """True se l'entità è un contorno chiuso reale (cerchio, polilinea chiusa…)."""
+    et = entity.dxftype()
+    if et in ('CIRCLE', 'ELLIPSE'):
+        if et == 'ELLIPSE':
+            try:
+                sweep = (entity.dxf.end_param - entity.dxf.start_param) % (2 * math.pi)
+                return sweep == 0 or sweep >= 2 * math.pi - 1e-6
+            except Exception:
+                return True
+        return True
+    if et in ('LWPOLYLINE', 'POLYLINE'):
         try:
-            if _layer_da_escludere(entity.dxf.layer):
+            return bool(entity.closed) if et == 'LWPOLYLINE' else bool(getattr(entity, 'is_closed', False))
+        except Exception:
+            return False
+    if et == 'SPLINE':
+        return bool(getattr(entity, 'closed', False))
+    if et == 'ARC':
+        try:
+            return (entity.dxf.end_angle - entity.dxf.start_angle) % 360.0 >= 359.9
+        except Exception:
+            return False
+    return False
+
+
+def _poly_da_segmenti(segs):
+    """Poligono dal loop di segmenti di un'entità chiusa (None se degenere)."""
+    pts = [(s[0], s[1]) for s in segs]
+    if len(pts) < 3:
+        return None
+    try:
+        poly = Polygon(pts)
+        if not poly.is_valid:
+            poly = make_valid(poly)
+            if hasattr(poly, 'geoms'):
+                cand = [g for g in poly.geoms if g.geom_type == 'Polygon']
+                if not cand:
+                    return None
+                poly = max(cand, key=lambda g: g.area)
+        return poly if poly.geom_type == 'Polygon' and poly.area >= MIN_AREA_MM2 else None
+    except Exception:
+        return None
+
+
+def _collect_segments(msp, colori_esclusi: set[int]) -> list[tuple]:
+    """Raccoglie tutti i segmenti geometrici (mm), escludendo annotazioni/cartiglio.
+
+    Esclude: tipi annotazione (TEXT/DIMENSION/...), layer cartiglio/quote/note/
+    piega, entità di colore escluso (pieghe/saldature configurabili, colore
+    EFFETTIVO anche BYLAYER). I blocchi (INSERT) vengono espansi.
+
+    Eccezione colore (BUG FIX D7): un contorno CHIUSO colorato piega/saldatura che
+    racchiude la geometria (tipico: contorno esterno disegnato in rosso) resta
+    geometria del pezzo — le marcature piega/saldatura sono linee aperte.
+    """
+    def _calcola():
+        scala = _scala(msp)
+        segs = []
+        chiusi_normali = []
+        colorati = []   # (segmenti, poligono) dei contorni chiusi colorati
+        colorati_aperti = []
+        for entity in entita_espanse(msp, solo_geometria=True):
+            if entity.dxftype() in TIPI_ANNOTAZIONE:
                 continue
-        except AttributeError:
-            pass
-        if _entity_color_excluded(entity, colori_esclusi):
-            continue
-        segs.extend(_entity_segments(entity))
-    return segs
+            try:
+                if _layer_da_escludere(entity.dxf.layer):
+                    continue
+            except AttributeError:
+                pass
+            if _entity_color_excluded(entity, colori_esclusi):
+                s = _entity_segments(entity, scala=scala)
+                if _entita_chiusa(entity):
+                    colorati.append((s, _poly_da_segmenti(s)))
+                else:
+                    colorati_aperti.extend(s)
+                continue
+            s = _entity_segments(entity, scala=scala)
+            if _entita_chiusa(entity):
+                pc = _poly_da_segmenti(s)
+                if pc is not None:
+                    chiusi_normali.append(pc)
+            segs.extend(s)
+        nessuna_normale = not segs
+        if colorati:
+            if segs:
+                xs = [v for sg in segs for v in (sg[0], sg[2])]
+                ys = [v for sg in segs for v in (sg[1], sg[3])]
+                bb_norm = (min(xs), min(ys), max(xs), max(ys))
+            for s, pc in colorati:
+                if nessuna_normale:
+                    segs.extend(s)
+                    continue
+                if pc is None:
+                    continue
+                b = pc.bounds
+                racchiude_tutto = (b[0] <= bb_norm[0] + 0.01 and b[1] <= bb_norm[1] + 0.01 and
+                                   b[2] >= bb_norm[2] - 0.01 and b[3] >= bb_norm[3] - 0.01)
+                if racchiude_tutto or any(pc.contains(h) for h in chiusi_normali):
+                    segs.extend(s)
+        if nessuna_normale and colorati_aperti:
+            # disegno tutto col colore piega/saldatura: è comunque il pezzo
+            segs.extend(colorati_aperti)
+        return segs
+    return _cache_doc(msp, ('segs', frozenset(colori_esclusi)), _calcola)
 
 
 def _is_iso_format_bounds(bounds) -> bool:
@@ -147,6 +281,11 @@ def _faces_from_msp(msp, colori_esclusi: set[int]) -> list:
     Ritorna le facce Shapely (poligoni). Vuoto se niente segmenti."""
     if not _HAS_SHAPELY:
         return []
+    return _cache_doc(msp, ('faces', frozenset(colori_esclusi)),
+                      lambda: _calcola_facce(msp, colori_esclusi))
+
+
+def _calcola_facce(msp, colori_esclusi: set[int]) -> list:
     segs = _collect_segments(msp, colori_esclusi)
     if not segs:
         return []
@@ -179,15 +318,18 @@ def _geometry_from_outer(outer, all_faces: list) -> dict:
     """Dato il poligono outer scelto, calcola area netta/perimetro/fori.
 
     MATEMATICA PURA: nessuna euristica. I fori sono le facce strettamente
-    contenute nell'outer. area netta = area outer − aree fori.
+    contenute nel CONTORNO ESTERNO dell'outer. area netta = area outer − aree fori.
+
+    BUG FIX D2: prima il contenimento era testato col representative_point, che
+    per un rettangolo cade al centro (dentro un eventuale foro centrale), e l'area
+    della faccia polygonize (già al netto dei fori) veniva di nuovo decurtata.
     """
-    holes = []
-    for f in all_faces:
-        if f is outer:
-            continue
-        # Faccia contenuta nell'outer (usa representative_point per robustezza)
-        if outer.contains(f.representative_point()) and f.area < outer.area:
-            holes.append(f)
+    outer = Polygon(outer.exterior)
+    pp = prep(outer.buffer(0.05))
+    holes = [Polygon(f.exterior) for f in all_faces
+             if f is not outer and f.area < outer.area * 0.999 and pp.contains(f)]
+    holes, _n = _dedup_poligoni(holes)
+    holes, _n_svas = _riduci_fori_annidati(holes)
 
     area_lorda_mm2 = outer.area
     area_fori_mm2 = sum(h.area for h in holes)
@@ -204,7 +346,7 @@ def _geometry_from_outer(outer, all_faces: list) -> dict:
         'area_lorda_dm2': area_lorda_mm2 / 10000.0,
         'perimetro_taglio_m': perim_taglio_mm / 1000.0,  # mm → m
         'perimetro_outer_m': perim_outer_mm / 1000.0,
-        'n_forature': len(holes),
+        **_campi_forature(holes),
         'bbox_width_mm': maxx - minx,
         'bbox_height_mm': maxy - miny,
         'source': 'manual-click-polygonize',
@@ -278,7 +420,9 @@ def genera_dxf_canonico(outer_xy: list, holes_xy: list, out_path: str) -> dict:
     """
     import hashlib
     try:
-        doc = ezdxf.new('R2010')
+        # units=4: millimetri dichiarati ($INSUNITS). Il default di ezdxf.new è 6
+        # (metri): il file canonico verrebbe riletto 1000× più grande.
+        doc = ezdxf.new('R2010', units=4)
         msp = doc.modelspace()
         if outer_xy and len(outer_xy) >= 3:
             msp.add_lwpolyline([(p[0], p[1]) for p in outer_xy], close=True,
@@ -298,26 +442,28 @@ def genera_dxf_canonico(outer_xy: list, holes_xy: list, out_path: str) -> dict:
 
 # ── Geometria per il viewer CAD (polilinee in mm DXF) ───────────────────────
 
-def _entity_polyline(entity, distance: float = FLATTEN_DISTANCE_MM):
-    """Flatten una entità in UNA polilinea (lista di punti) invece di segmenti."""
+def _entity_polyline(entity, distance: float = FLATTEN_DISTANCE_MM, scala: float = 1.0):
+    """Flatten una entità in UNA polilinea (lista di punti, mm) invece di segmenti."""
     try:
         p = make_path(entity)
         if len(p) == 0:
             return None
-        pts = [(round(v.x, 3), round(v.y, 3)) for v in p.flattening(distance)]
+        pts = [(round(v.x * scala, 3), round(v.y * scala, 3)) for v in p.flattening(distance / scala)]
         return pts if len(pts) >= 2 else None
     except Exception:
         if entity.dxftype() == 'LINE':
             try:
                 s, e = entity.dxf.start, entity.dxf.end
-                return [(round(s.x, 3), round(s.y, 3)), (round(e.x, 3), round(e.y, 3))]
+                return [(round(s.x * scala, 3), round(s.y * scala, 3)),
+                        (round(e.x * scala, 3), round(e.y * scala, 3))]
             except Exception:
                 return None
         return None
 
 
 # Spessori lamiera REALMENTE tagliati (Marco). Unica verità per snap + cross-check.
-SPESSORI_STOCK = [1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15]
+# 0.8 e 2.5 aggiunti: senza, una lamiera 0.8 veniva arrotondata a 1 e una 2.5 a 2/3.
+SPESSORI_STOCK = [0.8, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15]
 
 
 def _snap_stock(v):
@@ -429,19 +575,30 @@ def geometry_json(path: str, config: dict | None = None) -> dict:
     except Exception as e:
         return {'error': f'DXF non leggibile: {e}', 'extents': None, 'polylines': []}
     msp = doc.modelspace()
+    # Coordinate del viewer in MILLIMETRI (DXF in pollici/cm/m scalati): così
+    # click, contorni tracciati e DXF canonico sono tutti in mm.
+    scala, w_unita = scala_unita_mm(doc)
+
+    def _testo_mm(t):
+        if t and scala != 1.0:
+            t['x'] = round(t['x'] * scala, 2)
+            t['y'] = round(t['y'] * scala, 2)
+            t['h'] = round(t['h'] * scala, 2)
+        return t
 
     polylines = []
     texts = []
     minx = miny = float('inf')
     maxx = maxy = float('-inf')
-    for entity in msp:
+    # INSERT espansi (anche i blocchi di annotazione, mostrati in grigio)
+    for entity in entita_espanse(msp, solo_geometria=False):
         et = entity.dxftype()
         if et in ('MTEXT', 'TEXT', 'ATTRIB', 'ATTDEF'):
-            t = _text_item(entity)   # ora il testo (cartiglio/quote) lo mostriamo
+            t = _testo_mm(_text_item(entity))   # ora il testo (cartiglio/quote) lo mostriamo
             if t:
                 texts.append(t)
             continue
-        is_annot = et in TIPI_ANNOTAZIONE
+        is_annot = et in TIPI_ANNOTAZIONE or getattr(entity, '_ft_annotazione', False)
         try:
             if _layer_da_escludere(entity.dxf.layer):
                 is_annot = True
@@ -452,11 +609,11 @@ def geometry_json(path: str, config: dict | None = None) -> dict:
             try:
                 for ve in entity.virtual_entities():
                     if ve.dxftype() in ('MTEXT', 'TEXT'):
-                        t = _text_item(ve)
+                        t = _testo_mm(_text_item(ve))
                         if t:
                             texts.append(t)
                         continue
-                    pts = _entity_polyline(ve, distance=_DISPLAY_FLATTEN_MM)
+                    pts = _entity_polyline(ve, distance=_DISPLAY_FLATTEN_MM, scala=scala)
                     if pts:
                         polylines.append({'pts': pts, 'kind': 'annot'})
                         for x, y in pts:
@@ -465,9 +622,7 @@ def geometry_json(path: str, config: dict | None = None) -> dict:
             except Exception:
                 pass
             continue
-        if et in ('INSERT',):
-            continue
-        pts = _entity_polyline(entity, distance=_DISPLAY_FLATTEN_MM)
+        pts = _entity_polyline(entity, distance=_DISPLAY_FLATTEN_MM, scala=scala)
         if not pts:
             continue
         polylines.append({'pts': pts, 'kind': 'annot' if is_annot else 'geo'})
@@ -533,7 +688,7 @@ def geometry_json(path: str, config: dict | None = None) -> dict:
             qstd = set()
             for e in msp.query('DIMENSION'):
                 try:
-                    m = float(e.get_measurement())
+                    m = float(e.get_measurement()) * scala   # quota in mm
                 except Exception:
                     continue
                 if 0.3 <= m <= 25:
@@ -565,6 +720,8 @@ def geometry_json(path: str, config: dict | None = None) -> dict:
         'cartiglio_spessore_conf': sp_conf,
         'cartiglio_spessore_source': sp_source,
         'spessori_stock': SPESSORI_STOCK,
+        'scala_unita_mm': scala,
+        'warnings': [w_unita] if w_unita else [],
     }
 
 
@@ -582,20 +739,7 @@ _FOLLOW_MAX_STEPS = 300000
 
 def _segments_all(msp, colori_esclusi: set[int]) -> list[tuple]:
     """Come _collect_segments ma ritorna coppie di punti (a, b) invece di 4-tuple."""
-    out = []
-    for entity in msp:
-        if entity.dxftype() in TIPI_ANNOTAZIONE:
-            continue
-        try:
-            if _layer_da_escludere(entity.dxf.layer):
-                continue
-        except AttributeError:
-            pass
-        if _entity_color_excluded(entity, colori_esclusi):
-            continue
-        for (x1, y1, x2, y2) in _entity_segments(entity):
-            out.append(((x1, y1), (x2, y2)))
-    return out
+    return [((x1, y1), (x2, y2)) for (x1, y1, x2, y2) in _collect_segments(msp, colori_esclusi)]
 
 
 def _build_graph(segs, tol=_FOLLOW_TOL_MM):
@@ -709,7 +853,7 @@ def follow_contour_from_click(path: str, click_x_mm: float, click_y_mm: float,
                 'warnings': ['click su un bordo diverso del pezzo, o guida con waypoint']}
 
     # Rete di sicurezza: se copre quasi tutto il foglio è la cornice, non il pezzo
-    if _sembra_cornice(outer, msp):
+    if _sembra_cornice(outer, msp, colori_esclusi):
         return {'success': False,
                 'error': 'Sembra la cornice del foglio, non il pezzo',
                 'warnings': ['hai cliccato il bordo del disegno — clicca sul contorno del PEZZO']}
@@ -725,7 +869,7 @@ def follow_contour_from_click(path: str, click_x_mm: float, click_y_mm: float,
         'area_dm2': area_netta,
         'area_lorda_dm2': outer.area / 10000.0,
         'perimetro_taglio_m': perim_taglio,
-        'n_forature': len(holes),
+        **_campi_forature(holes),
         'bbox_width_mm': maxx - minx,
         'bbox_height_mm': maxy - miny,
         'outer_xy': list(outer.exterior.coords),
@@ -740,59 +884,47 @@ def _closed_entity_polygons(msp, colori_esclusi: set[int]) -> list:
     spline chiuse, ARC a 360°). Serve per i FORI: un foro è un contorno chiuso
     di materiale rimosso, NON una faccia creata da una linea di piega aperta che
     attraversa il pezzo. Usare le facce del polygonize per i fori sottrae per
-    errore le linee di piega (bug pezzi piegati)."""
-    out = []
-    for entity in msp:
-        et = entity.dxftype()
-        if et in TIPI_ANNOTAZIONE:
-            continue
-        try:
-            if _layer_da_escludere(entity.dxf.layer):
+    errore le linee di piega (bug pezzi piegati).
+
+    INSERT espansi, coordinate in mm, duplicati rimossi (un cerchio disegnato
+    due volte non è due fori)."""
+    def _calcola():
+        scala = _scala(msp)
+        out = []
+        for entity in entita_espanse(msp, solo_geometria=True):
+            et = entity.dxftype()
+            if et in TIPI_ANNOTAZIONE:
                 continue
-        except AttributeError:
-            pass
-        if _entity_color_excluded(entity, colori_esclusi):
-            continue
-        closed = False
-        if et in ('CIRCLE',):
-            closed = True
-        elif et == 'ELLIPSE':
-            closed = True
-        elif et in ('LWPOLYLINE', 'POLYLINE'):
             try:
-                closed = bool(entity.closed) if et == 'LWPOLYLINE' else bool(getattr(entity, 'is_closed', False))
-            except Exception:
-                closed = False
-        elif et == 'SPLINE':
-            closed = bool(getattr(entity, 'closed', False))
-        elif et == 'ARC':
+                if _layer_da_escludere(entity.dxf.layer):
+                    continue
+            except AttributeError:
+                pass
+            if _entity_color_excluded(entity, colori_esclusi):
+                continue
+            if not _entita_chiusa(entity):
+                continue
+            pts = _entity_polyline(entity, scala=scala)
+            if not pts or len(pts) < 3:
+                continue
             try:
-                sweep = (entity.dxf.end_angle - entity.dxf.start_angle) % 360.0
-                closed = sweep >= 359.9
+                poly = Polygon(pts)
+                if not poly.is_valid:
+                    poly = make_valid(poly)
+                    if hasattr(poly, 'geoms'):
+                        cand = [g for g in poly.geoms if g.geom_type == 'Polygon']
+                        if not cand:
+                            continue
+                        poly = max(cand, key=lambda g: g.area)
+                if poly.geom_type == 'Polygon' and poly.area >= MIN_AREA_MM2:
+                    out.append(poly)
             except Exception:
-                closed = False
-        if not closed:
-            continue
-        pts = _entity_polyline(entity)
-        if not pts or len(pts) < 3:
-            continue
-        try:
-            poly = Polygon(pts)
-            if not poly.is_valid:
-                poly = make_valid(poly)
-                if hasattr(poly, 'geoms'):
-                    cand = [g for g in poly.geoms if g.geom_type == 'Polygon']
-                    if not cand:
-                        continue
-                    poly = max(cand, key=lambda g: g.area)
-            if poly.geom_type == 'Polygon' and poly.area >= MIN_AREA_MM2:
-                out.append(poly)
-        except Exception:
-            continue
-    return out
+                continue
+        return _dedup_poligoni(out)[0]
+    return _cache_doc(msp, ('chiusi', frozenset(colori_esclusi)), _calcola)
 
 
-def _sembra_cornice(outer, msp) -> bool:
+def _sembra_cornice(outer, msp, colori_esclusi=frozenset({1, 2})) -> bool:
     """True se l'outer riempie quasi tutto il foglio (larghezza E altezza ≥90%
     dell'estensione totale) → è la CORNICE del disegno, non il pezzo. Rete di
     sicurezza contro il click sul frame (l'errore 13,6× del vecchio detector).
@@ -800,14 +932,60 @@ def _sembra_cornice(outer, msp) -> bool:
     try:
         from ezdxf import bbox
         ext = bbox.extents(msp)
-        ew = ext.extmax.x - ext.extmin.x
-        eh = ext.extmax.y - ext.extmin.y
+        s = _scala(msp)   # estensione in unità disegno → mm come l'outer
+        ew = (ext.extmax.x - ext.extmin.x) * s
+        eh = (ext.extmax.y - ext.extmin.y) * s
         if ew <= 0 or eh <= 0:
             return False
         minx, miny, maxx, maxy = outer.bounds
-        return (maxx - minx) >= 0.90 * ew and (maxy - miny) >= 0.90 * eh
+        if not ((maxx - minx) >= 0.90 * ew and (maxy - miny) >= 0.90 * eh):
+            return False
+        # Riempie il foglio: è cornice solo se il disegno ha annotazioni. Un DXF
+        # con il SOLO pezzo (es. sviluppo esportato pulito) prima era rifiutato.
+        return _ha_annotazioni(msp)
     except Exception:
         return False
+
+
+def _ha_annotazioni(msp) -> bool:
+    """True se il disegno ha testi/quote/blocchi (cioè può avere una cornice col
+    cartiglio). Un DXF di SOLA geometria (sviluppo esportato pulito, DXF pulito o
+    canonico) non ha cornice: il contorno che riempie il foglio è il pezzo."""
+    def _calcola():
+        # blocchi espansi: il contenuto dei blocchi di annotazione è marcato
+        for e in entita_espanse(msp, solo_geometria=False):
+            if e.dxftype() in ('TEXT', 'MTEXT', 'DIMENSION', 'ATTRIB',
+                               'LEADER', 'MULTILEADER', 'HATCH'):
+                return True
+            if getattr(e, '_ft_annotazione', False):
+                return True
+        return False
+    return _cache_doc(msp, ('annotazioni',), _calcola)
+
+
+def _punti_medi_semicerchi(msp, colori_esclusi: set[int]) -> list:
+    """Punto medio (mm) degli ARC ~semicirconferenza (estremità di asole)."""
+    scala = _scala(msp)
+    out = []
+    for e in entita_espanse(msp, solo_geometria=True):
+        if e.dxftype() != 'ARC':
+            continue
+        try:
+            if _entity_color_excluded(e, colori_esclusi) or _layer_da_escludere(e.dxf.layer):
+                continue
+        except Exception:
+            pass
+        try:
+            sweep = (e.dxf.end_angle - e.dxf.start_angle) % 360.0
+            if not (150.0 <= sweep <= 210.0):  # solo semicerchi (non fillet di piega ~90°)
+                continue
+            # punto medio dal tracciato in WCS (gestisce archi di blocchi specchiati)
+            pts = _entity_polyline(e, scala=scala)
+            if pts:
+                out.append(pts[len(pts) // 2])
+        except Exception:
+            continue
+    return out
 
 
 def _holes_inside(msp, outer, colori_esclusi: set[int]) -> list:
@@ -820,10 +998,13 @@ def _holes_inside(msp, outer, colori_esclusi: set[int]) -> list:
     e ~concentrici si tiene solo l'INTERNO (evita di sotto-contare area/perim).
     """
     raw = []
+    # Contenimento VERO del poligono (bordo coincidente tollerato 0.05mm), non del
+    # solo representative_point: un contorno a cavallo del bordo non è un foro.
+    pp_outer = prep(outer.buffer(0.05))
     for poly in _closed_entity_polygons(msp, colori_esclusi):
         if poly.area >= outer.area * 0.95:
             continue  # è l'outer stesso o quasi
-        if outer.contains(poly.representative_point()):
+        if pp_outer.contains(poly):
             raw.append(poly)
 
     # PROFILI INTERNI disegnati come LOOP di segmenti sciolti (asole, quadrati,
@@ -834,24 +1015,8 @@ def _holes_inside(msp, outer, colori_esclusi: set[int]) -> list:
     #   - è COMPATTA e NON attraversa il pezzo (un foro è piccolo rispetto al pezzo;
     #     una striscia di piega è lunga/sottile e attraversa il pezzo → esclusa).
     try:
-        arc_mids = []
-        for e in msp:
-            if e.dxftype() != 'ARC':
-                continue
-            try:
-                if _entity_color_excluded(e, colori_esclusi) or _layer_da_escludere(e.dxf.layer):
-                    continue
-            except Exception:
-                pass
-            try:
-                cx_, cy_, r_ = e.dxf.center.x, e.dxf.center.y, e.dxf.radius
-                sweep = (e.dxf.end_angle - e.dxf.start_angle) % 360.0
-                if not (150.0 <= sweep <= 210.0):  # solo semicerchi (non fillet di piega ~90°)
-                    continue
-                mid = math.radians(e.dxf.start_angle + sweep / 2.0)
-                arc_mids.append((cx_ + r_ * math.cos(mid), cy_ + r_ * math.sin(mid)))
-            except Exception:
-                continue
+        arc_mids = _cache_doc(msp, ('arc_mids', frozenset(colori_esclusi)),
+                              lambda: _punti_medi_semicerchi(msp, colori_esclusi))
         ob = outer.bounds
         ow, oh = ob[2] - ob[0], ob[3] - ob[1]
         for fc in _faces_from_msp(msp, colori_esclusi):
@@ -1008,7 +1173,7 @@ def trace_contour_waypoints(path: str, points: list, config: dict | None = None)
         'area_dm2': area_netta,
         'area_lorda_dm2': outer.area / 10000.0,
         'perimetro_taglio_m': perim_taglio,
-        'n_forature': len(holes),
+        **_campi_forature(holes),
         'bbox_width_mm': maxx - minx,
         'bbox_height_mm': maxy - miny,
         'outer_xy': list(outer.exterior.coords),
@@ -1106,11 +1271,16 @@ def _shapely_candidate_for_click(faces: list, x: float, y: float, msp,
     gx1 = max(f.bounds[2] for f in faces); gy1 = max(f.bounds[3] for f in faces)
     gw, gh = gx1 - gx0, gy1 - gy0
 
+    annotato = _ha_annotazioni(msp)
+
     def _is_frame(f):
         b = f.bounds
-        return gw > 0 and gh > 0 and (b[2] - b[0]) >= 0.9 * gw and (b[3] - b[1]) >= 0.9 * gh
+        grande = (gw > 0 and gh > 0 and (b[2] - b[0]) >= 0.9 * gw and (b[3] - b[1]) >= 0.9 * gh)
+        # In un DXF di sola geometria (niente testi/quote) non c'è cornice: il
+        # contorno grande (anche di formato A4/A3) è il pezzo.
+        return annotato and (grande or _is_iso_format_bounds(b))
 
-    cand = [f for f in faces if not _is_iso_format_bounds(f.bounds) and not _is_frame(f)]
+    cand = [f for f in faces if not _is_frame(f)]
     if not cand:
         return None  # solo cornici → lascia decidere al graph-walk
 
@@ -1140,7 +1310,7 @@ def _shapely_candidate_for_click(faces: list, x: float, y: float, msp,
         'area_lorda_dm2': outer.area / 10000.0,
         'perimetro_taglio_m': (outer.exterior.length
                                + sum(h.exterior.length for h in holes)) / 1000.0,
-        'n_forature': len(holes),
+        **_campi_forature(holes),
         'bbox_width_mm': maxx - minx,
         'bbox_height_mm': maxy - miny,
         'outer_xy': list(outer.exterior.coords),
@@ -1202,7 +1372,7 @@ def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
                 continue
         except Exception:
             continue
-        if _sembra_cornice(poly, msp):
+        if _sembra_cornice(poly, msp, colori_esclusi):
             continue
         holes = _holes_inside(msp, poly, colori_esclusi)
         area_netta = (poly.area - sum(h.area for h in holes)) / 10000.0
@@ -1215,7 +1385,7 @@ def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
             'area_dm2': area_netta,
             'area_lorda_dm2': poly.area / 10000.0,
             'perimetro_taglio_m': (poly.exterior.length + sum(h.exterior.length for h in holes)) / 1000.0,
-            'n_forature': len(holes),
+            **_campi_forature(holes),
             'bbox_width_mm': maxx - minx,
             'bbox_height_mm': maxy - miny,
             'outer_xy': list(poly.exterior.coords),
@@ -1225,7 +1395,7 @@ def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
     # non chiude: pezzi piccoli con svasature grandi, viste multiple sul foglio).
     try:
         shp = _shapely_candidate_for_click(
-            _build_faces(path, colori_esclusi), click_x_mm, click_y_mm, msp, colori_esclusi)
+            _faces_from_msp(msp, colori_esclusi), click_x_mm, click_y_mm, msp, colori_esclusi)
     except Exception:
         shp = None
     if shp:
@@ -1245,10 +1415,12 @@ def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
     # grandi resta un solo candidato → l'UI auto-seleziona senza chiedere.
     if len(candidates) > 1:
         try:
-            top_poly = Polygon(candidates[0]['outer_xy'])
+            # contenimento VERO (il representative_point del pezzo può cadere in
+            # un suo foro centrale → il pezzo veniva scartato come "foro")
+            top_pp = prep(Polygon(candidates[0]['outer_xy']).buffer(0.05))
             candidates = [candidates[0]] + [
                 c for c in candidates[1:]
-                if not top_poly.contains(Polygon(c['outer_xy']).representative_point())
+                if not top_pp.contains(Polygon(c['outer_xy']))
             ]
         except Exception:
             pass

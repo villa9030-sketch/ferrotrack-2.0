@@ -24,7 +24,12 @@ La regola (decisa con Marco il 2026-08-03, invariata)
     costo pezzo   = per ogni articolo SCIOLTO: (base + lavorazioni) x qta
     costo assiemi = per ogni assieme: (intrinseco + componenti + tubolari e
                     piastre collegati) x qta assieme
-    costo tubolari/piastre sciolti = materiale + taglio
+    costo tubolari/piastre sciolti = materiale + taglio  (gia' totali della
+                                     riga: una riga STEP con qty N li porta per N)
+
+    L'intrinseco dell'assieme comprende anche apporto (filo+gas) e pulizia dei
+    suoi cordoni: metri saldatura assieme x le stesse tariffe EUR/m degli
+    articoli (aggiunto 2026-09; prima esisteva solo nel vecchio calcolatore).
 
     prezzo = costo x (1 + generali%) x (1 + ricarico%)
 
@@ -86,14 +91,46 @@ def costo_articolo(a: dict) -> float:
 
 
 def costo_tubolare(t: dict) -> float:
+    """Costo della riga tubolare. Una riga STEP puo' valere N pezzi uguali
+    (`qty`), ma costo_materiale/costo_taglio_totale sono gia' il TOTALE della
+    riga (qty inclusa, vedi import-step): qui NON si rimoltiplica. Cosi' il
+    totale resta giusto anche dopo il salvataggio, che non conserva `qty`."""
     return _num(t.get('costo_materiale')) + _num(t.get('costo_taglio_totale'))
 
 
 def costo_piastra(p: dict) -> float:
+    """Costo della riga piastra: gia' totale della riga (qty inclusa)."""
     return _num(p.get('costo'))
 
 
-def _costo_assieme(assieme: dict, articoli, tubolari, piastre) -> dict:
+# Consumabili della saldatura (filo+gas) e pulizia dei cordoni, in EUR/metro.
+# Sugli articoli li calcola l'editor e li salva in costo_apporto/costo_pulizia;
+# sui cordoni di ASSIEME non c'e' una colonna: si calcolano qui dai metri di
+# saldatura dell'assieme con le STESSE tariffe degli articoli.
+TARIFFE_SALDATURA_ASSIEME = ('costo_materiale_apporto_metro',
+                             'costo_pulizia_saldatura_metro')
+
+
+def tariffe_saldatura_assieme(preventivo: dict, config: dict) -> dict:
+    """Tariffe apporto/pulizia da usare per gli assiemi.
+
+    Un preventivo gia' INVIATO si calcola con la configurazione congelata
+    all'invio (chi chiama passa solo `costo_generali_pct`): in quel caso le
+    tariffe si leggono dalla fotografia; se la fotografia non le ha (inviato
+    prima che esistessero) valgono zero, cioe' il prezzo com'era allora.
+    """
+    snap = preventivo.get('snapshot_economico') if isinstance(preventivo, dict) else None
+    snap = snap if isinstance(snap, dict) else {}
+    out = {}
+    for k in TARIFFE_SALDATURA_ASSIEME:
+        if k in (config or {}):
+            out[k] = _num(config.get(k))
+        else:
+            out[k] = _num(snap.get(k))
+    return out
+
+
+def _costo_assieme(assieme: dict, articoli, tubolari, piastre, tariffe=None) -> dict:
     """Costo di un assieme: quello che ha in proprio piu' cio' che contiene."""
     codice = assieme.get('codice_assieme')
     figli_art = [a for a in articoli if a.get('codice_assieme') == codice]
@@ -103,13 +140,18 @@ def _costo_assieme(assieme: dict, articoli, tubolari, piastre) -> dict:
     componenti = sum(costo_articolo(a) * _qta(a.get('quantita')) for a in figli_art)
     accessori = (sum(costo_tubolare(t) for t in figli_tub)
                  + sum(costo_piastra(p) for p in figli_pia))
+    tariffe = tariffe or {}
+    eur_metro = sum(_num(tariffe.get(k)) for k in TARIFFE_SALDATURA_ASSIEME)
+    apporto_pulizia = _num(assieme.get('saldatura_mt')) * eur_metro
     intrinseco = (_num(assieme.get('costo'))
                   + _num(assieme.get('costo_puntatura'))
-                  + _num(assieme.get('costo_saldatura_assieme')))
+                  + _num(assieme.get('costo_saldatura_assieme'))
+                  + apporto_pulizia)
     singolo = intrinseco + componenti + accessori
     qty = _qta(assieme.get('qty'))
     return {
         'codice_assieme': codice,
+        'apporto_pulizia': round(apporto_pulizia, 2),
         'intrinseco': round(intrinseco, 2),
         'componenti': round(componenti, 2),
         'accessori': round(accessori, 2),
@@ -148,7 +190,9 @@ def calcola(preventivo: dict, config: dict = None) -> dict:
     art_sciolti = [a for a in articoli if not a.get('codice_assieme')]
     costo_pezzo = sum(costo_articolo(a) * _qta(a.get('quantita')) for a in art_sciolti)
 
-    dettaglio_assiemi = [_costo_assieme(x, articoli, tubolari, piastre) for x in assiemi]
+    tariffe = tariffe_saldatura_assieme(preventivo, config)
+    dettaglio_assiemi = [_costo_assieme(x, articoli, tubolari, piastre, tariffe)
+                         for x in assiemi]
     costo_assiemi = sum(x['costo_totale'] for x in dettaglio_assiemi)
 
     costo_tubolari = sum(costo_tubolare(t) for t in tubolari if not t.get('codice_assieme'))
@@ -191,6 +235,7 @@ def calcola(preventivo: dict, config: dict = None) -> dict:
         'prezzo_piastre': round(prezzo_piastre, 2),
         # composizione, per poter risalire al numero
         'dettaglio_assiemi': dettaglio_assiemi,
+        'tariffe_saldatura_assiemi': tariffe,
         'n_articoli_sciolti': len(art_sciolti),
         'n_articoli_in_assieme': len(articoli) - len(art_sciolti),
     }

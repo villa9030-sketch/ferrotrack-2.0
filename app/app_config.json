@@ -6,6 +6,7 @@
     "euro_h_macchina": 75,
     "euro_h_operaio": 25,
     "setup_eur_default": 0,
+    "resa_nesting": 1.0,
     "materiali": {
       "S235": {
         "euro_kg": 0.8,

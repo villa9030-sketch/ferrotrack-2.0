@@ -2,15 +2,27 @@
 
 Detects CHS (Circular Hollow Sections), RHS (Rectangular Hollow Sections),
 and SHS (Square Hollow Sections) from STEP geometry.
+
+Lettura entita', unita' di misura e geometria B-rep condivise in step_parser
+(coordinate gia' in mm, anelli ordinati, aree/coperture esatte).
 """
 
 import json
 import logging
 import math
 import os
-import re
+
+from .step_parser import (
+    carica_entita, GeometriaStep, v_dot, v_norm, v_cross, v_sub, v_len,
+    copertura_angolare, distanza_retta,
+)
 
 logger = logging.getLogger(__name__)
+
+DENSITA_ACCIAIO = 7.85  # kg/dm3
+
+# Tolleranza sullo spessore misurato per accettare un profilo a catalogo
+TOLL_SPESSORE_MM = 0.35
 
 
 def carica_profili_tubolari(base_dir: str) -> dict:
@@ -30,12 +42,35 @@ def carica_profili_tubolari(base_dir: str) -> dict:
         return {"CHS": [], "SHS": [], "RHS": []}
 
 
+def peso_teorico_rhs(lato_a, lato_b, spessore, densita=DENSITA_ACCIAIO) -> float:
+    """kg/m di un tubo rettangolare/quadro (EN 10219: ro=2t se t<=6, 2.5t oltre)."""
+    t = float(spessore or 0)
+    if t <= 0:
+        return 0.0
+    ro = 2.0 * t if t <= 6.0 else 2.5 * t
+    ri = ro - t
+    area = 2 * t * (lato_a + lato_b - 4 * ro) + math.pi * (ro * ro - ri * ri)
+    if area <= 0:  # sezioni piccolissime: formula a spigolo vivo
+        area = 2 * t * (lato_a + lato_b - 2 * t)
+    return area * densita / 1000.0
+
+
+def peso_teorico_chs(d_ext, spessore, densita=DENSITA_ACCIAIO) -> float:
+    """kg/m di un tubo tondo; spessore None/0 = tondo pieno."""
+    if not spessore or spessore <= 0 or spessore >= d_ext / 2.0:
+        return math.pi * d_ext * d_ext / 4.0 * densita / 1000.0
+    return math.pi * (d_ext - spessore) * spessore * densita / 1000.0
+
+
 def match_profilo_chs(d_ext, spessore, profili_db) -> dict | None:
-    """Trova il profilo CHS piu' vicino nel database. Tolleranza +/-1.5mm su diametro.
+    """Trova il profilo CHS piu' vicino nel database.
+
+    Tolleranza +/-1.0mm sul diametro; se lo spessore e' MISURATO deve
+    coincidere entro TOLL_SPESSORE_MM (40x1.5 non diventa 40x2, +30% peso).
 
     Args:
         d_ext: Diametro esterno in mm.
-        spessore: Spessore parete in mm.
+        spessore: Spessore parete misurato in mm (None = sconosciuto).
         profili_db: Database profili (da carica_profili_tubolari).
 
     Returns:
@@ -46,20 +81,25 @@ def match_profilo_chs(d_ext, spessore, profili_db) -> dict | None:
     for p in profili_db.get("CHS", []):
         dist_d = abs(p["d_ext"] - d_ext)
         dist_s = abs(p["spessore"] - spessore) if spessore else 0
+        if dist_d >= 1.0:
+            continue
+        if spessore and dist_s > TOLL_SPESSORE_MM:
+            continue
         dist = dist_d + dist_s * 2
-        if dist < best_dist and dist_d < 1.5:
+        if dist < best_dist:
             best_dist = dist
             best = p
     return best
 
 
 def match_profilo_rhs(lato_a, lato_b, spessore, profili_db) -> dict | None:
-    """Trova il profilo RHS/SHS piu' vicino. Tolleranza +/-2mm.
+    """Trova il profilo RHS/SHS piu' vicino. Tolleranza +/-2mm sui lati;
+    se lo spessore e' misurato deve coincidere entro TOLL_SPESSORE_MM.
 
     Args:
         lato_a: Dimensione lato A in mm.
         lato_b: Dimensione lato B in mm.
-        spessore: Spessore parete in mm.
+        spessore: Spessore parete in mm (None = sconosciuto, solo sezione).
         profili_db: Database profili (da carica_profili_tubolari).
 
     Returns:
@@ -75,19 +115,454 @@ def match_profilo_rhs(lato_a, lato_b, spessore, profili_db) -> dict | None:
             dist_a = abs(pa - a)
             dist_b = abs(pb - b)
             dist_s = abs(p["spessore"] - spessore) if spessore else 0
+            if dist_a >= 2.0 or dist_b >= 2.0:
+                continue
+            if spessore and dist_s > TOLL_SPESSORE_MM:
+                continue
             dist = dist_a + dist_b + dist_s * 2
-            if dist < best_dist and dist_a < 2.0 and dist_b < 2.0:
+            if dist < best_dist:
                 best_dist = dist
                 best = p
     return best
 
 
+def _fmt(x):
+    """Numero compatto per i nomi profilo (40.0 -> '40', 1.5 -> '1.5')."""
+    x = round(float(x), 1)
+    return str(int(x)) if abs(x - int(x)) < 1e-9 else str(x)
+
+
+def _classifica_testate(fs, esclusi, axis, p_min, p_max, faccia_parallela):
+    """Classifica le due testate del tubo: dritto / obliquo / sagomato.
+
+    - sagomato: la testata ha facce NON piane (bocca di lupo, cilindro/bspline
+      di taglio) o piani paralleli all'asse (tacche/intagli);
+    - obliquo: testata piana inclinata > 2 gradi rispetto al perpendicolare;
+    - dritto: testata piana perpendicolare all'asse.
+
+    Una faccia appartiene a una testata se TOCCA l'estremo (entro 1 mm): i fori
+    in mezzo al tubo o vicino alla testa non contano.
+    Ritorna [(taglio, angolo), (taglio, angolo)] per testata 1 (p_min) e 2 (p_max).
+    """
+    TOL = 1.0
+    testate = [[], []]
+    for f in fs:
+        if f['id'] in esclusi or not f['punti']:
+            continue
+        if faccia_parallela(f):
+            continue
+        pr = [v_dot(p, axis) for p in f['punti']]
+        if min(pr) <= p_min + TOL:
+            testate[0].append(f)
+        if max(pr) >= p_max - TOL:
+            testate[1].append(f)
+    out = []
+    for facce in testate:
+        if not facce:
+            out.append(("dritto", 0.0))
+            continue
+        sagomato = False
+        ang_max = 0.0
+        for f in facce:
+            if f['tipo'] != 'PLANE':
+                sagomato = True
+                continue
+            d = abs(v_dot(v_norm(f['normal']), axis))
+            ang = math.degrees(math.acos(max(-1.0, min(1.0, d))))
+            if ang > 80.0:
+                sagomato = True  # piano parallelo all'asse che tocca la testa = intaglio
+                continue
+            ang_max = max(ang_max, ang)
+        ang_max = round(ang_max, 1)
+        if sagomato:
+            out.append(("sagomato", ang_max))
+        elif ang_max > 2.0:
+            out.append(("obliquo", ang_max))
+        else:
+            out.append(("dritto", ang_max))
+    return out
+
+
+def _centroide(pts):
+    if not pts:
+        return None
+    return [(max(p[k] for p in pts) + min(p[k] for p in pts)) / 2 for k in range(3)]
+
+
+def _analizza_rhs(geo, bid, fs, profili_db, debug):
+    """Riconosce un tubo rettangolare/quadro chiuso. Ritorna dict tubo o None."""
+    piani = [f for f in fs if f['tipo'] == 'PLANE' and f['punti']]
+    if len(piani) < 6:
+        return None
+    # Soglia big_cyl 30mm: alcuni RHS hanno raccordi interni r 15-25mm.
+    if any(f['tipo'] == 'CYL' and f['raggio'] > 30.0 for f in fs):
+        return None
+
+    # Step 1: gruppi di piani a normali parallele
+    gruppi = []
+    for f in piani:
+        n = v_norm(f['normal'])
+        for g in gruppi:
+            if abs(v_dot(n, g[0])) > 0.95:
+                g[1].append(f)
+                break
+        else:
+            gruppi.append([n, [f]])
+    if len(gruppi) < 3:
+        return None
+
+    body_verts = [geo.punto(v) for f in fs for v in f['vertici']]
+    body_verts = list({p for p in body_verts if p})
+    if not body_verts:
+        body_verts = geo.punti_corpo(bid)
+    if not body_verts:
+        return None
+
+    def _extent(d):
+        pr = [v_dot(v, d) for v in body_verts]
+        return max(pr) - min(pr)
+
+    # Asse candidato: normali dei gruppi con >=2 piani + assi cardinali
+    cand = []
+    for n, g in gruppi:
+        if len(g) >= 2:
+            cand.append(n)
+    for c in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)):
+        if not any(abs(v_dot(c, d)) > 0.98 for d in cand):
+            cand.append(c)
+    cand.sort(key=_extent, reverse=True)
+    axis = cand[0]
+    lunghezza_mm = _extent(axis)
+
+    # Fix v14b: l'asse vero e' perpendicolare ai 2 gruppi laterali chiusi
+    # (>=4 piani: 2 esterni + 2 interni). Vale anche per spezzoni corti
+    # (prima richiedeva > 50mm e scartava i distanziali).
+    laterali4 = [n for n, g in gruppi if len(g) >= 4]
+    if len(laterali4) >= 2:
+        n1, n2 = laterali4[0], laterali4[1]
+        if abs(v_dot(n1, n2)) < 0.2:
+            cr = v_norm(v_cross(n1, n2))
+            nl = _extent(cr)
+            if nl > 5:
+                axis = cr
+                lunghezza_mm = nl
+
+    # Step 2: piani di testa (dritti/obliqui) vs laterali
+    axis_planes, side_planes, oblique_planes = [], [], []
+    for f in piani:
+        d = abs(v_dot(v_norm(f['normal']), axis))
+        if d > 0.995:
+            axis_planes.append(f)
+        elif d < 0.5:
+            side_planes.append(f)
+        else:
+            oblique_planes.append(f)
+
+    side_groups = []
+    for f in side_planes:
+        n = v_norm(f['normal'])
+        for g in side_groups:
+            if abs(v_dot(n, g[0])) > 0.95:
+                g[1].append(f)
+                break
+        else:
+            side_groups.append([n, [f]])
+    closed_side = [g for g in side_groups if len(g[1]) >= 4]
+
+    # Topologia da tubo cavo CHIUSO: 2 lati chiusi (4 piani ciascuno) e un
+    # foro passante (genere >= 1). Lamiere piegate a U/C hanno 1 solo lato chiuso.
+    if len(closed_side) < 2:
+        if debug:
+            logger.info("[TUBE bid=%s] SKIP topologia: side_groups=%s", bid,
+                        sorted((len(g[1]) for g in side_groups), reverse=True))
+        return None
+    if geo.genere_corpo(bid) < 1:
+        if debug:
+            logger.info("[TUBE bid=%s] SKIP genere 0 (non cavo)", bid)
+        return None
+
+    # Dimensioni sezione: ingombro dei vertici sulle normali laterali
+    dims = sorted((_extent(g[0]) for g in closed_side[:2]), reverse=True)
+    dim_a, dim_b = dims[0], dims[1]
+
+    # Spessore parete: sulla normale di ogni lato chiuso, distanza tra la
+    # proiezione piu' esterna e la successiva (parete esterna -> interna).
+    # I punti di tangenza dei raccordi cadono piu' all'interno (ro >= t),
+    # quindi non disturbano. Range accettato 1.0 - 12.5 mm.
+    spessori = []
+    for n, g in closed_side[:2]:
+        vp = sorted({round(v_dot(v, n), 2) for v in body_verts})
+        if len(vp) >= 4:
+            for t in (vp[-1] - vp[-2], vp[1] - vp[0]):
+                if 0.95 <= t <= 12.5:
+                    spessori.append(t)
+    spessore = None
+    if spessori:
+        spessori.sort()
+        spessore = round(spessori[len(spessori) // 2], 1)
+    if spessore is None or spessore > 0.3 * min(dim_a, dim_b):
+        if debug:
+            logger.info("[TUBE bid=%s] SKIP spessore parete non plausibile (%s)", bid, spessore)
+        return None
+
+    # Lunghezza dai soli piani/facce di testa (evita piastre fuse sul tubo):
+    # estensione lungo l'asse dei PUNTI delle facce di testa.
+    teste = axis_planes + oblique_planes
+    if teste:
+        pr = [v_dot(p, axis) for f in teste for p in f['punti']]
+        pr += [v_dot(p, axis) for g in closed_side for f in g[1] for p in f['punti']]
+        lunghezza_mm = max(pr) - min(pr)
+    pr_all = [v_dot(p, axis) for g in closed_side for f in g[1] for p in f['punti']]
+    p_min, p_max = min(pr_all), max(pr_all)
+
+    ratio_sezione = dim_a / max(dim_b, 0.1)
+    if dim_b < 8 or ratio_sezione > 8.0:
+        return None
+
+    profilo = match_profilo_rhs(dim_a, dim_b, spessore, profili_db)
+    elongation = lunghezza_mm / max(dim_a, 1.0)
+    min_elong = 0.5 if profilo else 1.0
+    if lunghezza_mm < 5 or elongation < min_elong:
+        if debug:
+            logger.info("[TUBE bid=%s] SKIP elongation %.2f < %.2f", bid, elongation, min_elong)
+        return None
+
+    lato_a = round(dim_a, 1)
+    lato_b = round(dim_b, 1)
+    avvisi = []
+    if profilo:
+        nome_profilo = profilo["nome"]
+        peso_kg_m = profilo["peso_kg_m"]
+        tipo = "SHS" if "Quadro" in profilo["nome"] else "RHS"
+    else:
+        tipo = "SHS" if abs(lato_a - lato_b) < 2.0 else "RHS"
+        tipo_label = "Quadro" if tipo == "SHS" else "Rett."
+        nome_profilo = f"{tipo_label} {_fmt(lato_a)}x{_fmt(lato_b)} sp.{_fmt(spessore)}mm"
+        peso_kg_m = round(peso_teorico_rhs(lato_a, lato_b, spessore), 3)
+        avvisi.append("profilo_non_a_catalogo")
+
+    # Tagli: facce laterali (e raccordi paralleli all'asse) escluse
+    esclusi = {f['id'] for g in closed_side for f in g[1]}
+
+    def _parallela(f):
+        if f['tipo'] == 'CYL':
+            return abs(v_dot(v_norm(f['axis']), axis)) > 0.995
+        return False
+    (taglio_1, ang_1), (taglio_2, ang_2) = _classifica_testate(
+        fs, esclusi, axis, p_min, p_max, _parallela)
+
+    lunghezza_m = round(lunghezza_mm / 1000.0, 3)
+    if debug:
+        logger.info("[TUBE bid=%s] MATCHED %s %sx%s sp=%s len=%.3fm %s/%s", bid,
+                    nome_profilo, lato_a, lato_b, spessore, lunghezza_m, taglio_1, taglio_2)
+    return {
+        "tipo": tipo,
+        "profilo": nome_profilo,
+        "lato_a": lato_a,
+        "lato_b": lato_b,
+        "spessore": spessore,
+        "lunghezza_m": lunghezza_m,
+        "peso_kg": round(peso_kg_m * lunghezza_m, 2),
+        "peso_kg_m": peso_kg_m,
+        "taglio_1": taglio_1,
+        "taglio_2": taglio_2,
+        "angolo_taglio_1": ang_1,
+        "angolo_taglio_2": ang_2,
+        "centroide": _centroide(body_verts),
+        "body_id": bid,
+        "avvisi": avvisi,
+    }
+
+
+def _gruppi_coassiali(cilindri):
+    """Raggruppa facce cilindriche con la stessa retta d'asse."""
+    gruppi = []
+    for f in cilindri:
+        a = v_norm(f['axis'])
+        for g in gruppi:
+            if abs(v_dot(a, g['axis'])) > 0.9995 and \
+                    distanza_retta(f['origin'], g['origin'], g['axis']) < 0.05 + 0.002 * f['raggio']:
+                g['facce'].append(f)
+                break
+        else:
+            gruppi.append({'axis': a, 'origin': f['origin'], 'facce': [f]})
+    return gruppi
+
+
+def _raggi_pieni(g):
+    """{raggio: (copertura_rad, facce)} per un gruppo coassiale (raggi fusi a 0.01mm)."""
+    per_r = {}
+    for f in g['facce']:
+        key = None
+        for r in per_r:
+            if abs(r - f['raggio']) < 0.01:
+                key = r
+                break
+        if key is None:
+            key = f['raggio']
+        per_r.setdefault(key, []).append(f)
+    out = {}
+    for r, ff in per_r.items():
+        pts = [p for f in ff for p in f['punti']]
+        out[r] = (copertura_angolare(pts, g['origin'], g['axis']), ff)
+    return out
+
+
+PIENO = 2 * math.pi * 0.97
+
+
+def _analizza_chs(geo, bid, fs, profili_db, debug):
+    """Riconosce un tubo tondo (o un tondo pieno). Ritorna dict tubo o None.
+
+    Requisiti (evita dischi forati, semigusci calandrati, fori di piastre):
+    - cilindro esterno a 360 gradi (unione delle facce coassiali);
+    - le facce del gruppo coassiale sono la maggior parte dell'area del corpo;
+    - cavo: cilindro interno coassiale a 360 gradi per quasi tutta la lunghezza,
+      lunghezza >= 0.5 D;  pieno: lunghezza >= 2 D (peso del tondo pieno).
+    """
+    cil = [f for f in fs if f['tipo'] == 'CYL' and f['raggio'] > 1.0 and f['punti']]
+    if not cil:
+        return None
+    area_tot = sum(f['area'] for f in fs) or 1.0
+    gruppi = _gruppi_coassiali(cil)
+    g = max(gruppi, key=lambda x: sum(f['area'] for f in x['facce']))
+    area_g = sum(f['area'] for f in g['facce'])
+    if area_g < 0.5 * area_tot:
+        if debug:
+            logger.info("[CHS bid=%s] SKIP area cilindrica %.0f%% del corpo", bid, 100 * area_g / area_tot)
+        return None
+    axis = g['axis']
+    raggi = _raggi_pieni(g)
+    r_ext = max(raggi)
+    cov_ext, facce_ext = raggi[r_ext]
+    if cov_ext < PIENO:
+        if debug:
+            logger.info("[CHS bid=%s] SKIP cilindro esterno non a 360 (%.0f gradi)", bid,
+                        math.degrees(cov_ext))
+        return None
+    pr = [v_dot(p, axis) for f in g['facce'] for p in f['punti']]
+    p_min, p_max = min(pr), max(pr)
+    lunghezza_mm = p_max - p_min
+    pr_ext = [v_dot(p, axis) for f in facce_ext for p in f['punti']]
+    len_ext = max(pr_ext) - min(pr_ext)
+
+    r_int = None
+    for r in sorted(raggi, reverse=True):
+        if r >= r_ext - 0.3:
+            continue
+        cov, ff = raggi[r]
+        pr_i = [v_dot(p, axis) for f in ff for p in f['punti']]
+        if cov >= PIENO and (max(pr_i) - min(pr_i)) >= 0.8 * len_ext:
+            r_int = r
+            break
+
+    d_ext = round(r_ext * 2, 1)
+    avvisi = []
+    if r_int is not None:
+        spessore = round(r_ext - r_int, 1)
+        if lunghezza_mm < 0.5 * d_ext:
+            return None
+        tipo = "CHS"
+        profilo = match_profilo_chs(d_ext, spessore, profili_db)
+        if profilo:
+            nome_profilo = profilo["nome"]
+            peso_kg_m = profilo["peso_kg_m"]
+            # snap al nominale del profilo DB (nomenclatura commerciale)
+            d_ext = profilo.get("d_ext", d_ext)
+            spessore = profilo.get("spessore", spessore)
+        else:
+            nome_profilo = f"Tondo Ø{_fmt(d_ext)} sp.{_fmt(spessore)}mm"
+            peso_kg_m = round(peso_teorico_chs(d_ext, spessore), 3)
+            avvisi.append("profilo_non_a_catalogo")
+    else:
+        if lunghezza_mm < 2.0 * d_ext:
+            return None
+        tipo = "TONDO_PIENO"
+        spessore = None
+        nome_profilo = f"Tondo pieno Ø{_fmt(d_ext)}mm"
+        peso_kg_m = round(peso_teorico_chs(d_ext, None), 3)
+
+    esclusi = {f['id'] for f in g['facce']}
+    (taglio_1, ang_1), (taglio_2, ang_2) = _classifica_testate(
+        fs, esclusi, axis, p_min, p_max, lambda f: False)
+
+    lunghezza_m = round(lunghezza_mm / 1000.0, 3)
+    if debug:
+        logger.info("[CHS bid=%s] MATCHED %s d=%s sp=%s len=%.3fm %s/%s", bid,
+                    nome_profilo, d_ext, spessore, lunghezza_m, taglio_1, taglio_2)
+    return {
+        "tipo": tipo,
+        "profilo": nome_profilo,
+        "d_ext": d_ext,
+        "spessore": spessore,
+        "lunghezza_m": lunghezza_m,
+        "peso_kg": round(peso_kg_m * lunghezza_m, 2),
+        "peso_kg_m": peso_kg_m,
+        "taglio_1": taglio_1,
+        "taglio_2": taglio_2,
+        "angolo_taglio_1": ang_1,
+        "angolo_taglio_2": ang_2,
+        "centroide": _centroide(geo.punti_corpo(bid)),
+        "body_id": bid,
+        "avvisi": avvisi,
+    }
+
+
+def _tubi_da_corpo_fuso(geo, bid, fs, profili_db):
+    """Corpo unico fuso (saldato nel CAD): cerca tratti di tubo tondo VERI,
+    cioe' coppie di cilindri coassiali esterno+interno a 360 gradi con
+    lunghezza >= 3 D. Nessuna lunghezza di default: i fori di una piastra
+    (anche spezzati in due semicilindri) non generano tubi fantasma."""
+    out = []
+    cil = [f for f in fs if f['tipo'] == 'CYL' and f['raggio'] > 5.0 and f['punti']]
+    for g in _gruppi_coassiali(cil):
+        raggi = _raggi_pieni(g)
+        if len(raggi) < 2:
+            continue
+        r_ext = max(raggi)
+        cov_e, ff_e = raggi[r_ext]
+        if cov_e < PIENO:
+            continue
+        pr = [v_dot(p, g['axis']) for f in ff_e for p in f['punti']]
+        lung = max(pr) - min(pr)
+        r_int = None
+        for r in sorted(raggi, reverse=True):
+            if r < r_ext - 0.3 and raggi[r][0] >= PIENO:
+                r_int = r
+                break
+        if r_int is None or lung < 3 * 2 * r_ext:
+            continue
+        d_ext = round(2 * r_ext, 1)
+        sp = round(r_ext - r_int, 1)
+        profilo = match_profilo_chs(d_ext, sp, profili_db)
+        peso_kg_m = profilo["peso_kg_m"] if profilo else round(peso_teorico_chs(d_ext, sp), 3)
+        lunghezza_m = round(lung / 1000.0, 3)
+        out.append({
+            "tipo": "CHS",
+            "profilo": profilo["nome"] if profilo else f"Tondo Ø{_fmt(d_ext)} sp.{_fmt(sp)}mm",
+            "d_ext": d_ext,
+            "spessore": sp,
+            "lunghezza_m": lunghezza_m,
+            "peso_kg": round(peso_kg_m * lunghezza_m, 2),
+            "peso_kg_m": peso_kg_m,
+            "taglio_1": "dritto",
+            "taglio_2": "dritto",
+            "angolo_taglio_1": 0.0,
+            "angolo_taglio_2": 0.0,
+            "body_id": bid,
+            "stimato": True,
+            "avvisi": ["stimato_da_corpo_fuso"] + ([] if profilo else ["profilo_non_a_catalogo"]),
+        })
+    return out
+
+
 def analizza_step_tubolari(step_path: str, profili_db: dict, debug: bool = False) -> dict:
     """Analizza file STEP per rilevare strutture tubolari (CHS, RHS, SHS).
 
-    Per ogni CLOSED_SHELL/MANIFOLD_SOLID_BREP analizza i tipi di superficie:
-    - CYLINDRICAL_SURFACE -> possibile CHS
-    - PLANE -> possibile RHS/SHS o tappo estremita'
+    Per ogni corpo solido prova prima il riconoscimento RHS/SHS (piani), poi
+    CHS/tondo pieno (cilindri coassiali). Se la sezione non e' a catalogo il
+    tubo NON viene scartato: peso dalla geometria misurata + avviso
+    'profilo_non_a_catalogo'.
 
     Args:
         step_path: Path al file STEP.
@@ -95,848 +570,63 @@ def analizza_step_tubolari(step_path: str, profili_db: dict, debug: bool = False
         debug: Se True, logga dettagli diagnostici su classificazione candidati.
 
     Returns:
-        dict con 'tubi', 'peso_totale_kg', 'n_tagli_dritti/obliqui/sagomati', 'errore'
+        dict con 'tubi' (ognuno con 'body_id' e 'avvisi'), 'peso_totale_kg',
+        'n_tagli_dritti/obliqui/sagomati', 'body_ids_tubi', 'avvisi', 'errore'.
+        I conteggi sono per UNA istanza di ciascun corpo (le quantita'
+        d'assieme si applicano a valle, vedi step_assieme.conta_istanze_nauo).
     """
+    vuoto = {'tubi': [], 'peso_totale_kg': 0, 'n_tagli_dritti': 0,
+             'n_tagli_obliqui': 0, 'n_tagli_sagomati': 0, 'body_ids_tubi': [],
+             'avvisi': []}
     try:
-        with open(step_path, 'r', errors='replace') as f:
-            content = f.read()
+        entities, info = carica_entita(step_path)
     except (IOError, OSError) as e:
-        return {'tubi': [], 'peso_totale_kg': 0, 'n_tagli_dritti': 0,
-                'n_tagli_obliqui': 0, 'n_tagli_sagomati': 0, 'errore': str(e)}
+        return {**vuoto, 'errore': str(e)}
 
-    entities = {}
-    for m in re.finditer(r'#(\d+)\s*=\s*(.+?)\s*;', content, re.DOTALL):
-        entities[int(m.group(1))] = m.group(2).strip()
-
-    def _etype(val):
-        m2 = re.match(r'(\w+)', val)
-        return m2.group(1) if m2 else ''
-
-    def _refs(val):
-        return [int(x) for x in re.findall(r'#(\d+)', val)]
-
-    def _coords(val):
-        nums = re.findall(r'([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)', val)
-        floats = [float(x) for x in nums]
-        return tuple(floats[-3:]) if len(floats) >= 3 else None
-
-    def _vec_dot(a, b):
-        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-
-    def _vec_len(a):
-        return math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
-
-    def _vec_norm(a):
-        ln = _vec_len(a)
-        return (a[0]/ln, a[1]/ln, a[2]/ln) if ln > 1e-12 else (0, 0, 0)
-
-    def _last_float(val):
-        nums = re.findall(r'([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)', val)
-        return float(nums[-1]) if nums else 0.0
-
-    # --- Trova tutti i body ---
-    body_ids = [eid for eid, val in entities.items()
-                if _etype(val) == 'MANIFOLD_SOLID_BREP']
-    msb_child_shells = set()
-    for bid in body_ids:
-        for r in _refs(entities.get(bid, '')):
-            msb_child_shells.add(r)
-    for eid, val in entities.items():
-        if _etype(val) == 'CLOSED_SHELL' and eid not in msb_child_shells:
-            body_ids.append(eid)
-
+    geo = GeometriaStep(entities)
+    body_ids = geo.corpi()
     if not body_ids:
-        return {'tubi': [], 'peso_totale_kg': 0, 'n_tagli_dritti': 0,
-                'n_tagli_obliqui': 0, 'n_tagli_sagomati': 0,
-                'errore': 'Nessun corpo solido trovato'}
+        return {**vuoto, 'avvisi': list(info['avvisi']), 'errore': 'Nessun corpo solido trovato'}
 
-    def _get_face_refs(bid):
-        val = entities.get(bid, '')
-        etype = _etype(val)
-        refs_list = _refs(val)
-        if not refs_list:
-            return []
-        if etype == 'MANIFOLD_SOLID_BREP':
-            return _refs(entities.get(refs_list[-1], ''))
-        elif etype in ('CLOSED_SHELL', 'OPEN_SHELL'):
-            return refs_list
-        else:
-            return _refs(entities.get(refs_list[-1], ''))
-
-    def _get_surface_info(face_ref):
-        fval = entities.get(face_ref, '')
-        if _etype(fval) != 'ADVANCED_FACE':
-            return None, {}
-        frefs = _refs(fval)
-        if not frefs:
-            return None, {}
-        surf_ref = frefs[-1]
-        surf_val = entities.get(surf_ref, '')
-        surf_type = _etype(surf_val)
-
-        if surf_type == 'CYLINDRICAL_SURFACE':
-            radius = _last_float(surf_val)
-            srefs = _refs(surf_val)
-            axis_data = {}
-            if srefs:
-                ax_val = entities.get(srefs[0], '')
-                ax_refs = _refs(ax_val)
-                if len(ax_refs) >= 2:
-                    origin = _coords(entities.get(ax_refs[0], ''))
-                    axis_dir = _coords(entities.get(ax_refs[1], ''))
-                    if origin and axis_dir:
-                        axis_data = {'origin': origin, 'axis': axis_dir}
-            return 'CYL', {'raggio': radius, **axis_data}
-
-        elif surf_type == 'PLANE':
-            srefs = _refs(surf_val)
-            if srefs:
-                ax_val = entities.get(srefs[0], '')
-                ax_refs = _refs(ax_val)
-                if len(ax_refs) >= 2:
-                    origin = _coords(entities.get(ax_refs[0], ''))
-                    normal = _coords(entities.get(ax_refs[1], ''))
-                    if origin and normal:
-                        return 'PLANE', {'origin': origin, 'normal': normal}
-            return 'PLANE', {}
-
-        elif surf_type == 'CONICAL_SURFACE':
-            return 'CONE', {}
-        elif surf_type == 'TOROIDAL_SURFACE':
-            return 'TORUS', {}
-        elif surf_type == 'B_SPLINE_SURFACE_WITH_KNOTS':
-            return 'BSPLINE', {}
-        else:
-            return surf_type, {}
-
-    def _collect_body_vertices(face_refs):
-        """Raccoglie i vertici cartesiani veri del body (via FACE→LOOP→EDGE→VERTEX)."""
-        verts = []
-        seen_pts = set()
-        for fref in face_refs:
-            fval = entities.get(fref, '')
-            if _etype(fval) != 'ADVANCED_FACE':
-                continue
-            for bref in _refs(fval):
-                bval = entities.get(bref, '')
-                if _etype(bval) not in ('FACE_OUTER_BOUND', 'FACE_BOUND'):
-                    continue
-                el_refs = _refs(bval)
-                if not el_refs:
-                    continue
-                el_val = entities.get(el_refs[0], '')
-                if _etype(el_val) != 'EDGE_LOOP':
-                    continue
-                for oe_ref in _refs(el_val):
-                    oe_val = entities.get(oe_ref, '')
-                    if _etype(oe_val) != 'ORIENTED_EDGE':
-                        continue
-                    ec_refs = _refs(oe_val)
-                    if not ec_refs:
-                        continue
-                    ec_val = entities.get(ec_refs[-1], '')
-                    if _etype(ec_val) != 'EDGE_CURVE':
-                        continue
-                    for vref in _refs(ec_val)[:2]:
-                        vval = entities.get(vref, '')
-                        if _etype(vval) != 'VERTEX_POINT':
-                            continue
-                        vrefs = _refs(vval)
-                        if not vrefs:
-                            continue
-                        pt = _coords(entities.get(vrefs[0], ''))
-                        if pt and pt not in seen_pts:
-                            seen_pts.add(pt)
-                            verts.append(pt)
-        return verts
-
-    # --- Analizza ogni body ---
     tubi_rilevati = []
-
     for bid in body_ids:
-        face_refs = _get_face_refs(bid)
-        if not face_refs:
-            continue
-
-        surfaces = []
-        for fref in face_refs:
-            stype, sdata = _get_surface_info(fref)
-            if stype:
-                surfaces.append((stype, sdata, fref))
-
-        n_cyl = sum(1 for s in surfaces if s[0] == 'CYL')
-        n_plane = sum(1 for s in surfaces if s[0] == 'PLANE')
-        n_total = len(surfaces)
-
-        if n_total == 0:
-            continue
-
-        # Raccogli raggi cilindri
-        cyl_radii = {}
-        for s in surfaces:
-            if s[0] == 'CYL':
-                r = round(s[1].get('raggio', 0), 2)
-                if r > 0:
-                    cyl_radii.setdefault(r, []).append(s)
-
-        # Raccogli piani con normali
-        planes_with_data = [(s[1]['origin'], _vec_norm(s[1]['normal']))
-                            for s in surfaces
-                            if s[0] == 'PLANE' and 'origin' in s[1] and 'normal' in s[1]]
-
-        # === RHS/SHS: >=6 piani + opzionali cilindri piccoli (raccordi) ===
-        # Soglia big_cyl alzata da 15 a 30mm: alcuni tubolari RHS hanno raccordi
-        # interni con raggio 15-25mm (es. curve fresate), prima venivano esclusi
-        # erroneamente dal ramo RHS perché considerati "big_cyl".
-        detected_rhs = False
-        if n_plane >= 6:
-            big_cyl = [r for r in cyl_radii.keys() if r > 30.0]
-            if not big_cyl and planes_with_data and len(planes_with_data) >= 6:
-                # Step 1: raggruppo TUTTI i piani per normali parallele per trovare
-                # l'asse principale (dimensione massima → asse tubo)
-                normal_groups = {}
-                for origin, normal in planes_with_data:
-                    matched = False
-                    for gk, gplanes in normal_groups.items():
-                        ref_n = gplanes[0][1]
-                        dot = abs(_vec_dot(normal, ref_n))
-                        if dot > 0.95:
-                            normal_groups[gk].append((origin, normal))
-                            matched = True
-                            break
-                    if not matched:
-                        normal_groups[len(normal_groups)] = [(origin, normal)]
-
-                if len(normal_groups) >= 3:
-                    # FIX Bug A+D: trova l'asse tubo come direzione con la MASSIMA
-                    # extent di TUTTI i piani (non solo quelli paralleli tra loro).
-                    # Risolve i tubi con tagli obliqui: in quel caso non esiste un
-                    # gruppo di 2 piani paralleli lungo l'asse (un tappo è dritto,
-                    # l'altro obliquo, o entrambi obliqui) — quindi la vecchia logica
-                    # sceglieva erroneamente un lato della sezione come "asse".
-                    #
-                    # Candidates: (1) normali dei gruppi con >= 2 piani (evita che
-                    # una singola smussa obliqua spuria venga scelta come asse);
-                    # (2) i 3 assi cardinali come fallback (copre il caso in cui
-                    # entrambe le testate sono oblique → nessun gruppo assiale dritto,
-                    # ma il tubo è comunque allineato a X/Y/Z nel frame STEP).
-                    candidate_normals = []
-                    seen_dirs = []
-                    for gk, gplanes in normal_groups.items():
-                        if len(gplanes) < 2:
-                            continue
-                        nref = _vec_norm(gplanes[0][1])
-                        candidate_normals.append(nref)
-                        seen_dirs.append(nref)
-                    for cardinal in ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)):
-                        # Aggiungo solo se non già presente (quasi parallelo a uno dei gruppi)
-                        already = any(abs(_vec_dot(cardinal, d)) > 0.98 for d in seen_dirs)
-                        if not already:
-                            candidate_normals.append(cardinal)
-                            seen_dirs.append(cardinal)
-
-                    # Fix v14: calcolo extent dai VERTICI veri del body, non dalle
-                    # AXIS2_PLACEMENT_3D.location dei piani. Le location STEP sono
-                    # frame origin arbitrari (non centroidi/punti del piano), e per
-                    # tubi modellati via CSG/Boolean possono cadere ovunque nello
-                    # spazio. Risultato: su spezzoni corti l'extent calcolato dalle
-                    # location era patologico (es. 1819mm su un tubo 40x40x140mm),
-                    # facendo scegliere come asse una direzione laterale invece
-                    # della lunghezza vera.
-                    body_verts = _collect_body_vertices(face_refs)
-                    candidates = []
-                    for ref_normal in candidate_normals:
-                        if body_verts:
-                            projs = [_vec_dot(v, ref_normal) for v in body_verts]
-                        else:
-                            projs = [_vec_dot(origin, ref_normal)
-                                     for origin, _ in planes_with_data]
-                        extent = max(projs) - min(projs)
-                        candidates.append((extent, ref_normal, None))
-
-                    # Calcolo group_dims (dim del gruppo stesso) per compatibilità
-                    # con logica downstream (side calculations, debug old vs new)
-                    group_dims = []
-                    for gk, gplanes in normal_groups.items():
-                        if len(gplanes) < 2:
-                            continue
-                        ref_normal = _vec_norm(gplanes[0][1])
-                        projs = [_vec_dot(p[0], ref_normal) for p in gplanes]
-                        dim = max(projs) - min(projs)
-                        group_dims.append((dim, ref_normal, gk))
-
-                    if candidates and len(group_dims) >= 2:
-                        candidates.sort(key=lambda x: x[0], reverse=True)
-                        group_dims.sort(key=lambda x: x[0], reverse=True)
-                        # Asse = direzione con extent totale max
-                        lunghezza_mm = candidates[0][0]
-                        axis_normal = candidates[0][1]
-
-                        # Fix v14b: per tubi obliqui (cap planes inclinati di 8-30°
-                        # rispetto al perpendicolare-asse), il candidate con extent
-                        # max e' la cardinale dominante (X o Y), NON l'asse vero del
-                        # tubo. L'asse vero e' perpendicolare ai 2 side groups con
-                        # >=4 piani (i 2 lati chiusi della sezione). Se questi 2
-                        # side groups esistono e sono quasi-ortogonali, calcolo
-                        # l'asse come cross product delle loro normali.
-                        side_normals_4 = [
-                            _vec_norm(gplanes[0][1])
-                            for gplanes in normal_groups.values()
-                            if len(gplanes) >= 4
-                        ]
-                        if len(side_normals_4) >= 2:
-                            n1, n2 = side_normals_4[0], side_normals_4[1]
-                            if abs(_vec_dot(n1, n2)) < 0.2:
-                                # cross product
-                                cross = (
-                                    n1[1] * n2[2] - n1[2] * n2[1],
-                                    n1[2] * n2[0] - n1[0] * n2[2],
-                                    n1[0] * n2[1] - n1[1] * n2[0],
-                                )
-                                cross_n = _vec_norm(cross)
-                                if body_verts:
-                                    projs_a = [_vec_dot(v, cross_n) for v in body_verts]
-                                    new_len = max(projs_a) - min(projs_a)
-                                    if new_len > 50:
-                                        axis_normal = cross_n
-                                        lunghezza_mm = new_len
-
-
-                        # Step 2: separo i piani in axis-aligned (cap, paralleli all'asse tubo)
-                        # vs side (perpendicolari, definiscono la sezione) vs obliqui (smussi/tagli).
-                        # Soglie:
-                        # - axis (dritto): dot > 0.995 (< 5.7° dall'asse)
-                        # - side (sezione): dot < 0.5 (> 60° dall'asse) — più permissivo
-                        #   per catturare side con leggera imperfezione. Serve a
-                        #   non perdere tubi 60x60/100x60 quando la sezione ha
-                        #   minimo di inclinazione.
-                        # - oblique (taglio a gradi): 0.5 <= dot <= 0.995
-                        axis_planes = []
-                        side_planes = []
-                        oblique_planes = []
-                        for origin, normal in planes_with_data:
-                            dot_axis = abs(_vec_dot(_vec_norm(normal), axis_normal))
-                            if dot_axis > 0.995:
-                                axis_planes.append((origin, normal, dot_axis))
-                            elif dot_axis < 0.5:
-                                side_planes.append((origin, normal))
-                            else:
-                                oblique_planes.append((origin, normal, dot_axis))
-
-                        # Step 3: ricalcolo dim_a, dim_b usando SOLO i side planes
-                        side_groups = {}
-                        for origin, normal in side_planes:
-                            matched = False
-                            for gk, gplanes in side_groups.items():
-                                ref_n = gplanes[0][1]
-                                if abs(_vec_dot(_vec_norm(normal), _vec_norm(ref_n))) > 0.95:
-                                    side_groups[gk].append((origin, normal))
-                                    matched = True
-                                    break
-                            if not matched:
-                                side_groups[len(side_groups)] = [(origin, normal)]
-                        side_dims = []
-                        for gk, gplanes in side_groups.items():
-                            if len(gplanes) < 2:
-                                continue
-                            ref_normal = _vec_norm(gplanes[0][1])
-                            projs = [_vec_dot(p[0], ref_normal) for p in gplanes]
-                            side_dims.append(max(projs) - min(projs))
-                        side_dims.sort(reverse=True)
-                        if len(side_dims) >= 2:
-                            dim_a = side_dims[0]
-                            dim_b = side_dims[1]
-                        else:
-                            # Fallback se i side planes non sono sufficienti
-                            dim_a = group_dims[1][0] if len(group_dims) >= 2 else 0
-                            dim_b = group_dims[2][0] if len(group_dims) >= 3 else 0
-
-                        # FIX lunghezza dai soli piani di testa del tubo (v12).
-                        # Prima: lunghezza = extent di TUTTI i piani lungo l'asse.
-                        # Problema: se il CAD fonde tubo + piastra di tappo saldata in
-                        # un singolo solido, l'extent include la piastra → lunghezza
-                        # sovrastimata di 20-60mm.
-                        #
-                        # Ora: lunghezza = extent SOLO dei piani di testa (axis + oblique
-                        # con correzione geometrica). Per un obliquo, il centroide del
-                        # piano è al centro del taglio; l'estensione assiale del piano
-                        # è L/2·tan(α), da aggiungere ai 2 estremi del centroide.
-                        if axis_planes or oblique_planes:
-                            max_sec = max(dim_a, dim_b) if max(dim_a, dim_b) > 0 else 1.0
-                            terminal_projs = []
-                            for origin, normal, dot_a in axis_planes:
-                                p = _vec_dot(origin, axis_normal)
-                                terminal_projs.append(p)
-                            for origin, normal, dot_a in oblique_planes:
-                                p = _vec_dot(origin, axis_normal)
-                                cos_a = abs(dot_a)
-                                if cos_a > 1e-6:
-                                    sin_a = math.sqrt(max(0.0, 1.0 - cos_a * cos_a))
-                                    tan_a = sin_a / cos_a
-                                    ext = max_sec * 0.5 * tan_a
-                                else:
-                                    ext = 0.0
-                                terminal_projs.append(p - ext)
-                                terminal_projs.append(p + ext)
-                            if terminal_projs:
-                                lunghezza_tubo_mm = max(terminal_projs) - min(terminal_projs)
-                                # Usa questa come lunghezza ufficiale (prima era extent globale)
-                                lunghezza_mm = lunghezza_tubo_mm
-
-                        if debug:
-                            old_a = group_dims[1][0] if len(group_dims) >= 2 else -1
-                            old_b = group_dims[2][0] if len(group_dims) >= 3 else -1
-                            logger.info(
-                                "[TUBE bid=%s] n_planes=%d axis=%d side=%d oblique=%d | "
-                                "len=%.1f dim_a=%.1f dim_b=%.1f (old: %.1f/%.1f)",
-                                bid, len(planes_with_data), len(axis_planes),
-                                len(side_planes), len(oblique_planes),
-                                lunghezza_mm, dim_a, dim_b, old_a, old_b,
-                            )
-
-                        # Filtro: la lunghezza deve essere almeno 3x la sezione per
-                        # distinguere tubi da piastre/gusset. Per spezzoni corti che
-                        # matchano un profilo standard nel DB, accettiamo anche
-                        # elongation >= 1.2 (tubo tagliato a misura breve).
-                        elongation = lunghezza_mm / max(dim_a, dim_b, 1.0)
-                        # Pre-check: il profilo matcha il database? (guardia contro
-                        # piastre/gusset che hanno sezione non-standard)
-                        _pre_lato_a = round(dim_a, 1)
-                        _pre_lato_b = round(dim_b, 1)
-                        _profilo_match = match_profilo_rhs(_pre_lato_a, _pre_lato_b, 2.0, profili_db)
-                        _min_elongation = 1.2 if _profilo_match else 3.0
-
-                        # Fix Bug E: rifiuto sezioni sospette che non matchano DB.
-                        # Il match DB ha già tolleranza ±2mm su ciascun lato, quindi
-                        # è affidabile. Se la sezione calcolata NON corrisponde a
-                        # nessun profilo del database, è molto probabile che si
-                        # tratti di una piastra/lamiera/gusset, non un tubo.
-                        # Esempi falsi positivi bloccati: 140x40, 110x40, 100x25,
-                        # 50x50, 70x60, 54x10 (ciascuno era presente nel log v6).
-                        if not _profilo_match:
-                            if debug:
-                                logger.info(
-                                    "[TUBE bid=%s] SKIP no match DB: %sx%s (possibile piastra/lamiera)",
-                                    bid, _pre_lato_a, _pre_lato_b,
-                                )
-                            continue
-
-                        # Fix Bug falsi positivi v12: verifica topologia da tubo cavo CHIUSO.
-                        # Un tubo cavo rettangolare chiuso su 4 lati deve avere:
-                        #   (a) almeno 2 piani di testa (axis o oblique) — piastre e
-                        #       profili aperti (L, C, U) ne hanno 0-1
-                        #   (b) ALMENO 2 side_groups, CIASCUNO con >= 4 piani (4
-                        #       paralleli = 2 esterni + 2 interni, lato chiuso).
-                        #       Una lamiera piegata a U ha solo 1 gruppo con 4 piani;
-                        #       il fondo ha solo 2 piani (esterno+interno singolo).
-                        cap_count = len(axis_planes) + len(oblique_planes)
-                        closed_side_groups = [
-                            g for g in side_groups.values() if len(g) >= 4
-                        ]
-                        if cap_count < 2:
-                            if debug:
-                                logger.info(
-                                    "[TUBE bid=%s] SKIP topologia: cap_count=%d<2 "
-                                    "(profilo aperto L/C/U o piastra)",
-                                    bid, cap_count,
-                                )
-                            continue
-                        if len(closed_side_groups) < 2:
-                            if debug:
-                                side_sizes = [len(g) for g in side_groups.values()]
-                                logger.info(
-                                    "[TUBE bid=%s] SKIP topologia: side_groups_sizes=%s "
-                                    "(lamiera piegata U/C o profilo non chiuso)",
-                                    bid, sorted(side_sizes, reverse=True),
-                                )
-                            continue
-
-                        if lunghezza_mm >= 50 and dim_a >= 10 and dim_b >= 10 and elongation >= _min_elongation:
-                            ratio_sezione = max(dim_a, dim_b) / max(min(dim_a, dim_b), 0.1)
-                            if ratio_sezione <= 5.0:
-                                # v14: spessore calcolato dai gap consecutivi tra
-                                # proiezioni dei VERTICI body sulla normale del lato.
-                                # I gap tra le AXIS2_PLACEMENT_3D.location dei piani
-                                # erano falsati dai frame-origin arbitrari (stesso
-                                # bug del calcolo asse). Per un tubo 40x40 sp.2 i
-                                # vertici proiettati sulla normale di un lato cadono
-                                # in 4 cluster (-20/-18/+18/+20), gap 2mm = spessore.
-                                spessore = None
-                                all_small_gaps = []
-                                for gk, gplanes in side_groups.items():
-                                    if len(gplanes) >= 4:
-                                        ref_normal = _vec_norm(gplanes[0][1])
-                                        if body_verts:
-                                            vp = sorted({round(_vec_dot(v, ref_normal), 2)
-                                                         for v in body_verts})
-                                        else:
-                                            vp = sorted([_vec_dot(p[0], ref_normal)
-                                                         for p in gplanes])
-                                        gaps = [vp[i+1] - vp[i] for i in range(len(vp)-1)]
-                                        group_gaps = [g for g in gaps if 1.5 < g < 10.0]
-                                        all_small_gaps.extend(group_gaps)
-                                if all_small_gaps:
-                                    all_small_gaps.sort()
-                                    # Mediana
-                                    mid = len(all_small_gaps) // 2
-                                    spessore = round(all_small_gaps[mid], 1)
-
-                                lunghezza_m = round(lunghezza_mm / 1000.0, 3)
-                                lato_a = round(dim_a, 1)
-                                lato_b = round(dim_b, 1)
-
-                                # Step 4: classifica i tagli.
-                                # Logica semplice: se ci sono oblique_planes, almeno un taglio è
-                                # obliquo. Assegno l'obliquo a taglio_1 o taglio_2 in base alla
-                                # proiezione lungo l'asse (metà bassa o metà alta del tubo).
-                                taglio_1, taglio_2 = "dritto", "dritto"
-                                # v16: angolo numerico in gradi (inclinazione cap rispetto
-                                # al perpendicolare-asse). 0° = dritto, N° = obliquo di N°.
-                                angolo_taglio_1, angolo_taglio_2 = 0.0, 0.0
-
-                                # Midpoint per assegnare ogni piano cap a testata 1 o 2
-                                all_cap_projs = []
-                                for origin, _, _ in axis_planes:
-                                    all_cap_projs.append(_vec_dot(origin, axis_normal))
-                                for origin, _, _ in oblique_planes:
-                                    all_cap_projs.append(_vec_dot(origin, axis_normal))
-                                axis_mid = (min(all_cap_projs) + max(all_cap_projs)) / 2.0 if all_cap_projs else 0.0
-
-                                # Calcola angolo per ogni cap: angolo = acos(|dot(normal, axis)|)
-                                # Per axis_planes (dot > 0.995) angolo ~ 0°, per oblique progressivo.
-                                def _cap_angle_deg(normal):
-                                    d = abs(_vec_dot(_vec_norm(normal), axis_normal))
-                                    d = max(-1.0, min(1.0, d))
-                                    return round(math.degrees(math.acos(d)), 1)
-
-                                ang_side1, ang_side2 = [], []
-                                for origin, normal, _ in axis_planes + oblique_planes:
-                                    proj = _vec_dot(origin, axis_normal)
-                                    a = _cap_angle_deg(normal)
-                                    if proj < axis_mid:
-                                        ang_side1.append(a)
-                                    else:
-                                        ang_side2.append(a)
-                                # Per ogni testata, prendo l'angolo MAX dei piani cap (cap dominante)
-                                if ang_side1:
-                                    angolo_taglio_1 = max(ang_side1)
-                                    if angolo_taglio_1 > 2.0:
-                                        taglio_1 = "obliquo"
-                                if ang_side2:
-                                    angolo_taglio_2 = max(ang_side2)
-                                    if angolo_taglio_2 > 2.0:
-                                        taglio_2 = "obliquo"
-
-                                profilo = match_profilo_rhs(lato_a, lato_b, spessore or 2.0, profili_db)
-                                if profilo:
-                                    nome_profilo = profilo["nome"]
-                                    peso_kg_m = profilo["peso_kg_m"]
-                                    tipo = "SHS" if "Quadro" in profilo["nome"] else "RHS"
-                                else:
-                                    tipo = "SHS" if abs(lato_a - lato_b) < 2.0 else "RHS"
-                                    tipo_label = "Quadro" if tipo == "SHS" else "Rett."
-                                    nome_profilo = f"{tipo_label} {lato_a}x{lato_b} sp.{spessore or '?'}mm"
-                                    peso_kg_m = 0.0
-
-                                peso_kg = round(peso_kg_m * lunghezza_m, 2)
-
-                                # v15: centroide = bbox center dei vertici body veri.
-                                # Prima era la media delle AXIS2_PLACEMENT_3D.location
-                                # dei piani (frame-origin arbitrari, non centroidi
-                                # geometrici), che produceva centroidi sballati e
-                                # quindi matching mesh<->tubo sbagliato lato JS.
-                                if body_verts:
-                                    centroide = [
-                                        (max(v[0] for v in body_verts) + min(v[0] for v in body_verts)) / 2,
-                                        (max(v[1] for v in body_verts) + min(v[1] for v in body_verts)) / 2,
-                                        (max(v[2] for v in body_verts) + min(v[2] for v in body_verts)) / 2,
-                                    ]
-                                else:
-                                    all_origins = [o for o, _ in side_planes]
-                                    all_origins += [o for o, _, _ in axis_planes]
-                                    all_origins += [o for o, _, _ in oblique_planes]
-                                    if all_origins:
-                                        n_o = len(all_origins)
-                                        centroide = [
-                                            sum(o[0] for o in all_origins) / n_o,
-                                            sum(o[1] for o in all_origins) / n_o,
-                                            sum(o[2] for o in all_origins) / n_o,
-                                        ]
-                                    else:
-                                        centroide = None
-
-                                if debug:
-                                    logger.info(
-                                        "[TUBE bid=%s] MATCHED profilo=%s lato=%sx%s sp=%s "
-                                        "len=%.3fm taglio=%s/%s centroide=%s",
-                                        bid, nome_profilo, lato_a, lato_b, spessore,
-                                        lunghezza_m, taglio_1, taglio_2,
-                                        [round(c, 1) for c in centroide] if centroide else None,
-                                    )
-
-                                tubi_rilevati.append({
-                                    "tipo": tipo,
-                                    "profilo": nome_profilo,
-                                    "lato_a": lato_a,
-                                    "lato_b": lato_b,
-                                    "spessore": spessore,
-                                    "lunghezza_m": lunghezza_m,
-                                    "peso_kg": peso_kg,
-                                    "peso_kg_m": peso_kg_m,
-                                    "taglio_1": taglio_1,
-                                    "taglio_2": taglio_2,
-                                    "angolo_taglio_1": angolo_taglio_1,
-                                    "angolo_taglio_2": angolo_taglio_2,
-                                    "centroide": centroide,
-                                    "body_id": bid
-                                })
-                                detected_rhs = True
-                            else:
-                                if debug:
-                                    logger.info(
-                                        "[TUBE bid=%s] SKIP ratio_sezione=%.2f > 5.0 "
-                                        "(len=%.1f dim_a=%.1f dim_b=%.1f)",
-                                        bid, ratio_sezione, lunghezza_mm, dim_a, dim_b,
-                                    )
-                        else:
-                            if debug:
-                                logger.info(
-                                    "[TUBE bid=%s] SKIP filter: len=%.1f dim_a=%.1f dim_b=%.1f "
-                                    "elongation=%.2f (need len>=50, dims>=10, elong>=3.0)",
-                                    bid, lunghezza_mm, dim_a, dim_b, elongation,
-                                )
-
-        if detected_rhs:
-            continue
-
-        # === CHS: >=1 cilindro + pochi piani (tappi, max 4) ===
-        # Fix Bug B: soglia cilindro abbassata da r>10 a r>5 per includere tondi
-        # piccoli come D.27 (r=13.5mm passa già, ma D.12/D.10 ora rilevabili).
-        if debug:
-            logger.info(
-                "[CHS bid=%s] candidato: n_cyl=%d n_plane=%d cyl_radii=%s",
-                bid, n_cyl, n_plane, sorted(cyl_radii.keys()),
-            )
-        if n_cyl >= 1 and n_plane <= 4:
-            big_cyl_radii = {r: surfs for r, surfs in cyl_radii.items() if r > 5.0}
-            if not big_cyl_radii:
-                if debug:
-                    logger.info("[CHS bid=%s] SKIP: nessun cilindro r>5mm", bid)
+        try:
+            fs = geo.facce(bid)
+            if not fs:
                 continue
+            tubo = _analizza_rhs(geo, bid, fs, profili_db, debug)
+            if tubo is None:
+                tubo = _analizza_chs(geo, bid, fs, profili_db, debug)
+            if tubo is not None:
+                tubi_rilevati.append(tubo)
+        except Exception as e:  # un corpo anomalo non deve bloccare l'import
+            logger.warning("analisi tubolare corpo #%s fallita: %s", bid, e)
 
-            radii_sorted = sorted(big_cyl_radii.keys(), reverse=True)
-            r_ext = radii_sorted[0]
-            r_int = radii_sorted[1] if len(radii_sorted) > 1 else None
-            d_ext = round(r_ext * 2, 1)
-            spessore = round(r_ext - r_int, 1) if r_int and (r_ext - r_int) > 0.5 else None
-
-            cyl_axis = None
-            for s in big_cyl_radii[r_ext]:
-                if 'axis' in s[1]:
-                    cyl_axis = _vec_norm(s[1]['axis'])
-                    break
-
-            lunghezza_mm = 0
-            taglio_1 = "dritto"
-            taglio_2 = "dritto"
-            angolo_taglio_1 = 0.0
-            angolo_taglio_2 = 0.0
-            chs_verts = None
-
-            if cyl_axis and planes_with_data:
-                # cap_planes serve solo per classificare taglio dritto/obliquo
-                # ai due estremi del tondo. La lunghezza vera viene invece
-                # calcolata sui vertici del body (vedi sotto), perché le
-                # AXIS2_PLACEMENT_3D.location dei piani cap STEP non sono
-                # punti del piano ma frame-origin arbitrari → producevano
-                # +40mm sistematici sui tondi (es. D27 600→640).
-                cap_planes = []
-                for origin, normal in planes_with_data:
-                    dot = abs(_vec_dot(normal, cyl_axis))
-                    if dot > 0.95:
-                        cap_planes.append((origin, normal, dot))
-
-                # v14: lunghezza dai vertici body proiettati sull'asse del
-                # cilindro (criterio robusto, indipendente dalle location piani).
-                chs_verts = _collect_body_vertices(face_refs)
-                if chs_verts:
-                    projs_v = [_vec_dot(v, cyl_axis) for v in chs_verts]
-                    lunghezza_mm = max(projs_v) - min(projs_v)
-                elif len(cap_planes) >= 2:
-                    projs_p = [_vec_dot(p[0], cyl_axis) for p in cap_planes]
-                    lunghezza_mm = max(projs_p) - min(projs_p)
-
-                # Classificazione taglio agli estremi: usa cap_planes
-                if len(cap_planes) >= 2:
-                    cps = sorted(cap_planes, key=lambda p: _vec_dot(p[0], cyl_axis))
-                    p_min, p_max = cps[0], cps[-1]
-                    taglio_1 = "dritto" if p_min[2] > 0.98 else "obliquo"
-                    taglio_2 = "dritto" if p_max[2] > 0.98 else "obliquo"
-                    # v16: angolo numerico in gradi (inclinazione cap rispetto al
-                    # perpendicolare-asse). p[2] = |dot(normal, axis)|.
-                    d1 = max(-1.0, min(1.0, p_min[2]))
-                    d2 = max(-1.0, min(1.0, p_max[2]))
-                    angolo_taglio_1 = round(math.degrees(math.acos(d1)), 1)
-                    angolo_taglio_2 = round(math.degrees(math.acos(d2)), 1)
-
-            if lunghezza_mm < 10:
-                all_origins = [s[1]['origin'] for s in surfaces
-                               if s[0] == 'CYL' and 'origin' in s[1]]
-                if len(all_origins) >= 2:
-                    xs = [p[0] for p in all_origins]
-                    ys = [p[1] for p in all_origins]
-                    zs = [p[2] for p in all_origins]
-                    lunghezza_mm = max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs))
-
-            lunghezza_m = round(lunghezza_mm / 1000.0, 3)
-
-            profilo = match_profilo_chs(d_ext, spessore or 2.0, profili_db)
-            nome_profilo = profilo["nome"] if profilo else f"Tondo \u00d8{d_ext} sp.{spessore or '?'}mm"
-            peso_kg_m = profilo["peso_kg_m"] if profilo else 0.0
-            peso_kg = round(peso_kg_m * lunghezza_m, 2)
-            # v14: snap d_ext e spessore al nominale del profilo DB se matched.
-            # Il valore geometrico (es. sp 2.3 da r_ext-r_int) e' lo spessore
-            # reale del CAD ma puo' divergere dalla nomenclatura commerciale
-            # ("Tondo 27x2"). Per coerenza con la distinta usiamo il nominale.
-            if profilo:
-                d_ext = profilo.get("d_ext", d_ext)
-                spessore = profilo.get("spessore", spessore)
-
-            # v15: centroide CHS = bbox center dei vertici body veri.
-            if not chs_verts:
-                chs_verts = _collect_body_vertices(face_refs)
-            if chs_verts:
-                centroide = [
-                    (max(v[0] for v in chs_verts) + min(v[0] for v in chs_verts)) / 2,
-                    (max(v[1] for v in chs_verts) + min(v[1] for v in chs_verts)) / 2,
-                    (max(v[2] for v in chs_verts) + min(v[2] for v in chs_verts)) / 2,
-                ]
-            else:
-                chs_origins = [s[1]['origin'] for s in surfaces
-                               if s[0] in ('PLANE', 'CYL') and 'origin' in s[1]]
-                if chs_origins:
-                    n_o = len(chs_origins)
-                    centroide = [
-                        sum(o[0] for o in chs_origins) / n_o,
-                        sum(o[1] for o in chs_origins) / n_o,
-                        sum(o[2] for o in chs_origins) / n_o,
-                    ]
-                else:
-                    centroide = None
-
-            if debug:
-                logger.info(
-                    "[CHS bid=%s] MATCHED profilo=%s d=%s sp=%s len=%.3fm taglio=%s/%s",
-                    bid, nome_profilo, d_ext, spessore, lunghezza_m, taglio_1, taglio_2,
-                )
-
-            tubi_rilevati.append({
-                "tipo": "CHS",
-                "profilo": nome_profilo,
-                "d_ext": d_ext,
-                "spessore": spessore,
-                "lunghezza_m": lunghezza_m,
-                "peso_kg": peso_kg,
-                "peso_kg_m": peso_kg_m,
-                "taglio_1": taglio_1,
-                "taglio_2": taglio_2,
-                "angolo_taglio_1": angolo_taglio_1,
-                "angolo_taglio_2": angolo_taglio_2,
-                "centroide": centroide,
-                "body_id": bid
-            })
-            continue
-
-    # --- Caso speciale: corpo unico fuso con molti cilindri ---
-    if not tubi_rilevati and body_ids:
+    # --- Caso speciale: corpo unico fuso con tratti di tubo ---
+    if not tubi_rilevati:
         for bid in body_ids:
-            face_refs = _get_face_refs(bid)
-            surfaces = []
-            for fref in face_refs:
-                stype, sdata = _get_surface_info(fref)
-                if stype:
-                    surfaces.append((stype, sdata))
-
-            cyl_by_radius = {}
-            for s in surfaces:
-                if s[0] == 'CYL':
-                    r = round(s[1].get('raggio', 0), 1)
-                    if r > 5.0:
-                        cyl_by_radius.setdefault(r, []).append(s)
-
-            if not cyl_by_radius:
-                continue
-
-            for r, cyl_list in sorted(cyl_by_radius.items(), key=lambda x: len(x[1]), reverse=True):
-                n_cyl_same = len(cyl_list)
-                if n_cyl_same < 3:
-                    continue
-
-                d_ext = round(r * 2, 1)
-                origins = [s[1]['origin'] for s in cyl_list if 'origin' in s[1]]
-                axes = [_vec_norm(s[1]['axis']) for s in cyl_list if 'axis' in s[1]]
-
-                axis_groups = {}
-                for i_ax, (orig, ax) in enumerate(zip(origins, axes)):
-                    matched = False
-                    for gk in axis_groups:
-                        ref_ax = axis_groups[gk][0][1]
-                        if abs(_vec_dot(ax, ref_ax)) > 0.95:
-                            axis_groups[gk].append((orig, ax))
-                            matched = True
-                            break
-                    if not matched:
-                        axis_groups[len(axis_groups)] = [(orig, ax)]
-
-                profilo = match_profilo_chs(d_ext, 2.0, profili_db)
-                nome_profilo = profilo["nome"] if profilo else f"Tondo \u00d8{d_ext}mm"
-                peso_kg_m = profilo["peso_kg_m"] if profilo else 0.0
-
-                for gk, group in axis_groups.items():
-                    if len(group) < 1:
-                        continue
-                    ref_ax = _vec_norm(group[0][1])
-                    projs = [_vec_dot(o, ref_ax) for o, a in group]
-                    if len(projs) >= 2:
-                        lunghezza_mm = max(projs) - min(projs)
-                    else:
-                        lunghezza_mm = 500
-
-                    if lunghezza_mm < 20:
-                        lunghezza_mm = 500
-
-                    lunghezza_m = round(lunghezza_mm / 1000.0, 3)
-                    peso_kg = round(peso_kg_m * lunghezza_m, 2)
-
-                    tubi_rilevati.append({
-                        "tipo": "CHS",
-                        "profilo": nome_profilo,
-                        "d_ext": d_ext,
-                        "spessore": profilo["spessore"] if profilo else None,
-                        "lunghezza_m": lunghezza_m,
-                        "peso_kg": peso_kg,
-                        "peso_kg_m": peso_kg_m,
-                        "taglio_1": "dritto",
-                        "taglio_2": "dritto",
-                        "body_id": bid,
-                        "stimato": True
-                    })
+            try:
+                tubi_rilevati.extend(_tubi_da_corpo_fuso(geo, bid, geo.facce(bid), profili_db))
+            except Exception as e:
+                logger.warning("analisi corpo fuso #%s fallita: %s", bid, e)
 
     # --- Riepilogo ---
     peso_totale = round(sum(t["peso_kg"] for t in tubi_rilevati), 2)
-    n_dritti = sum(1 for t in tubi_rilevati
-                   for tag in [t["taglio_1"], t["taglio_2"]] if tag == "dritto")
-    n_obliqui = sum(1 for t in tubi_rilevati
-                    for tag in [t["taglio_1"], t["taglio_2"]] if tag == "obliquo")
-    n_sagomati = sum(1 for t in tubi_rilevati
-                     for tag in [t["taglio_1"], t["taglio_2"]] if tag == "sagomato")
+    tagli = [tag for t in tubi_rilevati for tag in (t["taglio_1"], t["taglio_2"])]
+    avvisi = list(info['avvisi'])
+    for t in tubi_rilevati:
+        if "profilo_non_a_catalogo" in t.get("avvisi", []):
+            avvisi.append(f"profilo_non_a_catalogo: {t['profilo']} (peso calcolato dalla geometria)")
 
     return {
         'tubi': tubi_rilevati,
         'peso_totale_kg': peso_totale,
-        'n_tagli_dritti': n_dritti,
-        'n_tagli_obliqui': n_obliqui,
-        'n_tagli_sagomati': n_sagomati,
+        'n_tagli_dritti': tagli.count("dritto"),
+        'n_tagli_obliqui': tagli.count("obliquo"),
+        'n_tagli_sagomati': tagli.count("sagomato"),
+        'body_ids_tubi': [t["body_id"] for t in tubi_rilevati if not t.get("stimato")],
+        'avvisi': avvisi,
+        'unita': info['unita'],
         'errore': None if tubi_rilevati else 'Nessun tubo rilevato nel file STEP'
     }
 

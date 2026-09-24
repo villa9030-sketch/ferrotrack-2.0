@@ -44,6 +44,7 @@ LAYER_DA_ESCLUDERE_PATTERNS = (
     'hatch', 'tratteggio', 'cartiglio', 'frame', 'border',
     'cornice', 'logo', 'symb', 'mark', 'note', 'tit',
     'format',   # Lantek: layer cartiglio si chiama 'FORMAT'
+    'pieg', 'bend', 'fold', 'bieg',   # linee di piega: marcature, non contorni
 )
 
 TIPI_ANNOTAZIONE = {
@@ -162,16 +163,32 @@ def _is_rettangolo(verts: list[tuple[float, float]],
     return (poly_area / bbox_area) >= ratio_min
 
 
+def _poligono_contenuto(inner: list[tuple[float, float]], outer: list[tuple[float, float]]) -> bool:
+    """True se TUTTI i vertici (campionati) di inner stanno dentro outer.
+
+    BUG FIX D2: prima si testava il solo centroide dei vertici; per un pezzo
+    rettangolare con foro centrale il centroide cade nel foro → risultava che
+    il FORO conteneva il PEZZO.
+    """
+    if not inner or inner is outer:
+        return False
+    passo = max(1, len(inner) // 16)
+    return all(_point_in_polygon(v, outer) for v in inner[::passo])
+
+
 def _conta_poligoni_contenuti(target_verts: list[tuple[float, float]],
-                              all_polygons: list[list[tuple[float, float]]]) -> int:
-    """Conta quanti altri poligoni hanno centroide dentro target_verts."""
+                              all_polygons: list[list[tuple[float, float]]],
+                              area_min_rel: float = 0.0) -> int:
+    """Conta quanti altri poligoni sono contenuti in target_verts
+    (opzionale: solo quelli con area ≥ area_min_rel × area target)."""
     n = 0
+    a_t = _shoelace_area(target_verts)
     for other in all_polygons:
         if other is target_verts or not other:
             continue
-        cx = sum(v[0] for v in other) / len(other)
-        cy = sum(v[1] for v in other) / len(other)
-        if _point_in_polygon((cx, cy), target_verts):
+        if area_min_rel and _shoelace_area(other) < area_min_rel * a_t:
+            continue
+        if _poligono_contenuto(other, target_verts):
             n += 1
     return n
 
@@ -182,14 +199,19 @@ def _is_cornice_cartiglio(verts: list[tuple[float, float]],
                           min_contenuti: int = MIN_CONTENUTI_CORNICE) -> bool:
     """True se il poligono è una cornice cartiglio.
 
-    Criterio combinato (OR):
-    a) Rettangolo puro con entrambe le dim ≥ min_bbox_mm (cornice grande = formato foglio)
-    b) Rettangolo puro che contiene ≥ min_contenuti altri poligoni
+    Criterio combinato (OR), sempre su rettangolo puro che contiene un disegno
+    (almeno un contorno NON-foro, > 5% della sua area):
+    a) entrambe le dim ≥ min_bbox_mm (cornice grande = formato foglio)
+    b) contiene ≥ min_contenuti altri poligoni
        (catch cornici lunghe-strette tipo cartiglio Lantek 562x133)
 
-    Pezzi rettangolari (piccoli o senza molti contenuti dentro) passano.
+    BUG FIX D1: prima bastava la dimensione (a) o il numero di contenuti (b):
+    una piastra 300×200 con fori, o con 8 fori, era scartata come cornice.
+    I fori (piccoli) non fanno di un rettangolo una cornice.
     """
     if not _is_rettangolo(verts):
+        return False
+    if _conta_poligoni_contenuti(verts, all_polygons, area_min_rel=0.05) == 0:
         return False
     bb = _polygon_bbox(verts)
     bw = bb[2] - bb[0]
@@ -220,16 +242,18 @@ def _layer_da_escludere(layer_name: str) -> bool:
 # ============================================================================
 
 def _entity_color_excluded(entity, colori_esclusi: set[int]) -> bool:
-    """True se l'entità ha colore in colori esclusi (linee piega/saldatura)."""
+    """True se l'entità ha colore (EFFETTIVO: anche BYLAYER) in colori esclusi
+    (linee piega/saldatura)."""
     try:
-        c = entity.dxf.color
-        return c in colori_esclusi
-    except AttributeError:
+        from .dxf_polygon_detector_v3 import colore_effettivo
+        return colore_effettivo(entity) in colori_esclusi
+    except Exception:
         return False
 
 
-def _flatten_entity_to_polygon(entity, distance: float = FLATTEN_DISTANCE_MM) -> list[tuple[float, float]] | None:
-    """Converte un'entità DXF in lista di vertici 2D via ezdxf.path.make_path + flattening.
+def _flatten_entity_to_polygon(entity, distance: float = FLATTEN_DISTANCE_MM,
+                               scala: float = 1.0) -> list[tuple[float, float]] | None:
+    """Converte un'entità DXF in lista di vertici 2D (mm) via ezdxf.path.make_path + flattening.
 
     Funziona per LWPOLYLINE/POLYLINE chiusi, CIRCLE, ARC, ELLIPSE, SPLINE.
     Restituisce None se la conversione fallisce o entità non ha geometria.
@@ -238,7 +262,7 @@ def _flatten_entity_to_polygon(entity, distance: float = FLATTEN_DISTANCE_MM) ->
         p = make_path(entity)
         if len(p) == 0:
             return None
-        verts = [(v.x, v.y) for v in p.flattening(distance)]
+        verts = [(v.x * scala, v.y * scala) for v in p.flattening(distance / scala)]
         return verts if len(verts) >= 2 else None
     except Exception as e:
         logger.debug("make_path fallito per %s: %s", entity.dxftype(), e)
@@ -252,19 +276,31 @@ def _is_closed_polygon(verts: list[tuple[float, float]], tol: float = TOL_ENDPOI
     return math.hypot(verts[-1][0] - verts[0][0], verts[-1][1] - verts[0][1]) <= tol
 
 
-def _extract_polygons(msp, colori_esclusi: set[int]) -> tuple[list[list[tuple[float, float]]], list]:
-    """Estrae poligoni chiusi e entità aperte dal modelspace.
+def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0) -> tuple[list[list[tuple[float, float]]], list]:
+    """Estrae poligoni chiusi e entità aperte dal modelspace (INSERT espansi, mm).
 
     Restituisce (poligoni_chiusi, entita_aperte_da_chain).
 
     Poligoni chiusi: LWPOLYLINE/POLYLINE con flag closed o endpoints coincidenti,
                      CIRCLE (sempre chiusi), ARC con sweep=360°, SPLINE chiuse.
     Entità aperte: LINE, ARC<360°, polyline non chiuse → candidate al chain walking.
+    Entità duplicate (stesso tratto disegnato due volte) contate una volta.
     """
+    from .dxf_polygon_detector_v3 import entita_espanse
     closed_polygons: list[list[tuple[float, float]]] = []
     open_segments: list[tuple[tuple[float, float], tuple[float, float], object]] = []
+    firme: set = set()
 
-    for entity in msp:
+    def _nuova(verts) -> bool:
+        """False se un'entità identica (entro 0.01mm) è già stata raccolta."""
+        pts = sorted({(round(x, 2), round(y, 2)) for x, y in verts})
+        firma = (len(verts), tuple(pts[:4]), tuple(pts[-4:]))
+        if firma in firme:
+            return False
+        firme.add(firma)
+        return True
+
+    for entity in entita_espanse(msp, solo_geometria=True):
         et = entity.dxftype()
         if et in TIPI_ANNOTAZIONE:
             continue
@@ -279,16 +315,27 @@ def _extract_polygons(msp, colori_esclusi: set[int]) -> tuple[list[list[tuple[fl
         if _entity_color_excluded(entity, colori_esclusi):
             continue
 
+        if et == 'LINE':
+            try:
+                s = (entity.dxf.start.x * scala, entity.dxf.start.y * scala)
+                e = (entity.dxf.end.x * scala, entity.dxf.end.y * scala)
+                if s != e and _nuova([s, e]):
+                    open_segments.append((s, e, [s, e]))
+            except AttributeError:
+                pass
+            continue
+        if et not in ('CIRCLE', 'LWPOLYLINE', 'POLYLINE', 'SPLINE', 'ELLIPSE', 'ARC'):
+            continue
+        verts = _flatten_entity_to_polygon(entity, scala=scala)
+        if verts is None or not _nuova(verts):
+            continue
+
         if et == 'CIRCLE':
-            verts = _flatten_entity_to_polygon(entity)
-            if verts and len(verts) >= 3:
+            if len(verts) >= 3:
                 closed_polygons.append(verts)
             continue
 
         if et in ('LWPOLYLINE', 'POLYLINE'):
-            verts = _flatten_entity_to_polygon(entity)
-            if verts is None:
-                continue
             # Determina chiusura: flag esplicito O endpoint coincidenti
             try:
                 is_closed_flag = bool(entity.closed) if et == 'LWPOLYLINE' else bool(getattr(entity, 'is_closed', False))
@@ -301,26 +348,7 @@ def _extract_polygons(msp, colori_esclusi: set[int]) -> tuple[list[list[tuple[fl
                 open_segments.append((verts[0], verts[-1], verts))
             continue
 
-        if et == 'SPLINE':
-            verts = _flatten_entity_to_polygon(entity)
-            if verts is None:
-                continue
-            if _is_closed_polygon(verts):
-                closed_polygons.append(verts)
-            else:
-                open_segments.append((verts[0], verts[-1], verts))
-            continue
-
-        if et == 'ELLIPSE':
-            verts = _flatten_entity_to_polygon(entity)
-            if verts and _is_closed_polygon(verts):
-                closed_polygons.append(verts)
-            continue
-
         if et == 'ARC':
-            verts = _flatten_entity_to_polygon(entity)
-            if verts is None:
-                continue
             # ARC con sweep ≥ 359.9° = cerchio chiuso
             try:
                 sweep = (entity.dxf.end_angle - entity.dxf.start_angle) % 360.0
@@ -332,13 +360,11 @@ def _extract_polygons(msp, colori_esclusi: set[int]) -> tuple[list[list[tuple[fl
                 open_segments.append((verts[0], verts[-1], verts))
             continue
 
-        if et == 'LINE':
-            try:
-                s = (entity.dxf.start.x, entity.dxf.start.y)
-                e = (entity.dxf.end.x, entity.dxf.end.y)
-                open_segments.append((s, e, [s, e]))
-            except AttributeError:
-                continue
+        # SPLINE / ELLIPSE: chiuse se gli estremi coincidono, altrimenti tratti da concatenare
+        if _is_closed_polygon(verts):
+            closed_polygons.append(verts)
+        else:
+            open_segments.append((verts[0], verts[-1], verts))
 
     return closed_polygons, open_segments
 
@@ -536,10 +562,25 @@ def _classify_outer_inner(polygons: list[list[tuple[float, float]]],
     for verts, _s in scored[1:]:
         if not verts:
             continue
-        cx = sum(v[0] for v in verts) / len(verts)
-        cy = sum(v[1] for v in verts) / len(verts)
-        if _point_in_polygon((cx, cy), outer):
+        if _poligono_contenuto(verts, outer):
             inners.append(verts)
+    # Contorni interni annidati: svasatura (concentrici) → resta il passante
+    # (il più piccolo); isola dentro un foro → resta il foro esterno.
+    drop = set()
+    for i, a in enumerate(inners):
+        for j, b in enumerate(inners):
+            if i == j or i in drop or j in drop:
+                continue
+            if _shoelace_area(b) >= _shoelace_area(a) or not _poligono_contenuto(b, a):
+                continue
+            ca = (sum(v[0] for v in a) / len(a), sum(v[1] for v in a) / len(a))
+            cb = (sum(v[0] for v in b) / len(b), sum(v[1] for v in b) / len(b))
+            r_b = (_shoelace_area(b) / math.pi) ** 0.5
+            if math.hypot(ca[0] - cb[0], ca[1] - cb[1]) <= max(0.5, 0.15 * r_b):
+                drop.add(i)
+            else:
+                drop.add(j)
+    inners = [p for k, p in enumerate(inners) if k not in drop]
     return outer, inners
 
 
@@ -582,9 +623,13 @@ def detect_pezzo_geometry(path: str, config: dict | None = None) -> dict:
         return _empty_result([f"DXF non leggibile: {e}"])
 
     msp = doc.modelspace()
+    from .dxf_polygon_detector_v3 import scala_unita_mm
+    scala, w_unita = scala_unita_mm(doc)
+    if w_unita:
+        warnings.append(w_unita)
 
-    # ---- 1. Estrai poligoni chiusi + segmenti aperti
-    closed_polys, open_segs = _extract_polygons(msp, colori_esclusi)
+    # ---- 1. Estrai poligoni chiusi + segmenti aperti (mm, INSERT espansi)
+    closed_polys, open_segs = _extract_polygons(msp, colori_esclusi, scala)
     logger.debug("DXF %s: %d poligoni chiusi, %d entità aperte", os.path.basename(path), len(closed_polys), len(open_segs))
 
     # ---- 2. Chain walking SEMPRE attivo
@@ -641,8 +686,9 @@ def detect_pezzo_geometry(path: str, config: dict | None = None) -> dict:
     # Outer = poligono che contiene PIÙ CIRCLE (= fori del pezzo); tie-break su area
     # Inner = poligoni con centroide DENTRO l'outer = fori complessi del pezzo
     # Strategia: il pezzo Lantek ha sempre fori (forature, asole), la cornice cartiglio no
+    from .dxf_polygon_detector_v3 import entita_espanse
     circles_centri = []
-    for e in msp:
+    for e in entita_espanse(msp, solo_geometria=True):
         if e.dxftype() != 'CIRCLE':
             continue
         try:
@@ -654,7 +700,8 @@ def detect_pezzo_geometry(path: str, config: dict | None = None) -> dict:
         if _entity_color_excluded(e, colori_esclusi):
             continue
         try:
-            circles_centri.append((float(e.dxf.center.x), float(e.dxf.center.y)))
+            c = e.ocs().to_wcs(e.dxf.center)
+            circles_centri.append((float(c.x) * scala, float(c.y) * scala))
         except AttributeError:
             continue
 
@@ -686,11 +733,28 @@ def detect_pezzo_geometry(path: str, config: dict | None = None) -> dict:
     if bbox_w_mm > 3000 or bbox_h_mm > 3000:
         warnings.append(f"Pezzo molto grande: {bbox_w_mm:.0f}×{bbox_h_mm:.0f} mm — verificare unità DXF")
 
+    # ---- 8. Confidence ESPLICITA (BUG FIX D10: prima mancava → il chiamante la
+    # leggeva come 0 e sostituiva sempre area/perimetro col fallback cartiglio).
+    # v2 = fallback del v3: al massimo "media". Bassa se c'è un altro contorno
+    # esterno di dimensione confrontabile (pezzo scelto in modo ambiguo).
+    ids_inner = {id(p) for p in inners}
+    altri = [p for p in filtered_polygons
+             if p is not outer and id(p) not in ids_inner and not _poligono_contenuto(p, outer)]
+    ambiguo = any(_shoelace_area(p) >= 0.3 * area_outer_mm2 for p in altri)
+    confidence = 0.45 if ambiguo else 0.6
+    if ambiguo:
+        warnings.append('Più contorni esterni di dimensioni confrontabili: verificare il pezzo scelto')
+
     return {
         'area_dm2': round(area_netta_mm2 / 10000.0, 4),
         'area_lorda_dm2': round(area_outer_mm2 / 10000.0, 4),
         'perimetro_taglio_m': round(perim_totale_mm / 1000.0, 4),
         'n_pierce': n_pierce,
+        'n_forature': n_pierce,
+        'n_fori': len(inners),
+        'confidence': confidence,
+        'confidence_label': 'media' if confidence >= 0.6 else 'bassa',
+        'needs_manual_select': confidence < 0.6,
         'n_inner': len(inners),
         'bbox_width_mm': round(bbox_w_mm, 2),
         'bbox_height_mm': round(bbox_h_mm, 2),
@@ -711,6 +775,7 @@ def _empty_result(warnings: list[str], n_grezzi: int = 0) -> dict:
         'n_inner': 0,
         'bbox_width_mm': 0.0,
         'bbox_height_mm': 0.0,
+        'confidence': 0.0,
         'tipo_disegno': 'vuoto',
         'poligoni_grezzi': n_grezzi,
         'poligoni_cartiglio_rimossi': 0,

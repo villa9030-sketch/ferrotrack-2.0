@@ -476,7 +476,7 @@ class PDFPreventivo:
         elements.append(Paragraph("Dettaglio Articoli", self.style_heading))
 
         articoli = dati.get("articoli", [])
-        margine = dati.get("margine", 0)
+        fattore = self._fattore_prezzo(dati)
 
         # Table header
         header = ["Codice", "Materiale", "Piegatura", "Saldatura", "Altro", "Totale"]
@@ -485,18 +485,22 @@ class PDFPreventivo:
         totale_generale = 0.0
         for art in articoli:
             codice = art.get("codice", "")
-            costo_mat = art.get("costo", 0)
-            costo_piega = art.get("costo_piega", 0)
-            costo_sald = art.get("costo_saldatura", 0)
+            costo_piega = art.get("costo_piega", 0) or 0
+            costo_sald = art.get("costo_saldatura", 0) or 0
             costo_altro = (
-                art.get("costo_filettatura", 0)
-                + art.get("costo_svasatura", 0)
-                + art.get("costo_mat_apporto", 0)
-                + art.get("costo_pulizia", 0)
+                (art.get("costo_filettatura", 0) or 0)
+                + (art.get("costo_svasatura", 0) or 0)
+                + (art.get("costo_apporto", art.get("costo_mat_apporto", 0)) or 0)
+                + (art.get("costo_pulizia", 0) or 0)
             )
-            costo_tot = costo_mat + costo_piega + costo_sald + costo_altro
-            if margine > 0:
-                costo_tot *= 1 + margine / 100
+            # `costo` e' il costo unitario COMPLETO (base + lavorazioni): la
+            # colonna Materiale deve mostrare solo la base, altrimenti le
+            # lavorazioni si contavano due volte.
+            if "costo_base" in art:
+                costo_mat = art.get("costo_base") or 0
+            else:
+                costo_mat = (art.get("costo", 0) or 0) - costo_piega - costo_sald - costo_altro
+            costo_tot = (costo_mat + costo_piega + costo_sald + costo_altro) * fattore
             totale_generale += costo_tot
 
             table_data.append(
@@ -1348,6 +1352,17 @@ class PDFPreventivo:
     # Totals box
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _fattore_prezzo(dati):
+        """Fattore costo → prezzo: (1+generali%) × (1+ricarico%). Lo calcola il
+        backend (`fattore_prezzo`); per dati vecchi si ricostruisce."""
+        f = dati.get("fattore_prezzo")
+        if f:
+            return float(f)
+        gen = float(dati.get("costi_generali_pct") or 0)
+        mar = float(dati.get("margine") or 0)
+        return (1 + gen / 100) * (1 + mar / 100)
+
     def _build_totals_box(self, elements, dati):
         """Build the final totals box - highlighted and prominent."""
         elements.append(Spacer(1, 4 * mm))
@@ -1360,11 +1375,11 @@ class PDFPreventivo:
         costo_tubolari = dati.get("costo_tubolari_totale", 0)
         costo_piastre = dati.get("costo_piastre_totale", 0)
 
-        # Calculate unit price with margin
-        if margine > 0:
-            prezzo_unitario = totale_pezzo * (1 + margine / 100)
-        else:
-            prezzo_unitario = totale_pezzo
+        # Prezzo = costo × (1+generali%) × (1+ricarico%), per TUTTE le righe:
+        # prima il prezzo unitario escludeva i costi generali mentre il TOTALE
+        # li includeva, e le righe non sommavano al totale.
+        fattore = self._fattore_prezzo(dati)
+        prezzo_unitario = totale_pezzo * fattore
 
         rows = []
 
@@ -1378,24 +1393,19 @@ class PDFPreventivo:
         )
 
         if costo_montaggio > 0:
-            costo_m_display = costo_montaggio
-            if self.config.get("margine_su_montaggio", True) and margine > 0:
-                costo_m_display = costo_montaggio * (1 + margine / 100)
             rows.append(
-                ["+ Montaggio assiemi", "", _eur(costo_m_display)]
+                ["+ Montaggio assiemi", "", _eur(costo_montaggio * fattore)]
             )
 
         if costo_tubolari > 0:
-            costo_t_display = costo_tubolari
-            if self.config.get("margine_su_montaggio", True) and margine > 0:
-                costo_t_display = costo_tubolari * (1 + margine / 100)
-            rows.append(["+ Tubolari", "", _eur(costo_t_display)])
+            rows.append(["+ Tubolari", "", _eur(costo_tubolari * fattore)])
 
         if costo_piastre > 0:
-            costo_p_display = costo_piastre
-            if self.config.get("margine_su_montaggio", True) and margine > 0:
-                costo_p_display = costo_piastre * (1 + margine / 100)
-            rows.append(["+ Piastre", "", _eur(costo_p_display)])
+            rows.append(["+ Piastre", "", _eur(costo_piastre * fattore)])
+
+        sconto_eur = dati.get("sconto_eur") or 0
+        if sconto_eur:
+            rows.append([f"Sconto {dati.get('sconto_pct', 0):g}%", "", _eur(sconto_eur)])
 
         # Separator row (visual)
         rows.append(["", "", ""])

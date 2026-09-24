@@ -9,6 +9,7 @@ from .models import (
     PhaseDelegation, SupportRequest, OfficinaScan, Pistola,
     Preventivo, PreventivoArticolo, PreventivoAssieme, PreventivoTubolare, PreventivoPiastra,
 )
+import os
 import uuid
 import json
 import logging
@@ -4852,6 +4853,8 @@ class PreventivoManager:
                                     session.query(PreventivoArticolo)
                                     .filter(PreventivoArticolo.preventivo_id == preventivo_id)
                                     .order_by(PreventivoArticolo.codice).all()]
+                PreventivoManager._leggi_extra_articoli(session, preventivo_id,
+                                                        data['articoli'])
                 data['assiemi'] = [PreventivoManager._serialize_assieme(a) for a in
                                    session.query(PreventivoAssieme)
                                    .filter(PreventivoAssieme.preventivo_id == preventivo_id).all()]
@@ -5142,6 +5145,123 @@ class PreventivoManager:
         finally:
             session.close()
 
+    # ---- Campi articolo senza colonna dedicata ------------------------------
+    # Gas di taglio, avvisi della stima, origine dei campi (CAD o manuale),
+    # fonte del costo base: prima si perdevano al salvataggio (la riga li
+    # ignorava) e alla riapertura la stima tornava senza gas scelto, gli avvisi
+    # sparivano e una correzione manuale veniva sovrascritta dal CAD.
+    # Stanno in una colonna JSON `extra_campi`, aggiunta al volo se manca.
+    # `stima_dettaglio`: scomposizione dell'ultima stima laser (materiale,
+    # macchina, setup, tempi) per mostrare da cosa nasce il costo base.
+    # `bbox_w_mm`/`bbox_h_mm`: ingombro confermato dal CAD o dall'import.
+    EXTRA_ARTICOLO = ('gas_taglio', 'avvisi_stima', 'origine_campi',
+                      'ricetta_mancante', 'materiale_sconosciuto',
+                      'spessore_fuori_tabella', 'fonte_costo_base',
+                      'stima_dettaglio', 'bbox_w_mm', 'bbox_h_mm', 'pdf_filename',
+                      'dxf_confidence', 'dxf_needs_verify', 'avvisi_spessore')
+    _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
+
+    @staticmethod
+    def _extra_articolo(a: dict) -> dict:
+        """Solo i campi ammessi, ripuliti: nessun dato arbitrario in colonna."""
+        out = {}
+        gas = str(a.get('gas_taglio') or '').strip().upper()
+        if gas in PreventivoManager._GAS_VALIDI:
+            out['gas_taglio'] = gas
+        avvisi = a.get('avvisi_stima')
+        if isinstance(avvisi, list):
+            out['avvisi_stima'] = [str(x)[:300] for x in avvisi if x][:10]
+        # Incertezze sullo spessore rilevate all'import (es. testo e peso che
+        # non concordano): restano finche' l'operatore non le risolve.
+        avv_sp = a.get('avvisi_spessore')
+        if isinstance(avv_sp, list):
+            out['avvisi_spessore'] = [str(x)[:300] for x in avv_sp if x][:5]
+        origine = a.get('origine_campi')
+        if isinstance(origine, dict):
+            out['origine_campi'] = {str(k)[:40]: v for k, v in origine.items()
+                                    if v in ('cad', 'manuale')}
+        for k in ('ricetta_mancante', 'materiale_sconosciuto', 'spessore_fuori_tabella'):
+            if a.get(k):
+                out[k] = True
+        fonte = str(a.get('fonte_costo_base') or '').strip().lower()
+        if fonte in ('lantek', 'storico', 'manuale'):
+            out['fonte_costo_base'] = fonte
+        dett = a.get('stima_dettaglio')
+        if isinstance(dett, dict):
+            chiavi = ('peso_kg', 'costo_materiale', 'costo_lavoro', 'setup_eur',
+                      'tempo_taglio_s', 'tempo_pierce_s', 'tempo_totale_min',
+                      'velocita_mm_min', 'base')
+            pulito = {}
+            for k in chiavi:
+                try:
+                    v = float(dett.get(k))
+                except (TypeError, ValueError):
+                    continue
+                if v == v and abs(v) < 1e9:        # niente NaN / valori assurdi
+                    pulito[k] = round(v, 4)
+            if pulito:
+                out['stima_dettaglio'] = pulito
+        for k in ('bbox_w_mm', 'bbox_h_mm'):
+            try:
+                v = float(a.get(k))
+            except (TypeError, ValueError):
+                continue
+            if 0 < v < 1e6:
+                out[k] = round(v, 2)
+        # Quanto e' sicuro il riconoscimento automatico del contorno: decide se
+        # il pezzo va verificato a mano nel CAD o e' gia' affidabile.
+        try:
+            conf = float(a.get('dxf_confidence'))
+            if 0 <= conf <= 1:
+                out['dxf_confidence'] = round(conf, 3)
+        except (TypeError, ValueError):
+            pass
+        if a.get('dxf_needs_verify') is not None:
+            out['dxf_needs_verify'] = bool(a.get('dxf_needs_verify'))
+        # PDF del disegno del cliente abbinato al pezzo (solo il nome del file)
+        pdf = os.path.basename(str(a.get('pdf_filename') or '').strip())
+        if pdf and pdf.lower().endswith('.pdf') and len(pdf) <= 255:
+            out['pdf_filename'] = pdf
+        return out
+
+    @staticmethod
+    def _colonna_extra_pronta(session) -> bool:
+        from sqlalchemy import text
+        try:
+            cols = {r[1] for r in session.execute(
+                text('PRAGMA table_info(preventivo_articoli)')).fetchall()}
+            if 'extra_campi' not in cols:
+                session.execute(text(
+                    'ALTER TABLE preventivo_articoli ADD COLUMN extra_campi TEXT'))
+            return True
+        except Exception as exc:
+            logger.warning('colonna extra_campi non disponibile: %s', exc)
+            return False
+
+    @staticmethod
+    def _leggi_extra_articoli(session, preventivo_id, articoli: list):
+        """Rimette sugli articoli serializzati i campi della colonna JSON."""
+        from sqlalchemy import text
+        try:
+            righe = session.execute(text(
+                'SELECT id, extra_campi FROM preventivo_articoli '
+                'WHERE preventivo_id = :p'), {'p': preventivo_id}).fetchall()
+        except Exception:
+            session.rollback()      # colonna non ancora creata: niente da leggere
+            return
+        extra = {r[0]: r[1] for r in righe if r[1]}
+        for a in articoli:
+            testo = extra.get(a.get('id'))
+            if not testo:
+                continue
+            try:
+                dati = json.loads(testo)
+            except (TypeError, ValueError):
+                continue
+            for k in PreventivoManager.EXTRA_ARTICOLO:
+                if k in dati and k not in a:
+                    a[k] = dati[k]
+
     @staticmethod
     def replace_articoli(preventivo_id, articoli: list):
         """Sostituisce TUTTI gli articoli del preventivo con la lista passata.
@@ -5170,9 +5290,14 @@ class PreventivoManager:
                 PreventivoArticolo.preventivo_id == preventivo_id
             ).delete(synchronize_session=False)
             # Insert i nuovi
+            extra_da_scrivere = []
             for a in articoli or []:
+                _id_nuovo = str(uuid.uuid4())
+                _extra = PreventivoManager._extra_articolo(a)
+                if _extra:
+                    extra_da_scrivere.append((_id_nuovo, _extra))
                 session.add(PreventivoArticolo(
-                    id=str(uuid.uuid4()),
+                    id=_id_nuovo,
                     preventivo_id=preventivo_id,
                     codice=a.get('codice') or '',
                     quantita=int(a.get('quantita') or 1),
@@ -5206,6 +5331,13 @@ class PreventivoManager:
                     canonical_dxf_filename=a.get('canonical_dxf_filename') or None,
                     canonical_dxf_sha256=a.get('canonical_dxf_sha256') or None,
                 ))
+            if extra_da_scrivere and PreventivoManager._colonna_extra_pronta(session):
+                from sqlalchemy import text as _text
+                session.flush()
+                for _id_nuovo, _extra in extra_da_scrivere:
+                    session.execute(_text(
+                        'UPDATE preventivo_articoli SET extra_campi = :j WHERE id = :i'),
+                        {'j': json.dumps(_extra, ensure_ascii=False), 'i': _id_nuovo})
             session.commit()
             return {'success': True, 'count': len(articoli or [])}
         except Exception as e:
@@ -5632,6 +5764,9 @@ class PreventivoManager:
                         'totale_pezzo_con_margine': tot['totale_pezzo_con_margine'],
                         'totale_lotto': tot['totale_lotto'],
                         'totale_lotto_lordo': tot['totale_lotto_lordo'],
+                        # Tariffe apporto/pulizia dei cordoni di assieme: senza,
+                        # accettazione e PDF ricalcolerebbero l'assieme a zero.
+                        **(tot.get('tariffe_saldatura_assiemi') or {}),
                     }, ensure_ascii=False)
                     if tot['totale_lotto'] > 0:
                         p.totale_pezzo = tot['totale_pezzo']

@@ -43,17 +43,93 @@ def default_gas(materiale: str, spessore_mm: float) -> str:
     return 'N2'
 
 
-def _normalize_mat(mat: str) -> str:
+# Famiglie di ricette presenti nel file Lantek del cliente. Ogni materiale che
+# arriva dal CAD, dall'XLSX o dal menu va ricondotto a una di queste, altrimenti
+# la ricetta non si trova e il costo di taglio sparisce.
+FAMIGLIE_RICETTE = ('S235', 'ZINCATO', 'INOX_304', 'ALU', 'OTTONE')
+
+# Alias esatti → famiglia di ricetta piu' vicina. Le sigle degli acciai al
+# carbonio tagliano come S235 (stessa velocita' a parita' di spessore), il 316
+# come il 304, tutte le leghe di alluminio come ALU.
+_ALIAS_MATERIALE = {
+    # acciaio al carbonio
+    'FERRO': 'S235', 'FE': 'S235', 'ACCIAIO': 'S235', 'ACCIAIO_NERO': 'S235',
+    'S235JR': 'S235', 'S235J0': 'S235', 'S235J2': 'S235', 'S275': 'S235',
+    'S275JR': 'S235', 'S355': 'S235', 'S355JR': 'S235', 'S355J2': 'S235',
+    'FE360': 'S235', 'FE430': 'S235', 'ST37': 'S235', 'C45': 'S235',
+    'DC01': 'S235', 'DC04': 'S235', 'DD11': 'S235', 'DD13': 'S235',
+    'LAMIERA_NERA': 'S235', 'DECAPATO': 'S235',
+    # zincato
+    'ZINCATO': 'ZINCATO', 'DX51D': 'ZINCATO', 'DX51': 'ZINCATO',
+    'SENDZIMIR': 'ZINCATO', 'GALVANIZZATO': 'ZINCATO', 'ELETTROZINCATO': 'ZINCATO',
+    # inox (le ricette Lantek non hanno il 316: si usa il 304)
+    'INOX': 'INOX_304', 'INOX_304L': 'INOX_304', 'INOX_316': 'INOX_304',
+    'INOX_316L': 'INOX_304', 'INOX_430': 'INOX_304', 'AISI_304': 'INOX_304',
+    'AISI_316': 'INOX_304', 'AISI304': 'INOX_304', 'AISI316': 'INOX_304',
+    # alluminio
+    'ALLUMINIO': 'ALU', 'AL': 'ALU', 'ALU_5083': 'ALU', 'ALU_5754': 'ALU',
+    'ALU_6082': 'ALU', 'ALU_6061': 'ALU', 'ALU_6060': 'ALU', 'ALU_1050': 'ALU',
+    # ottone
+    'OTTONE': 'OTTONE', 'CUZN': 'OTTONE', 'CUZN37': 'OTTONE', 'CUZN39PB3': 'OTTONE',
+}
+
+# Prefissi per le sigle con suffissi di stato/finitura (es. ALU_5754_H111,
+# S355J2+N, INOX_304_2B). L'ordine conta: il piu' specifico prima.
+_PREFISSI_MATERIALE = (
+    ('INOX', 'INOX_304'), ('AISI', 'INOX_304'),
+    ('ALU', 'ALU'), ('ALLUMINIO', 'ALU'),
+    ('S235', 'S235'), ('S275', 'S235'), ('S355', 'S235'),
+    ('DX51', 'ZINCATO'), ('ZINC', 'ZINCATO'),
+    ('OTTONE', 'OTTONE'), ('CUZN', 'OTTONE'),
+)
+
+
+def _pulisci_sigla(mat: str) -> str:
+    """'Inox 316L' → 'INOX_316L', 'alu-6082' → 'ALU_6082', 'S355J2+N' → 'S355J2_N'."""
     m = (mat or '').strip().upper()
-    aliases = {
-        'FERRO': 'S235',
-        'INOX': 'INOX_304',
-        'INOX_316': 'INOX_304',  # ricette Lantek non hanno 316 → fallback su 304
-        'ALLUMINIO': 'ALU',
-        'ALU_5083': 'ALU',
-        'ALU_5754': 'ALU',
-    }
-    return aliases.get(m, m)
+    for ch in (' ', '-', '.', '/', '+'):
+        m = m.replace(ch, '_')
+    while '__' in m:
+        m = m.replace('__', '_')
+    return m.strip('_')
+
+
+def normalizza_materiale(mat: str) -> str | None:
+    """Famiglia di ricetta Lantek per un materiale, o None se non riconducibile.
+
+    None significa davvero "non so come si taglia" (es. rame, 'ALTRO'): chi
+    chiama deve dirlo all'utente, non inventare una ricetta.
+    """
+    m = _pulisci_sigla(mat)
+    if not m:
+        return None
+    if m in FAMIGLIE_RICETTE:
+        return m
+    if m in _ALIAS_MATERIALE:
+        return _ALIAS_MATERIALE[m]
+    for prefisso, famiglia in _PREFISSI_MATERIALE:
+        if m.startswith(prefisso):
+            return famiglia
+    return None
+
+
+def _normalize_mat(mat: str) -> str:
+    """Compatibilita': famiglia se riconosciuta, altrimenti la sigla ripulita
+    (che non trovera' ricetta — e lookup_ricetta tornera' None)."""
+    return normalizza_materiale(mat) or _pulisci_sigla(mat)
+
+
+def _ricetta_valida(r) -> bool:
+    """Una ricetta con velocita' nulla o negativa e' un dato rotto (cella
+    lasciata vuota nelle Impostazioni): usarla porterebbe a una divisione per
+    zero o, peggio, a un costo di taglio nullo."""
+    try:
+        return (float(r.get('velocita_mm_min') or 0) > 0
+                and float(r.get('pierce_time_s') or 0) >= 0
+                and r.get('materiale') and r.get('gas')
+                and float(r.get('spessore_mm') or 0) > 0)
+    except (TypeError, ValueError, AttributeError):
+        return False
 
 
 def lookup_ricetta(materiale: str, spessore_mm: float, gas: str | None = None,
@@ -81,9 +157,23 @@ def lookup_ricetta(materiale: str, spessore_mm: float, gas: str | None = None,
     g = (gas or default_gas(mat, spessore_mm)).upper()
 
     if ricette_override:
-        ricette = ricette_override
-    else:
-        ricette = load_recipes().get('ricette', [])
+        # Le ricette configurate a mano valgono solo se sensate: una velocita'
+        # a zero (cella svuotata) non deve azzerare il costo di taglio. Se per
+        # questo materiale non ne resta nessuna valida si torna alla tabella
+        # di fabbrica, e chi chiama lo segnala.
+        valide = [r for r in ricette_override if _ricetta_valida(r)]
+        trovata = _cerca_ricetta(valide, mat, g, spessore_mm)
+        if trovata:
+            return trovata
+        trovata = _cerca_ricetta(load_recipes().get('ricette', []), mat, g, spessore_mm)
+        if trovata:
+            trovata['ricetta_di_fabbrica'] = True
+        return trovata
+    return _cerca_ricetta(load_recipes().get('ricette', []), mat, g, spessore_mm)
+
+
+def _cerca_ricetta(ricette: list, mat: str, g: str, spessore_mm: float) -> dict | None:
+    """Ricerca vera e propria in una lista di ricette (vedi lookup_ricetta)."""
     serie = [r for r in ricette if r['materiale'] == mat and r['gas'] == g]
 
     if not serie:

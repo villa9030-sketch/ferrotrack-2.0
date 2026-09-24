@@ -39,17 +39,29 @@ def stima_tempi_consegna(articoli: list, costi_montaggio: dict,
     tempo_foro = float(config.get('tempo_medio_foro_min', 0.3))  # min per hole
     tempo_setup = float(config.get('tempo_saldatura_setup_min', 15.0))  # min setup per batch
 
-    # Count operations from articles
-    tot_pieghe = sum(a.get('pieghe', 0) for a in articoli) if articoli else 0
-    tot_saldatura_ml = sum(a.get('saldatura', 0) for a in articoli) if articoli else 0
-    tot_filettatura = sum(a.get('filettatura', 0) for a in articoli) if articoli else 0
-    tot_svasatura = sum(a.get('svasatura', 0) for a in articoli) if articoli else 0
+    # Count operations from articles. Nomi dei campi come nel database
+    # (saldatura_ml in METRI, filettatura_pz/svasatura_pz in pezzi), per pezzo:
+    # si moltiplica per la quantita' dell'articolo.
+    def _somma(campo):
+        tot = 0.0
+        for a in articoli or []:
+            try:
+                q = int(a.get('quantita') or 1)
+            except (TypeError, ValueError):
+                q = 1
+            tot += float(a.get(campo) or 0) * max(q, 1)
+        return tot
+
+    tot_pieghe = _somma('pieghe')
+    tot_saldatura_ml = _somma('saldatura_ml')
+    tot_filettatura = _somma('filettatura_pz')
+    tot_svasatura = _somma('svasatura_pz')
 
     # Bending time
     ore_piegatura = (tot_pieghe * tempo_piega * quantita) / 60.0
 
-    # Welding time (from articles - component welding)
-    saldatura_mt = tot_saldatura_ml / 1000.0
+    # Welding time (from articles - component welding): saldatura_ml e' gia' in metri
+    saldatura_mt = tot_saldatura_ml
     ore_saldatura_comp = (saldatura_mt * quantita / velocita_sald) if velocita_sald > 0 else 0
 
     # Assembly welding time (from costi_montaggio)

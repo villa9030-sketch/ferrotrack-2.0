@@ -87,10 +87,14 @@ def main():
     errori_pagina = []
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True)
-        pg = b.new_page(viewport={'width': 1500, 'height': 950})
+        # L'utente si imposta PRIMA che la pagina parta: passando da login.html
+        # la pagina di ingresso reindirizza da sola e interrompe la navigazione
+        # del test (net::ERR_ABORTED a caso).
+        ctx = b.new_context(viewport={'width': 1500, 'height': 950})
+        ctx.add_init_script('localStorage.setItem("currentUser", '
+                            + json.dumps(json.dumps(UTENTE)) + ')')
+        pg = ctx.new_page()
         pg.on('pageerror', lambda e: errori_pagina.append(str(e)))
-        pg.goto(BASE + '/login.html')
-        pg.evaluate('u => localStorage.setItem("currentUser", JSON.stringify(u))', UTENTE)
         pg.goto(BASE + '/preventivi.html')
         pg.wait_for_load_state('networkidle')
         pg.wait_for_timeout(2500)

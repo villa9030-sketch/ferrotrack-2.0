@@ -1,348 +1,291 @@
 """STEP file plate (piastre) analysis.
 
-Identifies flat bodies with two antiparallel PLANE faces (top/bottom),
-calculates thickness, area and weight for each plate.
+Identifica i corpi in lamiera (spessore uniforme): piastre piane, gusset,
+lamiere piegate (sviluppo) e calandrate. Per ogni corpo calcola spessore,
+area sviluppata e peso.
+
+Metodo (geometria condivisa in step_parser, coordinate gia' in mm):
+- spessore = la MINIMA distanza tra coppie di facce antiparallele con
+  materiale in mezzo, che si sovrappongono in proiezione e coprono una parte
+  consistente dell'area (non la coppia di area massima: una U con ali vicine
+  dava come spessore la luce interna);
+- facce "di lato" = facce piane in coppia a distanza t + cilindri coassiali
+  con raggi che differiscono di t (pieghe/calandrature);
+- area sviluppata = (somma aree facce di lato) / 2  (= (area totale - area
+  dei bordi sottili) / 2, fibra neutra a meta' spessore). Le aree dei piani
+  sono esatte (poligono dagli EDGE_LOOP ordinati, fori sottratti), quelle dei
+  cilindri r*theta*L;
+- peso dal volume B-rep (teorema della divergenza) quando calcolabile,
+  altrimenti area x spessore x densita'.
 """
 
 import logging
 import math
-import re
+
+from .step_parser import (
+    carica_entita, GeometriaStep, v_dot, v_sub, v_norm, v_cross, v_len,
+    punto_in_poligono_2d, distanza_retta,
+)
 
 logger = logging.getLogger(__name__)
 
+SPESSORE_MAX_MM = 100.0
 
-def analizza_step_piastre(step_path: str, densita: float = 7.85) -> dict:
-    """Analizza file STEP per rilevare piastre (corpi piatti in lamiera).
 
-    Identifica corpi con 2 facce PLANE parallele opposte (top/bottom).
-    Calcola spessore, area e peso per ogni piastra.
+def _loops_2d(f, o, u, v):
+    out = []
+    for lp in f['loops']:
+        pts = lp['punti']
+        if len(pts) >= 3:
+            out.append([(v_dot(v_sub(p, o), u), v_dot(v_sub(p, o), v)) for p in pts])
+    return out
+
+
+def _sovrapposizione(fa, fb, griglia=16):
+    """Area (mm2) della sovrapposizione in proiezione di due facce piane."""
+    o, u, v = fa['origin'], fa['u'], fa['v']
+    la = _loops_2d(fa, o, u, v)
+    lb = _loops_2d(fb, o, u, v)
+    if not la or not lb:
+        return 0.0
+    ua = [p[0] for p in la[0]]
+    va = [p[1] for p in la[0]]
+    ub = [p[0] for p in lb[0]]
+    vb = [p[1] for p in lb[0]]
+    u0, u1 = max(min(ua), min(ub)), min(max(ua), max(ub))
+    v0, v1 = max(min(va), min(vb)), min(max(va), max(vb))
+    if u1 <= u0 or v1 <= v0:
+        return 0.0
+    box = (u1 - u0) * (v1 - v0)
+    if box < 0.2 * min(fa['area'], fb['area']):
+        return box  # sicuramente sotto soglia, inutile campionare
+    dentro = 0
+    for i in range(griglia):
+        for j in range(griglia):
+            p = (u0 + (i + 0.5) * (u1 - u0) / griglia, v0 + (j + 0.5) * (v1 - v0) / griglia)
+            if punto_in_poligono_2d(p, la, tol=0) and punto_in_poligono_2d(p, lb, tol=0):
+                dentro += 1
+    return box * dentro / float(griglia * griglia)
+
+
+def _dimensioni_faccia(f):
+    """Larghezza x altezza della faccia nel suo piano, orientate sul lato
+    rettilineo piu' lungo del contorno (non sull'asse X mondo)."""
+    pts = f['loops'][0]['punti'] if f['loops'] else f['punti']
+    if len(pts) < 2:
+        return 0.0, 0.0
+    best, u = 0.0, f['u']
+    for i in range(len(pts)):
+        d = v_sub(pts[(i + 1) % len(pts)], pts[i])
+        ln = v_len(d)
+        if ln > best:
+            best, u = ln, v_norm(d)
+    v = v_norm(v_cross(f['normal'], u))
+    us = [v_dot(p, u) for p in pts]
+    vs = [v_dot(p, v) for p in pts]
+    w, h = max(us) - min(us), max(vs) - min(vs)
+    return max(w, h), min(w, h)
+
+
+def analizza_corpo_lamiera(geo, bid, densita=7.85):
+    """Analizza un corpo: ritorna dict piastra, {'scarto': motivo} o None."""
+    fs = geo.facce(bid)
+    if not fs:
+        return None
+    area_tot = sum(f['area'] for f in fs)
+    if area_tot <= 0:
+        return None
+    piani = sorted((f for f in fs if f['tipo'] == 'PLANE' and f['area'] > 1e-6),
+                   key=lambda f: f['area'], reverse=True)[:80]
+    cil = [f for f in fs if f['tipo'] == 'CYL' and f['area'] > 1e-6 and f['punti']]
+
+    # --- coppie di facce opposte con materiale in mezzo ---
+    coppie = []  # (d, id_a, id_b, area_coperta)
+    for i in range(len(piani)):
+        fa = piani[i]
+        na = v_norm(fa['normal'])
+        for j in range(i + 1, len(piani)):
+            fb = piani[j]
+            nb = v_norm(fb['normal'])
+            if v_dot(na, nb) > -0.995:
+                continue
+            d = v_dot(v_sub(fa['origin'], fb['origin']), na)
+            if d < 0.2 or d > SPESSORE_MAX_MM + 0.5:
+                continue
+            ov = _sovrapposizione(fa, fb)
+            if ov < 0.2 * min(fa['area'], fb['area']):
+                continue
+            coppie.append((d, fa['id'], fb['id'], ov))
+    for i in range(len(cil)):
+        ca = cil[i]
+        aa = v_norm(ca['axis'])
+        for j in range(i + 1, len(cil)):
+            cb = cil[j]
+            if abs(v_dot(aa, v_norm(cb['axis']))) < 0.9995:
+                continue
+            if distanza_retta(cb['origin'], ca['origin'], aa) > 0.05 + 0.002 * ca['raggio']:
+                continue
+            d = abs(ca['raggio'] - cb['raggio'])
+            if d < 0.2 or d > SPESSORE_MAX_MM + 0.5:
+                continue
+            z0 = max(ca['z_min'], cb['z_min'])
+            z1 = min(ca['z_max'], cb['z_max'])
+            lz = min(ca['z_max'] - ca['z_min'], cb['z_max'] - cb['z_min'])
+            if lz <= 0 or (z1 - z0) < 0.5 * lz:
+                continue
+            coppie.append((d, ca['id'], cb['id'], min(ca['area'], cb['area'])))
+    if not coppie:
+        return None
+
+    # --- spessore: la distanza MINIMA che copre una parte consistente dell'area ---
+    def _tol(d):
+        return max(0.05, 0.02 * d)
+    spessore = None
+    for d in sorted({round(c[0], 2) for c in coppie}):
+        cov = sum(c[3] for c in coppie if abs(c[0] - d) <= _tol(d))
+        if cov >= 0.15 * area_tot:
+            spessore = d
+            break
+    if spessore is None:
+        return {'scarto': 'nessuna coppia di facce dominante'}
+    in_t = [c for c in coppie if abs(c[0] - spessore) <= _tol(spessore)]
+    spessore = sum(c[0] * c[3] for c in in_t) / max(sum(c[3] for c in in_t), 1e-9)
+    ids_lato = {c[1] for c in in_t} | {c[2] for c in in_t}
+    per_id = {f['id']: f for f in fs}
+    area_lati = sum(per_id[i]['area'] for i in ids_lato)
+    area_bordi = area_tot - area_lati
+    if area_lati < area_bordi:
+        return {'scarto': f'facce di spessore {spessore:.1f}mm non dominanti (blocco pieno?)'}
+
+    # --- corpo cavo tipo tubo (non riconosciuto dai tubolari): non e' lamiera ---
+    if geo.genere_corpo(bid) >= 1:
+        dirs = []
+        for i in ids_lato:
+            f = per_id[i]
+            dirs.append(('P', v_norm(f['normal'])) if f['tipo'] == 'PLANE' else ('C', v_norm(f['axis'])))
+        assi = [d for k, d in dirs if k == 'C']
+        normali = [d for k, d in dirs if k == 'P']
+        for n1 in normali:
+            for n2 in normali:
+                c = v_cross(n1, n2)
+                if v_len(c) > 0.5:
+                    assi.append(v_norm(c))
+                    break
+            if len(assi) > 0:
+                break
+        pts = geo.punti_corpo(bid)
+        for a in assi[:1]:
+            ok = all(abs(v_dot(d, a)) < 0.05 if k == 'P' else abs(v_dot(d, a)) > 0.999
+                     for k, d in dirs)
+            if ok and pts:
+                pr = [v_dot(p, a) for p in pts]
+                u = v_norm(v_cross(a, (1.0, 0.0, 0.0) if abs(a[0]) < 0.9 else (0.0, 1.0, 0.0)))
+                w = v_cross(a, u)
+                sez = max(max(v_dot(p, u) for p in pts) - min(v_dot(p, u) for p in pts),
+                          max(v_dot(p, w) for p in pts) - min(v_dot(p, w) for p in pts))
+                if max(pr) - min(pr) >= 1.5 * sez:
+                    return {'scarto': 'corpo cavo tipo tubo non riconosciuto come profilo'}
+
+    # --- pieghe: coppie di cilindri coassiali a distanza t (una per piega) ---
+    assi_piega = []
+    for c in in_t:
+        fa = per_id[c[1]]
+        if fa['tipo'] != 'CYL':
+            continue
+        fb = per_id[c[2]]
+        if max(fa.get('copertura', 0), fb.get('copertura', 0)) >= 2 * math.pi * 0.97:
+            continue  # calandrato a 360: non e' una piega
+        a = v_norm(fa['axis'])
+        if not any(abs(v_dot(a, q[1])) > 0.9995 and distanza_retta(fa['origin'], q[0], q[1]) < 0.1
+                   for q in assi_piega):
+            assi_piega.append((fa['origin'], a))
+    n_pieghe = len(assi_piega)
+
+    area_mm2 = area_lati / 2.0
+    avvisi = []
+    volume = geo.volume_corpo(bid)
+    if volume and volume > 0:
+        t_eq = volume / max(area_mm2, 1e-9)
+        if abs(t_eq / spessore - 1.0) > 0.15:
+            avvisi.append(f'area_da_volume: sviluppo incoerente col volume '
+                          f'(sp. equivalente {t_eq:.2f} vs {spessore:.2f}mm)')
+            area_mm2 = volume / spessore
+        peso_kg = volume * densita * 1e-6
+    else:
+        peso_kg = area_mm2 * spessore * densita * 1e-6
+
+    f_max = max((per_id[i] for i in ids_lato if per_id[i]['tipo'] == 'PLANE'),
+                key=lambda f: f['area'], default=None)
+    larghezza, altezza = _dimensioni_faccia(f_max) if f_max else (0.0, 0.0)
+    all_pts = geo.punti_corpo(bid)
+    bbox_min = tuple(min(p[k] for p in all_pts) for k in range(3)) if all_pts else (0, 0, 0)
+    bbox_max = tuple(max(p[k] for p in all_pts) for k in range(3)) if all_pts else (0, 0, 0)
+    return {
+        'spessore_mm': round(spessore, 1),
+        'area_dm2': round(area_mm2 / 10000.0, 3),
+        'larghezza_mm': round(larghezza, 1),
+        'altezza_mm': round(altezza, 1),
+        'peso_kg': round(peso_kg, 2),
+        'n_pieghe': n_pieghe,
+        'sviluppo': n_pieghe > 0,
+        'volume_mm3': round(volume, 1) if volume else None,
+        'body_id': bid,
+        'bbox_min': bbox_min,
+        'bbox_max': bbox_max,
+        'avvisi': avvisi,
+    }
+
+
+def analizza_step_piastre(step_path: str, densita: float = 7.85,
+                          escludi_body_ids=None) -> dict:
+    """Analizza file STEP per rilevare piastre / lamiere (anche piegate).
 
     Args:
         step_path: Path al file STEP.
         densita: Densita' materiale in kg/dm3 (default: 7.85 per acciaio).
+        escludi_body_ids: id dei corpi gia' riconosciuti come tubolari
+            (step_tubolari 'body_ids_tubi'): non vanno contati anche come piastre.
 
     Returns:
-        dict con 'piastre': lista, 'peso_totale_kg': float, 'errore': str|None
+        dict con 'piastre': lista (spessore_mm, area_dm2, peso_kg, n_pieghe,
+        sviluppo, body_id, ...), 'peso_totale_kg', 'avvisi', 'errore'.
+        Valori per UNA istanza di ciascun corpo.
     """
     try:
-        with open(step_path, 'r', errors='replace') as f:
-            content = f.read()
+        entities, info = carica_entita(step_path)
     except (IOError, OSError) as e:
-        return {'piastre': [], 'peso_totale_kg': 0, 'errore': str(e)}
+        return {'piastre': [], 'peso_totale_kg': 0, 'avvisi': [], 'errore': str(e)}
 
-    entities = {}
-    for m in re.finditer(r'#(\d+)\s*=\s*(.+?)\s*;', content, re.DOTALL):
-        entities[int(m.group(1))] = m.group(2).strip()
-
-    def _etype(val):
-        m2 = re.match(r'(\w+)', val)
-        return m2.group(1) if m2 else ''
-
-    def _refs(val):
-        return [int(x) for x in re.findall(r'#(\d+)', val)]
-
-    def _coords(val):
-        nums = re.findall(r'([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)', val)
-        floats = [float(x) for x in nums]
-        return tuple(floats[-3:]) if len(floats) >= 3 else None
-
-    def _vec_dot(a, b):
-        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-
-    def _vec_len(a):
-        return math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
-
-    def _vec_norm(a):
-        ln = _vec_len(a)
-        return (a[0]/ln, a[1]/ln, a[2]/ln) if ln > 1e-12 else (0, 0, 0)
-
-    # --- Trova tutti i body ---
-    body_ids = [eid for eid, val in entities.items()
-                if _etype(val) == 'MANIFOLD_SOLID_BREP']
-    msb_child_shells = set()
-    for bid in body_ids:
-        for r in _refs(entities.get(bid, '')):
-            msb_child_shells.add(r)
-    for eid, val in entities.items():
-        if _etype(val) == 'CLOSED_SHELL' and eid not in msb_child_shells:
-            body_ids.append(eid)
-
+    geo = GeometriaStep(entities)
+    body_ids = geo.corpi()
+    avvisi = list(info['avvisi'])
     if not body_ids:
-        return {'piastre': [], 'peso_totale_kg': 0,
+        return {'piastre': [], 'peso_totale_kg': 0, 'avvisi': avvisi,
                 'errore': 'Nessun corpo solido trovato'}
 
-    def _get_face_refs(bid):
-        val = entities.get(bid, '')
-        etype = _etype(val)
-        refs_list = _refs(val)
-        if not refs_list:
-            return []
-        if etype == 'MANIFOLD_SOLID_BREP':
-            return _refs(entities.get(refs_list[-1], ''))
-        elif etype in ('CLOSED_SHELL', 'OPEN_SHELL'):
-            return refs_list
-        else:
-            return _refs(entities.get(refs_list[-1], ''))
-
-    def _get_surface_info(face_ref):
-        """Per una ADVANCED_FACE, ritorna (tipo, dati)."""
-        fval = entities.get(face_ref, '')
-        if _etype(fval) != 'ADVANCED_FACE':
-            return None, {}
-        frefs = _refs(fval)
-        if not frefs:
-            return None, {}
-        surf_ref = frefs[-1]
-        surf_val = entities.get(surf_ref, '')
-        surf_type = _etype(surf_val)
-
-        # Controlla il sense flag dell'ADVANCED_FACE (.T. o .F.)
-        # Il flag e' l'ultimo argomento: ADVANCED_FACE('',(...),#surf,.T./.F.)
-        face_sense_fwd = '.F.' not in fval
-
-        if surf_type == 'PLANE':
-            srefs = _refs(surf_val)
-            if srefs:
-                ax_val = entities.get(srefs[0], '')
-                ax_refs = _refs(ax_val)
-                if len(ax_refs) >= 2:
-                    origin = _coords(entities.get(ax_refs[0], ''))
-                    normal = _coords(entities.get(ax_refs[1], ''))
-                    if origin and normal:
-                        n = _vec_norm(normal)
-                        if not face_sense_fwd:
-                            n = (-n[0], -n[1], -n[2])
-                        return 'PLANE', {'origin': origin, 'normal': n}
-            return 'PLANE', {}
-        elif surf_type == 'CYLINDRICAL_SURFACE':
-            nums = re.findall(r'([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)', surf_val)
-            radius = float(nums[-1]) if nums else 0.0
-            return 'CYL', {'raggio': radius}
-        else:
-            return surf_type, {}
-
-    def _get_edge_points(face_ref):
-        """Estrai tutti i punti vertice dagli edge loop di una faccia."""
-        fval = entities.get(face_ref, '')
-        if _etype(fval) != 'ADVANCED_FACE':
-            return []
-        pts = []
-        for bref in _refs(fval):
-            bval = entities.get(bref, '')
-            if _etype(bval) not in ('FACE_OUTER_BOUND', 'FACE_BOUND'):
-                continue
-            brefs = _refs(bval)
-            if not brefs:
-                continue
-            el_val = entities.get(brefs[0], '')
-            if _etype(el_val) != 'EDGE_LOOP':
-                continue
-            for oe_ref in _refs(el_val):
-                oe_val = entities.get(oe_ref, '')
-                if _etype(oe_val) != 'ORIENTED_EDGE':
-                    continue
-                oe_refs = _refs(oe_val)
-                if not oe_refs:
-                    continue
-                ec_val = entities.get(oe_refs[-1], '')
-                if _etype(ec_val) != 'EDGE_CURVE':
-                    continue
-                ec_refs = _refs(ec_val)
-                if len(ec_refs) < 2:
-                    continue
-                for vref in ec_refs[:2]:
-                    vval = entities.get(vref, '')
-                    if _etype(vval) == 'VERTEX_POINT':
-                        vrefs = _refs(vval)
-                        if vrefs:
-                            pt = _coords(entities.get(vrefs[0], ''))
-                            if pt:
-                                pts.append(pt)
-        return pts
-
+    escludi = set(escludi_body_ids or [])
     piastre_rilevate = []
-
     for bid in body_ids:
-        face_refs = _get_face_refs(bid)
-        if not face_refs:
+        if bid in escludi:
             continue
-
-        # Raccogli info superfici
-        surfaces = []
-        for fref in face_refs:
-            stype, sdata = _get_surface_info(fref)
-            if stype:
-                surfaces.append((stype, sdata, fref))
-
-        n_cyl = sum(1 for s in surfaces if s[0] == 'CYL')
-        n_plane = sum(1 for s in surfaces if s[0] == 'PLANE')
-
-        # Skip se sembra un tubo (molti cilindri grandi o >=6 piani in >=3 direzioni)
-        big_cyl = [s for s in surfaces if s[0] == 'CYL' and s[1].get('raggio', 0) > 15.0]
-        if len(big_cyl) >= 2:
-            continue  # Probabilmente tubo tondo
-
-        # Raccogli piani con dati completi
-        planes = [(s[1]['origin'], s[1]['normal'], s[2])
-                  for s in surfaces
-                  if s[0] == 'PLANE' and 'origin' in s[1] and 'normal' in s[1]]
-
-        if len(planes) < 2:
+        try:
+            p = analizza_corpo_lamiera(geo, bid, densita)
+        except Exception as e:  # un corpo anomalo non deve bloccare l'import
+            logger.warning("analisi piastra corpo #%s fallita: %s", bid, e)
             continue
-
-        # Controlla se e' un tubo quadro (>=6 piani in >=3 direzioni normali)
-        normal_dirs = {}
-        for o, n, fref in planes:
-            matched = False
-            for dk, dn_list in normal_dirs.items():
-                if abs(_vec_dot(n, dn_list[0][1])) > 0.95:
-                    normal_dirs[dk].append((o, n, fref))
-                    matched = True
-                    break
-            if not matched:
-                normal_dirs[len(normal_dirs)] = [(o, n, fref)]
-
-        if len(normal_dirs) >= 3 and n_plane >= 6:
-            # Verifica se 3 direzioni hanno ognuna >=2 piani -> tubo quadro
-            dirs_with_pairs = sum(1 for d in normal_dirs.values() if len(d) >= 2)
-            if dirs_with_pairs >= 3:
-                # Ma potrebbe essere una piastra con fori/features
-                # Controlla se 2 facce dominano in area (piastra) vs distribuite (tubo)
-                face_areas = []
-                for o, n, fref in planes:
-                    pts = _get_edge_points(fref)
-                    if len(pts) >= 3:
-                        ndir = n
-                        if abs(ndir[0]) < 0.9:
-                            uu = (1, 0, 0)
-                        else:
-                            uu = (0, 1, 0)
-                        duu = _vec_dot(uu, ndir)
-                        uu = (uu[0]-duu*ndir[0], uu[1]-duu*ndir[1], uu[2]-duu*ndir[2])
-                        ul = _vec_len(uu)
-                        if ul > 1e-12:
-                            uu = (uu[0]/ul, uu[1]/ul, uu[2]/ul)
-                            vv = (ndir[1]*uu[2]-ndir[2]*uu[1], ndir[2]*uu[0]-ndir[0]*uu[2], ndir[0]*uu[1]-ndir[1]*uu[0])
-                            us = [_vec_dot(p, uu) for p in pts]
-                            vs = [_vec_dot(p, vv) for p in pts]
-                            a = (max(us)-min(us)) * (max(vs)-min(vs))
-                            face_areas.append(a)
-                        else:
-                            face_areas.append(0)
-                    else:
-                        face_areas.append(0)
-                face_areas.sort(reverse=True)
-                # Se le 2 facce piu' grandi sono >2.5x la terza -> piastra con features
-                # (tubi quadri hanno ratio ~1.0, piastre con features >2.5)
-                if len(face_areas) >= 3 and face_areas[2] > 0:
-                    ratio = face_areas[1] / face_areas[2]
-                    if ratio > 2.5:
-                        pass  # Non skip, e' una piastra
-                    else:
-                        continue  # Tubo quadro
-                else:
-                    continue  # Tubo quadro
-
-        # --- CERCA COPPIE DI PIANI PARALLELI OPPOSTI ---
-        # Una piastra ha 2 facce grandi con normali antiparallele
-        best_pair = None
-        best_area = 0
-
-        for i in range(len(planes)):
-            for j in range(i + 1, len(planes)):
-                o1, n1, fref1 = planes[i]
-                o2, n2, fref2 = planes[j]
-
-                # Normali antiparallele (dot ~ -1)
-                dot = _vec_dot(n1, n2)
-                if dot > -0.95:
-                    continue
-
-                # Calcola spessore = distanza tra i piani
-                diff = (o2[0] - o1[0], o2[1] - o1[1], o2[2] - o1[2])
-                spessore = abs(_vec_dot(diff, n1))
-
-                # Spessore tipico lamiera: 0.5 - 30mm
-                if spessore < 0.5 or spessore > 30.0:
-                    continue
-
-                # Calcola area dalla faccia: bounding box dei punti della faccia
-                pts1 = _get_edge_points(fref1)
-                pts2 = _get_edge_points(fref2)
-                pts = pts1 if len(pts1) >= len(pts2) else pts2
-                face_ref_used = fref1 if len(pts1) >= len(pts2) else fref2
-
-                if len(pts) < 3:
-                    continue
-
-                # Proietta i punti su un piano 2D per calcolare il bounding box
-                # Usa la normale del piano per definire assi locali
-                n_dir = n1
-                # Trova due assi perpendicolari alla normale
-                if abs(n_dir[0]) < 0.9:
-                    u = (1, 0, 0)
-                else:
-                    u = (0, 1, 0)
-                # Gram-Schmidt
-                dot_un = _vec_dot(u, n_dir)
-                u = (u[0] - dot_un * n_dir[0], u[1] - dot_un * n_dir[1], u[2] - dot_un * n_dir[2])
-                u_len = _vec_len(u)
-                if u_len < 1e-12:
-                    continue
-                u = (u[0]/u_len, u[1]/u_len, u[2]/u_len)
-                v = (n_dir[1]*u[2] - n_dir[2]*u[1],
-                     n_dir[2]*u[0] - n_dir[0]*u[2],
-                     n_dir[0]*u[1] - n_dir[1]*u[0])
-
-                # Proietta punti su (u, v)
-                us = [_vec_dot(p, u) for p in pts]
-                vs = [_vec_dot(p, v) for p in pts]
-                width = max(us) - min(us)
-                height = max(vs) - min(vs)
-                area_mm2 = width * height
-
-                # Verifica che sia effettivamente piatto (area >> spessore^2)
-                if area_mm2 < spessore * spessore * 4:
-                    continue
-
-                if area_mm2 > best_area:
-                    best_area = area_mm2
-                    best_pair = (spessore, area_mm2, width, height, fref1, fref2)
-
-        if best_pair:
-            spessore, area_mm2, width, height, fref1, fref2 = best_pair
-            area_dm2 = round(area_mm2 / 10000.0, 3)  # mm2 -> dm2
-            spessore_mm = round(spessore, 1)
-            # peso = area_m2 x spessore_m x densita_kg/m3
-            # area_m2 = area_mm2 / 1e6, spessore_m = spessore / 1000
-            # densita_kg/m3 = densita_kg/dm3 x 1000
-            peso_kg = round(area_mm2 / 1e6 * spessore / 1000.0 * densita * 1000, 2)
-
-            # Bounding box 3D per il corpo (da tutti i punti delle facce)
-            all_pts = []
-            for fref in face_refs:
-                all_pts.extend(_get_edge_points(fref))
-            if all_pts:
-                bbox_min = tuple(min(p[k] for p in all_pts) for k in range(3))
-                bbox_max = tuple(max(p[k] for p in all_pts) for k in range(3))
-            else:
-                bbox_min = bbox_max = (0, 0, 0)
-
-            piastre_rilevate.append({
-                'spessore_mm': spessore_mm,
-                'area_dm2': area_dm2,
-                'larghezza_mm': round(width, 1),
-                'altezza_mm': round(height, 1),
-                'peso_kg': peso_kg,
-                'body_id': bid,
-                'bbox_min': bbox_min,
-                'bbox_max': bbox_max,
-            })
+        if p is None:
+            continue
+        if 'scarto' in p:
+            avvisi.append(f"corpo #{bid} non quotato come piastra: {p['scarto']}")
+            continue
+        piastre_rilevate.append(p)
 
     peso_totale = round(sum(p['peso_kg'] for p in piastre_rilevate), 2)
     return {
         'piastre': piastre_rilevate,
         'peso_totale_kg': peso_totale,
+        'avvisi': avvisi,
+        'unita': info['unita'],
         'errore': None if piastre_rilevate else 'Nessuna piastra rilevata'
     }
 

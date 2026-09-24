@@ -18,7 +18,8 @@ distinta da cento.
 """
 import logging
 
-from .calcolo import calcola, costo_articolo
+from .calcolo import calcola, costo_articolo, costo_base_articolo
+from .lantek_lookup import lookup_ricetta, normalizza_materiale
 from .validazione import (valida_articoli, valida_assiemi, valida_piastre,
                           valida_testata, valida_tubolari)
 
@@ -32,6 +33,85 @@ def _riferimento(riga, indice):
                    or riga.get('profilo') or f'riga {indice + 1}'),
         'indice': indice,
     }
+
+
+def _num(v):
+    try:
+        return float(v) if v not in (None, '') else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _controlli_cad(a: dict, config: dict):
+    """Controlli su geometria, materiale e ricetta di UN articolo.
+
+    Ritorna (errori, avvisi) come liste di (tipo, messaggio). Errore solo
+    quando il prezzo e' di sicuro sbagliato (costo zero con geometria, manca
+    lo spessore o la ricetta di un pezzo da tagliare); il resto e' avviso.
+    Un prezzo manuale (costo_base_override) e' una scelta del commerciale:
+    toglie gli errori sul costo base, restano gli avvisi.
+    """
+    errs, avv = [], []
+    cod = a.get('codice') or 'senza codice'
+    perim = _num(a.get('perimetro_taglio_m'))
+    area = _num(a.get('area_dm2'))
+    spess = _num(a.get('spessore_mm'))
+    mat = (a.get('materiale') or '').strip()
+    manuale = a.get('costo_base_override') is not None and a.get('costo_base_override') != ''
+    base = costo_base_articolo(a)
+
+    # Saldatura stimata a metro (vale anche senza geometria di taglio)
+    if (config or {}).get('saldatura_a_tempo') and _num(a.get('saldatura_ml')) > 0 \
+            and _num(a.get('saldatura_min')) <= 0:
+        avv.append(('saldatura_stimata_a_metro',
+                    f'Pezzo {cod}: saldatura stimata a metro '
+                    f'({_num(a.get("saldatura_ml")):g} m) perche\' mancano i minuti. '
+                    'Inserisci i minuti di saldatura per il costo a tempo.'))
+
+    laser = perim > 0 or area > 0
+    if not laser:
+        return errs, avv
+
+    if not manuale:
+        if spess <= 0:
+            errs.append(('spessore_mancante',
+                         f'Pezzo {cod}: manca lo spessore. Senza, materiale e '
+                         'taglio non si calcolano: inseriscilo e ristima.'))
+        if perim <= 0 < area:
+            errs.append(('perimetro_nullo',
+                         f'Pezzo {cod}: area {area:g} dm² ma perimetro di taglio 0, '
+                         'il taglio non e\' conteggiato. Conferma il contorno nel CAD '
+                         'o inserisci il perimetro.'))
+        if not mat:
+            errs.append(('materiale_mancante',
+                         f'Pezzo {cod}: manca il materiale. Sceglilo e ristima.'))
+
+    famiglia = normalizza_materiale(mat) if mat else None
+    if mat and not famiglia:
+        (avv if manuale else errs).append((
+            'materiale_sconosciuto',
+            f'Pezzo {cod}: materiale "{mat}" sconosciuto, non ha prezzo al kg '
+            'ne\' ricetta di taglio. Scegli un materiale dell\'elenco'
+            + (' (ora vale il prezzo manuale).' if manuale else ' o inserisci un prezzo manuale.')))
+    elif famiglia and spess > 0:
+        ricetta = lookup_ricetta(famiglia, spess, (a.get('gas_taglio') or None))
+        if not ricetta or a.get('ricetta_mancante'):
+            (avv if manuale else errs).append((
+                'ricetta_mancante',
+                f'Pezzo {cod}: nessuna ricetta di taglio per {mat} {spess:g} mm, '
+                'il costo non comprende il taglio laser. Inserisci un prezzo manuale'
+                ' o correggi materiale/spessore.'))
+        elif ricetta.get('source') in ('clamped_min', 'clamped_max'):
+            avv.append(('spessore_fuori_tabella',
+                        f'Pezzo {cod}: spessore {spess:g} mm fuori tabella Lantek '
+                        f'per {famiglia}: velocita\' di taglio presa dallo spessore limite, '
+                        'verifica il costo.'))
+
+    if not manuale and base <= 0 and perim > 0 and not errs:
+        errs.append(('costo_base_zero',
+                     f'Pezzo {cod}: ha {perim * 1000:.0f} mm di taglio ma costo base 0. '
+                     'Premi "Stima" o inserisci un prezzo manuale.'))
+    return errs, avv
 
 
 def verifica(preventivo: dict, config: dict = None) -> dict:
@@ -63,11 +143,25 @@ def verifica(preventivo: dict, config: dict = None) -> dict:
         errori.append({'tipo': 'nessuna_riga',
                        'messaggio': 'Il preventivo non contiene nulla da quotare.'})
 
+    # --- dati CAD che rendono il prezzo sbagliato -------------------------
+    # Controlli sulla geometria e sul materiale di ogni pezzo, anche dentro un
+    # assieme: un componente con perimetro ma costo zero e' un buco nel prezzo
+    # dell'assieme, non un "costo portato dall'assieme".
+    gia_segnalati = set()
+    for i, a in enumerate(articoli):
+        errs, avv = _controlli_cad(a, config)
+        rif = _riferimento(a, i) if (errs or avv) else None
+        for tipo, msg in errs:
+            errori.append({'tipo': tipo, 'messaggio': msg, 'riferimento': rif})
+            gia_segnalati.add(i)
+        for tipo, msg in avv:
+            avvisi.append({'tipo': tipo, 'messaggio': msg, 'riferimento': rif})
+
     # --- pezzi senza prezzo ----------------------------------------------
     # Un articolo dentro un assieme puo' avere costo proprio a zero (lo porta
-    # l'assieme): si guardano solo quelli sciolti.
+    # l'assieme) se non ha geometria di taglio: quello si e' gia' visto sopra.
     for i, a in enumerate(articoli):
-        if a.get('codice_assieme'):
+        if a.get('codice_assieme') or i in gia_segnalati:
             continue
         if costo_articolo(a) <= 0:
             rif = _riferimento(a, i)

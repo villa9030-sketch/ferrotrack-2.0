@@ -26,12 +26,68 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _esegui_cleanup(dxf_path: str, geo: dict | None, filename: str,
+                    dxf_cfg: dict | None = None) -> dict:
+    """Auto-cleanup DXF (Fase 1a): se il detector ha alta confidence e sanity
+    check ok, salva DXF pulito (solo contorno esterno + fori tagliati del pezzo
+    scelto dal detector) accanto all'originale come <name>_cleaned.dxf. Il
+    commerciale poi lo verifica nella griglia review post-import.
+
+    BUG FIX: prima si usava save_cleaned_dxf (cluster per prossimità pensato
+    per il drag manuale) col bbox del detector → spesso il pulito era la
+    cornice del foglio o un solo foro. Ora save_cleaned_dxf_pezzo usa il
+    contorno esatto del detector e verifica le misure prima di scrivere; se la
+    verifica fallisce il pulito NON viene creato (cleanup_reason col motivo).
+
+    Rieseguito anche sui cache hit: il file pulito va creato nella cartella del
+    preventivo CORRENTE (il payload cachato puntava a quello di un altro)."""
+    cleaned_info = {'cleaned_dxf_filename': None, 'cleaned_status': None,
+                    'cleanup_reason': None, 'cleanup_stats': None}
+    try:
+        from . import dxf_cleanup
+        proceed, reason = dxf_cleanup.should_cleanup(geo)
+        cleaned_info['cleanup_reason'] = reason
+        if proceed and (geo or {}).get('_source') == 'cartiglio_descrizione':
+            # misure dalla descrizione del cartiglio, non da un contorno disegnato
+            cleaned_info['cleanup_reason'] = 'geometria da descrizione cartiglio: pulizia saltata'
+        elif proceed:
+            base, ext = os.path.splitext(dxf_path)
+            cleaned_path = base + '_cleaned' + ext
+            r = dxf_cleanup.save_cleaned_dxf_pezzo(dxf_path, cleaned_path, geo, dxf_cfg)
+            if r.get('success'):
+                cleaned_info['cleaned_dxf_filename'] = os.path.basename(cleaned_path)
+                # 'auto' se confidence alta, 'auto_review' se media
+                conf = float((geo or {}).get('confidence', 0) or 0)
+                cleaned_info['cleaned_status'] = 'auto' if conf >= 0.7 else 'auto_review'
+                cleaned_info['cleanup_stats'] = {
+                    'entities_copied': r['entities_copied'],
+                    'entities_source': r['entities_source'],
+                    'tolerance_mm': r['tolerance_mm'],
+                    'bbox_w_mm': r.get('w_mm'),
+                    'bbox_h_mm': r.get('h_mm'),
+                    'warnings': r.get('warnings') or [],
+                }
+                logger.info('[%s] cleanup auto ok: %d/%d entità (%s)',
+                            filename, r['entities_copied'], r['entities_source'],
+                            cleaned_info['cleaned_status'])
+            else:
+                cleaned_info['cleanup_reason'] = f"pulizia non eseguita: {r.get('error')}"
+                logger.info('[%s] cleanup fallito: %s', filename, r.get('error'))
+    except Exception as e:
+        logger.warning('[%s] cleanup pipeline error: %s', filename, e)
+    return cleaned_info
+
+
 def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
     """Esegue il pipeline completo di parsing su un singolo file DXF.
 
+    Usato sia dall'import batch sia dall'import singolo (stessa logica, stessi
+    risultati).
+
     Args:
         dxf_path: percorso del file già salvato su disco
-        filename: nome file originale (per audit/log)
+        filename: nome file salvato (per audit/log e chiave cache: lo spessore
+                  può venire dal nome)
         dxf_cfg: config estrazione (colori piega/saldatura, tolleranze)
 
     Returns:
@@ -42,18 +98,22 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
     from . import dxf_cache, dxf_scanner
     from .dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
 
-    # ---- Cache lookup ----
+    # ---- Cache lookup (chiave: contenuto + nome file + config + Gemini) ----
     try:
-        file_hash = dxf_cache.hash_file(dxf_path)
-        cached = dxf_cache.get(file_hash)
+        cache_key = dxf_cache.chiave_cache(dxf_cache.hash_file(dxf_path), filename, dxf_cfg)
+        cached = dxf_cache.get(cache_key)
     except Exception as e:
         logger.warning('[%s] cache lookup fail: %s', filename, e)
-        file_hash = None
+        cache_key = None
         cached = None
     if cached and cached.get('payload'):
         payload = dict(cached['payload'])
+        payload.pop('_parser_version', None)
         payload['filename'] = filename
         payload['_cache_hit'] = True
+        # Il DXF pulito va rigenerato per QUESTO preventivo (il nome cachato
+        # puntava alla cartella del preventivo che ha popolato la cache)
+        payload['cleanup'] = _esegui_cleanup(dxf_path, payload.get('geometria'), filename, dxf_cfg)
         return payload
 
     # ---- Parsing completo ----
@@ -68,12 +128,16 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
             geo = dxf_scanner.estrai_geometria_taglio(dxf_path, dxf_cfg)
         cartiglio = dxf_scanner.estrai_materiale_da_cartiglio(dxf_path)
         mat_for_calc = cartiglio.get('materiale') if cartiglio.get('confidence', 0) >= 0.5 else None
+        area_incerta = bool(geo and geo.get('needs_manual_select'))
         spessore = dxf_scanner.estrai_spessore_da_cartiglio(
             dxf_path,
             area_dm2=(geo or {}).get('area_dm2'),
             materiale=mat_for_calc,
+            area_incerta=area_incerta,
         )
-        if geo and geo.get('needs_manual_select'):
+        # Se l'area del detector è inaffidabile, abbatto la confidenza
+        # dello spessore (dipende dall'area) — solo per la stima peso/area.
+        if area_incerta and spessore.get('source') == 'peso_area':
             spessore = {**spessore, 'confidence': min(spessore.get('confidence', 0), 0.4)}
 
         # Fallback cartiglio-descrizione: parsing testuale "45x12 sp.3".
@@ -101,60 +165,29 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
                 '_dim_x_mm': dim_info['dim_x_mm'],
                 '_dim_y_mm': dim_info['dim_y_mm'],
             }
-        # Cartiglio-descrizione (fonte esplicita "sp.3" letta dal disegno) prevale
-        # sulla stima peso_area (indiretta) quando confidence maggiore. 20PA00690:
-        # peso_area calcola 1.2mm (conf 0.4) ma cartiglio dice sp.3 (conf 0.85).
+        # Spessore dal cartiglio (descrizione "sp.3" o tabella Lunghezza/Larghezza/
+        # Sp.) confrontato con quello già stimato. Regola in scegli_spessore:
+        # testo etichettato > peso/area > nome file > cartiglio tabellare; se
+        # discordano vince il più affidabile e resta un warning con entrambi i
+        # valori (prima il tabellare 1.0mm sostituiva in silenzio il 3.0 da
+        # peso/area su 20R201N0401). Con area incerta peso/area va in coda.
         if dim_info and dim_info.get('spessore_mm'):
-            dim_conf = dim_info.get('confidence', 0) or 0
-            curr_sp = spessore.get('spessore_mm')
-            curr_conf = spessore.get('confidence', 0) or 0
-            if not curr_sp or dim_conf > curr_conf:
-                logger.info('[%s] cartiglio fallback spessore: %.1fmm (conf %.2f) sostituisce %s (conf %.2f)',
-                            filename, dim_info['spessore_mm'], dim_conf,
-                            curr_sp, curr_conf)
-                spessore = {
-                    'spessore_mm': dim_info['spessore_mm'],
-                    'confidence': dim_conf,
-                    'source': 'cartiglio_descrizione',
-                    'warnings': [],
-                    'details': {'raw': dim_info['raw_text']},
-                }
+            dim_cand = {
+                'spessore_mm': dim_info['spessore_mm'],
+                'confidence': dim_info.get('confidence', 0) or 0,
+                'source': dim_info.get('source') or 'cartiglio_descrizione',
+                'warnings': [],
+                'details': {'raw': dim_info.get('raw_text')},
+            }
+            prima = spessore.get('spessore_mm')
+            spessore = dxf_scanner.scegli_spessore(
+                [spessore, dim_cand], area_incerta=area_incerta)
+            if spessore.get('spessore_mm') != prima:
+                logger.info('[%s] spessore da cartiglio: %s mm (%s) al posto di %s',
+                            filename, spessore.get('spessore_mm'), spessore.get('source'), prima)
 
         # ---- Auto-cleanup DXF (Fase 1a) ----
-        # Se il detector ha alta confidence e sanity check ok, salva DXF pulito
-        # (solo pezzo + fori interni al bbox). Il commerciale poi lo verifica
-        # nella griglia review post-import. Salvato accanto all'originale come
-        # <name>_cleaned.dxf.
-        cleaned_info = {'cleaned_dxf_filename': None, 'cleaned_status': None,
-                        'cleanup_reason': None, 'cleanup_stats': None}
-        try:
-            from . import dxf_cleanup
-            proceed, reason = dxf_cleanup.should_cleanup(geo)
-            cleaned_info['cleanup_reason'] = reason
-            if proceed:
-                bbox = dxf_cleanup.get_pezzo_bbox(geo)
-                if bbox:
-                    base, ext = os.path.splitext(dxf_path)
-                    cleaned_path = base + '_cleaned' + ext
-                    r = dxf_cleanup.save_cleaned_dxf(dxf_path, cleaned_path, bbox)
-                    if r.get('success'):
-                        cleaned_info['cleaned_dxf_filename'] = os.path.basename(cleaned_path)
-                        # 'auto' se confidence alta, 'auto_review' se media
-                        conf = float(geo.get('confidence', 0) or 0)
-                        cleaned_info['cleaned_status'] = 'auto' if conf >= 0.7 else 'auto_review'
-                        cleaned_info['cleanup_stats'] = {
-                            'entities_copied': r['entities_copied'],
-                            'entities_source': r['entities_source'],
-                            'tolerance_mm': r['tolerance_mm'],
-                            'warnings': r.get('warnings') or [],
-                        }
-                        logger.info('[%s] cleanup auto ok: %d/%d entità (%s)',
-                                    filename, r['entities_copied'], r['entities_source'],
-                                    cleaned_info['cleaned_status'])
-                    else:
-                        logger.info('[%s] cleanup fallito: %s', filename, r.get('error'))
-        except Exception as e:
-            logger.warning('[%s] cleanup pipeline error: %s', filename, e)
+        cleaned_info = _esegui_cleanup(dxf_path, geo, filename, dxf_cfg)
 
         payload = {
             'success': True,
@@ -168,10 +201,12 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
             'spessore': spessore,
             'cleanup': cleaned_info,
         }
-        # Cache put (best effort)
-        if file_hash:
+        # Cache put (best effort). NON si mette in cache un materiale rimasto
+        # vuoto solo perché Gemini non era disponibile / ha dato errore: al
+        # prossimo import potrebbe essere riconosciuto.
+        if cache_key and not cartiglio.get('_llm_non_disponibile'):
             try:
-                dxf_cache.put(file_hash, filename, payload)
+                dxf_cache.put(cache_key, filename, payload)
             except Exception as e:
                 logger.warning('[%s] cache put fail: %s', filename, e)
         return payload

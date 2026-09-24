@@ -10,17 +10,25 @@ Costo Gemini flash: ~0.001 € per chiamata. Latenza: 500ms-2s.
 Se GEMINI_API_KEY non configurata → funzione ritorna None (no-op).
 
 Cache in-memory dei risultati LLM per stringa raw: se un cartiglio "C75 S"
-viene visto 100 volte, chiamiamo Gemini 1 volta.
+viene visto 100 volte, chiamiamo Gemini 1 volta. Si mettono in cache SOLO le
+risposte definitive del modello (materiale riconosciuto o UNKNOWN/bassa
+confidenza): un errore transitorio (rete, quota, timeout) non viene ricordato,
+altrimenti la stringa resterebbe "non riconosciuta" fino al riavvio.
 """
 from __future__ import annotations
 
 import logging
 import os
-from functools import lru_cache
+import threading
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
 VALID_MATERIALI = {'S235', 'ZINCATO', 'INOX_304', 'ALU', 'OTTONE'}
+
+_CACHE_MAX = 512
+_CACHE: OrderedDict[str, str | None] = OrderedDict()   # raw → materiale | None (UNKNOWN)
+_CACHE_LOCK = threading.Lock()
 
 
 def _get_api_key() -> str | None:
@@ -33,7 +41,6 @@ def is_available() -> bool:
     return bool(_get_api_key())
 
 
-@lru_cache(maxsize=512)
 def normalize_via_llm(raw_material: str) -> str | None:
     """Chiama Gemini per classificare `raw_material` in uno dei 5 codici standard.
 
@@ -42,15 +49,35 @@ def normalize_via_llm(raw_material: str) -> str | None:
         se: (a) API key non configurata, (b) chiamata fallisce, (c) LLM
         risponde con codice non-standard.
 
-    Cached per stringa raw (fino a 512 diverse) — chiamate ripetute nella
-    stessa sessione sono istantanee.
+    Cached per stringa raw (fino a 512 diverse) — solo esiti definitivi.
     """
+    return normalizza_con_esito(raw_material)[0]
+
+
+def _cache_clear() -> None:
+    with _CACHE_LOCK:
+        _CACHE.clear()
+
+
+# compat con la vecchia API @lru_cache (normalize_via_llm.cache_clear())
+normalize_via_llm.cache_clear = _cache_clear
+
+
+def normalizza_con_esito(raw_material: str) -> tuple[str | None, str]:
+    """Come normalize_via_llm ma restituisce anche l'esito:
+    'ok' | 'sconosciuto' (risposta definitiva negativa) | 'errore' (transitorio,
+    non in cache) | 'non_disponibile' (niente API key / libreria) | 'vuoto'."""
     raw = (raw_material or '').strip()
     if not raw:
-        return None
+        return None, 'vuoto'
+    with _CACHE_LOCK:
+        if raw in _CACHE:
+            _CACHE.move_to_end(raw)
+            mat = _CACHE[raw]
+            return mat, ('ok' if mat else 'sconosciuto')
     api_key = _get_api_key()
     if not api_key:
-        return None
+        return None, 'non_disponibile'
 
     prompt = _build_prompt(raw)
     try:
@@ -82,23 +109,34 @@ def normalize_via_llm(raw_material: str) -> str | None:
     except ImportError:
         logger.warning('google-generativeai non installato — fallback no-op. '
                        'Installa: pip install google-generativeai')
-        return None
+        return None, 'non_disponibile'
     except Exception as e:
+        # Errore transitorio (rete, quota, risposta malformata): NON in cache
         logger.warning('LLM normalization fallita per %r: %s', raw, e)
-        return None
+        return None, 'errore'
 
-    mat = str(result.get('materiale', '')).upper()
-    confidence = float(result.get('confidence', 0))
+    try:
+        mat = str(result.get('materiale', '')).upper()
+        confidence = float(result.get('confidence', 0))
+    except Exception:
+        return None, 'errore'
 
     # Guardrail: accetta solo se materiale è nella whitelist E confidence ≥ 0.7
+    esito_mat = None
     if mat not in VALID_MATERIALI:
-        return None
-    if confidence < 0.7:
+        esito_mat = None
+    elif confidence < 0.7:
         logger.info('LLM basso confidence per %r: %s (%.2f) — scartato', raw, mat, confidence)
-        return None
+    else:
+        logger.info('LLM normalizzato %r → %s (conf=%.2f)', raw, mat, confidence)
+        esito_mat = mat
 
-    logger.info('LLM normalizzato %r → %s (conf=%.2f)', raw, mat, confidence)
-    return mat
+    with _CACHE_LOCK:
+        _CACHE[raw] = esito_mat
+        _CACHE.move_to_end(raw)
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
+    return esito_mat, ('ok' if esito_mat else 'sconosciuto')
 
 
 def _build_prompt(raw: str) -> str:
