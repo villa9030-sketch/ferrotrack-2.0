@@ -207,7 +207,7 @@ const DENSITA = {
 let sceneG = null;
 let TEXTS = [];               // testi del disegno (cartiglio + quote)
 let GEO_EXT = null;           // bbox della sola geometria pezzo (esclude cartiglio)
-let STOCK = [1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15];  // spessori tagliati (dal backend)
+let STOCK = [0.8, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15];  // spessori tagliati (dal backend)
 function snapStock(v) { return (v > 0 && STOCK.length) ? STOCK.reduce((a, b) => Math.abs(b - v) < Math.abs(a - v) ? b : a) : v; }
 
 // Bounding box delle polilinee "geo" (il pezzo + le viste, non il cartiglio)
@@ -588,7 +588,8 @@ function drawOverlay(d) {
 function updateStats(d) {
   document.getElementById('s-area').textContent = d.area_dm2.toFixed(3) + ' dm²';
   document.getElementById('s-perim').textContent = d.perimetro_taglio_m.toFixed(3) + ' m';
-  document.getElementById('s-fori').textContent = d.n_forature;
+  // n_fori = soli fori interni; n_forature/n_pierce = inneschi (1 contorno + fori)
+  document.getElementById('s-fori').textContent = nFori(d);
   document.getElementById('s-bbox').textContent =
     `${d.bbox_width_mm.toFixed(0)}×${d.bbox_height_mm.toFixed(0)} mm`;
   proponiSpessoreDaPeso(d);
@@ -611,6 +612,18 @@ function proponiSpessoreDaPeso(d) {
   spInp.value = snapped;
   onDatiChange();
   setStatus('', `Spessore ${snapped} mm calcolato da peso ${pesoCartiglio} kg ÷ (area × densità) — proposto, verifica.`);
+}
+
+// Conteggi forature: il backend manda n_fori (fori interni) e n_pierce
+// (= n_forature, inneschi: 1 contorno esterno + fori). Il preventivo vuole gli
+// inneschi, come l'import automatico. Compat con risposte vecchie (solo fori).
+function nFori(d) {
+  if (d.n_fori != null) return d.n_fori;
+  return d.n_pierce != null ? Math.max(0, d.n_pierce - 1) : (d.n_forature || 0);
+}
+function nInneschi(d) {
+  if (d.n_pierce != null) return d.n_pierce;
+  return nFori(d) + 1;
 }
 
 function resetStats() {
@@ -689,7 +702,7 @@ async function confermaPezzo() {
     area_stimata_piega: piega,
     area_dm2: areaEff,
     perimetro_taglio_m: lastResult.perimetro_taglio_m,
-    n_forature: lastResult.n_forature,
+    n_forature: nInneschi(lastResult),   // inneschi (1 contorno + fori), come l'import auto
     bbox_width_mm: lastResult.bbox_width_mm,
     bbox_height_mm: lastResult.bbox_height_mm,
     materiale: mat,
