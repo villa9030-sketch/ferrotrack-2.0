@@ -1835,6 +1835,9 @@ kbd {
 .rfq-title { font-size: 14px; font-weight: 700; margin: 0; color: var(--ink); }
 .rfq-sub { font-size: 12.5px; color: var(--ink-3); margin: 2px 0 0; max-width: none; }
 .rfq-cta { font-size: 12.5px; font-weight: 700; color: #6D28D9; padding: 7px 12px; border-radius: 8px; background: #EDE9FE; white-space: nowrap; }
+.rfq-cta + .rfq-cta { margin-left: 0; }
+.rfq-cta-alt { background: #fff; box-shadow: inset 0 0 0 1px #DDD6FE; }
+.rfq-cta-alt:hover { background: #F5F3FF; }
 
 .ps-banner {
   display: none; align-items: center; gap: 10px; margin-bottom: 14px; padding: 11px 14px; cursor: pointer;
@@ -2283,18 +2286,54 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 #split-detail-content.editing .split-detail-preview { height: auto; }
 #split-detail-content.editing .sd-detected { display: flex; }
 
-/* Assieme inline */
-#split-detail-assieme { padding: 16px; flex: 1; min-height: 0; }
-.sd-ass-grid { display: grid; grid-template-columns: minmax(340px, 46%) 1fr; gap: 14px; height: 100%; min-height: min(78vh, 780px); }
-.sd-ass-left { display: flex; flex-direction: column; gap: 14px; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
-.sd-ass-summary { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: 13px; }
-.sd-ass-bom { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.sd-ass-table { overflow: auto; border: 1px solid var(--line); border-radius: 10px; flex: 1; min-height: 120px; }
-.sd-ass-table thead { position: sticky; top: 0; background: #F8FAFC; z-index: 1; }
-.sd-ass-3d { position: relative; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #F8FAFC; min-height: 360px; }
-.sd-ass-3d iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.sd-ass-3d-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--ink-4); font-size: 13px; }
-.sd-ass-3d-empty i { width: 44px; height: 44px; color: #CBD5E1; }
+/* Assieme inline: stessa scheda del pezzo. Intestazione, modello 3D nella
+   cornice del disegno, a destra montaggio + costo, sotto i componenti. */
+#split-detail-assieme { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.sa-grid { flex: 1 1 0; min-height: 420px; display: grid; grid-template-columns: minmax(0, 1fr) 312px; grid-template-rows: minmax(0, 1fr); }
+.sa-grid > .pc-stage { margin: 12px 0 16px 16px; height: auto; min-height: 0; }
+.sa-grid > .pc-bottom {
+  margin: 12px 16px 16px 12px; padding: 14px; gap: 0; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; overflow: auto; min-height: 0;
+}
+.pc-code.sa-code { cursor: default; }
+.pc-code.sa-code:hover { background: transparent; }
+.pc-canvas iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.sd-ass-3d-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--ink-4); font-size: var(--fs-m); padding: 24px; }
+.sd-ass-3d-empty i { width: 40px; height: 40px; color: #CBD5E1; margin-bottom: 8px; }
+#sa-stage.wb-full {
+  position: fixed !important; inset: calc(var(--topbar-h) + 8px) 8px 8px 8px; z-index: 60; margin: 0 !important;
+  height: auto !important; border-radius: 12px; box-shadow: 0 30px 80px rgba(15,23,42,.25);
+}
+.sa-mont .sa-mont-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 6px 0; }
+.sa-mont .sa-mont-row + .sa-mont-row { border-top: 1px solid var(--line-2); }
+.sa-mont .lbl { font-size: var(--fs-m); font-weight: 600; color: var(--ink); }
+.sa-mont .lbl small { display: block; font-weight: 400; font-size: var(--fs-2xs); color: var(--ink-3); margin-top: 1px; }
+.sa-mont .val { font: 600 var(--fs-s) 'Inter'; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sa-mont .wb-unit { width: 104px; }
+.sa-mont .missing .wb-unit { border-color: var(--warn); background: var(--warn-bg); }
+.sa-comp { border-top: 1px solid var(--line-2); padding-top: 14px; margin-top: 14px; }
+.sa-comp .pr { grid-template-columns: 12px minmax(0, 1fr) auto; gap: 8px; padding: 7px 6px; margin: 0 -6px; border-radius: 8px; cursor: pointer; }
+.sa-comp .pr:hover { background: var(--line-2); }
+.sa-comp .pr + .pr { box-shadow: 0 -1px 0 var(--line-2); }
+.sa-comp .pr.nolink { cursor: default; }
+.sa-comp .pr.nolink:hover { background: transparent; }
+.sa-comp-empty { padding: 10px 8px 12px; font-size: var(--fs-s); color: var(--ink-3); }
+#sa-vw button.on { background: var(--line-2); color: var(--ink); }
+/* Disegno d'insieme dell'assieme (senza STEP): come il disegno del pezzo */
+#sa-dwg[hidden] { display: none !important; }
+#sa-dwg:has(svg.wb-dwg) { cursor: grab; padding: 16px; touch-action: none; }
+#sa-dwg:has(.wb-pdf) { padding: 0; cursor: grab; touch-action: none; }
+#sa-dwg.panning { cursor: grabbing; }
+#sa-vw-slot { display: flex; align-items: center; gap: 4px; }
+/* .wb-vw-bar ha display:flex: senza questo "hidden" non nasconde le barre */
+#sa-vw[hidden], #wb-vw-bar[hidden] { display: none !important; }
+/* Tempo macchina del pezzo, voce per voce come in Lantek */
+.pcc-tempi { margin-top: 12px; padding: 9px 10px; border-radius: 9px; background: var(--well); display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: var(--fs-xs); }
+.pcc-tempi .pt-head { grid-column: 1 / -1; display: flex; justify-content: space-between; font-weight: 600; color: var(--ink); padding-bottom: 5px; margin-bottom: 1px; border-bottom: 1px solid var(--line); }
+.pcc-tempi .pt-head b { font-variant-numeric: tabular-nums; }
+.pcc-tempi .k { color: var(--ink-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcc-tempi .k small { color: var(--ink-4); }
+.pcc-tempi .v { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* ── Prezzo ── */
 .wb-rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
@@ -2417,6 +2456,38 @@ body.wb-drawer-open .wb-drawer { transform: none; }
 .wb-snack.show { opacity: 1; transform: translate(-50%, 0); }
 .wb-snack .dot { width: 8px; height: 8px; border-radius: 50%; background: #34D399; flex-shrink: 0; }
 .wb-snack.err .dot { background: #F87171; } .wb-snack.warn .dot { background: #FBBF24; }
+/* Avanzamento di import e calcoli lunghi: stessa card dei messaggi */
+.wb-prog {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 20px);
+  z-index: 3550; opacity: 0; pointer-events: none; width: min(440px, calc(100vw - 32px));
+  background: var(--ink); color: #fff; border-radius: 12px; padding: 11px 16px 13px;
+  box-shadow: 0 16px 40px rgba(15,23,42,.3); transition: opacity .2s, transform .25s var(--ease);
+}
+.wb-prog.show { opacity: 1; transform: translate(-50%, 0); }
+.wb-prog .pg-t { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; }
+.wb-prog .pg-t span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-prog .pg-t b { font-weight: 500; color: rgba(255,255,255,.6); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.wb-prog .pg-s { font-size: 11.5px; color: rgba(255,255,255,.65); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-prog .pg-b { position: relative; height: 5px; border-radius: 3px; background: rgba(255,255,255,.14); margin-top: 9px; overflow: hidden; }
+.wb-prog .pg-b i { position: absolute; top: 0; bottom: 0; left: 0; width: 0; border-radius: 3px; background: #34D399; transition: width .3s var(--ease); }
+.wb-prog.indet .pg-b i { width: 32%; animation: wbProgIndet 1.3s ease-in-out infinite; transition: none; }
+@keyframes wbProgIndet { from { left: -32%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .wb-prog.indet .pg-b i { animation: none; width: 100%; opacity: .5; } }
+/* Apertura di un preventivo: il banco del precedente non resta visibile */
+#panel-editor.wb-apertura > * { visibility: hidden; }
+#panel-editor.wb-apertura { position: relative; }
+#panel-editor.wb-apertura::after {
+  content: attr(data-apertura); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--ink-3); background: var(--canvas);
+}
+#panel-editor.wb-apertura::before {
+  content: ''; position: absolute; z-index: 1; left: calc(50% - 90px); top: calc(50% + 22px);
+  width: 180px; height: 4px; border-radius: 2px; visibility: visible;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat, var(--line);
+  background-size: 40% 100%, 100% 100%; animation: wbApertura 1.1s ease-in-out infinite;
+}
+@keyframes wbApertura { from { background-position: -80px 0, 0 0; } to { background-position: 260px 0, 0 0; } }
+@media (prefers-reduced-motion: reduce) { #panel-editor.wb-apertura::before { animation: none; } }
 .wb-keys { position: fixed; inset: 0; z-index: 3600; background: rgba(15,23,42,.35); display: none; align-items: center; justify-content: center; }
 .wb-keys.open { display: flex; }
 .wb-keys-card { background: var(--panel); border-radius: 18px; padding: 22px 24px; width: min(520px, 92vw); box-shadow: 0 30px 60px rgba(15,23,42,.3); }
@@ -2607,11 +2678,20 @@ body { font-size: var(--fs-m); }
   flex-shrink: 0; height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 0 6px 0 12px; border-bottom: 1px solid var(--line-2); background: var(--panel);
 }
+/* Fondo del disegno: superficie piena, niente quadretti (col PDF la tavola
+   sembrava un'immagine incollata). Col PDF il fondo diventa un "tavolo"
+   grigio neutro e la pagina un foglio appoggiato sopra. */
 .pc-canvas {
-  position: relative; flex: 1; min-height: 0; background-color: #FAFBFC;
-  background-image: linear-gradient(to right, rgba(16,24,40,.035) 1px, transparent 1px),
-                    linear-gradient(to bottom, rgba(16,24,40,.035) 1px, transparent 1px);
-  background-size: 24px 24px;
+  position: relative; flex: 1; min-height: 0; background: #FAFBFC;
+  box-shadow: inset 0 1px 2px rgba(16,24,40,.04);
+}
+.pc-canvas:has(.wb-pdf) {
+  background: #EDEFF3;
+  box-shadow: inset 0 1px 3px rgba(16,24,40,.06), inset 0 0 40px rgba(16,24,40,.04);
+}
+.pc-canvas .wb-pdf canvas {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(16,24,40,.08), 0 1px 2px rgba(16,24,40,.08), 0 6px 16px rgba(16,24,40,.08), 0 18px 40px rgba(16,24,40,.06);
 }
 .sb-ric { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); min-width: 0; }
 .sb-ric span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2812,6 +2892,8 @@ body { font-size: var(--fs-m); }
        onclick="document.getElementById('rfq-file-input').click()">
     <input type="file" id="rfq-file-input" accept=".zip,.pdf,.dxf,.dwg,.step,.stp" multiple style="display:none;"
            onchange="_rfqFileSelected(event)">
+    <input type="file" id="rfq-folder-input" webkitdirectory directory multiple style="display:none;"
+           onchange="_rfqFolderSelected(event)">
     <div class="rfq-dropzone-inner" id="rfq-dropzone-inner">
       <div class="rfq-icon">
         <i data-lucide="sparkles"></i>
@@ -2819,9 +2901,10 @@ body { font-size: var(--fs-m); }
       <div class="rfq-text">
         <div class="rfq-title">Importa una richiesta cliente con l'AI</div>
         <div class="rfq-sub">
-          Trascina qui <b>PDF + disegni DXF</b> (o un unico ZIP): l'AI legge l'ordine, abbina i disegni e prepara la bozza.
+          Trascina qui la <b>cartella dell'ordine</b> (PDF + disegni, anche con le sottocartelle degli assiemi) o uno ZIP: legge l'ordine, abbina i disegni e prepara la bozza.
         </div>
       </div>
+      <span class="rfq-cta rfq-cta-alt" onclick="event.stopPropagation(); document.getElementById('rfq-folder-input').click()">Scegli cartella</span>
       <span class="rfq-cta">Scegli file</span>
     </div>
     <div class="rfq-dropzone-loading" id="rfq-dropzone-loading" style="display:none;">
@@ -3074,6 +3157,7 @@ body { font-size: var(--fs-m); }
                 <button role="menuitem" onclick="document.getElementById('inp-dxf-folder').click()"><i data-lucide="folder-tree"></i> Cartella <small>DXF + PDF, sottocartelle = assiemi</small></button>
                 <button role="menuitem" onclick="document.getElementById('inp-step').click()"><i data-lucide="box"></i> STEP 3D <small>tubolari e piastre</small></button>
                 <button role="menuitem" onclick="document.getElementById('inp-xlsx').click()"><i data-lucide="file-spreadsheet"></i> XLSX Lantek <small>articoli e costi</small></button>
+                <button role="menuitem" onclick="wbApriRiconoscimenti()"><i data-lucide="scan-search"></i> Rivedi riconoscimenti <small>griglia dell'ultimo import</small></button>
               </div>
             </div>
             <button class="wb-btn wb-btn-ghost" onclick="addArticoloManuale()" title="Aggiungi un pezzo senza disegno"><i data-lucide="plus"></i><span class="pl-lbl">Pezzo</span></button>
@@ -3234,37 +3318,66 @@ body { font-size: var(--fs-m); }
             </div>
           </div>
 
-          <!-- Dettaglio ASSIEME inline: componenti a sinistra, 3D a destra -->
+          <!-- Dettaglio ASSIEME inline: stessa scheda del pezzo (intestazione,
+               modello 3D nella cornice del disegno, montaggio + costo a destra,
+               componenti sotto) -->
           <div id="split-detail-assieme" style="display:none;">
-            <div class="sd-ass-grid">
-              <div class="sd-ass-left">
-                <div>
-                  <h4 class="pc-sec-title">Prezzo di 1 assieme <small>(unitario · × quantità nel preventivo)</small></h4>
-                  <div id="sd-ass-summary" class="sd-ass-summary"></div>
-                </div>
-                <div class="sd-ass-bom">
-                  <h4 class="pc-sec-title">Componenti · <span id="sd-ass-bom-count">0 componenti</span></h4>
-                  <div class="pc-sec-hint"><b>Pz/ass.</b> = quanti per <b>1</b> assieme. Clicca una riga DXF per aprirla.</div>
-                  <div class="sd-ass-table">
-                    <table class="tbl">
-                      <thead>
-                        <tr>
-                          <th>#</th><th>Tipo</th><th>Preview</th><th>Codice</th>
-                          <th class="n" title="Numero di pezzi di questo componente dentro 1 assieme">Pz/ass.</th>
-                          <th class="n">Peso kg</th><th class="n">Mat. &euro;</th><th class="n">Lav. &euro;</th>
-                          <th class="n">Tot. &euro;/pz</th><th class="n">Contrib. &euro;</th>
-                        </tr>
-                      </thead>
-                      <tbody id="sd-ass-bom-body"></tbody>
-                    </table>
+            <div class="pc-head">
+              <div class="pc-id">
+                <div class="pc-eyebrow">Assieme</div>
+                <div class="pc-code sa-code" id="sa-codice"></div>
+                <div class="pc-specline" id="sa-specline"></div>
+              </div>
+              <div class="pc-spec">
+                <label class="pc-field pc-qty">
+                  <span>Quantità</span>
+                  <span class="wb-stepper">
+                    <button type="button" tabindex="-1" onclick="wbStep('sa-qty', -1)" aria-label="Meno">&minus;</button>
+                    <input type="number" id="sa-qty" min="1" onchange="saSetQty(this.value)" aria-label="Quantità di assiemi">
+                    <button type="button" tabindex="-1" onclick="wbStep('sa-qty', 1)" aria-label="Più">+</button>
+                  </span>
+                </label>
+              </div>
+              <div class="pc-actions">
+                <div class="wb-menu" id="wb-ass-menu">
+                  <button class="wb-icon-btn" onclick="wbToggleMenu('wb-ass-menu', event)" title="Altre azioni sull'assieme"><i data-lucide="more-vertical"></i></button>
+                  <div class="wb-menu-pop right" role="menu">
+                    <button role="menuitem" onclick="saApriDettaglio()"><i data-lucide="maximize-2"></i> Dettaglio completo</button>
+                    <div class="wb-menu-sep"></div>
+                    <button role="menuitem" class="danger" onclick="saRimuovi()"><i data-lucide="trash-2"></i> Rimuovi assieme</button>
                   </div>
                 </div>
               </div>
-              <div id="sd-ass-3d-wrap" class="sd-ass-3d">
-                <div id="sd-ass-3d-placeholder" class="sd-ass-3d-empty">
-                  <div><i data-lucide="box"></i><div>Nessun file STEP 3D associato a questo assieme</div></div>
+            </div>
+            <div class="sa-grid">
+              <div class="pc-stage" id="sa-stage">
+                <div class="pc-stagebar">
+                  <div class="sb-ric none" id="sa-ric"></div>
+                  <div class="sb-tools" id="sa-vw-slot">
+                    <div class="wb-vw-bar" id="sa-vw" hidden>
+                      <button type="button" id="sa-btn-esploso" onclick="saVista('esploso')" title="Esploso: separa i componenti"><i data-lucide="move-diagonal"></i></button>
+                      <button type="button" onclick="saVista('reset')" title="Vista iniziale"><i data-lucide="rotate-ccw"></i></button>
+                      <span class="sep"></span>
+                      <button type="button" onclick="saSchermoIntero()" title="Schermo intero (Esc per uscire)"><i data-lucide="maximize-2" id="sa-full-ico"></i></button>
+                    </div>
+                  </div>
                 </div>
-                <iframe id="sd-ass-3d-iframe" src="about:blank" style="display:none;"></iframe>
+                <div class="pc-canvas">
+                  <div id="sd-ass-3d-placeholder" class="sd-ass-3d-empty">
+                    <div><i data-lucide="box"></i><div>Nessun modello 3D (STEP) né disegno d'assieme (PDF o DXF)<br><small>Importa la cartella dell'ordine con il disegno dell'assieme</small></div></div>
+                  </div>
+                  <iframe id="sd-ass-3d-iframe" src="about:blank" style="display:none;" title="Modello 3D dell'assieme"></iframe>
+                  <!-- senza STEP: il disegno d'insieme (PDF o DXF), stesso visualizzatore del pezzo -->
+                  <div class="split-detail-preview" id="sa-dwg" hidden></div>
+                </div>
+              </div>
+              <div class="pc-bottom">
+                <section class="pc-lav sa-mont" id="sa-montaggio"></section>
+                <section class="pc-cost" id="sa-cost"></section>
+                <section class="sa-comp">
+                  <div class="pc-sec-head"><span>Componenti</span><span class="pc-sec-hint" id="sa-comp-hint"></span></div>
+                  <div id="sa-comp-list"></div>
+                </section>
               </div>
             </div>
           </div>
@@ -4322,13 +4435,73 @@ const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
 // Cache preventivi_config per calcolo costi lavorazioni real-time
 // ═══════════════════════════════════════════════════════════════════
 let _prevCfg = null;
+// Impronta delle tariffe attuali (Impostazioni → laser): ogni stima la porta
+// con se' (a.stima_firma); se non coincide, il costo base e' da ristimare.
+let _firmaTariffe = null;
+
+/** Ristima in UNA richiesta i pezzi della bozza aperta stimati con tariffe
+    diverse da quelle attuali (o mai stimati). Prima, cambiando i prezzi nelle
+    Impostazioni, i preventivi restavano col costo base vecchio. Prezzi
+    manuali/Lantek e preventivi gia' inviati non si toccano. */
+async function wbAggiornaTariffe(motivo) {
+  if (!currentPreventivo || !_firmaTariffe) return 0;
+  if ((currentPreventivo.status || 'BOZZA') !== 'BOZZA') return 0;
+  const idx = currentArticoli.map((_, i) => i).filter(i => {
+    const a = currentArticoli[i];
+    return a && a.costo_base_override == null && a.materiale && a.spessore_mm > 0
+      && a.area_dm2 > 0 && a.perimetro_taglio_m > 0
+      && (a.stima_firma !== _firmaTariffe || !(a.costo_base_stimato > 0));
+  });
+  if (!idx.length) return 0;
+  const gen = _wbGen, pid = currentPreventivo.id;
+  let totPrima = null;
+  try { totPrima = calcolaTotaliAnteprima().totaleLotto; } catch (_) {}
+  wbProg.apri(`Aggiorno i prezzi di ${idx.length} pezzi`,
+    motivo === 'impostazioni' ? 'Tariffe nuove dalle Impostazioni' : 'Tariffe cambiate dall\'ultima stima');
+  try {
+    const r = await fetch(`${API_URL}/api/preventivi/${pid}/stima-batch`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ admin_id: currentUser.id, articoli: idx.map(i => currentArticoli[i]) }),
+    });
+    const d = await r.json();
+    if (gen !== _wbGen || !currentPreventivo || currentPreventivo.id !== pid) return 0;
+    if (!d.success) throw new Error(d.error || 'errore del server');
+    if (d.firma_tariffe) _firmaTariffe = d.firma_tariffe;
+    let n = 0;
+    idx.forEach((i, k) => {
+      const st = (d.stime || [])[k], a = currentArticoli[i];
+      if (!st || !a) return;
+      _applicaStima(a, st);
+      recalcLavorazioniArt(a);
+      n++;
+    });
+    renderArticoli(); recalcTotali();
+    try { renderSplitTree(); } catch (_) {}
+    if (_splitView && _splitSelectedIdx != null) { try { _refreshSplitDetailCosts(); } catch (_) {} }
+    if (n) segnaArticoliModificati(300);
+    let totDopo = null;
+    try { totDopo = calcolaTotaliAnteprima().totaleLotto; } catch (_) {}
+    const diff = (totPrima != null && totDopo != null && Math.abs(totDopo - totPrima) >= 0.01)
+      ? ` · totale da ${formatEurStr(totPrima)} a ${formatEurStr(totDopo)}` : '';
+    if (n) wbSnack(`Prezzi aggiornati alle tariffe attuali: ${n} pezz${n === 1 ? 'o' : 'i'}${diff}`, '', 7000);
+    return n;
+  } catch (e) {
+    wbSnack('Prezzi non aggiornati alle nuove tariffe: ' + e.message, 'err', 7000);
+    return 0;
+  } finally { wbProg.chiudi(); }
+}
+
 async function fetchPreventiviCfg(force = false) {
   if (_prevCfg && !force) { _bannerCfg(null); return _prevCfg; }
   let errore = null;
   try {
     const r = await fetch(`${API_URL}/api/preventivi/config`);
     const d = await r.json();
-    if (d.success) _prevCfg = d.preventivi_config || {};
+    if (d.success) {
+      _prevCfg = d.preventivi_config || {};
+      _firmaTariffe = d.firma_tariffe || null;
+      if (d.laser_config) _wbLaserCfg = d.laser_config;   // €/kg per la scomposizione materiale/laser
+    }
     else errore = d.error || ('HTTP ' + r.status);
   } catch (e) { console.warn('fetch preventivi_config failed', e); errore = e.message; }
   // Senza coefficienti l'anteprima userebbe generali 0% e lavorazioni ferme:
@@ -5022,6 +5195,8 @@ async function saveImpostazioni() {
     if (!d.success) throw new Error(d.error || 'Errore server');
     // Invalida cache così i prossimi ricalcoli usano i nuovi valori
     _prevCfg = d.preventivi_config || null;
+    if (d.firma_tariffe) _firmaTariffe = d.firma_tariffe;
+    if (d.laser_config) _wbLaserCfg = d.laser_config;
     _cfgCaricata = { laser: JSON.parse(JSON.stringify(body.laser_config)),
                      prev: JSON.parse(JSON.stringify(body.preventivi_config)) };
     const ricBadge = document.getElementById('cfg-ricette-custom-badge');
@@ -5035,6 +5210,10 @@ async function saveImpostazioni() {
       // I costi ricalcolati vanno anche sul server, o il totale salvato resta vecchio.
       if (currentArticoli.length) segnaArticoliModificati(300);
     }
+    // ...e anche il costo base (materiale + taglio laser), che prima restava
+    // quello delle tariffe vecchie. Gli altri preventivi si aggiornano
+    // quando si aprono.
+    await wbAggiornaTariffe('impostazioni');
     msg.textContent = '✓ Impostazioni salvate';
     msg.style.color = 'var(--green)';
     setTimeout(() => { msg.textContent = ''; }, 3000);
@@ -5069,11 +5248,18 @@ function _rfqDragLeave(e) {
   e.preventDefault(); e.stopPropagation();
   document.getElementById('rfq-dropzone').classList.remove('dragover');
 }
-function _rfqDrop(e) {
+async function _rfqDrop(e) {
   e.preventDefault(); e.stopPropagation();
   document.getElementById('rfq-dropzone').classList.remove('dragover');
-  const files = Array.from(e.dataTransfer.files || []);
+  // Anche una CARTELLA intera (con le sottocartelle-assieme): prima il browser
+  // passava solo la cartella vuota e l'import diceva "manca il PDF".
+  const { files } = await _wbLeggiVoci(e.dataTransfer);
   if (files.length) _rfqUpload(files);
+}
+function _rfqFolderSelected(e) {
+  const files = Array.from(e.target.files || []);
+  if (files.length) _rfqUpload(files);
+  e.target.value = '';
 }
 function _rfqFileSelected(e) {
   const files = Array.from(e.target.files || []);
@@ -5132,8 +5318,15 @@ async function _rfqOpenCreated(pid) {
 }
 
 async function _rfqUpload(files, force = false) {
-  // Accetta un singolo ZIP OPPURE file sciolti (PDF della richiesta + DXF).
+  // Accetta un singolo ZIP OPPURE file sciolti / una cartella (PDF della
+  // richiesta + DXF, anche in sottocartelle).
   files = Array.isArray(files) ? files : [files];
+  // Solo i file utili: niente Thumbs.db, .DS_Store, file temporanei di CAD.
+  files = files.filter(f => /\.(zip|pdf|dxf|dwg|step|stp)$/i.test(f.name) && !/^[~.]/.test(f.name));
+  if (!files.length) {
+    appAlert('Nessun file utilizzabile: servono il PDF dell\'ordine e i disegni (DXF, DWG, STEP) oppure uno ZIP.');
+    return;
+  }
   const isSingleZip = files.length === 1 && (/\.zip$/i.test(files[0].name)
     || files[0].type === 'application/zip' || files[0].type === 'application/x-zip-compressed');
   if (!isSingleZip) {
@@ -5182,7 +5375,11 @@ async function _rfqUpload(files, force = false) {
   try {
     const fd = new FormData();
     if (isSingleZip) fd.append('zip', files[0]);
-    else for (const f of files) fd.append('files', f);
+    else for (const f of files) {
+      fd.append('files', f);
+      // percorso nella cartella: le sottocartelle sono gli assiemi
+      fd.append('paths', f._relPath || f.webkitRelativePath || f.name);
+    }
     fd.append('admin_id', currentUser.id);
     if (force) fd.append('force', '1');
     const r = await fetch(`${API_URL}/api/preventivi/import-rfq-package`, { method: 'POST', body: fd });
@@ -5556,6 +5753,9 @@ function mostraDaPrezzare() {
 //  EDITOR (Nuovo / In modifica)
 // ============================================================
 function newPreventivo() {
+  _wbSvuotaBanco();                       // niente disegni/3D del preventivo precedente
+  const _pan = document.getElementById('panel-editor');
+  if (_pan) _pan.classList.remove('wb-apertura');
   currentPreventivo = null;
   currentArticoli = [];
   currentAssiemi = [];
@@ -5651,11 +5851,42 @@ async function eliminaPreventivo() {
   } catch (e) { showMsg('msg-base', 'Errore: ' + e.message, 'var(--red)'); }
 }
 
+/** Toglie dal banco disegno, 3D e selezione del preventivo precedente e
+    invalida le sue risposte ancora in viaggio (vedi _wbGen). */
+function _wbSvuotaBanco() {
+  _wbGen++;
+  _splitSelectedIdx = null;
+  _splitAssIdx = null;
+  _saDisegno = null;
+  _wbVw = null;
+  const prev = document.getElementById('sd-preview');
+  if (prev) prev.innerHTML = '';
+  // distinta: con un preventivo vuoto non si ridisegnava e restava la vecchia
+  const tree = document.getElementById('split-tree-tbody');
+  if (tree) tree.innerHTML = '';
+  const dwg = document.getElementById('sa-dwg');
+  if (dwg) { dwg.hidden = true; dwg.innerHTML = ''; }
+  const ifr = document.getElementById('sd-ass-3d-iframe');
+  if (ifr) { ifr.src = 'about:blank'; ifr.style.display = 'none'; ifr.dataset.file = ''; }
+  try { _showSplitDetailPane('empty'); } catch (_) {}
+  return _wbGen;
+}
+
 async function openPreventivo(id) {
+  // Subito il banco in "apertura": prima restava il preventivo precedente
+  // finché il server non rispondeva (secondi, col server occupato).
+  const gen = _wbSvuotaBanco();
+  const pannello = document.getElementById('panel-editor');
+  if (pannello) { pannello.dataset.apertura = 'Apertura del preventivo…'; pannello.classList.add('wb-apertura'); }
+  switchTab('editor');
+  // dopo switchTab, che riscrive l'etichetta col preventivo ancora in memoria
+  const lbl = document.getElementById('tab-editor-label');
+  if (lbl) lbl.textContent = 'Apertura…';
   try {
     const r = await fetch(`${API_URL}/api/preventivi/${id}`);
     const d = await r.json();
-    if (!d.success) { appAlert('Errore: ' + (d.error || 'preventivo non trovato')); return; }
+    if (gen !== _wbGen) return;            // nel frattempo si e' aperto altro
+    if (!d.success) { switchTab('storico'); appAlert('Errore: ' + (d.error || 'preventivo non trovato')); return; }
     const p = d.preventivo;
     currentPreventivo = p;
     currentArticoli = p.articoli || [];
@@ -5663,8 +5894,10 @@ async function openPreventivo(id) {
     currentTubolari = p.tubolari || [];
     currentPiastre = p.piastre || [];
     _testataModificata = false;
-    // Assicurati che i costi lavorazione siano allineati coi coefficienti correnti
-    await fetchPreventiviCfg();
+    // Coefficienti SEMPRE riletti dal server: cambiati nelle Impostazioni (anche
+    // da un altro PC) devono valere subito; prima restavano quelli in memoria.
+    await fetchPreventiviCfg(true);
+    if (gen !== _wbGen) return;
     const _firma = a => ['costo_piega', 'costo_saldatura', 'costo_filettatura', 'costo_svasatura',
                          'costo_apporto', 'costo_pulizia'].map(k => round2(a[k] || 0)).join('|');
     let _lavCambiate = false;
@@ -5675,13 +5908,23 @@ async function openPreventivo(id) {
     });
     populateEditor(p);
     switchTab('editor');
+    // Sempre, anche senza pezzi: mostra "Distinta vuota" invece della distinta
+    // del preventivo aperto prima (populateEditor la ridisegna solo coi pezzi).
+    try { renderSplitTree(); } catch (_) {}
     // Se il ricalcolo ha cambiato i costi (coefficienti nuovi, saldatura
     // stimata a metro…) il server deve avere gli stessi numeri dell'anteprima.
     if (_lavCambiate) segnaArticoliModificati();
+    // Costo base (materiale + laser) stimato con tariffe diverse da quelle
+    // attuali: si ristima (una richiesta sola, solo in bozza).
+    if (pannello) pannello.classList.remove('wb-apertura');
+    await wbAggiornaTariffe('apertura');
     // NB: nessuna auto-stima/ricalcolo in background — l'utente clicca "Stima"
     // manualmente. L'automazione precedente saturava il server single-thread
     // durante l'apertura e faceva ritardare disegni + creazione preventivo.
-  } catch (e) { appAlert('Errore: ' + e.message); }
+  } catch (e) { if (gen === _wbGen) appAlert('Errore: ' + e.message); }
+  finally {
+    if (gen === _wbGen && pannello) pannello.classList.remove('wb-apertura');
+  }
 }
 
 function populateEditor(p) {
@@ -6497,6 +6740,7 @@ window.addEventListener('message', async (ev) => {
   a.area_dm2 = p.area_dm2;
   a.perimetro_taglio_m = p.perimetro_taglio_m;
   a.n_forature = p.n_forature;
+  a.lunghezza_vuoto_mm = _wbVuoto(p);
   _orig.area_dm2 = _orig.perimetro_taglio_m = _orig.n_forature = 'cad';
   if (p.bbox_width_mm) a.bbox_w_mm = p.bbox_width_mm;
   if (p.bbox_height_mm) a.bbox_h_mm = p.bbox_height_mm;
@@ -6628,8 +6872,248 @@ async function selectSplitAssieme(code) {
   _splitSelectedIdx = null;
   _showSplitDetailPane('ass');
   _highlightSplitAssiemeRow(code);
+  _saEsploso = false;
+  _saDisegno = null;
+  const dwg = document.getElementById('sa-dwg');
+  if (dwg) { dwg.hidden = true; dwg.innerHTML = ''; }
+  wbRenderAssieme(idx);                       // dati subito, il 3D arriva dopo
+  const gen = _wbGen;
   await _hydrateAssiemeDetail3D(code, _ASS_CTX_SPLIT);
-  _renderAssiemeDetailSummary(idx, _ASS_CTX_SPLIT);
+  if (gen !== _wbGen) return;                 // si e' aperto un altro preventivo
+  // Senza STEP: il disegno d'insieme (PDF o DXF). Serve a stimare la
+  // manodopera: prima restava solo "nessun modello 3D".
+  const ifr = document.getElementById('sd-ass-3d-iframe');
+  if (_splitAssIdx === idx && ifr && ifr.style.display === 'none') await saMostraDisegno(code);
+  if (gen !== _wbGen) return;
+  if (_splitAssIdx === idx) wbRenderAssieme(idx);
+  try { wbRenderPieceRail(); } catch (_) {}
+}
+
+let _saDisegno = null;   // disegno d'insieme mostrato: {codice, pdf, dxf}
+function _saDisegnoAperto() {
+  const pane = document.getElementById('split-detail-assieme');
+  return !!(_saDisegno && _splitAssIdx != null && pane && pane.style.display !== 'none');
+}
+/** Mostra nella cornice dell'assieme il suo disegno d'insieme: il PDF del
+    cliente se c'e' (quote e note leggibili), altrimenti il DXF. Stesso
+    visualizzatore, stessa barra e stessi comandi del disegno del pezzo. */
+async function saMostraDisegno(code) {
+  const box = document.getElementById('sa-dwg');
+  if (!box || !code || !currentPreventivo) return false;
+  _saDisegno = null; box.hidden = true; box.innerHTML = '';
+  const gen = _wbGen;
+  let lista = null;
+  try {
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/file-disegni`);
+    lista = await r.json();
+  } catch (_) { return false; }
+  if (gen !== _wbGen || !lista || !lista.success) return false;
+  const pdf = _stepPerAssieme(code, (lista.pdf || []).map(n => ({ filename: n })));
+  const dxf = _stepPerAssieme(code, (lista.dxf || []).map(n => ({ filename: n })));
+  if (!pdf && !dxf) return false;
+  const A = currentAssiemi[_splitAssIdx];
+  if (!A || A.codice_assieme !== code) return false;     // nel frattempo si e' aperto altro
+  _saDisegno = { codice: code, pdf: pdf ? pdf.filename : null, dxf: dxf ? dxf.filename : null };
+  document.getElementById('sd-ass-3d-placeholder').style.display = 'none';
+  box.hidden = false;
+  const usaPdf = _saDisegno.pdf && (wbSorgentePreferita() === 'pdf' || !_saDisegno.dxf);
+  try {
+    if (usaPdf) {
+      await wbPdfViewer(box, `${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf/${encodeURIComponent(_saDisegno.pdf)}`, null);
+    } else {
+      const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/dxf/${encodeURIComponent(_saDisegno.dxf)}/svg`);
+      const txt = await r.text();
+      if (gen !== _wbGen) return false;
+      box.innerHTML = txt;
+      wbViewer(box);
+      _wbCollegaViewer(box);
+    }
+  } catch (e) {
+    console.warn('disegno assieme', e);
+    box.innerHTML = '<div class="empty">Disegno d\'assieme non leggibile</div>';
+  }
+  if (gen !== _wbGen || !_saDisegno) return false;
+  wbAggiornaBarra({ pdf_filename: _saDisegno.pdf, dxf_filename: _saDisegno.dxf });
+  return true;
+}
+
+// ── Scheda assieme (vista split) ───────────────────────────────────
+// Stessi mattoni della scheda pezzo: intestazione, cornice del disegno con la
+// sua barra, colonna con montaggio e costo, componenti come righe di distinta.
+let _saEsploso = false;
+function wbRenderAssieme(idx) {
+  const A = currentAssiemi[idx];
+  if (!A) return;
+  const p = computeAssiemePricing(A);
+  const r = p.roll;
+  const nComp = r.articoli.length + r.tubolari.length + r.piastre.length;
+  const kg = r.peso_kg > 0 ? r.peso_kg.toLocaleString('it-IT', { maximumFractionDigits: 2 }) : null;
+  document.getElementById('sa-codice').textContent = A.codice_assieme || '(senza codice)';
+  const spec = [`<b>${nComp}</b> component${nComp === 1 ? 'e' : 'i'}`];
+  if (kg) spec.push(`<b>${kg}</b> kg`);
+  if (A.saldatura_mt > 0) spec.push(`<b>${A.saldatura_mt.toLocaleString('it-IT', { maximumFractionDigits: 2 })}</b> m saldatura`);
+  document.getElementById('sa-specline').innerHTML = spec.join('<i>·</i>');
+  const q = document.getElementById('sa-qty');
+  if (q && document.activeElement !== q) q.value = A.qty || 1;
+
+  // Barra del disegno: che modello si sta guardando
+  const ifr = document.getElementById('sd-ass-3d-iframe');
+  const file = ifr && ifr.style.display !== 'none' ? (ifr.dataset.file || '') : '';
+  const ric = document.getElementById('sa-ric');
+  const dis = !file && _saDisegno && _saDisegno.codice === A.codice_assieme ? _saDisegno : null;
+  const nomeDis = dis ? ((_wbVw && _wbVw.mode === 'pdf') ? dis.pdf : (dis.dxf || dis.pdf)) : '';
+  ric.className = 'sb-ric ' + (file || dis ? 'ok' : 'none');
+  ric.innerHTML = file
+    ? `<i data-lucide="box"></i><span>Modello 3D · ${escapeHtml(file)}</span>`
+    : dis
+      ? `<i data-lucide="file-text"></i><span>Disegno d'assieme · ${escapeHtml(nomeDis || '')}</span>`
+      : `<i data-lucide="box"></i><span>Nessun disegno d'assieme (né STEP né PDF/DXF)</span>`;
+  document.getElementById('sa-vw').hidden = !file;
+  // La barra del disegno (PDF/DXF, zoom) serve solo col disegno d'insieme
+  const barra = document.getElementById('wb-vw-bar');
+  if (barra && barra.parentNode && barra.parentNode.id === 'sa-vw-slot') barra.hidden = !dis;
+  const be = document.getElementById('sa-btn-esploso');
+  if (be) be.classList.toggle('on', _saEsploso);
+
+  // Montaggio (al posto delle lavorazioni del pezzo)
+  const tariffa = (_prevCfg && _prevCfg.tariffa_oraria) || 45;
+  const oreOk = A.ore_montaggio > 0 || A.costo > 0;
+  const righeExtra = [];
+  if (A.costo_puntatura > 0) righeExtra.push(['Puntatura', '', A.costo_puntatura]);
+  if (A.costo_saldatura_assieme > 0) righeExtra.push(['Saldatura assieme', A.saldatura_mt > 0 ? `${A.saldatura_mt.toFixed(2)} m` : '', A.costo_saldatura_assieme]);
+  if (p.apportoPulizia > 0) righeExtra.push(['Apporto e pulizia cordoni', '', p.apportoPulizia]);
+  document.getElementById('sa-montaggio').innerHTML = `
+    <div class="pc-sec-head"><span>Montaggio</span><span class="pc-sec-hint">per 1 assieme</span></div>
+    <div class="sa-mont-row${oreOk ? '' : ' missing'}">
+      <span class="lbl">Tempo di montaggio<small>${oreOk ? `${_eur(A.costo || 0)} · ${_eur(tariffa)}/h` : 'Obbligatorio: senza non c\'è il costo di montaggio'}</small></span>
+      <span class="wb-unit sm"><input type="number" id="sd-ass-ore" step="0.25" min="0" value="${A.ore_montaggio || ''}" placeholder="0"
+        onchange="assSplitSetOre(this.value)" aria-label="Ore di montaggio"><em>ore</em></span>
+    </div>
+    ${righeExtra.map(([k, n, v]) => `<div class="sa-mont-row"><span class="lbl">${k}${n ? `<small>${n}</small>` : ''}</span><span class="val">${_eur(v)}</span></div>`).join('')}`;
+
+  wbRenderAssCosto(idx);
+  _saRenderComponenti(r, A);
+  if (window.lucide) lucide.createIcons();
+}
+
+/** Costo dell'assieme: stessa scheda del costo del pezzo. */
+function wbRenderAssCosto(idx) {
+  const box = document.getElementById('sa-cost');
+  const A = currentAssiemi[idx];
+  if (!box || !A) return;
+  const p = computeAssiemePricing(A);
+  let T = null, genF = 1, margF = 1;
+  try { T = calcolaTotaliAnteprima(); genF = 1 + (T.genPct || 0) / 100; margF = 1 + (T.margine || 0) / 100; } catch (_) {}
+  const unit = p.costoSingoloAssieme;
+  if (!(unit > 0)) {
+    box.innerHTML = `<div class="pc-sec-head"><span>Costo dell'assieme</span></div>
+      <div class="pcc-empty">Il costo si calcola quando i componenti hanno un costo o c'è il tempo di montaggio.</div>`;
+    return;
+  }
+  const vendita = unit * genF * margF, utile = vendita - unit * genF;
+  const quota = (T && T.totaleLotto > 0) ? (vendita * p.qty) / T.totaleLotto * 100 : 0;
+  const c = { mat: 0, laser: 0, man: 0, lav: 0, str: p.costoIntrinseco + (p.roll.costoTubPia || 0) };
+  for (const a of p.roll.articoli) {
+    const s = wbSplitBase(a), w = a.quantita || 1;
+    c.mat += s.mat * w; c.laser += (s.laser + s.setup) * w; c.man += s.man * w; c.lav += _lavArt(a) * w;
+  }
+  const voci = ['mat', 'laser', 'man', 'lav', 'str'].map(k => [k, c[k]]).filter(([, v]) => v > 0.004);
+  const prima = box.dataset.v;
+  box.dataset.v = `${idx}|${unit.toFixed(2)}|${vendita.toFixed(2)}`;
+  box.innerHTML = `
+    <div class="pc-sec-head"><span>Costo dell'assieme</span><span class="pc-sec-hint">${quota > 0 ? `${_pct(Math.min(100, quota), 1)} del preventivo` : ''}</span></div>
+    <div class="pcc-tri">
+      <div><small>Costo</small><b>${_eur(unit)}</b></div>
+      <div class="sell"><small>Vendita</small><b>${_eur(vendita)}</b></div>
+      <div class="gain"><small>Utile</small><b>${_eur(utile)}</b></div>
+    </div>
+    ${p.qty > 1 ? `<div class="pcc-qty">× ${p.qty} assiemi = vendita <b>${_eur(vendita * p.qty)}</b></div>` : ''}
+    <div class="pcc-bar">${voci.map(([k, v]) => `<span style="flex-grow:${v.toFixed(4)}; background:${WB_SEG[k].col}" title="${WB_SEG[k].lbl}"></span>`).join('')}</div>
+    <div class="pcc-rows">
+      ${voci.map(([k, v]) => `<span class="k"><i style="background:${WB_SEG[k].col}"></i>${WB_SEG[k].lbl}</span><span class="v">${_eur(v)}</span>`).join('')}
+    </div>`;
+  if (prima && prima.split('|')[0] === String(idx) && prima !== box.dataset.v) _wbFlash(box.querySelector('.pcc-tri'));
+}
+
+/** Componenti come righe della distinta: stato, anteprima, codice, dati, costo. */
+function _saRenderComponenti(r, A) {
+  const list = document.getElementById('sa-comp-list');
+  const righe = [];
+  const tot = computeAssiemePricing(A).costoSingoloAssieme || 0;
+  const quota = v => tot > 0 ? Math.max(2, Math.min(100, v / tot * 100)).toFixed(1) : 0;
+  const prezzo = (v, cad, q) => `<span class="pr-price"><b class="${v > 0 ? '' : 'zero'}">${v > 0 ? _eur(v) : '—'}</b>
+      ${q > 1 && cad > 0 ? `<small>${_eur(cad)} cad.</small>` : ''}
+      <span class="pr-share" title="Quota sul costo dell'assieme"><span style="width:${quota(v)}%"></span></span></span>`;
+  for (const a of r.articoli) {
+    const i = currentArticoli.indexOf(a);
+    const q = a.quantita || 1, unit = wbCostoUnitario(a);
+    const P = wbProblemi(a).filter(x => x.l !== 'info');
+    const primo = P.slice().sort((x, y) => (x.l === 'err' ? 0 : 1) - (y.l === 'err' ? 0 : 1))[0];
+    const mat = a.materiale ? escapeHtml(String(a.materiale).replace(/_/g, ' ')) : '—';
+    const sp = a.spessore_mm ? `${String(a.spessore_mm).replace('.', ',')} mm` : '—';
+    const meta = primo ? `<span class="pr-issue ${primo.l}">${escapeHtml(primo.g)}</span>` : `${mat} · ${sp}`;
+    righe.push(`<div class="pr" onclick="selectSplitArticolo(${i})" title="Apri il pezzo">
+      <span class="pr-lead">${_wbDot(a)}</span>
+      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(a.codice || a.dxf_filename || '—')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
+        <span class="pr-meta">${meta}</span></span>
+      ${prezzo(unit * q, unit, q)}
+    </div>`);
+  }
+  const avv = x => (x.avvisi || []).length ? ` · <span class="pr-issue warn" title="${escapeHtml(x.avvisi.join(' · '))}">${escapeHtml(x.avvisi[0])}</span>` : '';
+  for (const t of r.tubolari) {
+    const q = _qtaRiga(t), v = _costoTubolare(t);
+    righe.push(`<div class="pr nolink">
+      <span class="pr-lead"></span>
+      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
+        <span class="pr-meta">Tubolare · ${(t.lunghezza_m || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} m · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${avv(t)}</span></span>
+      ${prezzo(v, v / q, q)}
+    </div>`);
+  }
+  for (const pz of r.piastre) {
+    const q = _qtaRiga(pz), v = _costoPiastra(pz);
+    righe.push(`<div class="pr nolink">
+      <span class="pr-lead"></span>
+      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">Piastra ${String(pz.spessore_mm || 0).replace('.', ',')} mm</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
+        <span class="pr-meta">${(pz.area_dm2 || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} dm² · ${(pz.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${avv(pz)}</span></span>
+      ${prezzo(v, v / q, q)}
+    </div>`);
+  }
+  list.innerHTML = righe.length ? righe.join('')
+    : `<div class="sa-comp-empty">Nessun componente collegato. Assegna i pezzi a questo assieme dal campo "Assieme" nella loro scheda.</div>`;
+  const n = righe.length;
+  document.getElementById('sa-comp-hint').textContent = n ? `${n} · per 1 assieme` : '';
+}
+
+function saSetQty(v) {
+  if (_splitAssIdx == null) return;
+  updateAss(_splitAssIdx, 'qty', Math.max(1, parseInt(v, 10) || 1), true);
+  wbRenderAssieme(_splitAssIdx);
+}
+function saApriDettaglio() { if (_splitAssIdx != null) openAssiemeDetail(_splitAssIdx); }
+async function saRimuovi() {
+  if (_splitAssIdx == null) return;
+  const i = _splitAssIdx;
+  const prima = currentAssiemi.length;
+  await removeAss(i);
+  if (currentAssiemi.length < prima) { _splitAssIdx = null; _showSplitDetailPane('empty'); try { renderSplitTree(); } catch (_) {} }
+}
+/** Comandi al visore 3D incorporato (esploso, vista iniziale). */
+function saVista(cmd) {
+  const ifr = document.getElementById('sd-ass-3d-iframe');
+  if (!ifr || !ifr.contentWindow) return;
+  if (cmd === 'esploso') _saEsploso = !_saEsploso;
+  else if (cmd === 'reset') _saEsploso = false;     // la vista iniziale e' montata
+  ifr.contentWindow.postMessage({ type: 'step-cmd', cmd, on: _saEsploso }, '*');
+  const be = document.getElementById('sa-btn-esploso');
+  if (be) be.classList.toggle('on', _saEsploso);
+}
+function saSchermoIntero(forza) {
+  const st = document.getElementById('sa-stage');
+  if (!st) return;
+  const on = typeof forza === 'boolean' ? forza : !st.classList.contains('wb-full');
+  st.classList.toggle('wb-full', on);
+  const ico = document.getElementById('sa-full-ico');
+  if (ico) { ico.setAttribute('data-lucide', on ? 'minimize-2' : 'maximize-2'); if (window.lucide) try { lucide.createIcons(); } catch (_) {} }
 }
 
 /** Renderizza il detail panel dx per l'articolo selezionato. */
@@ -6674,8 +7158,10 @@ async function renderSplitDetail(idx) {
       // altrimenti l'anteprima ricavata dal DXF.
       if (a.pdf_filename && wbSorgentePreferita() === 'pdf') {
         try {
+          const gen = _wbGen;
           await wbPdfViewer(preview,
             `${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf/${encodeURIComponent(a.pdf_filename)}`, idx);
+          if (gen !== _wbGen || _splitSelectedIdx !== idx) return;   // superato da un'altra apertura
           wbAggiornaBarra(a);
         } catch (e) {
           console.warn('pdf', e);
@@ -6684,8 +7170,12 @@ async function renderSplitDetail(idx) {
       } else try {
         const bust = a._preview_bust || 0;
         const url = `${API_URL}/api/preventivi/${currentPreventivo.id}/dxf/${encodeURIComponent(displayFilename)}/svg?v=${bust}`;
+        const gen = _wbGen;
         const resp = await fetch(url);
-        preview.innerHTML = await resp.text();
+        const svgTxt = await resp.text();
+        // risposta lenta di un altro preventivo o di un altro pezzo: si scarta
+        if (gen !== _wbGen || _splitSelectedIdx !== idx) return;
+        preview.innerHTML = svgTxt;
         preview.style.cursor = 'default';
         preview.onclick = null;
         // Visualizzatore: tratti leggibili, inquadratura sul disegno, zoom e spostamento.
@@ -7489,6 +7979,23 @@ async function previewStepFromAssieme(idx) {
 // Cache lista STEP files per preventivo (evita fetch multipli)
 let _stepFilesCache = { preventivo_id: null, files: null };
 
+/** STEP di un assieme. Il nome del file e' il codice con la revisione
+    ("07SA00182-00.step"), la cartella spesso codice e descrizione
+    ("07SA00182 LEVA"): prima il nome identico, poi il solo codice, senza
+    descrizione e senza revisione. */
+function _stepPerAssieme(code, files) {
+  // vale per qualsiasi file dell'assieme (STEP, PDF, DXF): si toglie l'estensione
+  const nome = s => String(s || '').replace(/\.[a-z0-9]{2,4}$/i, '').trim().toLowerCase();
+  const codice = s => nome(s).split(/\s+/)[0] || '';
+  const senzaRev = s => codice(s).replace(/-\d{1,3}$/, '');
+  const c = nome(code);
+  if (!c) return null;
+  return files.find(f => nome(f.filename) === c)
+      || files.find(f => codice(f.filename) === codice(code))
+      || files.find(f => senzaRev(f.filename) === senzaRev(code))
+      || null;
+}
+
 async function previewStep(codice_assieme) {
   if (!currentPreventivo) return;
   try {
@@ -7505,11 +8012,7 @@ async function previewStep(codice_assieme) {
       return;
     }
     // Match: basename (senza .step/.stp) == codice_assieme, case insensitive
-    const target = (codice_assieme || '').toLowerCase();
-    const match = files.find(f => {
-      const base = f.filename.replace(/\.(step|stp)$/i, '').toLowerCase();
-      return base === target;
-    }) || files[0];  // fallback: primo file disponibile
+    const match = _stepPerAssieme(codice_assieme, files) || files[0];  // fallback: primo file disponibile
     const stepUrl = `${API_URL}/api/preventivi/${currentPreventivo.id}/step/${encodeURIComponent(match.filename)}`;
     const previewUrl = '/preview-step.html?' + new URLSearchParams({
       url: stepUrl,
@@ -7823,6 +8326,7 @@ async function madSelectPoint(x_mm, y_mm) {
     a.area_dm2 = j.area_dm2 || 0;
     a.perimetro_taglio_m = j.perimetro_taglio_m || 0;
     a.n_forature = j.n_pierce || j.n_forature || 0;
+    a.lunghezza_vuoto_mm = _wbVuoto(j);
     a.dxf_confidence = 1;
     a.dxf_needs_verify = false;
 
@@ -7883,6 +8387,7 @@ async function madSelectPolygon(candIdx) {
   a.area_dm2 = geom.area_dm2 || 0;
   a.perimetro_taglio_m = geom.perimetro_taglio_m || 0;
   a.n_forature = geom.n_pierce || geom.n_forature || 0;
+  a.lunghezza_vuoto_mm = _wbVuoto(geom);
   a.dxf_confidence = geom.confidence || 1;
   a.dxf_needs_verify = false;
 
@@ -8148,6 +8653,7 @@ async function applyCandidateSelection() {
     a.area_dm2 = geom.area_dm2 || 0;
     a.perimetro_taglio_m = geom.perimetro_taglio_m || 0;
     a.n_forature = geom.n_pierce || geom.n_forature || 0;
+    a.lunghezza_vuoto_mm = _wbVuoto(geom);
     a.dxf_confidence = geom.confidence || 1;
     a.dxf_needs_verify = false;
     renderArticoli();
@@ -8506,6 +9012,13 @@ async function stimaArt(idx, opts = {}) {
   }
 }
 
+/** Spostamenti a vuoto (mm) dal risultato di una geometria, o null se il
+    risultato non li porta: il server li stima allora dall'ingombro. */
+function _wbVuoto(g) {
+  const v = g ? parseFloat(g.lunghezza_vuoto_mm) : NaN;
+  return v >= 0 ? v : null;
+}
+
 /** Scrive l'esito della stima sull'articolo. Tocca SOLO la stima: il prezzo
     manuale (costo_base_override) si toglie solo con "usa la stima". */
 function _applicaStima(a, stima) {
@@ -8516,8 +9029,11 @@ function _applicaStima(a, stima) {
   a.stima_dettaglio = {
     peso_kg: stima.peso_kg, costo_materiale: stima.costo_materiale, costo_lavoro: stima.costo_lavoro,
     setup_eur: stima.setup_eur, tempo_taglio_s: stima.tempo_taglio_s, tempo_pierce_s: stima.tempo_pierce_s,
+    tempo_vuoto_s: stima.tempo_vuoto_s, tempo_ausiliario_s: stima.tempo_ausiliario_s,
     tempo_totale_min: stima.tempo_totale_min, velocita_mm_min: stima.velocita_mm_min, base: stima.base,
   };
+  // tariffe usate per questa stima: se cambiano, la bozza si ristima
+  if (stima.firma_tariffe) a.stima_firma = stima.firma_tariffe;
   // Avvisi e flag salvati sull'articolo (campi senza "_"): restano dopo la
   // riapertura e li vede anche la verifica prima dell'invio.
   a.avvisi_stima = (stima.warnings || []).slice(0, 10);
@@ -8531,9 +9047,13 @@ function _applicaStima(a, stima) {
 async function stimaTutti(indici) {
   if (!currentArticoli.length) return;
   const lista = Array.isArray(indici) ? indici : currentArticoli.map((_, i) => i);
-  let stimati = 0, errori = 0;
+  let stimati = 0, errori = 0, fatti = 0;
+  wbProg.apri(`Calcolo il costo di ${lista.length} pezzi`);
+  try {
   for (const i of lista) {
     const a = currentArticoli[i];
+    wbProg.val(fatti, lista.length, `${fatti + 1} di ${lista.length}${a && a.codice ? ' · ' + a.codice : ''}`);
+    fatti++;
     if (!a) continue;
     if (!a.materiale || !a.spessore_mm) { errori++; continue; }
     try {
@@ -8550,6 +9070,7 @@ async function stimaTutti(indici) {
       } else errori++;
     } catch (e) { errori++; }
   }
+  } finally { wbProg.chiudi(); }
   renderArticoli(); recalcTotali();
   if (stimati) segnaArticoliModificati(300);
   showMsg('msg-import', `Stimati ${stimati} articoli, ${errori} saltati (manca materiale/spessore)`, errori ? 'var(--orange)' : 'var(--green)');
@@ -8787,8 +9308,7 @@ async function _hydrateAssemblyThumbnails() {
       if (!entry.isIntersecting) return;
       const cell = entry.target;
       if (cell.dataset.hydrated === '1') return;
-      const code = (cell.dataset.assCode || '').toLowerCase();
-      const match = files.find(f => f.filename.replace(/\.(step|stp)$/i, '').toLowerCase() === code) || files[0];
+      const match = _stepPerAssieme(cell.dataset.assCode, files) || files[0];
       if (!match) return;
       cell.dataset.hydrated = '1';
       const stepUrl = `${API_URL}/api/preventivi/${currentPreventivo.id}/step/${encodeURIComponent(match.filename)}`;
@@ -8862,20 +9382,17 @@ async function removeAss(i) {
 // ============================================================
 let _assDetailIdx = -1;
 
-// Contesti di rendering del dettaglio assieme: gli stessi helper servono sia il
-// modale (vista tabella) sia il pannello INLINE della vista split. Cambiano solo
-// gli id degli elementi e gli handler degli input.
+// Contesti del visore 3D dell'assieme: il modale (vista tabella) e la scheda
+// della vista split. Il modale ha anche riepilogo e distinta propri
+// (_renderAssiemeDetailSummary); la scheda split li disegna con wbRenderAssieme.
 const _ASS_CTX_MODAL = {
   summary:'ass-detail-summary', bomCount:'ass-detail-bom-count', bomBody:'ass-detail-bom-body',
   oreInput:'ass-det-ore', oreChange:'assDetailSetOre', onArtClick:'openArtFromBom',
   placeholder:'ass-detail-3d-placeholder', iframe:'ass-detail-3d-iframe',
 };
 const _ASS_CTX_SPLIT = {
-  summary:'sd-ass-summary', bomCount:'sd-ass-bom-count', bomBody:'sd-ass-bom-body',
-  oreInput:'sd-ass-ore', oreChange:'assSplitSetOre', onArtClick:'selectSplitArticolo',
-  placeholder:'sd-ass-3d-placeholder', iframe:'sd-ass-3d-iframe',
-  // niente `wrap`: l'altezza del 3D è gestita dalla griglia a 2 colonne (componenti
-  // a sinistra, 3D a destra), non da un override di min-height.
+  placeholder:'sd-ass-3d-placeholder', iframe:'sd-ass-3d-iframe', embed: true,
+  // niente `wrap`: l'altezza del 3D e' quella della cornice del disegno.
 };
 
 async function openAssiemeDetail(idx) {
@@ -8905,7 +9422,7 @@ function assDetailSetOre(v) {
 function assSplitSetOre(v) {
   if (_splitAssIdx == null) return;
   updateAssOre(_splitAssIdx, v);
-  _renderAssiemeDetailSummary(_splitAssIdx, _ASS_CTX_SPLIT);
+  wbRenderAssieme(_splitAssIdx);
   try { renderSplitTree(); } catch (_) {}
 }
 
@@ -8971,23 +9488,29 @@ async function _hydrateAssiemeDetail3D(code, ctx = _ASS_CTX_MODAL) {
   placeholder.style.display = 'flex';
   iframe.style.display = 'none';
   iframe.src = 'about:blank';
+  iframe.dataset.file = '';
   // Senza STEP il grande visore è inutile: nel pannello inline lo riduciamo così
   // riepilogo e distinta restano sopra la piega. Con STEP torna a tutta altezza.
   if (wrap) wrap.style.minHeight = '160px';
   if (!code || !currentPreventivo) return;
+  const gen = _wbGen, pid = currentPreventivo.id;
   try {
-    if (_stepFilesCache.preventivo_id !== currentPreventivo.id || _stepFilesCache.files === null) {
-      const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/step-files`);
+    if (_stepFilesCache.preventivo_id !== pid || _stepFilesCache.files === null) {
+      const r = await fetch(`${API_URL}/api/preventivi/${pid}/step-files`);
       const j = await r.json();
-      if (r.ok && j.success) _stepFilesCache = { preventivo_id: currentPreventivo.id, files: j.files };
+      if (r.ok && j.success) _stepFilesCache = { preventivo_id: pid, files: j.files };
     }
-    const files = _stepFilesCache.files || [];
-    const codeLower = code.toLowerCase();
-    const match = files.find(f => f.filename.replace(/\.(step|stp)$/i, '').toLowerCase() === codeLower);
+    if (gen !== _wbGen) return;               // risposta di un preventivo non piu' aperto
+    const files = (_stepFilesCache.preventivo_id === pid && _stepFilesCache.files) || [];
+    const match = _stepPerAssieme(code, files);
     if (!match) return;
     const stepUrl = `${API_URL}/api/preventivi/${currentPreventivo.id}/step/${encodeURIComponent(match.filename)}`;
-    const iframeUrl = '/preview-step.html?' + new URLSearchParams({ url: stepUrl, name: match.filename }).toString();
-    iframe.src = iframeUrl;
+    // Nella scheda assieme il visore e' incorporato: niente intestazione ne'
+    // pannelli propri, i comandi stanno nella barra del disegno.
+    const q = { url: stepUrl, name: match.filename };
+    if (ctx.embed) q.embed = '1';
+    iframe.src = '/preview-step.html?' + new URLSearchParams(q).toString();
+    iframe.dataset.file = match.filename;
     iframe.style.display = 'block';
     placeholder.style.display = 'none';
     if (wrap) wrap.style.minHeight = 'min(70vh,720px)';
@@ -9302,6 +9825,7 @@ async function _onCandClickPick(e) {
     if (j.area_dm2 != null) a.area_dm2 = j.area_dm2;
     if (j.perimetro_taglio_m != null) a.perimetro_taglio_m = j.perimetro_taglio_m;
     if (j.n_pierce != null) a.n_forature = j.n_pierce;
+    if (j.perimetro_taglio_m != null) a.lunghezza_vuoto_mm = _wbVuoto(j);
     if (j.bbox_w_mm != null) a.bbox_w_mm = j.bbox_w_mm;
     if (j.bbox_h_mm != null) a.bbox_h_mm = j.bbox_h_mm;
     // Lavorazioni ricalcolate dal file originale (testi SU/GIU per pieghe)
@@ -9478,6 +10002,7 @@ async function _onMarqueeMouseUp(e) {
     if (j.area_dm2 != null) a.area_dm2 = j.area_dm2;
     if (j.perimetro_taglio_m != null) a.perimetro_taglio_m = j.perimetro_taglio_m;
     if (j.n_pierce != null) a.n_forature = j.n_pierce;
+    if (j.perimetro_taglio_m != null) a.lunghezza_vuoto_mm = _wbVuoto(j);
     if (j.bbox_w_mm != null) a.bbox_w_mm = j.bbox_w_mm;
     if (j.bbox_h_mm != null) a.bbox_h_mm = j.bbox_h_mm;
     a.dxf_needs_verify = false;
@@ -9662,12 +10187,15 @@ async function uploadStep(file, suppressMsg) {
   const fd = new FormData();
   fd.append('file', file);
   if (!suppressMsg) showMsg('msg-import', 'Parsing STEP 3D (può richiedere qualche secondo)…', 'var(--gray-text)');
+  wbProg.apri(`Carico lo STEP ${file.name}`, _mb([file]));
   try {
-    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-step?admin_id=${encodeURIComponent(currentUser.id)}`, {
-      method: 'POST', body: fd
-    });
-    const d = await r.json();
-    if (!d.success) { showMsg('msg-import', 'Errore: ' + d.error, 'var(--red)'); return; }
+    const d = await _postConAvanzamento(
+      `${API_URL}/api/preventivi/${currentPreventivo.id}/import-step?admin_id=${encodeURIComponent(currentUser.id)}`, fd,
+      (fraz, finito) => finito
+        // tempo tipico: qualche secondo per MB di STEP
+        ? wbProg.fase(`Analizzo il 3D di ${file.name}`, 'Assieme, tubolari, piastre e saldature', { stimaS: 3 + file.size / 1048576 * 4 })
+        : wbProg.val(fraz, 1, `Invio al server · ${Math.round(fraz * 100)}% di ${_mb([file])}`));
+    if (!d.success) { showMsg('msg-import', 'Errore: ' + d.error, 'var(--red)'); wbSnack('STEP non importato: ' + (d.error || ''), 'err', 6000); return; }
     // Aggiungi alle liste correnti (non sostituire — il commerciale potrebbe già aver caricato altri pezzi)
     for (const a of (d.assiemi || [])) {
       a.id = 'tmp-' + Date.now() + '-' + Math.random();
@@ -9713,7 +10241,12 @@ async function uploadStep(file, suppressMsg) {
       `✓ STEP importato: ${s.n_tubolari||0} tubolari (${formatEur(s.costo_totale_tubolari||0)}€) + ${s.n_piastre||0} piastre + ${s.peso_totale_kg||0}kg + ${s.saldatura_mt_tot||0}mt saldatura`
       + (avvisiStep.length ? ` — ⚠ ${avvisiStep.length} avvisi: ${avvisiStep.slice(0, 3).join(' · ')}${avvisiStep.length > 3 ? ' …' : ''}` : ''),
       avvisiStep.length ? 'var(--orange)' : 'var(--green)');
-  } catch (e) { showMsg('msg-import', 'Errore: ' + e.message, 'var(--red)'); }
+    if (!suppressMsg) wbSnack(`STEP importato: ${s.n_tubolari || 0} tubolari, ${s.n_piastre || 0} piastre`
+      + (avvisiStep.length ? ` · ${avvisiStep.length} avvisi` : ''), avvisiStep.length ? 'warn' : '');
+  } catch (e) {
+    showMsg('msg-import', 'Errore: ' + e.message, 'var(--red)');
+    wbSnack('STEP non importato: ' + e.message, 'err', 6000);
+  } finally { wbProg.chiudi(); }
 }
 
 // ============================================================
@@ -9735,19 +10268,25 @@ async function uploadFiles(fileList, kind) {
   }
   // Multi XLSX/STEP: ancora sequenziale (upload piccolo, no collo di bottiglia parsing)
   let ok = 0, errors = [];
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    showMsg('msg-import', `Processing ${i+1}/${files.length}: ${f.name}…`, 'var(--gray-text)');
-    try {
-      if (kind === 'xlsx') await uploadXlsx(f, true);
-      else if (kind === 'step') await uploadStep(f, true);
-      ok++;
-    } catch (e) { errors.push(`${f.name}: ${e.message}`); }
-  }
+  const tipo = kind === 'step' ? 'STEP' : 'XLSX';
+  wbProg.apri(`Importo ${files.length} file ${tipo}`, _mb(files));
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      showMsg('msg-import', `Processing ${i+1}/${files.length}: ${f.name}…`, 'var(--gray-text)');
+      wbProg.val(i, files.length, `${i + 1} di ${files.length}: ${f.name}`);
+      try {
+        if (kind === 'xlsx') await uploadXlsx(f, true);
+        else if (kind === 'step') await uploadStep(f, true);
+        ok++;
+      } catch (e) { errors.push(`${f.name}: ${e.message}`); }
+    }
+  } finally { wbProg.chiudi(); }
   const c = errors.length ? 'var(--orange)' : 'var(--green)';
   let txt = `✓ Processati ${ok}/${files.length} file ${kind.toUpperCase()}`;
   if (errors.length) txt += ` (errori: ${errors.length})`;
   showMsg('msg-import', txt, c);
+  wbSnack(`${ok} di ${files.length} file ${tipo} importati` + (errors.length ? ` · ${errors.length} errori` : ''), errors.length ? 'warn' : '');
 }
 
 async function uploadXlsx(file, suppressMsg) {
@@ -9756,6 +10295,7 @@ async function uploadXlsx(file, suppressMsg) {
   fd.append('file', file);
   fd.append('admin_id', currentUser.id);
   showMsg('msg-import', 'Parsing XLSX Lantek…', 'var(--gray-text)');
+  wbProg.apri(`Importo ${file.name}`, 'Articoli e costi Lantek');
   try {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-xlsx?admin_id=${encodeURIComponent(currentUser.id)}`, {
       method: 'POST', body: fd
@@ -9809,7 +10349,10 @@ async function uploadXlsx(file, suppressMsg) {
     let msg = `✓ Importati ${d.count} articoli da Lantek con materiale + spessore + area + perimetro + costi.`;
     if (nNoMaterial > 0) msg += ` ${nNoMaterial} articolo/i con materiale mancante o non riconosciuto: sceglilo dal menu (vale comunque il costo Lantek).`;
     showMsg('msg-import', msg, nNoMaterial > 0 ? 'var(--orange)' : 'var(--green)');
-  } catch (e) { showMsg('msg-import', 'Errore: ' + e.message, 'var(--red)'); }
+  } catch (e) {
+    showMsg('msg-import', 'Errore: ' + e.message, 'var(--red)');
+    wbSnack('Import non riuscito: ' + e.message, 'err', 6000);
+  } finally { wbProg.chiudi(); }
 }
 
 /**
@@ -9839,6 +10382,7 @@ function applyDxfResultToUI(d, rawFilename, opts = {}) {
       _applicaDaCad(ex, 'n_forature', geo.n_forature || 0);
       _applicaDaCad(ex, 'perimetro_taglio_m', geo.perimetro_taglio_m || 0);
       _applicaDaCad(ex, 'area_dm2', geo.area_dm2 || 0);
+      ex.lunghezza_vuoto_mm = _wbVuoto(geo);
       // Geometria nuova: la conferma data sul disegno precedente non vale piu'.
       if ((ex.origine_campi || {}).perimetro_taglio_m === 'cad') ex.geometria_manuale_confermata = false;
     }
@@ -9908,6 +10452,7 @@ function applyDxfResultToUI(d, rawFilename, opts = {}) {
     area: 0, area_dm2: d.geometria.area_dm2 || 0,
     perimetro_taglio_m: d.geometria.perimetro_taglio_m || 0,
     n_forature: d.geometria.n_forature || 0,
+    lunghezza_vuoto_mm: _wbVuoto(d.geometria),
     costo_materiale: 0, costo_base_stimato: 0, costo_base_override: null,
     pieghe: d.lavorazioni.pieghe || 0,
     saldatura_ml: d.lavorazioni.saldatura_ml || 0,
@@ -9941,6 +10486,7 @@ async function uploadDxf(file, suppressMsg) {
   const fd = new FormData();
   fd.append('file', file);
   if (!suppressMsg) showMsg('msg-import', 'Parsing DXF…', 'var(--gray-text)');
+  wbProg.apri(`Analizzo ${file.name}`, 'Contorno, fori, lavorazioni, materiale e spessore');
   try {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf?admin_id=${encodeURIComponent(currentUser.id)}`, {
       method: 'POST', body: fd
@@ -9974,7 +10520,10 @@ async function uploadDxf(file, suppressMsg) {
         showMsg('msg-import', `✓ DXF "${fname}" importato — ${matMsg}${cacheHit}.`, matFromCartiglio ? 'var(--green)' : 'var(--orange)');
       }
     }
-  } catch (e) { showMsg('msg-import', 'Errore: ' + e.message, 'var(--red)'); }
+  } catch (e) {
+    showMsg('msg-import', 'Errore: ' + e.message, 'var(--red)');
+    wbSnack('Import non riuscito: ' + e.message, 'err', 6000);
+  } finally { wbProg.chiudi(); }
 }
 
 /**
@@ -9988,7 +10537,11 @@ async function uploadFolderDxf(fileList) {
   const dxf = all.filter(f => /\.dxf$/i.test(f.name));
   if (!dxf.length) { showMsg('msg-import', 'Nessun DXF trovato nella cartella.', 'var(--orange)'); return; }
   if (!currentPreventivo) { showMsg('msg-import', 'Salva prima il preventivo.', 'var(--red)'); return; }
-  await uploadDxfBatch(dxf);
+  // Gli STEP degli assiemi viaggiano coi DXF (come nello ZIP): il server li
+  // salva per il visore 3D. Prima venivano scartati e il 3D non c'era.
+  const step = all.filter(f => /\.(step|stp)$/i.test(f.name));
+  await uploadDxfBatch(dxf.concat(step));
+  if (step.length) invalidateStepFilesCache();
 }
 
 async function uploadDxfBatch(files) {
@@ -10005,12 +10558,19 @@ async function uploadDxfBatch(files) {
   }
   showMsg('msg-import', `Elaborazione ${files.length} file DXF in parallelo…`, 'var(--gray-text)');
   const t0 = Date.now();
+  const nDxf = files.filter(f => /\.dxf$/i.test(f.name)).length;
+  wbProg.apri(`Carico ${files.length} disegni`, _mb(files));
   try {
-    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf-batch?admin_id=${encodeURIComponent(currentUser.id)}`, {
-      method: 'POST', body: fd
-    });
-    const d = await r.json();
-    if (!d.success) { showMsg('msg-import', 'Errore batch: ' + (d.error || 'unknown'), 'var(--red)'); return; }
+    const d = await _postConAvanzamento(
+      `${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf-batch?admin_id=${encodeURIComponent(currentUser.id)}`, fd,
+      (fraz, finito) => {
+        if (!finito) wbProg.val(fraz, 1, `Invio al server · ${Math.round(fraz * 100)}% di ${_mb(files)}`);
+        // Il server analizza tutti i disegni in una volta e non dice a che
+        // punto e': la barra avanza sul tempo tipico (~0,3 s a disegno).
+        else wbProg.fase(`Analizzo ${nDxf} disegni`, 'Contorni, fori, lavorazioni, materiale e spessore', { stimaS: 2 + nDxf * 0.3 });
+      });
+    if (!d.success) { showMsg('msg-import', 'Errore batch: ' + (d.error || 'unknown'), 'var(--red)'); wbSnack('Import non riuscito: ' + (d.error || 'errore'), 'err', 6000); return; }
+    wbProg.fase('Aggiungo i pezzi al preventivo', `${(d.results || []).length} disegni analizzati`);
     const elapsedMs = Date.now() - t0;
     let ok = 0, err = 0, cached = 0;
     const toccati = new Set();   // indici degli articoli creati/aggiornati da QUESTO batch
@@ -10054,10 +10614,12 @@ async function uploadDxfBatch(files) {
       const a = currentArticoli[i];
       return a && a.materiale && a.spessore_mm > 0 && a.area_dm2 > 0 && a.perimetro_taglio_m > 0;
     });
-    if (daStimare.length) {
-      // fire-and-forget: stimaTutti aggiorna la UI da solo alla fine
-      stimaTutti(daStimare).catch(e => console.warn('auto-stima post-import fallita:', e));
-    }
+    // Stima dei pezzi nuovi PRIMA di proseguire (poi le tavole PDF): in
+    // parallelo la barra mescolava "Carico le tavole" e "Calcolo il costo".
+    const stima = daStimare.length
+      ? stimaTutti(daStimare).catch(e => console.warn('auto-stima post-import fallita:', e))
+      : Promise.resolve();
+    await stima;
     const cacheMsg = cached > 0 ? ` (${cached} in cache)` : '';
     const errMsg = err > 0 ? ` — ${err} errori` : '';
     const secs = (elapsedMs / 1000).toFixed(1);
@@ -10066,25 +10628,43 @@ async function uploadDxfBatch(files) {
       `✓ Batch DXF: ${ok}/${d.results.length} elaborati in ${secs}s${cacheMsg}${errMsg}`,
       err ? 'var(--orange)' : 'var(--green)'
     );
-    // Apri la griglia review batch se ci sono file NON già cachati e che hanno
-    // qualcosa da verificare (auto-cleanup fatto, o cleanup fallito che richiede
-    // manuale). Serve al commerciale per confermare visivamente prima di andare.
-    const toReview = (d.results || []).filter(r =>
-      r.success && !r._cache_hit && (
-        (r.cleanup && r.cleanup.cleaned_dxf_filename) ||   // pulito → verifica
-        (r.geometria && r.geometria.needs_manual_select)  // bassa conf → serve fix
+    // Disegni d'insieme degli assiemi: non sono pezzi, il server non li prezza.
+    _wbDisegniAssieme = new Set((d.master_saltati || []).map(n => _wbChiaveNome(n)));
+    // Niente piu' griglia di revisione aperta d'ufficio: i contorni incerti
+    // finiscono gia' in "Da fare" (con "Verifica nel CAD" / "È corretto") e
+    // bloccano l'invio. Si porta subito l'utente sul primo da verificare; la
+    // griglia resta apribile a mano da Importa → Rivedi riconoscimenti.
+    _wbUltimiRiconosciuti = (d.results || []).filter(r =>
+      r.success && (
+        (r.cleanup && r.cleanup.cleaned_dxf_filename) ||
+        (r.geometria && r.geometria.needs_manual_select)
       )
     );
-    if (toReview.length > 0) {
-      openReviewBatch(toReview);
-    }
-  } catch (e) { showMsg('msg-import', 'Errore batch: ' + e.message, 'var(--red)'); }
+    const dubbi = [...toccati].filter(i => wbCadDaConfermare(currentArticoli[i])).sort((a, b) => a - b);
+    if (dubbi.length) wbVai(dubbi[0]);
+    const avvisi = [];
+    if (dubbi.length) avvisi.push(dubbi.length === 1
+      ? '1 contorno da verificare: è il pezzo aperto'
+      : `${dubbi.length} contorni da verificare: il primo è aperto, E per il successivo`);
+    if (_wbDisegniAssieme.size) avvisi.push(`${_wbDisegniAssieme.size} disegni d'assieme non prezzati come pezzi`);
+    // dopo la stima, che altrimenti coprirebbe l'avviso col suo messaggio
+    if (avvisi.length) stima.then(() => wbSnack(avvisi.join(' · '), dubbi.length ? 'warn' : '', 8000));
+    else stima.then(() => wbSnack(`${ok} disegni importati in ${secs.replace('.', ',')} s${err ? ` · ${err} non leggibili` : ''}`, err ? 'warn' : ''));
+  } catch (e) {
+    showMsg('msg-import', 'Errore batch: ' + e.message, 'var(--red)');
+    wbSnack('Import non riuscito: ' + e.message, 'err', 6000);
+  } finally { wbProg.chiudi(); }
 }
 
 // ============================================================
 //  REVIEW BATCH — griglia post-import per verifica visiva
 // ============================================================
 let _reviewBatchItems = [];
+let _wbUltimiRiconosciuti = [];   // risultati dell'ultimo import, per la griglia aperta a mano
+function wbApriRiconoscimenti() {
+  if (!_wbUltimiRiconosciuti.length) { wbSnack('Nessun riconoscimento automatico da rivedere nell\'ultimo import'); return; }
+  openReviewBatch(_wbUltimiRiconosciuti);
+}
 
 /** Apre modal griglia review. Ogni item è un result del batch import.
     Per ogni item mostro card con: originale (mini) | pulito (grande) affiancati,
@@ -11291,6 +11871,11 @@ function wbSplitBase(a) {
     out.mat = m * k; out.laser = l * k; out.setup = s * k;
     out.tempo_min = d.tempo_totale_min != null ? +d.tempo_totale_min : null;
     out.peso = d.peso_kg != null ? +d.peso_kg : null;
+    // Scomposizione del tempo macchina, voce per voce come in Lantek
+    if (d.tempo_taglio_s != null) {
+      out.tempi = { taglio: +d.tempo_taglio_s || 0, sfondamenti: +d.tempo_pierce_s || 0,
+                    vuoto: +d.tempo_vuoto_s || 0, ausiliario: +d.tempo_ausiliario_s || 0 };
+    }
     return out;
   }
   const lc = _wbLaserCfg || {};
@@ -11538,6 +12123,18 @@ function wbProblemi(a) {
     P.push({ l: 'err', g: 'Geometria mancante', t: 'Area o taglio non calcolati',
       s: a.dxf_filename ? 'Il contorno del pezzo non è stato trovato nel disegno.' : 'Pezzo senza disegno: inserisci area e perimetro nei dati tecnici.',
       az: a.dxf_filename ? [{ l: 'Apri CAD', p: 1, f: () => openCadEditor() }] : [{ l: 'Dati tecnici', p: 1, f: () => { if (document.getElementById('split-detail-body').style.display === 'none') sdToggleForm(); } }] });
+  }
+  // Dati completi ma costo mai calcolato: prima risultava "pronto" a 0 €
+  // (LS 1184 dopo l'import AI: 37 pezzi su 70 senza costo, controllo 70/70).
+  if (!manuale && a.materiale && a.spessore_mm > 0 && a.area_dm2 > 0 && a.perimetro_taglio_m > 0
+      && !(wbBase(a) > 0)) {
+    P.push({ l: 'err', g: 'Costo non calcolato', t: 'Costo non calcolato',
+      s: 'Materiale, spessore e geometria ci sono, ma la stima del costo non e\' stata fatta: il pezzo varrebbe 0 €.',
+      az: [{ l: 'Calcola', p: 1, f: i => stimaArt(i) },
+           { l: 'Calcola tutti', f: () => stimaTutti(currentArticoli.map((x, j) => j).filter(j => {
+               const x = currentArticoli[j];
+               return x && x.costo_base_override == null && !(wbBase(x) > 0) && x.materiale
+                 && x.spessore_mm > 0 && x.area_dm2 > 0 && x.perimetro_taglio_m > 0; })) }] });
   }
   if (wbContorno(a) === 'incerto' && a.area_dm2 > 0) {
     const pc = a.dxf_confidence != null ? ` (${Math.round(a.dxf_confidence * 100)}%)` : '';
@@ -11794,27 +12391,12 @@ function wbRenderPareto(K) {
       <span class="v">${_eur(r.v)}</span></li>`).join('')}</ul>`;
 }
 
-/** Pannello dell'assieme selezionato (per i pezzi la scheda e' al centro). */
-function wbRenderPieceRail(K) {
+/** Come per i pezzi, il costo dell'assieme selezionato sta nella sua scheda:
+    qui si tiene aggiornata quella (margine, sconto e generali cambiano la vendita). */
+function wbRenderPieceRail() {
   const box = document.getElementById('wb-rl-piece');
-  if (!box) return;
-  K = K || wbComposizione();
-  const f = K.genF * K.margF;
-  const tot = K.T.totaleLotto || 0;
-  if (_splitAssIdx != null && currentAssiemi[_splitAssIdx]) {
-    const A = currentAssiemi[_splitAssIdx];
-    const p = computeAssiemePricing(A);
-    const riga = p.costoTotale * f;
-    box.innerHTML = `<div class="rl-sec">Assieme selezionato <small>${escapeHtml(A.codice_assieme || '')}</small></div>
-      <div class="rl-kv">
-        <span class="k">Costo di 1 assieme</span><span class="v">${_eur(p.costoSingoloAssieme)}</span>
-        <span class="k">Prezzo di 1 assieme</span><span class="v">${_eur(p.costoSingoloAssieme * f)}</span>
-        <span class="k">× ${p.qty} assiemi</span><span class="v big">${_eur(riga)}</span>
-        <span class="k">Quota del prezzo</span><span class="v">${tot > 0 ? _pct(riga / tot * 100, 1) : '—'}</span>
-      </div>`;
-    return;
-  }
-  box.innerHTML = '';
+  if (box) box.innerHTML = '';
+  if (_splitAssIdx != null && currentAssiemi[_splitAssIdx]) wbRenderAssCosto(_splitAssIdx);
 }
 
 /** Filtri della distinta, badge del cassetto e pulsante di invio. */
@@ -12016,8 +12598,11 @@ function wbRenderPieceCost(a, idx) {
   const lotti = (!a.codice_assieme && T) ? T.qty : 1;
   const quota = (T && T.totaleLotto > 0) ? (unit * f * q * lotti) / T.totaleLotto * 100 : 0;
   if (!(unit > 0)) {
+    const datiCompleti = a.materiale && a.spessore_mm > 0 && a.area_dm2 > 0 && a.perimetro_taglio_m > 0;
     box.innerHTML = `<div class="pc-sec-head"><span>Costo del pezzo</span></div>
-      <div class="pcc-empty">Il costo si calcola quando ci sono materiale, spessore e geometria.</div>
+      <div class="pcc-empty">${datiCompleti
+        ? 'Materiale, spessore e geometria ci sono: manca solo la stima del costo.'
+        : 'Il costo si calcola quando ci sono materiale, spessore e geometria.'}</div>
       <button class="wb-btn sm" onclick="sdStima()"><i data-lucide="refresh-ccw"></i> Calcola stima</button>`;
     return;
   }
@@ -12044,8 +12629,27 @@ function wbRenderPieceCost(a, idx) {
     <div class="pcc-bar">${voci.map(([k, v]) => `<span style="flex-grow:${v.toFixed(4)}; background:${WB_SEG[k].col}" title="${WB_SEG[k].lbl}"></span>`).join('')}</div>
     <div class="pcc-rows">
       ${voci.map(([k, v, n]) => `<span class="k"><i style="background:${WB_SEG[k].col}"></i>${WB_SEG[k].lbl}${n ? ` <small>${escapeHtml(n)}</small>` : ''}</span><span class="v">${_eur(v)}</span>`).join('')}
-    </div>${fonte}`;
+    </div>${_wbTempiHtml(s.tempi, a)}${fonte}`;
   if (prima && prima.split('|')[0] === String(idx) && prima !== box.dataset.v) _wbFlash(box.querySelector('.pcc-tri'));
+}
+/** Tempo macchina voce per voce, con le stesse voci del riepilogo Lantek:
+    si confronta a colpo d'occhio. Solo se la stima e' del modello (non per
+    prezzi manuali o Lantek). */
+function _wbTempiHtml(t, a) {
+  if (!t || a.costo_base_override != null) return '';
+  const sec = v => `${(v || 0).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+  const tot = t.taglio + t.sfondamenti + t.vuoto + t.ausiliario;
+  const n = a.n_forature || 0;
+  const righe = [
+    ['Taglio', t.taglio, a.perimetro_taglio_m > 0 ? `${Math.round(a.perimetro_taglio_m * 1000)} mm` : ''],
+    ['Sfondamenti', t.sfondamenti, n ? `${n} × ${sec(t.sfondamenti / n)}` : ''],
+    ['Spostamenti a vuoto', t.vuoto, a.lunghezza_vuoto_mm != null ? `${Math.round(a.lunghezza_vuoto_mm)} mm` : 'stimati'],
+    ['Tempo ausiliario', t.ausiliario, ''],
+  ];
+  return `<div class="pcc-tempi">
+    <div class="pt-head"><span>Tempo macchina</span><b>${sec(tot)}</b></div>
+    ${righe.map(([k, v, n]) => `<span class="k">${k}${n ? ` <small>${escapeHtml(n)}</small>` : ''}</span><span class="v">${sec(v)}</span>`).join('')}
+  </div>`;
 }
 function _durata(min) {
   const s = Math.round((min || 0) * 60);
@@ -12134,18 +12738,30 @@ async function wbNewEmpty() {
     if (!currentPreventivo && !(await wbEnsureCreated())) return;
     const pdf = tutti.filter(f => /\.pdf$/i.test(f.name));
     const files = tutti.filter(f => !/\.pdf$/i.test(f.name));
-    const r = files.length ? await _uf.call(this, files, kind) : undefined;
-    if (pdf.length) await wbCaricaPdf(pdf);
-    return r;
+    // disegni + tavole PDF: una barra sola dall'inizio alla fine
+    wbProg.apri(`Importo ${tutti.length} file`, _mb(tutti));
+    try {
+      const r = files.length ? await _uf.call(this, files, kind) : undefined;
+      if (pdf.length) await wbCaricaPdf(pdf);
+      return r;
+    } finally { wbProg.chiudi(); }
   };
   uploadFolderDxf = async function (fileList) {
     const tutti = Array.from(fileList || []);
     if (!tutti.length) return;
     if (!currentPreventivo && !(await wbEnsureCreated())) return;
-    const r = await _ud.call(this, tutti);
-    const pdf = tutti.filter(f => /\.pdf$/i.test(f.name));
-    if (pdf.length) await wbCaricaPdf(pdf);
-    return r;
+    _wbDisegniAssieme = new Set();
+    wbProg.apri(`Importo la cartella (${tutti.length} file)`, _mb(tutti));
+    try {
+      const r = await _ud.call(this, tutti);
+      // Il PDF del disegno d'assieme non ha un pezzo a cui abbinarsi: si salva
+      // a parte (la scheda assieme lo mostra se manca lo STEP)
+      const pdfTutti = tutti.filter(f => /\.pdf$/i.test(f.name));
+      const pdf = pdfTutti.filter(f => !_wbDisegniAssieme.has(_wbChiaveNome(f.name)));
+      await _wbSalvaPdfAssieme(pdfTutti.filter(f => _wbDisegniAssieme.has(_wbChiaveNome(f.name))));
+      if (pdf.length) await wbCaricaPdf(pdf);
+      return r;
+    } finally { wbProg.chiudi(); }
   };
 })();
 
@@ -12299,6 +12915,93 @@ document.getElementById('ed-cliente').addEventListener('keydown', (e) => {
   };
 })();
 let _wbSnackT = null;
+// ═════════════ AVANZAMENTO (import e calcoli lunghi) ═════════════
+// Un solo riquadro in basso. Le operazioni annidate (cartella = disegni +
+// PDF + stima) lo condividono: apre chi comincia, chiude l'ultimo.
+// Fasi: val(fatto, totale) quando i passi sono contabili (invio dei file,
+// pezzi stimati); stima(secondi) quando lavora il server e non dice a che
+// punto e' (la barra avanza verso il 95% sul tempo atteso, senza fingere
+// numeri); indeterminata altrimenti.
+const wbProg = (() => {
+  let el = null, livello = 0, t0 = 0, tFase = 0, attesa = 0, timer = null;
+  function dom() {
+    if (el) return el;
+    el = document.createElement('div');
+    el.className = 'wb-prog'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    el.innerHTML = '<div class="pg-t"><span></span><b></b></div><div class="pg-s"></div><div class="pg-b"><i></i></div>';
+    document.body.appendChild(el);
+    return el;
+  }
+  const q = s => dom().querySelector(s);
+  function barra(frazione) { q('.pg-b i').style.width = (Math.max(0, Math.min(1, frazione)) * 100).toFixed(1) + '%'; }
+  function tick() {
+    const s = (performance.now() - t0) / 1000;
+    q('.pg-t b').textContent = s < 1 ? '' : `${Math.round(s)} s`;
+    if (attesa > 0) barra(0.95 * (1 - Math.exp(-((performance.now() - tFase) / 1000) / attesa)));
+  }
+  return {
+    apri(titolo, sotto = '') {
+      livello++;
+      if (livello > 1) { if (titolo) this.fase(titolo, sotto); return; }
+      dom(); t0 = performance.now(); attesa = 0;
+      el.className = 'wb-prog indet';
+      q('.pg-t span').textContent = titolo || 'Elaborazione…';
+      q('.pg-s').textContent = sotto;
+      q('.pg-t b').textContent = '';
+      requestAnimationFrame(() => el.classList.add('show'));
+      clearInterval(timer); timer = setInterval(tick, 250);
+    },
+    fase(titolo, sotto = '', opz = {}) {
+      if (!el || !livello) return;
+      q('.pg-t span').textContent = titolo;
+      q('.pg-s').textContent = sotto;
+      attesa = opz.stimaS > 0 ? opz.stimaS : 0;
+      tFase = performance.now();
+      el.classList.toggle('indet', !attesa);
+      if (attesa) barra(0);
+    },
+    val(fatto, totale, sotto) {
+      if (!el || !livello) return;
+      attesa = 0; el.classList.remove('indet');
+      barra(totale > 0 ? fatto / totale : 0);
+      if (sotto != null) q('.pg-s').textContent = sotto;
+    },
+    chiudi() {
+      if (livello > 0) livello--;
+      if (livello > 0 || !el) return;
+      clearInterval(timer); attesa = 0;
+      el.classList.remove('indet'); barra(1);
+      setTimeout(() => { if (!livello && el) el.classList.remove('show'); }, 350);
+    },
+  };
+})();
+
+/** POST multipart con avanzamento dell'invio (fetch non lo dice).
+    onInvio(frazione) durante l'upload; a invio finito onInvio(1, true). */
+function _postConAvanzamento(url, fd, onInvio) {
+  return new Promise((ok, ko) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', url);
+    x.upload.onprogress = e => { if (e.lengthComputable && onInvio) onInvio(e.loaded / e.total, false); };
+    x.upload.onload = () => { if (onInvio) onInvio(1, true); };
+    x.onload = () => {
+      try { ok(JSON.parse(x.responseText)); }
+      catch (_) { ko(new Error(`Risposta non valida dal server (HTTP ${x.status})`)); }
+    };
+    x.onerror = () => ko(new Error('Connessione al server interrotta'));
+    x.send(fd);
+  });
+}
+function _mb(files) {
+  const b = Array.from(files || []).reduce((s, f) => s + (f.size || 0), 0);
+  return b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+}
+
+// Generazione del banco: cresce a ogni apertura/creazione di preventivo. Le
+// risposte lente (disegno, PDF, 3D) del preventivo precedente la confrontano
+// e si scartano, invece di comparire nel nuovo.
+let _wbGen = 0;
+
 function wbSnack(text, tono = '', ms = 3200) {
   let el = document.getElementById('wb-snack');
   if (!el) {
@@ -12410,6 +13113,8 @@ document.addEventListener('keydown', (e) => {
     wbCloseNotes();
     const st = document.getElementById('wb-stage');
     if (st && st.classList.contains('wb-full')) { wbStageFull(false); return; }
+    const sa = document.getElementById('sa-stage');
+    if (sa && sa.classList.contains('wb-full')) { saSchermoIntero(false); return; }
     if (document.body.classList.contains('wb-drawer-open')) { wbCloseDrawer(); return; }
     document.body.classList.remove('wb-rail-open', 'wb-parts-open');
     return;
@@ -12493,9 +13198,15 @@ async function _wbLeggiVoci(dt) {
     if (!conFile(e)) return;
     e.preventDefault(); prof = 0; veil.classList.remove('show');
     if (currentPreventivo && (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
-    const { files, cartella } = await _wbLeggiVoci(e.dataTransfer);
+    // Una barra sola per tutto: lettura della cartella, disegni, 3D, PDF
+    wbProg.apri('Leggo i file trascinati…');
+    try { await _wbDropFile(e.dataTransfer); } finally { wbProg.chiudi(); }
+  });
+  async function _wbDropFile(dataTransfer) {
+    const { files, cartella } = await _wbLeggiVoci(dataTransfer);
     if (!files.length) return;
     if (!currentPreventivo && !(await wbEnsureCreated())) return;
+    wbProg.fase(`Importo ${files.length} file`, _mb(files));
     const ext = f => (f.name.split('.').pop() || '').toLowerCase();
     const disegni = files.filter(f => ['dxf', 'dwg'].includes(ext(f)));
     const step = files.filter(f => ['step', 'stp'].includes(ext(f)));
@@ -12506,14 +13217,21 @@ async function _wbLeggiVoci(dt) {
       wbSnack('Nessun file utilizzabile: servono DXF, DWG, STEP, XLSX o PDF', 'warn'); return;
     }
     if (altri) wbSnack(`${altri} file ignorati (formato non supportato)`, 'warn');
+    // Cartella trascinata con DXF: gli STEP sono il 3D degli assiemi e vanno
+    // col batch (solo visore), non all'analisi tubolari/piastre che creerebbe
+    // un secondo assieme con i pezzi gia' presenti nei DXF.
+    const stepColBatch = cartella && disegni.length > 0;
     if (disegni.length) {
-      if (cartella) await uploadFolderDxf(disegni);
+      if (cartella) await uploadFolderDxf(stepColBatch ? disegni.concat(step) : disegni);
       else await uploadFiles(disegni, 'dxf');
     }
-    if (step.length) await uploadFiles(step, 'step');
+    if (step.length && !stepColBatch) await uploadFiles(step, 'step');
     if (xlsx.length) await uploadFiles(xlsx, 'xlsx');
-    if (pdf.length) await wbCaricaPdf(pdf);      // dopo i disegni: i pezzi esistono gia'
-  });
+    // dopo i disegni: i pezzi esistono gia'. Il PDF del disegno d'assieme non ha un pezzo.
+    const pdfPezzi = stepColBatch ? pdf.filter(f => !_wbDisegniAssieme.has(_wbChiaveNome(f.name))) : pdf;
+    if (stepColBatch) await _wbSalvaPdfAssieme(pdf.filter(f => _wbDisegniAssieme.has(_wbChiaveNome(f.name))));
+    if (pdfPezzi.length) await wbCaricaPdf(pdfPezzi);
+  }
 })();
 
 // ═════════════ VISUALIZZATORE DEL DISEGNO ═════════════
@@ -12530,14 +13248,21 @@ function wbSorgentePreferita() {
 }
 function wbSorgente(s) {
   try { localStorage.setItem('wb_sorgente_disegno', s); } catch (_) {}
-  if (_splitSelectedIdx != null) renderSplitDetail(_splitSelectedIdx);
+  if (_saDisegnoAperto()) saMostraDisegno(currentAssiemi[_splitAssIdx].codice_assieme);
+  else if (_splitSelectedIdx != null) renderSplitDetail(_splitSelectedIdx);
 }
 
 /** Barra comandi del disegno (una sola, per PDF e DXF). */
 function _wbBarra() {
-  // Nella barra propria del riquadro disegno (in alto a destra)
-  const stage = document.getElementById('wb-vw-slot') || document.getElementById('wb-stage');
+  // Nella barra propria del riquadro disegno (in alto a destra). Una sola
+  // barra: si sposta tra la scheda pezzo e la scheda assieme (disegno
+  // d'insieme), a seconda di quale e' aperta.
+  const assOn = _saDisegnoAperto();
+  const stage = (assOn && document.getElementById('sa-vw-slot'))
+    || document.getElementById('wb-vw-slot') || document.getElementById('wb-stage');
   let bar = document.getElementById('wb-vw-bar');
+  if (bar && stage && bar.parentNode !== stage) stage.appendChild(bar);
+  if (bar) bar.hidden = false;
   if (!bar && stage) {
     bar = document.createElement('div');
     bar.id = 'wb-vw-bar'; bar.className = 'wb-vw-bar';
@@ -12648,12 +13373,14 @@ function _wbCaricaPdfJs() {
   return _wbPdfJs;
 }
 async function wbPdfViewer(preview, url, idx) {
+  const gen = _wbGen;
   preview.innerHTML = '<div class="wb-pdf"><canvas></canvas></div><div class="wb-pdf-wait"><div class="cad-spinner"></div>Apertura PDF…</div>';
   const lib = await _wbCaricaPdfJs();
   if (!_wbPdfDocs.has(url)) _wbPdfDocs.set(url, lib.getDocument({ url }).promise);
   let doc;
   try { doc = await _wbPdfDocs.get(url); }
   catch (e) { _wbPdfDocs.delete(url); throw e; }
+  if (gen !== _wbGen) return;                              // si e' aperto un altro preventivo
   if (idx != null && _splitSelectedIdx !== idx) return;   // l'utente e' gia' su un altro pezzo
   const box = preview.querySelector('.wb-pdf');
   const canvas = box.querySelector('canvas');
@@ -12677,7 +13404,7 @@ function wbPdfPagina(d) { if (_wbVw && _wbVw.mode === 'pdf') _wbPdfApri(_wbVw.pa
 /** Pagina intera nel riquadro, centrata. */
 function _wbPdfAdatta() {
   const V = _wbVw, r = V.box.getBoundingClientRect();
-  const pad = 16, alto = 16, basso = 16;     // comandi e misure stanno fuori dalla tavola
+  const pad = 24, alto = 24, basso = 24;     // comandi e misure stanno fuori dalla tavola; il grigio fa da cornice al foglio
   V.fit = Math.min((r.width - 2 * pad) / V.pw, (r.height - alto - basso) / V.ph);
   V.zoom = 1;
   V.tx = (r.width - V.pw * V.fit) / 2;
@@ -12750,6 +13477,7 @@ function wbFit() {
   _wbVw.vb = Object.assign({}, _wbVw.base); _wbApplica();
 }
 function wbStageFull(forza) {
+  if (_saDisegnoAperto()) { saSchermoIntero(forza); setTimeout(wbFit, 30); return; }
   const st = document.getElementById('wb-stage');
   if (!st) return;
   const on = typeof forza === 'boolean' ? forza : !st.classList.contains('wb-full');
@@ -12802,6 +13530,20 @@ window.addEventListener('resize', () => {
 });
 
 // ── PDF dei disegni: caricamento e abbinamento ai pezzi ────────────
+// Disegni d'insieme saltati dall'ultimo import di cartella (chiavi _wbChiaveNome)
+let _wbDisegniAssieme = new Set();
+/** Salva i PDF dei disegni d'assieme senza abbinarli a un pezzo: li mostra la
+    scheda assieme quando manca lo STEP. */
+async function _wbSalvaPdfAssieme(files) {
+  if (!files || !files.length || !currentPreventivo) return;
+  const fd = new FormData();
+  fd.append('admin_id', currentUser.id);
+  files.forEach(f => fd.append('files', f));
+  try {
+    await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf?admin_id=${encodeURIComponent(currentUser.id)}`,
+                { method: 'POST', body: fd });
+  } catch (e) { console.warn('PDF assieme non salvati', e); }
+}
 function _wbChiaveNome(nome) {
   return String(nome || '').replace(/\.[^.]+$/, '').replace(/\s*\(\d+\)$/, '')
     .toLowerCase().replace(/[\s_]+/g, '-');
@@ -12814,11 +13556,15 @@ async function wbCaricaPdf(files) {
   fd.append('admin_id', currentUser.id);
   pdf.forEach(f => fd.append('files', f));
   let d;
+  wbProg.apri(`Carico ${pdf.length} tavole PDF`, _mb(pdf));
   try {
-    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf?admin_id=${encodeURIComponent(currentUser.id)}`,
-                          { method: 'POST', body: fd });
-    d = await r.json();
-  } catch (e) { wbSnack('PDF non caricati: ' + e.message, 'err'); return 0; }
+    d = await _postConAvanzamento(
+      `${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf?admin_id=${encodeURIComponent(currentUser.id)}`, fd,
+      (fraz, finito) => finito
+        ? wbProg.fase(`Abbino ${pdf.length} tavole PDF ai pezzi`, '')
+        : wbProg.val(fraz, 1, `Invio al server · ${Math.round(fraz * 100)}% di ${_mb(pdf)}`));
+  } catch (e) { wbProg.chiudi(); wbSnack('PDF non caricati: ' + e.message, 'err'); return 0; }
+  wbProg.chiudi();
   if (!d.success) { wbSnack('PDF non caricati: ' + (d.error || ''), 'err'); return 0; }
   let abbinati = 0;
   const liberi = [];

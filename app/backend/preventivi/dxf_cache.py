@@ -73,7 +73,17 @@ _INITIALIZED = False
 #                  entità duplicate, cornici vs piastre con fori, svasature,
 #                  confidence, pieghe/materiale/spessore più rigorosi.
 #                  Chiave cache = contenuto + nome file + config + Gemini.
-PARSER_VERSION = 9
+# v10 (2026-09-25): geometria con `lunghezza_vuoto_mm` (spostamenti a vuoto
+#                  tra gli sfondamenti, per il tempo laser come in Lantek).
+# v11 (2026-09-25): filettature/svasature contate solo dentro il pezzo scelto
+#                  (niente doppie viste ne' simboli del cartiglio, anche col
+#                  pezzo disegnato piu' volte identico).
+# v12 (2026-09-25): scartati come pezzo i contorni con piu' di meta' dei testi
+#                  del foglio (celle del cartiglio, cornici in scala); contorno
+#                  confermato se ha le misure del cartiglio.
+# v13 (2026-09-25): disegni esportati in scala (quote con DIMLFAC, es. 1:8)
+#                  riportati al vero: prima aree fino a 64 volte piu' piccole.
+PARSER_VERSION = 13
 
 
 def _init_db() -> None:

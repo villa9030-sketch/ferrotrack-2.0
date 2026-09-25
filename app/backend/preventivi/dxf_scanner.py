@@ -179,6 +179,36 @@ def _entita_chiusa_scanner(entity) -> bool:
     return False
 
 
+def _simbolo_proiezione(cx: float, cy: float, r: float, linee: list) -> bool:
+    """Due cerchi concentrici col tronco di cono accanto = simbolo ISO del
+    metodo di proiezione (nel cartiglio), non una svasatura. Il cono ha due
+    lati obliqui corti e SPECULARI rispetto all'asse dei cerchi (orizzontale
+    o verticale): stessa distanza dal centro lungo l'asse, uno sopra e uno
+    sotto. Linee oblique qualsiasi vicino a una svasatura vera (smussi,
+    sezioni) non bastano: su 25NRAPA0207 e Prova1 facevano perdere svasature."""
+    obl = []
+    for l in linee:
+        x1, y1, x2, y2 = l['x1'], l['y1'], l['x2'], l['y2']
+        lung = l['lunghezza']
+        if lung <= 0 or lung > 4.0 * r:
+            continue
+        ang = math.degrees(math.atan2(y2 - y1, x2 - x1)) % 90.0
+        if min(ang, 90.0 - ang) < 3.0:        # orizzontale o verticale
+            continue
+        if max(math.hypot(x1 - cx, y1 - cy), math.hypot(x2 - cx, y2 - cy)) <= 7.0 * r:
+            obl.append(((x1 + x2) / 2 - cx, (y1 + y2) / 2 - cy))
+    tol = 0.15 * r
+    for i in range(len(obl)):
+        for j in range(i + 1, len(obl)):
+            (ax, ay), (bx, by) = obl[i], obl[j]
+            # speculari rispetto all'asse orizzontale (cono a lato) o verticale
+            if abs(ax - bx) <= tol and abs(ay + by) <= tol and abs(ay) > tol:
+                return True
+            if abs(ay - by) <= tol and abs(ax + bx) <= tol and abs(ax) > tol:
+                return True
+    return False
+
+
 def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, int]:
     """Scansiona il DXF e restituisce (pieghe, saldatura_ml, filettatura, svasatura).
 
@@ -225,7 +255,8 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
     #     lavorazioni, non contorni di taglio)
     #  c) Blocchi di annotazione (note, tabelle, simboli) non espansi
     _CARTIGLIO_LAYER_KEYWORDS = ('cartig', 'cartouche', 'quot', 'dim', 'text',
-                                 'note', 'logo', 'frame', 'tratteggio', 'hatch')
+                                 'testo', 'testi', 'note', 'logo', 'frame',
+                                 'tratteggio', 'hatch')
     colori_lavorazione = set(colori_piega) | set(colori_sald)
 
     def _layer_cartiglio(entity):
@@ -414,11 +445,32 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
             return True
         return zona_min_x <= x <= zona_max_x and zona_min_y <= y <= zona_max_y
 
+    # Filettature e svasature si contano DENTRO il pezzo scelto: fuori ci sono
+    # le altre viste (18B4A3004-00 e' disegnato due volte: 64 filetti contati
+    # invece di 32) e i simboli del cartiglio (il simbolo di proiezione sono
+    # due cerchi concentrici, contati come svasatura su 20PA00690-00).
+    if not outer_pezzo_letto:
+        outer_pezzo = _contorno_pezzo_mm(doc, config)
+        outer_pezzo_letto = True
+    _dentro_pezzo = None
+    if outer_pezzo is not None:
+        try:
+            from shapely.geometry import Point as _P
+            from shapely.prepared import prep as _prep
+            _pp = _prep(outer_pezzo.buffer(0.05))
+            _dentro_pezzo = lambda x, y: _pp.contains(_P(x, y))
+        except Exception:
+            _dentro_pezzo = None
+
     # === PASSO 4: Filettatura (CIRCLE + ARC concentrici, in zona sviluppata) ===
     # Gli archi del simbolo filetto (3/4 di cerchio) a volte sono spezzati in più
     # ARC: si sommano le ampiezze degli archi concentrici dello stesso raggio.
     # Un cerchio = al massimo una filettatura.
+    # Si contano sia quelle dentro il pezzo sia tutte: se il pezzo scelto ne
+    # contiene, valgono quelle; se non ne contiene nessuna, la vista scelta non
+    # e' quella coi fori (o la scelta e' sbagliata) e vale il disegno intero.
     conteggio_filettatura = 0
+    filettature_nel_pezzo = 0
     for (cxc, cyc, rc) in circles:
         if not in_zona(cxc, cyc) or rc == 0:
             continue
@@ -441,7 +493,11 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
             ampiezza = min(ampiezza, 360.0)
             if (angolo_min <= ampiezza <= angolo_max) or (240 <= ampiezza <= 360):
                 conteggio_filettatura += 1
+                if _dentro_pezzo is not None and _dentro_pezzo(cxc, cyc):
+                    filettature_nel_pezzo += 1
                 break
+    if filettature_nel_pezzo:
+        conteggio_filettatura = filettature_nel_pezzo
 
     # === PASSO 5: Svasatura (CIRCLE concentrici, escluso se c'è arco concentrico = filettatura) ===
     # Un gruppo di cerchi concentrici = al massimo una svasatura. Conta solo se il
@@ -467,13 +523,18 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
         if r_inner == 0:
             continue
         ratio = r_outer / r_inner
-        if not (ratio_min <= ratio <= ratio_max):
+        # Col pezzo noto i cerchi fuori (cartiglio, altre viste) sono gia'
+        # esclusi: si accettano anche le svasature "strette" (Ø7,47/Ø11,47 =
+        # 1,54 su 18B4A3004-00). Senza pezzo resta la soglia prudente.
+        r_min = ratio_min
+        if outer_pezzo is not None:
+            r_min = min(ratio_min, float(config.get("dxf_svasatura_ratio_min_nel_pezzo", 1.3)))
+        if not (r_min <= ratio <= ratio_max):
             continue
         if any(math.hypot(cx1 - cxa, cy1 - cya) <= tolleranza_centro for (cxa, cya, _ra, _, _) in arcs):
             continue
-        if not outer_pezzo_letto:
-            outer_pezzo = _contorno_pezzo_mm(doc, config)
-            outer_pezzo_letto = True
+        if _simbolo_proiezione(cx1, cy1, r_outer, tutte_linee):
+            continue
         if outer_pezzo is not None:
             try:
                 from shapely.geometry import Point

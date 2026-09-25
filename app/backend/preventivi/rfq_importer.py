@@ -320,16 +320,21 @@ def _dirparts(n: str) -> list[str]:
     return n.replace('\\', '/').split('/')[:-1]
 
 
-def assiemi_from_paths(rel_paths: list[str]) -> dict[str, str | None]:
-    """Dato un elenco di percorsi relativi (con eventuali sottocartelle),
-    ritorna {basename_dxf: codice_assieme | None}.
+def _codice_senza_rev(nome: str) -> str:
+    """Codice di un disegno o di una cartella, senza descrizione ne' revisione:
+    "07SA00182 LEVA" e "07SA00182-00" → "07SA00182"."""
+    parti = (nome or '').strip().split()
+    return re.sub(r'-\d{1,3}$', '', parti[0].upper()) if parti else ''
 
-    Il primo livello di sottocartella — dopo aver tolto la radice comune,
-    calcolata SOLO sui DXF — identifica un ASSIEME. Il DXF il cui nome coincide
-    con la cartella (master, es. 13SA0070-00/13SA0070-00.DXF) → None (è il
-    disegno dell'assieme, non un componente). Usato sia dallo ZIP che dal
-    caricamento di una cartella già estratta (webkitRelativePath).
-    """
+
+def _e_disegno_cartella(stem: str, folder: str) -> bool:
+    """Il DXF e' il disegno della cartella che lo contiene (l'assieme intero)?
+    Nome identico, oppure stesso codice a meno di descrizione e revisione."""
+    return (stem.upper() == folder.upper()
+            or (_codice_senza_rev(stem) != '' and _codice_senza_rev(stem) == _codice_senza_rev(folder)))
+
+
+def _radice_comune_dxf(rel_paths: list[str]) -> tuple[list[str], int]:
     dxf_paths = [p for p in rel_paths
                  if os.path.splitext(p)[1].lower() in ('.dxf', '.dwg')]
     dxf_dirs = [_dirparts(p) for p in dxf_paths]
@@ -341,14 +346,41 @@ def assiemi_from_paths(rel_paths: list[str]) -> dict[str, str | None]:
                 common.append(next(iter(col)))
             else:
                 break
-    clen = len(common)
+    return dxf_paths, len(common)
+
+
+def disegni_assieme_da_paths(rel_paths: list[str]) -> set[str]:
+    """Basename dei DXF che sono il disegno d'insieme di un assieme o di un
+    sotto-assieme: stanno nella cartella che porta il loro codice (a qualsiasi
+    livello, es. CASSONE/07SA00180 TELAIO/07SA00180-01.dxf). Non si tagliano:
+    l'assieme costa come somma dei componenti + montaggio."""
+    dxf_paths, clen = _radice_comune_dxf(rel_paths)
+    out: set[str] = set()
+    for p in dxf_paths:
+        dirs = _dirparts(p)[clen:]
+        if dirs and _e_disegno_cartella(os.path.splitext(os.path.basename(p))[0], dirs[-1]):
+            out.add(os.path.basename(p))
+    return out
+
+
+def assiemi_from_paths(rel_paths: list[str]) -> dict[str, str | None]:
+    """Dato un elenco di percorsi relativi (con eventuali sottocartelle),
+    ritorna {basename_dxf: codice_assieme | None}.
+
+    Il primo livello di sottocartella — dopo aver tolto la radice comune,
+    calcolata SOLO sui DXF — identifica un ASSIEME. Il DXF il cui nome coincide
+    con la cartella (master, es. 13SA0070-00/13SA0070-00.DXF) → None (è il
+    disegno dell'assieme, non un componente). Usato sia dallo ZIP che dal
+    caricamento di una cartella già estratta (webkitRelativePath).
+    """
+    dxf_paths, clen = _radice_comune_dxf(rel_paths)
     out: dict[str, str | None] = {}
     for p in dxf_paths:
         base = os.path.basename(p)
         rel_dirs = _dirparts(p)[clen:]
         folder = rel_dirs[0] if rel_dirs else None
         stem = os.path.splitext(base)[0]
-        is_master = folder is not None and stem.upper() == folder.upper()
+        is_master = folder is not None and _e_disegno_cartella(stem, folder)
         out[base] = None if is_master else folder
     return out
 
@@ -473,12 +505,23 @@ def process_rfq_package(zip_bytes: bytes) -> RFQParseResult:
     if not dxf_map:
         result.warnings.append('Nessun file DXF trovato nel ZIP: gli articoli verranno creati senza disegno.')
 
-    # 2. Chiama Gemini per parsare il PDF
-    try:
-        parsed = parse_order_pdf(pdf_bytes, pdf_filename or 'order.pdf')
-    except RFQParseError as e:
-        result.error = str(e)
-        return result
+    # 2. Lettura dell'ordine: prima dal TESTO del PDF se il formato e' noto
+    #    ("Ordine Fornitore" DECA: esatto, gratis, senza chiave), altrimenti
+    #    Gemini. Prima era solo Gemini: senza chiave o con un PDF lungo
+    #    l'ordine "non si trovava" (LS 1184, 63 righe su 5 pagine).
+    from .ordine_testo import leggi_ordine_fornitore
+    parsed = leggi_ordine_fornitore(pdf_bytes)
+    if parsed:
+        result.warnings.append(
+            f"Ordine letto direttamente dal PDF ({pdf_filename}): "
+            f"{len(parsed.get('articoli') or [])} righe, senza AI")
+    else:
+        try:
+            parsed = parse_order_pdf(pdf_bytes, pdf_filename or 'order.pdf')
+        except RFQParseError as e:
+            result.error = (f'{e} — Il PDF d\'ordine "{pdf_filename}" non e\' in un formato '
+                            f'che si legge senza AI.')
+            return result
     if not parsed:
         result.error = 'AI extraction del PDF fallita (risposta vuota).'
         return result

@@ -15,7 +15,9 @@ Formula:
     peso_kg          = area_dm2 × spessore_mm/100 × densità[materiale]
     tempo_taglio_s   = perimetro_m × 1000 / velocità_mm_min × 60
     tempo_pierce_s   = n_forature × pierce_time_s
-    costo_lavoro     = (tempo_taglio_s + tempo_pierce_s)/3600 × (€/h_macchina + €/h_operaio)
+    tempo_vuoto_s    = lunghezza_vuoto_mm / velocità_vuoto            (come Lantek)
+    tempo_ausiliario = fisso per pezzo                                 (come Lantek)
+    costo_lavoro     = (taglio + pierce + vuoto + ausiliario)/3600 × (€/h_macchina + €/h_operaio)
     costo_materiale  = peso_kg × €/kg_materiale
     base             = costo_lavoro + costo_materiale + setup_pezzo
 
@@ -45,6 +47,12 @@ DEFAULT_LASER_CONFIG = {
     # si paga sul LORDO = netto / resa. 1.0 = nessuno sfrido (comportamento
     # storico); 0.8 = il 20% del foglio va in sfrido.
     'resa_nesting': 1.0,
+    # Tempi che Lantek conta oltre a taglio e sfondamenti. Tarati su
+    # 18B3F10101-00 (CY Laser 3015 HL ECS, 2026-09-25): 301,9 mm a vuoto in
+    # 0,94 s → 19,3 m/min effettivi (accelerazioni comprese); 0,85 s di
+    # tempo ausiliario per pezzo. Da confermare su altri pezzi.
+    'velocita_vuoto_m_min': 19.3,
+    'tempo_ausiliario_s': 0.85,
     # €/kg materie prime + densità fisica
     'materiali': {
         'S235':     {'densita_kg_dm3': 7.85, 'euro_kg': 0.80, 'setup_eur': 0.10},
@@ -115,6 +123,40 @@ def _empty_result(warnings: list[str], **flag) -> dict:
     }
     out.update(flag)
     return out
+
+
+def _cfg_float(cfg: dict, chiave: str, default: float, minimo: float = 1e-9) -> float:
+    """Coefficiente numerico da laser_config; mancante o non valido → default."""
+    try:
+        v = float(cfg.get(chiave, default))
+    except (TypeError, ValueError):
+        return default
+    return v if v >= minimo else default
+
+
+def _lunghezza_vuoto(articolo: dict, n_sfondamenti: int) -> tuple[float, str]:
+    """Spostamenti a vuoto in mm e da dove vengono.
+    - 'dxf': percorso tra gli sfondamenti calcolato sul disegno all'import;
+    - 'stima': articolo importato prima che il dato esistesse → dall'ingombro
+      (≈ mezza diagonale media per ogni salto, 325 mm contro 302 reali su
+      18B3F10101-00);
+    - 'nessuno': un solo sfondamento o nessuna misura."""
+    try:
+        v = articolo.get('lunghezza_vuoto_mm')
+        if v is not None and float(v) >= 0:
+            return float(v), 'dxf'
+    except (TypeError, ValueError):
+        pass
+    if n_sfondamenti <= 1:
+        return 0.0, 'nessuno'
+    try:
+        w = float(articolo.get('bbox_w_mm') or 0)
+        h = float(articolo.get('bbox_h_mm') or 0)
+    except (TypeError, ValueError):
+        w = h = 0.0
+    if w > 0 and h > 0:
+        return (n_sfondamenti - 1) * 0.5 * (w * h) ** 0.5, 'stima'
+    return 0.0, 'nessuno'
 
 
 def _resa_nesting(cfg: dict, warnings: list) -> float:
@@ -249,7 +291,12 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
     perim_mm = perimetro_m * 1000.0
     tempo_taglio_s = perim_mm / vel_mm_min * 60.0        # (mm / (mm/min)) × 60 = s
     tempo_pierce_s = n_forature * pierce_s
-    tempo_totale_s = tempo_taglio_s + tempo_pierce_s
+    vuoto_mm, fonte_vuoto = _lunghezza_vuoto(articolo, n_forature)
+    if fonte_vuoto == 'stima':
+        notes.append('Spostamenti a vuoto stimati dall\'ingombro: reimporta il DXF per il percorso reale.')
+    tempo_vuoto_s = vuoto_mm / (_cfg_float(cfg, 'velocita_vuoto_m_min', 19.3) * 1000.0 / 60.0)
+    tempo_ausiliario_s = _cfg_float(cfg, 'tempo_ausiliario_s', 0.85, minimo=0.0)
+    tempo_totale_s = tempo_taglio_s + tempo_pierce_s + tempo_vuoto_s + tempo_ausiliario_s
 
     # --- Costi ---
     costo_lavoro = (tempo_totale_s / 3600.0) * eur_h_tot
@@ -301,7 +348,10 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
         'costo_lavoro': round(costo_lavoro, 4),
         'tempo_taglio_s': round(tempo_taglio_s, 2),
         'tempo_pierce_s': round(tempo_pierce_s, 2),
-        'tempo_totale_min': round(tempo_totale_s / 60.0, 2),
+        'tempo_vuoto_s': round(tempo_vuoto_s, 2),
+        'tempo_ausiliario_s': round(tempo_ausiliario_s, 2),
+        'lunghezza_vuoto_mm': round(vuoto_mm, 1),
+        'tempo_totale_min': round(tempo_totale_s / 60.0, 4),
         'setup_eur': round(setup_eur, 4),
         'base': round(base, 2),
         'warnings': warnings,

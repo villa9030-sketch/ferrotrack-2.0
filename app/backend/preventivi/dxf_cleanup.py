@@ -751,7 +751,7 @@ def _contorni_pezzo(doc, geo: dict, cfg: dict):
     )
     base = _poligoni_documento(doc, cfg)
     scala = float(base['scala'] or 1.0)
-    candidati, _n = _separa_cartiglio(base['polys'])
+    candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
     if not candidati:
         return None
     w_att = float(geo.get('bbox_width_mm') or 0)

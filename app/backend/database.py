@@ -5158,7 +5158,8 @@ class PreventivoManager:
                       'ricetta_mancante', 'materiale_sconosciuto',
                       'spessore_fuori_tabella', 'fonte_costo_base',
                       'stima_dettaglio', 'bbox_w_mm', 'bbox_h_mm', 'pdf_filename',
-                      'dxf_confidence', 'dxf_needs_verify', 'avvisi_spessore')
+                      'dxf_confidence', 'dxf_needs_verify', 'avvisi_spessore',
+                      'lunghezza_vuoto_mm', 'stima_firma')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -5189,7 +5190,8 @@ class PreventivoManager:
         dett = a.get('stima_dettaglio')
         if isinstance(dett, dict):
             chiavi = ('peso_kg', 'costo_materiale', 'costo_lavoro', 'setup_eur',
-                      'tempo_taglio_s', 'tempo_pierce_s', 'tempo_totale_min',
+                      'tempo_taglio_s', 'tempo_pierce_s', 'tempo_vuoto_s',
+                      'tempo_ausiliario_s', 'tempo_totale_min',
                       'velocita_mm_min', 'base')
             pulito = {}
             for k in chiavi:
@@ -5208,6 +5210,19 @@ class PreventivoManager:
                 continue
             if 0 < v < 1e6:
                 out[k] = round(v, 2)
+        # Tariffe con cui e' stato stimato il costo base (impronta): se le
+        # Impostazioni cambiano, la bozza lo ristima
+        firma = str(a.get('stima_firma') or '').strip()
+        if firma and len(firma) <= 40 and firma.isalnum():
+            out['stima_firma'] = firma
+        # Spostamenti a vuoto tra gli sfondamenti (dal disegno): 0 e' un valore
+        # vero (pezzo senza fori), l'assenza vuol dire "da stimare"
+        try:
+            v = float(a.get('lunghezza_vuoto_mm'))
+            if 0 <= v < 1e7:
+                out['lunghezza_vuoto_mm'] = round(v, 1)
+        except (TypeError, ValueError):
+            pass
         # Quanto e' sicuro il riconoscimento automatico del contorno: decide se
         # il pezzo va verificato a mano nel CAD o e' gia' affidabile.
         try:

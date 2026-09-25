@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import re
 from typing import Any
 
 import ezdxf
@@ -205,11 +206,73 @@ def scala_unita_mm(doc) -> tuple[float, str | None]:
                         f'plausibili solo in millimetri: assunti millimetri')
         else:
             res = (f, f'Disegno in {nome}: misure convertite in mm (×{f:g})')
+    # Scala del DISEGNO (foglio esportato in scala, es. 1:8): le misure nel
+    # file sono ridotte, le quote le riportano al vero con DIMLFAC.
+    k, avviso_scala = _scala_disegno(doc)
+    if k != 1.0:
+        f0, w0 = res
+        res = (f0 * k, '; '.join(w for w in (w0, avviso_scala) if w))
+    elif avviso_scala:
+        res = (res[0], '; '.join(w for w in (res[1], avviso_scala) if w))
     try:
         doc._ft_scala_mm = res
     except Exception:
         pass
     return res
+
+
+_RE_SCALA_TESTO = re.compile(r'SCALA\s*:?\s*(\d+(?:[.,]\d+)?)\s*:\s*(\d+(?:[.,]\d+)?)', re.I)
+
+
+def _scala_disegno(doc) -> tuple[float, str | None]:
+    """Fattore che riporta al vero un disegno esportato in scala.
+
+    Esempio 25NSIPA0015-00: foglio A3 "SCALA:1:8", il pezzo 142x1675 e'
+    disegnato 17,76x209,4 e tutte le quote hanno DIMLFAC=8 (moltiplicano la
+    misura disegnata per scrivere 1675). Senza questo l'area era 64 volte piu'
+    piccola e i fori (Ø6,5 → 0,8 mm) sparivano sotto la soglia minima.
+
+    Si scala SOLO se tutte le quote del foglio hanno lo stesso fattore (viste
+    in scale diverse → nessuna correzione) e, se c'e' la scritta "SCALA a:b"
+    del cartiglio, questa concorda."""
+    try:
+        valori = []
+        for d in doc.modelspace().query('DIMENSION'):
+            try:
+                v = float(d.override().get('dimlfac', 1.0) or 1.0)
+            except Exception:
+                continue
+            if v > 0:
+                valori.append(round(v, 4))
+        if not valori:
+            return 1.0, None
+        k = valori[0]
+        if abs(k - 1.0) < 1e-6:
+            return 1.0, None
+        if any(abs(v - k) > 1e-4 * k for v in valori):
+            return 1.0, ('Quote con fattori di scala diversi nello stesso foglio: '
+                         'misure lette cosi\' come sono, verificare')
+        if not (0.05 <= k <= 200):
+            return 1.0, None
+        # la scritta del cartiglio, se c'e', deve dire la stessa cosa
+        for t in doc.modelspace().query('TEXT MTEXT'):
+            try:
+                testo = t.plain_text() if t.dxftype() == 'MTEXT' else t.dxf.text
+            except Exception:
+                continue
+            m = _RE_SCALA_TESTO.search(testo or '')
+            if not m:
+                continue
+            a = float(m.group(1).replace(',', '.'))
+            b = float(m.group(2).replace(',', '.'))
+            if a > 0 and b > 0 and abs(b / a - k) > 0.02 * k:
+                return 1.0, (f'Quote in scala x{k:g} ma il cartiglio dice "{m.group(0)}": '
+                             'misure lette cosi\' come sono, verificare')
+            break
+        rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
+        return k, f'Disegno in scala {rapporto}: misure riportate al vero (x{k:g})'
+    except Exception:
+        return 1.0, None
 
 
 def _blocco_annotazione(insert) -> bool:
@@ -716,16 +779,18 @@ def _is_cornice_cartiglio(poly, all_polys: list, min_bbox_mm: float = MIN_BBOX_C
     return False
 
 
-def _separa_cartiglio(all_polys: list) -> tuple[list, int]:
+def _separa_cartiglio(all_polys: list, testi: list | None = None) -> tuple[list, int]:
     """Divide i poligoni in (candidati pezzo, n_scartati come cornice/cartiglio).
 
     Oltre alle cornici (_is_cornice_cartiglio) scarta i contorni che TOCCANO il
     bordo di una cornice: sono le celle del cartiglio / le strisce d'intestazione
     (un pezzo non è mai disegnato attaccato alla cornice del foglio).
+    Poi, con i testi del disegno, scarta i contorni che ne racchiudono piu'
+    della meta' (_troppi_testi).
     """
     cornici = [p for p in all_polys if _is_cornice_cartiglio(p, all_polys)]
     if not cornici:
-        return list(all_polys), 0
+        return _via_celle_di_testo(list(all_polys), 0, testi)
     ids_cornici = {id(c) for c in cornici}
     candidati = []
     n = len(cornici)
@@ -736,7 +801,24 @@ def _separa_cartiglio(all_polys: list) -> tuple[list, int]:
             n += 1
             continue
         candidati.append(p)
-    return candidati, n
+    return _via_celle_di_testo(candidati, n, testi)
+
+
+def _via_celle_di_testo(candidati: list, n: int, testi: list | None) -> tuple[list, int]:
+    """Un contorno che racchiude almeno META' delle scritte del foglio e' una
+    cella del cartiglio o la cornice, non un pezzo. Su 420 disegni reali i
+    pezzi veri ne contengono meno del 10% (anche con note e quote sopra),
+    cartigli e cornici oltre il 60%: nessun caso in mezzo. Serve quando la
+    cornice non e' riconosciuta per forma (foglio in scala diversa dal pezzo,
+    es. 19122001-00: prima veniva prezzata la cella 93,6x22 del cartiglio).
+    Se si scarterebbe tutto, non si scarta nulla."""
+    if not testi or len(testi) < 5 or not candidati:
+        return candidati, n
+    soglia = 0.5 * len(testi)
+    tenuti = [p for p in candidati if _n_testi_dentro(p, testi) < soglia]
+    if not tenuti:
+        return candidati, n
+    return tenuti, n + (len(candidati) - len(tenuti))
 
 
 def _riduci_fori_annidati(inners: list) -> tuple[list, int]:
@@ -778,6 +860,43 @@ def _riduci_fori_annidati(inners: list) -> tuple[list, int]:
 # Confidence scoring
 # ============================================================================
 
+def _punti_testo_mm(msp, scala: float) -> list:
+    """Punti d'inserimento dei testi del disegno (TEXT, MTEXT, attributi dei
+    blocchi), in mm, blocchi espansi. Servono a riconoscere le celle di
+    cartiglio e tabelle: un pezzo da tagliare non ha scritte dentro."""
+    punti = []
+
+    def _visita(entita, profondita):
+        for e in entita:
+            t = e.dxftype()
+            try:
+                if t in ('TEXT', 'MTEXT', 'ATTRIB'):
+                    p = e.dxf.insert
+                    if t == 'TEXT' and e.dxf.hasattr('align_point') and (e.dxf.get('halign', 0) or e.dxf.get('valign', 0)):
+                        p = e.dxf.align_point
+                    punti.append((float(p.x) * scala, float(p.y) * scala))
+                elif t == 'INSERT' and profondita < 4:
+                    for a in getattr(e, 'attribs', []) or []:
+                        p = a.dxf.insert
+                        punti.append((float(p.x) * scala, float(p.y) * scala))
+                    _visita(e.virtual_entities(), profondita + 1)
+            except Exception:
+                continue
+
+    try:
+        _visita(msp, 0)
+    except Exception:
+        pass
+    return punti
+
+
+def _n_testi_dentro(poly, punti_testo: list) -> int:
+    if not punti_testo:
+        return 0
+    pp = prep(poly)
+    return sum(1 for x, y in punti_testo if pp.contains(Point(x, y)))
+
+
 def _score_candidate(poly, all_polys: list, circles_centri: list) -> dict:
     """Calcola score/features di un candidato pezzo.
 
@@ -799,6 +918,25 @@ def _score_candidate(poly, all_polys: list, circles_centri: list) -> dict:
         'bbox': poly.bounds,
         'perimeter': poly.length,
     }
+
+
+def _copia_identica(a, b, all_polys: list, circles_centri: list) -> bool:
+    """Due contorni sono lo stesso pezzo disegnato due volte? Area entro lo
+    0,5%, ingombro entro 1 mm (anche ruotato di 90°) e stessi fori/cerchi."""
+    try:
+        if abs(a.area - b.area) > 0.005 * max(a.area, b.area):
+            return False
+        ax0, ay0, ax1, ay1 = a.bounds
+        bx0, by0, bx1, by1 = b.bounds
+        da = sorted((ax1 - ax0, ay1 - ay0))
+        db = sorted((bx1 - bx0, by1 - by0))
+        if abs(da[0] - db[0]) > 1.0 or abs(da[1] - db[1]) > 1.0:
+            return False
+        fa = _score_candidate(a, all_polys, circles_centri)
+        fb = _score_candidate(b, all_polys, circles_centri)
+        return fa['n_circles'] == fb['n_circles'] and fa['n_inner'] == fb['n_inner']
+    except Exception:
+        return False
 
 
 def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centri: list) -> tuple[int, float, list]:
@@ -863,6 +1001,9 @@ def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centr
             ids_altri = {id(a) for a in altri}
             gap = best['score'] - max(s['score'] for s in scored if id(s['poly']) in ids_altri)
             confidence = 0.65 if gap >= 10.0 else 0.45
+            # Copie identiche restano da verificare a mano: puo' essere lo
+            # stesso pezzo disegnato due volte (18B4A3004-00) o due pezzi da
+            # tagliare (quantita' 2). Lo decide l'operatore, non il programma.
 
     return best_idx, round(confidence, 3), scored
 
@@ -931,6 +1072,7 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
         warnings.append(f'{n_dup} entità duplicate/sovrapposte ignorate')
     return {
         'polys': polys, 'centri_cerchi': raw['centri_cerchi'], 'scala': scala,
+        'testi': _punti_testo_mm(msp, scala),
         'warnings': warnings, 'n_raw': n_raw, 'n_dup': n_dup,
     }
 
@@ -947,10 +1089,20 @@ def contorno_pezzo_mm(doc, cfg: dict | None = None):
     outer = None
     try:
         base = _poligoni_documento(doc, cfg or {})
-        candidati, _n = _separa_cartiglio(base['polys'])
+        candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if candidati:
             idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'])
             outer = candidati[idx] if idx >= 0 and conf >= 0.5 else None
+            if outer is None and idx >= 0:
+                # Scelta incerta solo perche' il pezzo e' disegnato piu' volte
+                # identico: per contare le lavorazioni una copia vale l'altra
+                # (18B4A3004-00: 64 filetti contati invece di 32).
+                best = candidati[idx]
+                grandi = [c for c in candidati if c is not best
+                          and c.area >= PEZZI_CONFRONTABILI_REL * best.area
+                          and not best.buffer(0.05).contains(c)]
+                if grandi and all(_copia_identica(best, c, candidati, base['centri_cerchi']) for c in grandi):
+                    outer = best
     except Exception as e:
         logger.debug('contorno_pezzo_mm fallito: %s', e)
         outer = None
@@ -973,6 +1125,39 @@ def _dxf_bbox_raw(msp):
     return None
 
 
+def _percorso_vuoto_mm(outer, inners) -> float:
+    """Spostamenti a vuoto della testa tra uno sfondamento e il successivo:
+    prima i fori (dal centro, nell'ordine del piu' vicino), poi il contorno
+    esterno nel suo punto piu' vicino all'ultimo foro. Si prova ogni foro come
+    partenza e si tiene il giro piu' corto, come fa il CAM. Su 18B3F10101-00
+    da' 301,6 mm contro i 301,9 di Lantek."""
+    if not inners:
+        return 0.0
+    centri = [(p.centroid.x, p.centroid.y) for p in inners]
+
+    def giro(i0):
+        resto = centri[:i0] + centri[i0 + 1:]
+        cur, lung = centri[i0], 0.0
+        while resto:
+            j = min(range(len(resto)), key=lambda k: math.hypot(cur[0] - resto[k][0], cur[1] - resto[k][1]))
+            lung += math.hypot(cur[0] - resto[j][0], cur[1] - resto[j][1])
+            cur = resto.pop(j)
+        # ultimo tratto: dall'ultimo foro al contorno esterno
+        return lung + outer.exterior.distance(Point(cur))
+
+    try:
+        # con tanti fori basta partire dal piu' vicino all'angolo del pezzo
+        # (provare ogni partenza costerebbe n^3)
+        if len(centri) > 60:
+            minx, miny, _, _ = outer.bounds
+            i0 = min(range(len(centri)), key=lambda k: math.hypot(centri[k][0] - minx, centri[k][1] - miny))
+            return giro(i0)
+        return min(giro(i) for i in range(len(centri)))
+    except Exception as e:
+        logger.debug('percorso a vuoto non calcolato: %s', e)
+        return 0.0
+
+
 def _misure(outer, inners, scala: float) -> dict:
     """Area netta / perimetro / pierce dall'outer + fori (tutto in mm)."""
     area_outer_mm2 = outer.area
@@ -991,6 +1176,7 @@ def _misure(outer, inners, scala: float) -> dict:
         'bbox_width_mm': round(maxx - minx, 2),
         'bbox_height_mm': round(maxy - miny, 2),
         'scala_unita_mm': scala,
+        'lunghezza_vuoto_mm': round(_percorso_vuoto_mm(outer, inners), 1),
     }
 
 
@@ -1053,7 +1239,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     # ---- 5. Filtra cartiglio (ISO + cornici custom)
     # Un rettangolo ISO VUOTO non è più scartato a priori: potrebbe essere una
     # lamiera A4/A3; è cornice solo se contiene un disegno (vedi _is_cornice_cartiglio)
-    candidati, cartiglio_count = _separa_cartiglio(all_polys)
+    candidati, cartiglio_count = _separa_cartiglio(all_polys, base.get('testi'))
 
     if not candidati:
         return _empty_result(warnings + [f'Solo {cartiglio_count} cornici/cartigli rilevati, nessun pezzo'])
@@ -1074,9 +1260,14 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     preps = [(_prep_buf(o), o) for o in candidati]
     top_level = [c for c in candidati
                  if not any(o is not c and _contiene(o, c, pp) for pp, o in preps)]
-    n_pezzi = 1 + sum(1 for c in top_level
-                      if c is not outer and c.area >= PEZZI_CONFRONTABILI_REL * outer.area)
-    if n_pezzi > 1:
+    altri_grandi = [c for c in top_level
+                    if c is not outer and c.area >= PEZZI_CONFRONTABILI_REL * outer.area]
+    n_pezzi = 1 + len(altri_grandi)
+    if altri_grandi and all(_copia_identica(outer, c, candidati, circles_centri) for c in altri_grandi):
+        warnings.append(f'{n_pezzi} contorni esterni identici (dimensioni confrontabili): misure e '
+                        f'lavorazioni contate su una sola copia. Verificare se e\' lo stesso pezzo '
+                        f'disegnato {n_pezzi} volte o se vanno tagliati {n_pezzi} pezzi')
+    elif n_pezzi > 1:
         warnings.append(f'{n_pezzi} contorni esterni di dimensioni confrontabili nel disegno: '
                         f'verificare quale pezzo quotare')
     if n_svas:
@@ -1295,7 +1486,7 @@ def compute_geometry_from_point(path: str, x_mm: float, y_mm: float,
     click_pt = Point(float(x_mm) * scala, float(y_mm) * scala)
 
     # Escludi cartigli (ISO con disegno dentro / cornici)
-    non_cartiglio = _separa_cartiglio(all_polys)[0]
+    non_cartiglio = _separa_cartiglio(all_polys, base.get('testi'))[0]
 
     if not non_cartiglio:
         return _empty_result([
@@ -1395,7 +1586,7 @@ def compute_geometry_from_candidate(path: str, candidate_idx: int,
             outer_poly = max((g for g in outer_poly.geoms if g.geom_type == 'Polygon'), key=lambda g: g.area)
     # La geometria del candidato è decimata per la UI: se esiste il poligono
     # originale corrispondente lo uso (area/perimetro esatti)
-    all_polys = _separa_cartiglio(base['polys'])[0]
+    all_polys = _separa_cartiglio(base['polys'], base.get('testi'))[0]
     for p in all_polys:
         if abs(p.area - outer_poly.area) <= 0.01 * p.area and p.hausdorff_distance(outer_poly) <= 1.0:
             outer_poly = p

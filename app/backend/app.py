@@ -2621,12 +2621,19 @@ def api_preventivi_import_rfq_package():
         elif loose:
             import io as _io
             import zipfile as _zipfile
+            # Percorsi relativi (cartella trascinata o scelta): le sottocartelle
+            # sono gli assiemi, come nello ZIP. Senza, tutto finiva alla radice.
+            percorsi = request.form.getlist('paths')
             buf = _io.BytesIO()
             with _zipfile.ZipFile(buf, 'w', _zipfile.ZIP_DEFLATED) as zf:
-                for uf in loose:
+                for i, uf in enumerate(loose):
                     data = uf.read()
-                    if data:
-                        zf.writestr(os.path.basename(uf.filename), data)
+                    if not data:
+                        continue
+                    rel = percorsi[i] if i < len(percorsi) and percorsi[i] else uf.filename
+                    parti = [p for p in str(rel).replace('\\', '/').split('/')
+                             if p and p not in ('.', '..') and ':' not in p]
+                    zf.writestr('/'.join(parti) or os.path.basename(uf.filename), data)
             zip_bytes = buf.getvalue()
         else:
             return jsonify({'success': False, 'error': 'Nessun file: carica il PDF della richiesta e i DXF (oppure uno ZIP)'}), 400
@@ -2690,6 +2697,33 @@ def api_preventivi_import_rfq_package():
             except Exception:
                 logger.warning('salvataggio PDF ordine RFQ fallito: %s', rfq_pdf_filename)
 
+        # PDF dei disegni (tavole del cliente, con quote e note): si salvano
+        # tutti e si abbinano ai pezzi per nome, come nell'import da cartella.
+        # Prima si teneva solo il PDF dell'ordine: i pezzi mostravano solo il
+        # DXF e gli assiemi senza STEP non avevano nulla da guardare.
+        def _chiave_disegno(n):
+            stem = os.path.splitext(os.path.basename(n or ''))[0]
+            return re.sub(r'\s*\(\d+\)$', '', stem).strip().lower().replace(' ', '-')
+        pdf_per_chiave = {}
+        try:
+            import io as _io2
+            import zipfile as _zf2
+            with _zf2.ZipFile(_io2.BytesIO(zip_bytes)) as _z:
+                for info in _z.infolist():
+                    base = os.path.basename(info.filename)
+                    if (info.is_dir() or not base.lower().endswith('.pdf') or '__MACOSX' in info.filename
+                            or base == os.path.basename(rfq_pdf_filename)):
+                        continue
+                    dati = _z.read(info)
+                    if not dati.startswith(b'%PDF-'):
+                        continue
+                    salvato = _nome_disegno_libero(prev_dir, base)
+                    with open(os.path.join(prev_dir, salvato), 'wb') as fp:
+                        fp.write(dati)
+                    pdf_per_chiave.setdefault(_chiave_disegno(base), salvato)
+        except Exception:
+            logger.exception('salvataggio PDF disegni RFQ fallito')
+
         dxf_map = getattr(result, 'dxf_map', {}) or {}
         saved_tasks = []  # (dxf_path, nome_salvato, nome_originale)
         matched_dxfs = {a.matched_dxf for a in result.articoli if a.matched_dxf}
@@ -2752,7 +2786,13 @@ def api_preventivi_import_rfq_package():
                 n_master_saltati += 1
                 continue  # master assieme: rappresentato dal record assieme, non tagliabile
             dxf_info = dxf_results.get(a.matched_dxf) if a.matched_dxf else None
-            geom = (dxf_info or {}).get('geometry') or {}
+            # process_single_dxf risponde con 'geometria', 'lavorazioni' e
+            # 'cartiglio' (come l'import batch): qui si leggevano 'geometry',
+            # le lavorazioni al primo livello e 'cartiglio_materiale', che non
+            # esistono → ogni pezzo importato con l'AI arrivava senza area,
+            # perimetro, lavorazioni e materiale del cartiglio.
+            geom = (dxf_info or {}).get('geometria') or (dxf_info or {}).get('geometry') or {}
+            lav = (dxf_info or {}).get('lavorazioni') or dxf_info or {}
             item = {
                 'codice': a.codice,
                 'quantita': a.quantita,
@@ -2763,14 +2803,25 @@ def api_preventivi_import_rfq_package():
                 'perimetro_taglio_m': geom.get('perimetro_taglio_m', 0),
                 'n_forature': geom.get('n_pierce', 0),
                 'dxf_filename': a.matched_dxf,
-                'pieghe': (dxf_info or {}).get('pieghe', 0),
-                'saldatura_ml': (dxf_info or {}).get('saldatura_ml', 0),
-                'filettatura_pz': (dxf_info or {}).get('filettatura_pz', 0),
-                'svasatura_pz': (dxf_info or {}).get('svasatura_pz', 0),
+                'pieghe': lav.get('pieghe', 0) or 0,
+                'saldatura_ml': lav.get('saldatura_ml', 0) or 0,
+                'filettatura_pz': lav.get('filettatura_pz', 0) or 0,
+                'svasatura_pz': lav.get('svasatura_pz', 0) or 0,
+                # come l'import batch: affidabilita' del contorno, ingombro,
+                # spostamenti a vuoto (campi extra dell'articolo)
+                'dxf_confidence': geom.get('confidence'),
+                'dxf_needs_verify': bool(geom.get('needs_manual_select')),
+                'bbox_w_mm': geom.get('bbox_width_mm'),
+                'bbox_h_mm': geom.get('bbox_height_mm'),
+                'lunghezza_vuoto_mm': geom.get('lunghezza_vuoto_mm'),
+                # tavola PDF del pezzo (stesso nome del DXF o del codice)
+                'pdf_filename': (pdf_per_chiave.get(_chiave_disegno(a.matched_dxf)) if a.matched_dxf else None)
+                                 or pdf_per_chiave.get(_chiave_disegno(a.codice)),
             }
             # Se il PDF NON aveva materiale/spessore, prova a leggerli dal cartiglio DXF
             if not item['materiale'] and dxf_info:
-                cart_mat = (dxf_info.get('cartiglio_materiale') or {}).get('materiale')
+                cart = dxf_info.get('cartiglio') or dxf_info.get('cartiglio_materiale') or {}
+                cart_mat = cart.get('materiale') if (cart.get('confidence') or 0) >= 0.5 else None
                 if cart_mat:
                     item['materiale'] = cart_mat
             if not item['spessore_mm'] and dxf_info:
@@ -2781,12 +2832,41 @@ def api_preventivi_import_rfq_package():
             if item.get('spessore_mm'):
                 from .preventivi.pick_part import _snap_stock
                 item['spessore_mm'] = _snap_stock(float(item['spessore_mm']))
+            # Costo stimato subito, come l'import dei disegni: prima nasceva a 0
+            # e si calcolava solo aprendo i pezzi uno per uno (LS 1184: 37 pezzi
+            # su 70 a 0 € dopo l'import, e nessun avviso).
+            if (item.get('materiale') and item.get('spessore_mm') and item.get('area_dm2')
+                    and item.get('perimetro_taglio_m')):
+                try:
+                    st = _laser_estimator.stima_base(item, app_cfg)
+                    item['costo_base_stimato'] = st.get('base') or 0
+                    item['stima_dettaglio'] = {k: st.get(k) for k in (
+                        'peso_kg', 'costo_materiale', 'costo_lavoro', 'setup_eur',
+                        'tempo_taglio_s', 'tempo_pierce_s', 'tempo_vuoto_s',
+                        'tempo_ausiliario_s', 'tempo_totale_min', 'base')}
+                    item['avvisi_stima'] = list(st.get('warnings') or [])[:10]
+                    item['stima_firma'] = _firma_tariffe(app_cfg)
+                    for k in ('ricetta_mancante', 'materiale_sconosciuto', 'spessore_fuori_tabella'):
+                        item[k] = bool(st.get(k))
+                except Exception:
+                    logger.exception('stima import RFQ fallita per %s', a.codice)
             articoli_db.append(item)
 
         if n_master_saltati:
             result.warnings.append(
                 f'{n_master_saltati} disegno/i assieme (master) non prezzati come pezzo — '
                 f'l\'assieme costa come somma componenti + montaggio')
+        # Materiale e spessore mancanti si contano DOPO i cartigli dei DXF: il
+        # conteggio fatto sul solo PDF segnalava 46 "senza materiale" su LS 1184
+        # quando i disegni li avevano quasi tutti.
+        result.warnings = [w for w in result.warnings
+                           if not re.search(r'articoli senza (materiale|spessore) specificato', w)]
+        n_no_mat = sum(1 for it in articoli_db if not it.get('materiale'))
+        n_no_sp = sum(1 for it in articoli_db if not it.get('spessore_mm'))
+        if n_no_mat:
+            result.warnings.append(f'{n_no_mat} articoli senza materiale (ne\' nell\'ordine ne\' nel cartiglio)')
+        if n_no_sp:
+            result.warnings.append(f'{n_no_sp} articoli senza spessore (ne\' nell\'ordine ne\' nel cartiglio)')
 
         # Salva articoli
         if articoli_db:
@@ -2896,15 +2976,33 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         # Percorsi relativi (webkitRelativePath) paralleli ai file, se caricata
         # una CARTELLA già estratta → riconoscimento assiemi dalle sottocartelle.
         rel_paths = request.form.getlist('paths')
-        from .preventivi.rfq_importer import assiemi_from_paths
+        from .preventivi.rfq_importer import assiemi_from_paths, disegni_assieme_da_paths
         assieme_by_base = assiemi_from_paths(rel_paths) if rel_paths else {}
+        # Disegno d'insieme di assiemi e sotto-assiemi: come nello ZIP non e' un
+        # pezzo da tagliare (si prezzano i componenti + il montaggio).
+        disegni_assieme = disegni_assieme_da_paths(rel_paths) if rel_paths else set()
+        master_saltati = []
         # Salva tutti i file su disco (solo DXF; per DWG serve conversione singola)
         prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         saved_tasks = []  # (dxf_path, filename)
         skipped = []
+        n_step = 0
         for f in files:
             fname_lower = (f.filename or '').lower()
+            # STEP degli assiemi (cartella caricata): come per lo ZIP si salvano
+            # soltanto, per il visore 3D che li aggancia all'assieme per codice.
+            # Niente analisi tubolari/piastre: i pezzi ci sono gia' come DXF.
+            if fname_lower.endswith(('.step', '.stp')):
+                f.save(os.path.join(prev_dir, os.path.basename(f.filename)))
+                n_step += 1
+                continue
+            if os.path.basename(f.filename) in disegni_assieme:
+                # non e' un pezzo da prezzare, ma si tiene: e' il disegno
+                # d'insieme che la scheda assieme mostra quando manca lo STEP
+                f.save(os.path.join(prev_dir, os.path.basename(f.filename)))
+                master_saltati.append(os.path.basename(f.filename))
+                continue
             if not fname_lower.endswith('.dxf'):
                 skipped.append({
                     'filename': f.filename,
@@ -2921,7 +3019,8 @@ def api_preventivi_import_dxf_batch(preventivo_id):
             f.save(tmp_path)
             saved_tasks.append((tmp_path, saved_filename, nome_originale))
         if not saved_tasks:
-            return jsonify({'success': True, 'results': skipped}), 200
+            return jsonify({'success': True, 'results': skipped, 'step_salvati': n_step,
+                            'master_saltati': master_saltati}), 200
         # Config DXF (una volta per tutti)
         app_cfg = BarcodeManager.load_config()
         dxf_cfg = app_cfg.get('dxf_detection') or {
@@ -2972,7 +3071,8 @@ def api_preventivi_import_dxf_batch(preventivo_id):
             ).start()
         assiemi_rilevati = sorted({v for v in assieme_by_base.values() if v})
         return jsonify({'success': True, 'results': results,
-                        'assiemi': assiemi_rilevati}), 200
+                        'assiemi': assiemi_rilevati, 'step_salvati': n_step,
+                        'master_saltati': master_saltati}), 200
     except Exception as e:
         logger.exception('import-dxf-batch failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -3079,6 +3179,29 @@ def api_preventivi_disegni_pdf_upload(preventivo_id):
         return jsonify({'success': True, 'pdf': salvati, 'scartati': scartati}), 200
     except Exception as e:
         logger.exception('upload pdf disegni failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/preventivi/<preventivo_id>/file-disegni', methods=['GET'])
+def api_preventivi_file_disegni(preventivo_id):
+    """Disegni salvati col preventivo (PDF e DXF originali, non i puliti).
+    Servono alla scheda assieme: senza STEP si mostra il disegno d'insieme
+    (13C050126-00: senza, non c'era modo di stimare la manodopera)."""
+    try:
+        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        pdf, dxf = [], []
+        if os.path.isdir(prev_dir):
+            for nome in sorted(os.listdir(prev_dir)):
+                basso = nome.lower()
+                if '_cleaned' in basso or '_canonico' in basso:
+                    continue
+                if basso.endswith('.pdf'):
+                    pdf.append(nome)
+                elif basso.endswith('.dxf'):
+                    dxf.append(nome)
+        return jsonify({'success': True, 'pdf': pdf, 'dxf': dxf}), 200
+    except Exception as e:
+        logger.exception('file-disegni failed')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -4544,9 +4667,52 @@ def api_preventivi_stima_base(preventivo_id, articolo_id):
                 return jsonify({'success': False, 'error': 'Articolo non trovato'}), 404
         cfg = BarcodeManager.load_config()
         stima = _laser_estimator.stima_base(articolo, cfg)
+        stima['firma_tariffe'] = _firma_tariffe(cfg)
         return jsonify({'success': True, 'stima': stima}), 200
     except Exception as e:
         logger.exception('preventivi stima-base failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _firma_tariffe(cfg: dict) -> str:
+    """Impronta delle tariffe che determinano il costo base di un pezzo
+    (laser_config: €/kg, €/h, ricette, resa, vuoto...). Ogni stima la porta
+    con se': se le Impostazioni cambiano, i pezzi in bozza stimati con la
+    firma vecchia si ristimano (prima restavano coi prezzi vecchi)."""
+    import hashlib
+    laser = cfg.get('laser_config') or _laser_estimator.DEFAULT_LASER_CONFIG
+    testo = _json_mod.dumps(laser, sort_keys=True, ensure_ascii=True, default=str)
+    return hashlib.sha1(testo.encode('utf-8')).hexdigest()[:12]
+
+
+@app.route('/api/preventivi/<preventivo_id>/stima-batch', methods=['POST'])
+def api_preventivi_stima_batch(preventivo_id):
+    """Stima del costo base di piu' pezzi in UNA richiesta (tariffe attuali).
+    E' solo calcolo, niente DXF: decine di pezzi in pochi millisecondi, senza
+    le decine di richieste che saturavano il server all'apertura.
+    Body: {admin_id, articoli: [{...articolo...}]} → {stime: [stima|null], firma}."""
+    try:
+        data = request.get_json(silent=True) or {}
+        admin_id = data.get('admin_id') or ''
+        if not _require_role(admin_id, _PREV_WRITE_ROLES):
+            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        articoli = data.get('articoli') or []
+        if not isinstance(articoli, list) or len(articoli) > 2000:
+            return jsonify({'success': False, 'error': 'Elenco articoli non valido'}), 400
+        cfg = BarcodeManager.load_config()
+        firma = _firma_tariffe(cfg)
+        stime = []
+        for a in articoli:
+            try:
+                st = _laser_estimator.stima_base(a if isinstance(a, dict) else {}, cfg)
+                st['firma_tariffe'] = firma
+                stime.append(st)
+            except Exception:
+                logger.exception('stima-batch: articolo non stimabile')
+                stime.append(None)
+        return jsonify({'success': True, 'stime': stime, 'firma_tariffe': firma}), 200
+    except Exception as e:
+        logger.exception('preventivi stima-batch failed')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -4575,6 +4741,7 @@ def api_preventivi_config_get():
             'ricette_taglio': effective_recipes,          # da mostrare/editare
             'ricette_taglio_default': default_recipes,    # per "ripristina default"
             'ricette_taglio_custom': bool(laser_cfg.get('ricette_taglio')),
+            'firma_tariffe': _firma_tariffe(cfg),
         }), 200
     except Exception as e:
         logger.exception('preventivi/config GET failed')
@@ -4619,6 +4786,7 @@ def api_preventivi_config_put():
             'laser_config': saved.get('laser_config'),
             'preventivi_config': saved.get('preventivi_config'),
             'disegni_export_root': saved.get('disegni_export_root') or '',
+            'firma_tariffe': _firma_tariffe(saved),
         }), 200
     except Exception as e:
         logger.exception('preventivi/config PUT failed')

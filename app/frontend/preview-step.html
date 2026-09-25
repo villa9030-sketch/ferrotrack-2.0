@@ -186,6 +186,22 @@ const stepUrl = params.get('url');
 const displayName = params.get('name') || '';
 const weldCount = params.get('welds');
 const isThumbnail = params.get('thumbnail') === '1';
+// Incorporato nella scheda assieme: la pagina ospite ha gia' titolo, nome del
+// file e comandi nella sua barra. Qui resta solo il modello, sul fondo della
+// cornice del disegno.
+const isEmbed = !isThumbnail && params.get('embed') === '1';
+if (isEmbed) {
+  const style = document.createElement('style');
+  style.textContent = `
+    .header, #info-bar, #controls-panel { display: none !important; }
+    body, #loading { background: #FAFBFC !important; }
+    #viewer, #loading { top: 0 !important; bottom: 0 !important; }
+    #loading { font-size: 13px; color: #667085; }
+    .spinner { width: 28px; height: 28px; border-width: 2px; border-top-color: #667085; }
+    #error-box { background: #FEF3F2; color: #B42318; border: 1px solid #FECDCA; font-size: 13px; }
+  `;
+  document.head.appendChild(style);
+}
 
 if (!stepUrl) {
   showError('Parametro URL mancante (query string: ?url=/path/to/file.step)');
@@ -278,7 +294,7 @@ if (!result || !result.meshes || result.meshes.length === 0) {
 loadingText.textContent = 'Rendering 3D...';
 
 // Three.js Scene Setup — sfondo coerente col resto UI (chiaro per thumbnail, grigio per modal)
-const sceneBg = isThumbnail ? '#FAFAFA' : '#E2E8F0';
+const sceneBg = isThumbnail ? '#FAFAFA' : (isEmbed ? '#FAFBFC' : '#E2E8F0');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(sceneBg);
 scene.fog = new THREE.FogExp2(sceneBg, 0.00008);
@@ -376,13 +392,20 @@ grid.material.transparent = true;
 scene.add(grid);
 
 // In thumbnail mode header e info-bar sono nascosti, il viewer occupa tutto
-const headerH = isThumbnail ? 0 : 56;
-const infoH = isThumbnail ? 0 : 36;
+const headerH = (isThumbnail || isEmbed) ? 0 : 56;
+const infoH = (isThumbnail || isEmbed) ? 0 : 36;
 function viewportH() { return window.innerHeight - headerH - infoH; }
 function viewportW() { return window.innerWidth; }
 
 const camera = new THREE.PerspectiveCamera(40, viewportW() / viewportH(), maxDim * 0.001, maxDim * 20);
-const dist = maxDim * 2.0;
+// Incorporato: distanza calcolata perche' il modello riempia il riquadro,
+// qualunque sia la sua forma (stretto o largo)
+function distanzaInquadra(aspect) {
+  const v = THREE.MathUtils.degToRad(camera.fov);
+  const h = 2 * Math.atan(Math.tan(v / 2) * aspect);
+  return (bboxDiag / 2) / Math.sin(Math.min(v, h) / 2) * 0.92;
+}
+const dist = isEmbed ? distanzaInquadra(viewportW() / viewportH()) / Math.hypot(0.7, 0.4, 0.9) : maxDim * 2.0;
 camera.position.set(dist * 0.7, dist * 0.4, dist * 0.9);
 camera.lookAt(0, 0, 0);
 
@@ -478,8 +501,47 @@ if (assembleBtn && !isThumbnail) {
   assembleBtn.style.display = 'none';
 }
 
-// Rotazione dolce automatica finché l'utente non interagisce (solo vista piena)
-if (!isThumbnail) {
+// Comandi dalla pagina ospite (modalita' incorporata): esploso e vista iniziale
+const camStart = camera.position.clone();
+let _zoomAnim = null;
+/** Porta la camera alla distanza d dal centro, stessa angolazione, con un
+    breve scorrimento. */
+function zoomA(d) {
+  if (_zoomAnim) cancelAnimationFrame(_zoomAnim);
+  const passo = () => {
+    const off = camera.position.clone().sub(controls.target);
+    const cur = off.length();
+    const nuovo = cur + (d - cur) * 0.14;
+    const fine = Math.abs(d - nuovo) < d * 0.002;
+    camera.position.copy(controls.target).add(off.normalize().multiplyScalar(fine ? d : nuovo));
+    controls.update();
+    _zoomAnim = fine ? null : requestAnimationFrame(passo);
+  };
+  passo();
+}
+window.addEventListener('message', (ev) => {
+  const m = ev.data || {};
+  if (m.type !== 'step-cmd') return;
+  if (m.cmd === 'esploso') {
+    animateExplode(m.on ? EXPLODE_TARGET : 0);
+    // l'esploso occupa piu' spazio: la vista arretra quanto basta per vederlo tutto
+    const r = bboxDiag / 2;
+    const k = m.on ? (r + explosionScale * EXPLODE_TARGET / 100) / r : 1;
+    zoomA(distanzaInquadra(camera.aspect) * k);
+  }
+  else if (m.cmd === 'reset') {
+    if (_zoomAnim) { cancelAnimationFrame(_zoomAnim); _zoomAnim = null; }
+    controls.autoRotate = false;
+    camera.position.copy(camStart);
+    controls.target.set(0, 0, 0);
+    controls.update();
+    animateExplode(0);
+  }
+});
+
+// Rotazione dolce automatica finché l'utente non interagisce (solo vista piena;
+// incorporato in una scheda di lavoro il modello sta fermo)
+if (!isThumbnail && !isEmbed) {
   controls.autoRotate = true;
   controls.autoRotateSpeed = 0.9;
   controls.addEventListener('start', () => { controls.autoRotate = false; });
@@ -503,6 +565,14 @@ window.addEventListener('resize', () => {
   camera.aspect = viewportW() / viewportH();
   camera.updateProjectionMatrix();
   renderer.setSize(viewportW(), viewportH());
+  // Incorporato (es. schermo intero o finestra ridimensionata): stessa
+  // angolazione, distanza che inquadra di nuovo tutto il modello
+  if (isEmbed) {
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    camera.position.copy(controls.target).add(dir.multiplyScalar(distanzaInquadra(camera.aspect)));
+    camStart.copy(camStart.clone().normalize().multiplyScalar(distanzaInquadra(camera.aspect)));
+    controls.update();
+  }
 });
 </script>
 

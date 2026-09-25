@@ -78,6 +78,21 @@ def _esegui_cleanup(dxf_path: str, geo: dict | None, filename: str,
     return cleaned_info
 
 
+def _misure_come_cartiglio(geo: dict, dim_info: dict | None) -> bool:
+    """L'ingombro del contorno scelto coincide (in un verso o nell'altro,
+    entro 1 mm o l'1%) con Lunghezza x Larghezza del cartiglio?"""
+    if not dim_info:
+        return False
+    try:
+        a = sorted((float(geo.get('bbox_width_mm') or 0), float(geo.get('bbox_height_mm') or 0)))
+        b = sorted((float(dim_info.get('dim_x_mm') or 0), float(dim_info.get('dim_y_mm') or 0)))
+    except (TypeError, ValueError):
+        return False
+    if min(a) <= 0 or min(b) <= 0:
+        return False
+    return all(abs(x - y) <= max(1.0, 0.01 * y) for x, y in zip(a, b))
+
+
 def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
     """Esegue il pipeline completo di parsing su un singolo file DXF.
 
@@ -146,6 +161,17 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
         #   (es. 20PA00690: detector area OK, ma spessore diretto null e
         #   cartiglio contiene 'Sp.3' → deve popolare spessore)
         dim_info = dxf_scanner.estrai_dimensioni_da_descrizione_cartiglio(dxf_path)
+        # Il contorno trovato ha proprio le misure scritte nel cartiglio: la
+        # scelta non e' dubbia anche se nel foglio ci sono altre viste di
+        # dimensioni simili (191700034-00: la vista isometrica la rendeva
+        # "incerta" e l'area diventava il rettangolo 140x100 = 1,40 dm²
+        # invece della piastra a L da 0,50).
+        if geo and _misure_come_cartiglio(geo, dim_info) and geo.get('confidence', 0) < 0.75:
+            geo = {**geo, 'confidence': 0.75, 'confidence_label': 'media (misure del cartiglio)',
+                   'needs_manual_select': False,
+                   'warnings': list(geo.get('warnings') or []) + [
+                       f"Contorno confermato dalle misure del cartiglio "
+                       f"({dim_info['dim_x_mm']:g} x {dim_info['dim_y_mm']:g} mm)"]}
         geo_weak = geo and (geo.get('confidence', 0) < 0.5 or geo.get('area_dm2', 0) < 0.01)
         if dim_info and dim_info.get('area_dm2') and geo_weak:
             logger.info('[%s] cartiglio fallback area: %s', filename, dim_info.get('raw_text'))

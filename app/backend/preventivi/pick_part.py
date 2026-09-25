@@ -1280,7 +1280,20 @@ def _shapely_candidate_for_click(faces: list, x: float, y: float, msp,
         # contorno grande (anche di formato A4/A3) è il pezzo.
         return annotato and (grande or _is_iso_format_bounds(b))
 
-    cand = [f for f in faces if not _is_frame(f)]
+    # Zona del foglio: la faccia che ha dentro un suo "foro" un'altra faccia a
+    # sua volta forata. Un pezzo non contiene mai un altro pezzo forato; lo
+    # spazio del foglio tra cornice e cartiglio si' (19122001-00: il foglio e'
+    # in scala 1:2, la cornice non ha formato A4 e non occupa tutto il
+    # disegno, e il clic sulla rondella prendeva l'intera zona 93,6x111,4).
+    forate = [g for g in faces if len(g.interiors) > 0]
+
+    def _is_zona_foglio(f):
+        if not annotato or not f.interiors:
+            return False
+        anelli = [Polygon(r).buffer(0.01) for r in f.interiors]
+        return any(g is not f and any(a.contains(g) for a in anelli) for g in forate)
+
+    cand = [f for f in faces if not _is_frame(f) and not _is_zona_foglio(f)]
     if not cand:
         return None  # solo cornici → lascia decidere al graph-walk
 
