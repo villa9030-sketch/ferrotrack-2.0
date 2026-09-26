@@ -745,6 +745,49 @@ def _foro_tipico(p, contenitore) -> bool:
     return p.area <= FORO_AREA_MAX_REL * contenitore.area
 
 
+def _intaglio_d_angolo(poly, o) -> bool:
+    """True se `o` e' un piccolo contorno che copre uno spigolo del rettangolo
+    `poly`: gli scantonati d'angolo di uno sviluppo (lamiera con bordi piegati)
+    sono disegnati cosi', come quadratini sovrapposti agli angoli."""
+    if not _foro_tipico(o, poly):
+        return False
+    t = CORNICE_TOCCO_MM
+    minx, miny, maxx, maxy = poly.bounds
+    ox0, oy0, ox1, oy1 = o.bounds
+    for cx, cy in ((minx, miny), (minx, maxy), (maxx, miny), (maxx, maxy)):
+        if ox0 - t <= cx <= ox1 + t and oy0 - t <= cy <= oy1 + t:
+            return True
+    return False
+
+
+def applica_intagli(outer, inners: list):
+    """Separa dai fori gli INTAGLI: contorni interni che toccano il bordo
+    esterno (scantonati d'angolo, tacche disegnate sovrapposte al contorno).
+    Non sono fori da forare: si tolgono dal contorno esterno, che cambia forma.
+    Ritorna (outer_effettivo, fori, n_intagli). Se la sottrazione non da' un
+    poligono unico valido, lascia tutto com'era."""
+    if not inners:
+        return outer, inners, 0
+    bordo = outer.exterior
+    intagli = [p for p in inners if _foro_tipico(p, outer) and bordo.distance(p) <= CORNICE_TOCCO_MM]
+    if not intagli:
+        return outer, inners, 0
+    try:
+        from shapely.ops import unary_union
+        eff = outer.difference(unary_union(intagli))
+        if eff.geom_type == 'MultiPolygon':
+            eff = max(eff.geoms, key=lambda g: g.area)
+            if eff.area < 0.9 * outer.area:
+                return outer, inners, 0
+        if eff.geom_type != 'Polygon' or not eff.is_valid or eff.is_empty:
+            return outer, inners, 0
+        eff = Polygon(eff.exterior)   # i fori restano separati in `fori`
+    except Exception:
+        return outer, inners, 0
+    ids = {id(p) for p in intagli}
+    return eff, [p for p in inners if id(p) not in ids], len(intagli)
+
+
 def _is_cornice_cartiglio(poly, all_polys: list, min_bbox_mm: float = MIN_BBOX_CORNICE_MM,
                           min_contenuti: int = MIN_CONTENUTI_CORNICE) -> bool:
     """Cornice/cartiglio = rettangolo che contiene ALTRO oltre ai propri fori.
@@ -766,9 +809,16 @@ def _is_cornice_cartiglio(poly, all_polys: list, min_bbox_mm: float = MIN_BBOX_C
     if not contenuti:
         return False
     bordo = poly.exterior
-    for o in contenuti:
-        if o.area < 0.9 * poly.area and bordo.distance(o) <= CORNICE_TOCCO_MM:
-            return True  # b) cella attaccata alla cornice
+    attaccati = [o for o in contenuti
+                 if o.area < 0.9 * poly.area and bordo.distance(o) <= CORNICE_TOCCO_MM]
+    # Piccoli contorni su due o piu' spigoli = scantonati di uno sviluppo, non
+    # celle di cartiglio (07_pannello_basso: pannello 1040x690 scartato come
+    # cornice, si quotava un foro 5,5x5,5). Un cartiglio sta su un solo angolo
+    # e ha celle attaccate ai lati.
+    if attaccati and len(attaccati) >= 2 and all(_intaglio_d_angolo(poly, o) for o in attaccati):
+        attaccati = []
+    if attaccati:
+        return True  # b) cella attaccata alla cornice
     grandi = [o for o in contenuti if not _foro_tipico(o, poly)]
     for o in grandi:
         po = _prep_buf(o)
@@ -1158,6 +1208,86 @@ def _percorso_vuoto_mm(outer, inners) -> float:
         return 0.0
 
 
+def _estendi_oltre_pieghe(outer, msp, cfg: dict):
+    """Sviluppo spezzato dalle linee di piega disegnate sul layer di taglio.
+
+    Il chain walking chiude anche i giri che passano per una linea di piega:
+    tra i contorni vince una sola falda e il resto dello sviluppo sparisce
+    (13PA00677: quotata la parte alta, 0,74 dm2 invece di 1,57; 13PA00188:
+    13,0 invece di 19,0). Un pezzo vero non ha nessun contorno ATTACCATO al
+    proprio bordo lungo un tratto: se ce ne sono (le altre falde), si uniscono
+    finche' la sagoma si chiude, come fa il click nel CAD.
+
+    Ritorna (outer_esteso, regione_piena, n_falde_aggiunte). regione_piena
+    tiene i fori veri come buchi e serve a non scambiare le falde per fori."""
+    try:
+        from .pick_part import _faces_from_msp
+        from shapely.ops import unary_union
+        colori = set(cfg.get('dxf_colori_piega', [2])) | set(cfg.get('dxf_colori_saldatura', [1]))
+        facce = _faces_from_msp(msp, colori)
+    except Exception as e:
+        logger.debug('estensione sviluppo non disponibile: %s', e)
+        return outer, None, 0
+    if not facce:
+        return outer, None, 0
+    base = Polygon(outer.exterior)
+    base_buf = prep(base.buffer(0.1))
+    esterni = [Polygon(f.exterior) for f in facce]
+    # facce che compongono il contorno scelto (esclusa la zona del foglio che lo racchiude)
+    dentro = [i for i, f in enumerate(facce)
+              if esterni[i].area <= base.area * 1.001 and base_buf.contains(f.representative_point())]
+    if not dentro:
+        return outer, None, 0
+    usate = set(dentro)
+    regione = base
+    aggiunte = 0
+    for _giro in range(40):
+        nuove = []
+        reg_buf = regione.buffer(0.1)
+        for i, fe in enumerate(esterni):
+            if i in usate:
+                continue
+            if fe.area > 4 * base.area:
+                continue  # zona del foglio / cornice
+            if not fe.bounds[0] < regione.bounds[2] + 1 or not regione.bounds[0] < fe.bounds[2] + 1                     or not fe.bounds[1] < regione.bounds[3] + 1 or not regione.bounds[1] < fe.bounds[3] + 1:
+                continue  # lontana
+            try:
+                if fe.difference(reg_buf).area < 1.0:
+                    continue  # e' dentro: foro o dettaglio
+            except Exception:
+                continue
+            # una faccia che la RACCHIUDE vale solo se ne ricalca il bordo (lo
+            # sviluppo intero); la zona del foglio la ha come buco, non sul bordo
+            try:
+                comune = fe.exterior.intersection(reg_buf).length
+            except Exception:
+                continue
+            if comune >= 2.0:
+                nuove.append(i)
+        if not nuove:
+            break
+        usate.update(nuove)
+        aggiunte += len(nuove)
+        regione = unary_union([regione] + [esterni[i] for i in nuove])
+        if regione.geom_type != 'Polygon' or regione.area > 4 * base.area:
+            return outer, None, 0
+    if not aggiunte:
+        return outer, None, 0
+    try:
+        # materiale = facce usate tranne quelle che stanno in un buco di un'altra
+        # (i fori veri: restano buchi, cosi' non vengono scartati come falde)
+        buchi = [Polygon(r) for i in usate for r in facce[i].interiors]
+        materiale = [facce[i] for i in usate
+                     if not any(b.contains(facce[i].representative_point()) for b in buchi)]
+        piena = unary_union(materiale)
+        esteso = Polygon(regione.exterior)
+    except Exception:
+        return outer, None, 0
+    if not esteso.is_valid or esteso.area <= base.area * 1.001:
+        return outer, None, 0
+    return esteso, piena, aggiunte
+
+
 def _misure(outer, inners, scala: float) -> dict:
     """Area netta / perimetro / pierce dall'outer + fori (tutto in mm)."""
     area_outer_mm2 = outer.area
@@ -1248,20 +1378,33 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri)
     outer = candidati[best_idx]
 
+    # ---- 6b. Sviluppo spezzato dalle linee di piega: riunisci le falde
+    scelto = outer
+    outer, regione_piena, n_falde = _estendi_oltre_pieghe(outer, msp, cfg)
+    if n_falde:
+        warnings.append(f'Sviluppo diviso da linee di piega: unite {n_falde} falde al contorno')
+
     # ---- 7. Inner holes (contenuti VERAMENTE nell'outer — BUG FIX D2) + svasature (D4)
     pp_outer = _prep_buf(outer)
     inners = [p for i, p in enumerate(candidati) if i != best_idx and _contiene(outer, p, pp_outer)]
+    if regione_piena is not None:
+        # le falde unite sono materiale, non fori: foro = contorno non coperto dalle facce
+        inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area]
     inners, n_svas = _riduci_fori_annidati(inners)
+    outer_mis, inners, n_intagli = applica_intagli(outer, inners)
+    if n_intagli:
+        warnings.append(f'{n_intagli} intaglio/i sul bordo (scantonati): tolti dal contorno, non contati come fori')
 
     # ---- 8. Calcoli finali
-    mis = _misure(outer, inners, scala)
+    mis = _misure(outer_mis, inners, scala)
 
     # Più pezzi nello stesso disegno: segnala invece di sceglierne uno in silenzio
     preps = [(_prep_buf(o), o) for o in candidati]
     top_level = [c for c in candidati
                  if not any(o is not c and _contiene(o, c, pp) for pp, o in preps)]
     altri_grandi = [c for c in top_level
-                    if c is not outer and c.area >= PEZZI_CONFRONTABILI_REL * outer.area]
+                    if c is not outer and c is not scelto and c.area >= PEZZI_CONFRONTABILI_REL * outer.area
+                    and not _contiene(outer, c, pp_outer)]
     n_pezzi = 1 + len(altri_grandi)
     if altri_grandi and all(_copia_identica(outer, c, candidati, circles_centri) for c in altri_grandi):
         warnings.append(f'{n_pezzi} contorni esterni identici (dimensioni confrontabili): misure e '

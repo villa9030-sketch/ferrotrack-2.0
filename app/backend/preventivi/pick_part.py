@@ -28,6 +28,8 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
+from collections import OrderedDict
 from typing import Any
 
 import ezdxf
@@ -61,6 +63,9 @@ from .dxf_polygon_detector_v3 import (
     _entity_color_excluded,
     _dedup_poligoni,
     _riduci_fori_annidati,
+    _punti_testo_mm,
+    _estendi_oltre_pieghe,
+    applica_intagli,
     entita_espanse,
     scala_unita_mm,
 )
@@ -89,6 +94,35 @@ def _scala(msp) -> float:
         return scala_unita_mm(msp.doc)[0]
     except Exception:
         return 1.0
+
+
+# Cache dei DXF letti, condivisa tra le richieste: l'editor CAD chiama
+# geometry-json, pick-candidates, follow-contour... sullo stesso file a ogni
+# click. Chiave (percorso, mtime, dimensione): se il file cambia si rilegge.
+# Insieme al documento restano validi anche i calcoli memoizzati da _cache_doc.
+_DOC_CACHE: 'OrderedDict[tuple, Any]' = OrderedDict()
+_DOC_CACHE_MAX = 12
+_DOC_CACHE_LOCK = threading.Lock()
+
+
+def _leggi_dxf(path: str):
+    """ezdxf.readfile con cache. I documenti restituiti sono in sola lettura."""
+    try:
+        st = os.stat(path)
+        chiave = (os.path.normcase(os.path.abspath(path)), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return ezdxf.readfile(path)
+    with _DOC_CACHE_LOCK:
+        doc = _DOC_CACHE.get(chiave)
+        if doc is not None:
+            _DOC_CACHE.move_to_end(chiave)
+            return doc
+    doc = ezdxf.readfile(path)
+    with _DOC_CACHE_LOCK:
+        _DOC_CACHE[chiave] = doc
+        while len(_DOC_CACHE) > _DOC_CACHE_MAX:
+            _DOC_CACHE.popitem(last=False)
+    return doc
 
 
 def _cache_doc(msp, chiave, fn):
@@ -270,7 +304,7 @@ def _build_faces(path: str, colori_esclusi: set[int]) -> list:
     if not _HAS_SHAPELY:
         raise RuntimeError('Shapely non installato')
     try:
-        doc = ezdxf.readfile(path)
+        doc = _leggi_dxf(path)
     except Exception as e:
         raise RuntimeError(f'DXF non leggibile: {e}')
     return _faces_from_msp(doc.modelspace(), colori_esclusi)
@@ -571,7 +605,7 @@ def geometry_json(path: str, config: dict | None = None) -> dict:
     Le curve sono discretizzate a `_DISPLAY_FLATTEN_MM` (alta risoluzione visiva).
     """
     try:
-        doc = ezdxf.readfile(path)
+        doc = _leggi_dxf(path)
     except Exception as e:
         return {'error': f'DXF non leggibile: {e}', 'extents': None, 'polylines': []}
     msp = doc.modelspace()
@@ -800,7 +834,7 @@ def follow_contour_from_click(path: str, click_x_mm: float, click_y_mm: float,
     cfg = config or {}
     colori_esclusi = set(cfg.get('dxf_colori_piega', [2])) | set(cfg.get('dxf_colori_saldatura', [1]))
     try:
-        doc = ezdxf.readfile(path)
+        doc = _leggi_dxf(path)
     except Exception as e:
         return {'success': False, 'error': f'DXF non leggibile: {e}'}
     msp = doc.modelspace()
@@ -809,15 +843,12 @@ def follow_contour_from_click(path: str, click_x_mm: float, click_y_mm: float,
     if not segs:
         return {'success': False, 'error': 'Nessuna geometria nel DXF'}
 
-    nodes, adj, key = _build_graph(segs)
+    nodes, adj, key = _cache_doc(msp, ('grafo', frozenset(colori_esclusi)),
+                                 lambda: _build_graph(segs))
 
     # Segmento più vicino al click
     click = Point(click_x_mm, click_y_mm)
-    best_seg, best_d = None, None
-    for a, b in segs:
-        d = LineString([a, b]).distance(click)
-        if best_d is None or d < best_d:
-            best_d, best_seg = d, (a, b)
+    best_seg = _segmento_piu_vicino(segs, click_x_mm, click_y_mm, key)
     if best_seg is None:
         return {'success': False, 'error': 'Nessun segmento vicino al click'}
 
@@ -859,7 +890,7 @@ def follow_contour_from_click(path: str, click_x_mm: float, click_y_mm: float,
                 'warnings': ['hai cliccato il bordo del disegno — clicca sul contorno del PEZZO']}
 
     # Fori: SOLO entità chiuse reali (cerchi/asole), non facce da linee di piega
-    holes = _holes_inside(msp, outer, colori_esclusi)
+    outer, holes = _outer_e_fori(msp, outer, colori_esclusi)
 
     area_netta = (outer.area - sum(h.area for h in holes)) / 10000.0
     perim_taglio = (outer.exterior.length + sum(h.exterior.length for h in holes)) / 1000.0
@@ -931,7 +962,7 @@ def _sembra_cornice(outer, msp, colori_esclusi=frozenset({1, 2})) -> bool:
     Nessun pezzo reale riempie il foglio in entrambe le dimensioni."""
     try:
         from ezdxf import bbox
-        ext = bbox.extents(msp)
+        ext = _cache_doc(msp, ('extents',), lambda: bbox.extents(msp))
         s = _scala(msp)   # estensione in unità disegno → mm come l'outer
         ew = (ext.extmax.x - ext.extmin.x) * s
         eh = (ext.extmax.y - ext.extmin.y) * s
@@ -942,7 +973,18 @@ def _sembra_cornice(outer, msp, colori_esclusi=frozenset({1, 2})) -> bool:
             return False
         # Riempie il foglio: è cornice solo se il disegno ha annotazioni. Un DXF
         # con il SOLO pezzo (es. sviluppo esportato pulito) prima era rifiutato.
-        return _ha_annotazioni(msp)
+        if not _ha_annotazioni(msp):
+            return False
+        # Una cornice racchiude il cartiglio e le sue scritte. Se tutte le
+        # scritte stanno FUORI dal contorno (titolo sopra lo sviluppo, come in
+        # 07_pannello_basso) il contorno è il pezzo: prima il click diceva
+        # "Nessun contorno chiuso".
+        testi = _cache_doc(msp, ('testi',), lambda: _punti_testo_mm(msp, s))
+        if testi:
+            pp_o = prep(outer)
+            if not any(pp_o.contains(Point(x, y)) for x, y in testi):
+                return False
+        return True
     except Exception:
         return False
 
@@ -1001,8 +1043,9 @@ def _holes_inside(msp, outer, colori_esclusi: set[int]) -> list:
     # Contenimento VERO del poligono (bordo coincidente tollerato 0.05mm), non del
     # solo representative_point: un contorno a cavallo del bordo non è un foro.
     pp_outer = prep(outer.buffer(0.05))
+    outer_area = outer.area
     for poly in _closed_entity_polygons(msp, colori_esclusi):
-        if poly.area >= outer.area * 0.95:
+        if poly.area >= outer_area * 0.95:
             continue  # è l'outer stesso o quasi
         if pp_outer.contains(poly):
             raw.append(poly)
@@ -1019,17 +1062,20 @@ def _holes_inside(msp, outer, colori_esclusi: set[int]) -> list:
                               lambda: _punti_medi_semicerchi(msp, colori_esclusi))
         ob = outer.bounds
         ow, oh = ob[2] - ob[0], ob[3] - ob[1]
+        pp_stretto = prep(outer)
         for fc in _faces_from_msp(msp, colori_esclusi):
-            if fc.area >= outer.area * 0.5:
+            if fc.area >= outer_area * 0.5:
                 continue
-            if not outer.contains(fc):
-                continue  # tocca il bordo esterno → non è un foro interno
+            if not pp_stretto.contains_properly(fc):
+                continue  # tocca il bordo esterno → non è un foro interno (falda, intaglio)
             rp = fc.representative_point()
             if any(h.contains(rp) for h in raw):
                 continue  # già coperto da un'entità chiusa
             fb = fc.bounds
             fw, fh = fb[2] - fb[0], fb[3] - fb[1]
-            has_arc = any(fc.exterior.distance(Point(mx, my)) < 1.0 for (mx, my) in arc_mids)
+            # solo i punti entro 1 mm dall'ingombro della faccia possono esserne a < 1 mm
+            has_arc = any(fc.exterior.distance(Point(mx, my)) < 1.0 for (mx, my) in arc_mids
+                          if fb[0] - 1.0 <= mx <= fb[2] + 1.0 and fb[1] - 1.0 <= my <= fb[3] + 1.0)
             aspect = max(fw, fh) / max(min(fw, fh), 1e-6)
             compatto = (ow > 0 and oh > 0 and fw <= 0.6 * ow and fh <= 0.6 * oh and aspect <= 6.0)
             if has_arc or compatto:
@@ -1040,20 +1086,28 @@ def _holes_inside(msp, outer, colori_esclusi: set[int]) -> list:
     # Scarta il foro esterno di ogni coppia ~concentrica (svasatura): se un foro
     # ne contiene un altro col centroide quasi coincidente → è lo smusso, si toglie.
     drop = set()
+    aree = [h.area for h in raw]
+    centri = [(c.x, c.y) for c in (h.centroid for h in raw)]
     for i, a in enumerate(raw):
-        ca = a.centroid
+        cax, cay = centri[i]
         for j, b in enumerate(raw):
             if i == j or j in drop or i in drop:
                 continue
-            if a.area <= b.area:
+            if aree[i] <= aree[j]:
                 continue  # a deve essere il più grande per essere lo smusso
-            cb = b.centroid
-            dist = ca.distance(cb)
+            dist = math.hypot(cax - centri[j][0], cay - centri[j][1])
             # concentrici: centroidi entro il 15% del "raggio" del foro interno
-            r_inner = (b.area / math.pi) ** 0.5
+            r_inner = (aree[j] / math.pi) ** 0.5
             if dist <= max(0.5, 0.15 * r_inner) and a.contains(b.representative_point()):
                 drop.add(i)  # a è lo smusso esterno → scarta
     return [p for k, p in enumerate(raw) if k not in drop]
+
+
+def _outer_e_fori(msp, outer, colori_esclusi: set[int]):
+    """Fori del contorno, con gli intagli sul bordo (scantonati d'angolo)
+    sottratti dal contorno invece che contati come fori."""
+    outer_eff, holes, _n = applica_intagli(outer, _holes_inside(msp, outer, colori_esclusi))
+    return outer_eff, holes
 
 
 def _nearest_node(nodes, key, x, y):
@@ -1122,14 +1176,15 @@ def trace_contour_waypoints(path: str, points: list, config: dict | None = None)
     cfg = config or {}
     colori_esclusi = set(cfg.get('dxf_colori_piega', [2])) | set(cfg.get('dxf_colori_saldatura', [1]))
     try:
-        doc = ezdxf.readfile(path)
+        doc = _leggi_dxf(path)
     except Exception as e:
         return {'success': False, 'error': f'DXF non leggibile: {e}'}
     msp = doc.modelspace()
     segs = _segments_all(msp, colori_esclusi)
     if not segs:
         return {'success': False, 'error': 'Nessuna geometria nel DXF'}
-    nodes, adj, key = _build_graph(segs)
+    nodes, adj, key = _cache_doc(msp, ('grafo', frozenset(colori_esclusi)),
+                                 lambda: _build_graph(segs))
 
     # Snap ogni waypoint al nodo più vicino
     snapped = [_nearest_node(nodes, key, float(p[0]), float(p[1])) for p in points]
@@ -1164,7 +1219,7 @@ def trace_contour_waypoints(path: str, points: list, config: dict | None = None)
     except Exception as e:
         return {'success': False, 'error': f'Contorno non valido: {e}'}
 
-    holes = _holes_inside(msp, outer, colori_esclusi)
+    outer, holes = _outer_e_fori(msp, outer, colori_esclusi)
     area_netta = (outer.area - sum(h.area for h in holes)) / 10000.0
     perim_taglio = (outer.exterior.length + sum(h.exterior.length for h in holes)) / 1000.0
     minx, miny, maxx, maxy = outer.bounds
@@ -1313,7 +1368,7 @@ def _shapely_candidate_for_click(faces: list, x: float, y: float, msp,
         if diag > 0 and d > 0.5 * diag:
             return None  # click troppo lontano da qualsiasi pezzo
     outer = Polygon(outer_face.exterior)   # bordo esterno pieno; i fori li ricalcolo
-    holes = _holes_inside(msp, outer, colori_esclusi)
+    outer, holes = _outer_e_fori(msp, outer, colori_esclusi)
     area_netta = (outer.area - sum(h.area for h in holes)) / 10000.0
     if area_netta <= 0:
         return None
@@ -1332,6 +1387,52 @@ def _shapely_candidate_for_click(faces: list, x: float, y: float, msp,
     }
 
 
+def _segmento_piu_vicino(segs, x: float, y: float, key=None):
+    """Segmento (a, b) più vicino al punto: distanza punto-segmento in puro
+    Python (prima un LineString shapely per segmento a ogni click). Con `key`
+    salta i segmenti più corti della tolleranza del grafo (estremi nello stesso
+    nodo): prima un click sopra uno di questi dava "Segmento degenere"."""
+    best, best_d2 = None, None
+    for a, b in segs:
+        if key is not None and key(a) == key(b):
+            continue
+        ax, ay = a
+        dx, dy = b[0] - ax, b[1] - ay
+        l2 = dx * dx + dy * dy
+        t = 0.0 if l2 <= 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / l2))
+        ex, ey = ax + t * dx - x, ay + t * dy - y
+        d2 = ex * ex + ey * ey
+        if best_d2 is None or d2 < best_d2:
+            best_d2, best = d2, (a, b)
+    return best
+
+
+def _candidato_esteso(cand: dict, msp, cfg: dict, colori_esclusi: set[int]) -> dict | None:
+    """Il candidato unito alle falde attaccate al suo bordo, o None."""
+    try:
+        poly = Polygon(cand['outer_xy'])
+        est, _piena, n = _estendi_oltre_pieghe(poly, msp, cfg)
+        if not n:
+            return None
+        if _sembra_cornice(est, msp, colori_esclusi):
+            return None
+        est, holes = _outer_e_fori(msp, est, colori_esclusi)
+    except Exception:
+        return None
+    minx, miny, maxx, maxy = est.bounds
+    return {
+        'area_dm2': (est.area - sum(h.area for h in holes)) / 10000.0,
+        'area_lorda_dm2': est.area / 10000.0,
+        'perimetro_taglio_m': (est.exterior.length + sum(h.exterior.length for h in holes)) / 1000.0,
+        **_campi_forature(holes),
+        'bbox_width_mm': maxx - minx,
+        'bbox_height_mm': maxy - miny,
+        'outer_xy': list(est.exterior.coords),
+        'holes_xy': [list(h.exterior.coords) for h in holes],
+        'source': 'sviluppo-unito',
+    }
+
+
 def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
                     config: dict | None = None) -> dict:
     """Multi-ipotesi: dal click enumera i contorni chiusi plausibili e li
@@ -1347,21 +1448,17 @@ def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
     cfg = config or {}
     colori_esclusi = set(cfg.get('dxf_colori_piega', [2])) | set(cfg.get('dxf_colori_saldatura', [1]))
     try:
-        doc = ezdxf.readfile(path)
+        doc = _leggi_dxf(path)
     except Exception as e:
         return {'success': False, 'error': f'DXF non leggibile: {e}'}
     msp = doc.modelspace()
     segs = _segments_all(msp, colori_esclusi)
     if not segs:
         return {'success': False, 'error': 'Nessuna geometria nel DXF'}
-    nodes, adj, key = _build_graph(segs)
+    nodes, adj, key = _cache_doc(msp, ('grafo', frozenset(colori_esclusi)),
+                                 lambda: _build_graph(segs))
 
-    click = Point(click_x_mm, click_y_mm)
-    best_seg, best_d = None, None
-    for a, b in segs:
-        d = LineString([a, b]).distance(click)
-        if best_d is None or d < best_d:
-            best_d, best_seg = d, (a, b)
+    best_seg = _segmento_piu_vicino(segs, click_x_mm, click_y_mm, key)
     if best_seg is None:
         return {'success': False, 'error': 'Nessun segmento vicino al click'}
     ka, kb = key(best_seg[0]), key(best_seg[1])
@@ -1387,7 +1484,7 @@ def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
             continue
         if _sembra_cornice(poly, msp, colori_esclusi):
             continue
-        holes = _holes_inside(msp, poly, colori_esclusi)
+        poly, holes = _outer_e_fori(msp, poly, colori_esclusi)
         area_netta = (poly.area - sum(h.area for h in holes)) / 10000.0
         # dedup per area (entro 1%)
         if any(abs(area_netta - a) / max(a, 1e-6) < 0.01 for a in seen_area):
@@ -1423,6 +1520,12 @@ def pick_candidates(path: str, click_x_mm: float, click_y_mm: float,
                 'warnings': ['clicca sul bordo del pezzo o usa il tracciamento guidato']}
     # ordina: preferisci più fori (pezzo reale) e area maggiore, ma non la cornice
     candidates.sort(key=lambda c: (c['n_forature'], c['area_dm2']), reverse=True)
+    # Sviluppo spezzato da linee di piega sul layer di taglio: le falde attaccate
+    # al contorno fanno parte del pezzo (13PA00188: il bordino perimetrale del
+    # vassoio restava fuori). Stessa regola del rilevamento automatico.
+    esteso = _candidato_esteso(candidates[0], msp, cfg, colori_esclusi)
+    if esteso:
+        candidates.insert(0, esteso)
     # Scarta i candidati che sono FORI/dettagli del migliore (contenuti nel suo
     # contorno esterno): non sono "pezzi alternativi". Così su un pezzo con fori
     # grandi resta un solo candidato → l'UI auto-seleziona senza chiedere.

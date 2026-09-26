@@ -747,7 +747,7 @@ def _contorni_pezzo(doc, geo: dict, cfg: dict):
     anche dal bbox (i candidati del risultato sono in unità disegno)."""
     from .dxf_polygon_detector_v3 import (
         _poligoni_documento, _separa_cartiglio, _riduci_fori_annidati,
-        _contiene, _prep_buf,
+        _contiene, _prep_buf, _estendi_oltre_pieghe, applica_intagli,
     )
     base = _poligoni_documento(doc, cfg)
     scala = float(base['scala'] or 1.0)
@@ -766,6 +766,19 @@ def _contorni_pezzo(doc, geo: dict, cfg: dict):
     if isinstance(sel, int) and 0 <= sel < len(candidati):
         if _misure_coincidono(_dim(candidati[sel]), (w_att, h_att), 0.05, 0.0):
             outer = candidati[sel]
+        else:
+            # Il detector puo' aver unito le falde di uno sviluppo o tolto gli
+            # scantonati d'angolo: stessi passi, poi stesso controllo misure.
+            scelto = candidati[sel]
+            est, piena, _nf = _estendi_oltre_pieghe(scelto, doc.modelspace(), cfg)
+            pp = _prep_buf(est)
+            inners = [p for p in candidati if p is not scelto and _contiene(est, p, pp)]
+            if piena is not None:
+                inners = [p for p in inners if piena.intersection(p).area < 0.5 * p.area]
+            inners, _n_svas = _riduci_fori_annidati(inners)
+            est, inners, _ni = applica_intagli(est, inners)
+            if _misure_coincidono(_dim(est), (w_att, h_att), 0.05, 0.0):
+                return est, inners, scala
     if outer is None:
         # Riconoscimento dal bbox del candidato selezionato (unità disegno → mm)
         bb = get_pezzo_bbox(geo)
