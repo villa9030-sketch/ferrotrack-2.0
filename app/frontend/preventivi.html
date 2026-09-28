@@ -1967,15 +1967,35 @@ body.focus-mode .split-view { height: auto; }
 .wb-new-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .wb-new-alt { margin-top: 18px; font-size: 13px; color: var(--ink-3); }
 
-/* Griglia a tre colonne */
+/* Griglia: distinta + disegno; il prezzo ha una scheda sua */
 .wb-card { flex: 1; min-height: 0; margin: 0 !important; border-radius: 0 !important; box-shadow: none !important; background: transparent !important; display: flex; flex-direction: column; }
 .wb-card:hover { transform: none !important; }
 .wb-card > #articoli-view-split { flex: 1; min-height: 0; display: flex; }
 .split-view.wb-grid {
   display: grid; flex: 1; min-height: 0; height: auto !important; max-height: none;
-  grid-template-columns: var(--wb-parts) minmax(0, 1fr) var(--wb-rail); gap: 0;
+  grid-template-columns: var(--wb-parts) minmax(0, 1fr); gap: 0;
 }
-.wb-mode-new #card-articoli, .wb-mode-new .wb-flow { display: none !important; }
+body:not(.wb-view-prezzo) .wb-rail { display: none; }
+body.wb-view-prezzo .split-view.wb-grid { grid-template-columns: minmax(0, 1fr); }
+body.wb-view-prezzo .wb-parts, body.wb-view-prezzo .wb-piece, body.wb-view-prezzo .wb-parts-tab { display: none !important; }
+
+/* Selettore Disegni | Prezzo */
+.wb-seg.wb-vista { padding: 4px; gap: 4px; border-radius: 12px; background: var(--line-2); border: 1px solid var(--line); }
+.wb-vista button {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 9px;
+  font: 700 14.5px 'Inter'; color: var(--ink-2); transition: background .15s, color .15s, box-shadow .15s;
+}
+.wb-vista button:not(.on):hover { background: var(--panel); color: var(--ink); }
+.wb-vista button.on { background: var(--ink); color: #fff; box-shadow: 0 6px 16px rgba(15,23,42,.22); }
+.wb-vista button i, .wb-vista button svg { width: 18px; height: 18px; flex-shrink: 0; }
+/* Il totale in una pastiglia: si legge anche dalla scheda Disegni */
+.wb-vista b {
+  font: 800 14px 'Geist'; font-variant-numeric: tabular-nums; padding: 3px 9px; border-radius: 7px;
+  background: var(--ok-bg); color: var(--ok); border: 1px solid #A7F3D0;
+}
+.wb-vista button.on b { background: rgba(255,255,255,.14); color: #fff; border-color: rgba(255,255,255,.22); }
+@media (max-width: 1320px) { .wb-vista button { padding: 0 12px; font-size: 13.5px; } }
+.wb-mode-new #card-articoli, .wb-mode-new .wb-flow, .wb-mode-new .wb-vista { display: none !important; }
 
 /* ── Distinta ── */
 .wb-parts { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); overflow: hidden !important; }
@@ -2178,6 +2198,134 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 .wb-vw-bar span#wb-vw-pct { min-width: 44px; text-align: center; font: 600 11.5px var(--mono); color: var(--ink-3); }
 .wb-vw-bar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
 #wb-stage:not(:has(svg.wb-dwg, .wb-pdf)) .wb-vw-bar, #split-detail-content.cad-open .wb-vw-bar { display: none !important; }
+
+/* Misura sul disegno */
+.wb-vw-bar button.wb-vw-mis { width: auto; padding: 0 10px; gap: 6px; font: 600 12.5px 'Inter'; color: var(--ink); border: 1px solid var(--line); background: var(--panel); }
+.wb-vw-bar button.wb-vw-mis.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wb-misura .split-detail-preview, .wb-misura #sd-preview:has(svg.wb-dwg), .wb-misura #sd-preview:has(.wb-pdf),
+.wb-misura #sa-dwg:has(svg.wb-dwg) { cursor: crosshair !important; }
+/* Mentre si misura il pannello ha una colonna sua: non copre il disegno */
+.wb-misura > .split-detail-preview { left: 274px !important; }
+@media (max-width: 820px) {
+  .wb-misura > .split-detail-preview { left: 0 !important; bottom: 190px !important; }
+  .wb-mis-box { top: auto !important; bottom: 12px; left: 12px; right: 12px; width: auto !important; }
+}
+.wb-mis-ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; overflow: hidden; }
+.wb-mis-ov .ml { stroke: var(--accent); stroke-width: 2; }
+.wb-mis-ov .ml.dash { stroke-dasharray: 6 4; opacity: .75; }
+.wb-mis-ov .mp { fill: #fff; stroke: var(--accent); stroke-width: 2.5; }
+.wb-mis-ov .ms { fill: none; stroke: #F59E0B; stroke-width: 2; }
+.wb-mis-ov .mc { fill: none; stroke: var(--ink-3); stroke-width: 1; }
+.wb-mis-ov text { paint-order: stroke; stroke: #fff; stroke-linejoin: round; }
+.wb-mis-ov .mt { font: 800 14px 'Inter'; fill: var(--accent); stroke-width: 5px; }
+.wb-mis-ov .mh { font: 600 10.5px 'Inter'; fill: #B45309; stroke-width: 4px; }
+.wb-mis-box {
+  position: absolute; left: 12px; top: 12px; z-index: 5; width: 250px; padding: 12px 14px;
+  background: rgba(255,255,255,.97); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15,23,42,.14); font-size: 12.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 8px;
+}
+.wb-mis-box .mb-head { display: flex; align-items: center; justify-content: space-between; }
+.wb-mis-box .mb-head b { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
+.wb-mis-box .mb-head svg, .wb-mis-box .mb-head i { width: 15px; height: 15px; }
+.wb-mis-box .mb-hint { line-height: 1.5; color: var(--ink-3); }
+.wb-mis-box .mb-hint b { color: var(--ink); }
+.wb-mis-box .mb-val { font: 800 30px 'Geist'; letter-spacing: -1px; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.wb-mis-box .mb-val small { font: 700 15px 'Geist'; color: var(--ink-3); }
+.wb-mis-box .mb-sub { margin-top: -6px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.wb-mis-box .wb-btn-block { height: 34px; font-size: 13px; }
+.wb-mis-box .mb-scala { padding: 7px 9px; border-radius: 8px; line-height: 1.45; font-size: 12px; }
+.wb-mis-box .mb-scala.warn { background: var(--warn-bg); color: var(--warn); }
+.wb-mis-box .mb-scala.ok { background: var(--ok-bg); color: var(--ok); }
+.wb-mis-box .mb-tara { display: flex; align-items: center; gap: 6px; }
+.wb-mis-box .mb-tara > span:first-child { font-size: 12px; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+.wb-mis-box .mb-tara .wb-unit input { width: 64px; }
+.wb-mis-box .mb-more summary { cursor: pointer; font-size: 12px; color: var(--ink-3); margin-bottom: 6px; }
+
+/* Sviluppo guidato: pannello a destra del disegno, che resta visibile */
+#sd-btn-svl.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.wb-sviluppo > .split-detail-preview { right: 364px !important; }
+#split-detail-content.cad-open .wb-svl { display: none; }
+#split-detail-content.cad-open .wb-sviluppo > .split-detail-preview { right: 0 !important; }
+.wb-svl {
+  position: absolute; top: 12px; right: 12px; bottom: 12px; width: 340px; z-index: 5; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(15,23,42,.12);
+  padding: 14px; display: flex; flex-direction: column; gap: 12px; font-size: 12.5px; color: var(--ink-2);
+  scrollbar-width: thin;
+}
+.svl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.svl-head b { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--ink); }
+.svl-head b svg, .svl-head b i { width: 16px; height: 16px; }
+.svl-head span { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.svl-head em { font-style: normal; color: var(--ok); font-weight: 700; }
+.svl-sec { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line-2); }
+.svl-tit { font-weight: 700; font-size: 12px; color: var(--ink); display: flex; justify-content: space-between; align-items: baseline; }
+.svl-tit small { font-weight: 500; color: var(--ink-4); }
+.svl-add { align-self: flex-start; font-size: 12px; }
+.wb-svl .wb-unit.svl-target { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.svl-prev:empty { display: none; }
+.svl-res { display: flex; flex-direction: column; gap: 8px; }
+.svl-kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
+.svl-kv span { color: var(--ink-3); } .svl-kv b { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.svl-nota { font-size: 11.5px; color: var(--ink-4); line-height: 1.45; }
+.svl-err { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-weight: 600; }
+/* Spessore, raggio, K su una riga; fondo; una riga per lato; tagli */
+.svl-tre { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.svl-tre label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.svl-tre label > span:first-child { font-size: 11.5px; font-weight: 600; color: var(--ink-3); }
+.svl-tre .wb-unit { width: 100%; }
+.svl-tre .wb-unit input { width: 0; flex: 1; text-align: right; }
+.svl-fondo { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.svl-fondo > span:first-child { font: 700 13px 'Inter'; color: var(--ink); }
+.svl-fondo .wb-unit input { width: 0; flex: 1; text-align: right; }
+.svl-ei button { height: 26px; padding: 0 8px; font-size: 11.5px; }
+.svl-lato { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; align-items: center; }
+.svl-lato > span { font-size: 12px; font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+.svl-lato input {
+  height: 32px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; min-width: 0;
+  font: 600 13.5px var(--mono); color: var(--ink); background: var(--panel); outline: 0;
+}
+.svl-lato input:focus, .svl-lato input.svl-target { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.svl-lato input::placeholder { font: 500 12px 'Inter'; color: var(--ink-4); }
+.svl-nota b { font-family: var(--mono); color: var(--ink-2); font-weight: 600; }
+.svl-taglio {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 28px; gap: 5px; align-items: center;
+  grid-template-areas: "tipo tipo tipo x" "n a b ."; padding-bottom: 6px; border-bottom: 1px dashed var(--line-2);
+}
+.svl-taglio > select { grid-area: tipo; } .svl-taglio > button { grid-area: x; }
+.svl-taglio select { height: 30px; min-width: 0; border: 1px solid var(--line); border-radius: 7px; font: 500 12px 'Inter'; padding: 0 4px; background: var(--panel); }
+.svl-taglio .wb-unit input { width: 0; flex: 1; text-align: right; padding-left: 4px; }
+.svl-taglio .wb-unit em { font-size: 10px; }
+.svl-quote { flex-direction: row !important; align-items: center; justify-content: space-between; }
+.svl-quote > span:first-child { font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.svl-quote button { height: 26px; padding: 0 9px; font-size: 12px; }
+.svl-prev svg { display: block; width: 100%; height: 230px; background: #FAFBFC; border: 1px solid var(--line-2); border-radius: 8px; }
+.svl-prev svg .o { fill: #EEF2FF; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.svl-prev svg .fondo { fill: #E0E7FF; stroke: none; }
+.svl-prev svg .b { stroke-width: 1.4; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.svl-prev svg .b.giu { stroke: #F59E0B; } .svl-prev svg .b.su { stroke: #0EA5E9; }
+.svl-prev svg .zona { fill: transparent; cursor: pointer; }
+.svl-prev svg .zona:hover, .svl-prev svg .zona.on { fill: rgba(79,70,229,.10); }
+.svl-prev svg .q { font-family: 'Geist'; font-weight: 700; fill: var(--ink-3); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.svl-prev-vuota { height: 90px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 0 16px;
+  border: 1px dashed var(--line); border-radius: 8px; color: var(--ink-4); font-size: 12px; }
+.svl-legenda { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--ink-4); margin-top: 5px; }
+.svl-legenda i { width: 14px; height: 0; border-top: 2px dashed; display: inline-block; }
+.svl-legenda span { display: inline-flex; align-items: center; gap: 5px; }
+.svl-legenda i.giu { border-color: #F59E0B; } .svl-legenda i.su { border-color: #0EA5E9; }
+/* Riepilogo e "Applica" sempre in vista in fondo al pannello */
+.svl-foot {
+  position: sticky; bottom: -14px; margin: 0 -14px -14px; padding: 10px 14px 14px; z-index: 1;
+  background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px;
+}
+.svl-sum b { display: block; font: 800 16px 'Geist'; letter-spacing: -.3px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.svl-sum span { font-size: 11.5px; color: var(--ink-3); }
+.svl-sum .svl-err { display: block; font-size: 12px; color: var(--warn); }
+.wb-svl #svl-applica { height: 38px; flex-shrink: 0; }
+.wb-svl #svl-applica:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 820px) {
+  .wb-sviluppo > .split-detail-preview { right: 0 !important; }
+  .wb-svl { left: 12px; width: auto; }
+}
 /* PDF del cliente: pagina bianca sulla griglia, spostabile e ingrandibile */
 #sd-preview:has(.wb-pdf) { padding: 0; cursor: grab; touch-action: none; }
 .wb-pdf { position: absolute; inset: 0; overflow: hidden; }
@@ -2335,9 +2483,20 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 .pcc-tempi .k small { color: var(--ink-4); }
 .pcc-tempi .v { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
 
-/* ── Prezzo ── */
-.wb-rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
+/* ── Scheda Prezzo: pagina intera, due colonne di schede ── */
+.wb-rail { display: flex; flex-direction: column; min-height: 0; background: var(--canvas); }
 .rl-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.rl-page {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start;
+  max-width: 1180px; margin: 0 auto; padding: 24px;
+}
+.rl-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.rl-col > section { background: var(--panel); border: 1px solid var(--line) !important; border-radius: 12px; }
+.rl-page .rl-total { padding: 22px 24px 18px; }
+.rl-page .rl-amount span { font-size: 48px; letter-spacing: -2px; }
+.rl-page .rl-amount small { font-size: 22px; }
+.rl-page .rl-comp, .rl-page .rl-block { padding: 18px 24px; }
+@media (max-width: 980px) { .rl-page { grid-template-columns: minmax(0, 1fr); padding: 14px; } }
 .rl-scroll:hover { scrollbar-color: #CBD2DC transparent; }
 .pl-scroll, .wb-piece { scrollbar-width: thin; scrollbar-color: #D5DAE1 transparent; }
 /* Ricarico, sconto e lotti su una riga */
@@ -2401,8 +2560,14 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 .rl-check li small { color: var(--ink-4); font-size: 11px; white-space: nowrap; }
 .rl-check .rl-allok { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--ok); }
 .rl-check .rl-allok i { width: 16px; height: 16px; }
-.rl-cta { padding: 12px 14px 14px; border-top: 1px solid var(--line); background: #FCFCFD; display: flex; flex-direction: column; gap: 8px; }
-.rl-cta-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Barra azioni in fondo alla scheda Prezzo, allineata al contenuto */
+.rl-cta {
+  padding: 12px max(24px, calc((100% - 1180px) / 2 + 24px)); border-top: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: row-reverse; align-items: center; gap: 8px;
+}
+.rl-cta #wb-cta { width: auto; min-width: 220px; }
+.rl-cta-row { display: flex; gap: 8px; margin-right: auto; }
+@media (max-width: 820px) { .rl-cta { flex-direction: column-reverse; align-items: stretch; padding: 12px 14px; } .rl-cta #wb-cta { width: 100%; } .rl-cta-row { margin: 0; } .rl-cta-row .wb-btn { flex: 1; } }
 .rl-cta #wb-cta.ready { background: var(--ok); border-color: var(--ok); }
 .rl-cta #wb-cta.ready:hover { background: #065F46; }
 
@@ -2508,23 +2673,11 @@ body.wb-drawer-open .wb-drawer { transform: none; }
   .pc-bottom { grid-template-columns: 1fr; }
 }
 @media (max-width: 1180px) {
-  :root { --wb-rail: 0px; }
-  .split-view.wb-grid { grid-template-columns: var(--wb-parts) minmax(0, 1fr); }
-  .wb-rail {
-    position: fixed; right: 0; bottom: 0; top: calc(var(--topbar-h) + 64px); width: min(360px, 92vw); z-index: 1100;
-    transform: translateX(calc(100% - 0px)); transition: transform .28s var(--ease); box-shadow: -18px 0 40px rgba(15,23,42,.14);
-  }
-  body.wb-rail-open .wb-rail { transform: none; }
-  .wb-rail-tab { display: flex !important; }
-  body.wb-rail-open .wb-rail-tab { display: none !important; }
-  .rl-close { display: inline-flex !important; }
-  .wb-piece { padding-bottom: 72px; }
   .ps-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wb-fields { order: 6; width: 100%; }
   .wb-fields .wb-f { flex-direction: row; align-items: center; gap: 8px; }
 }
 .rl-label { align-items: center; }
-.rl-close { display: none !important; margin-left: 8px; }
 @media (max-width: 1500px) {
   .pl-foot { gap: 2px; padding: 9px 8px; }
   .pl-foot .pl-lbl { display: none; }
@@ -2534,13 +2687,6 @@ body.wb-drawer-open .wb-drawer { transform: none; }
   #split-detail-content > .pc-stage { grid-column: 1; grid-row: 3; height: 56vh; margin: 12px 16px 0; }
   #split-detail-content > .pc-bottom { grid-column: 1; grid-row: 4; padding: 12px 16px 0; }
 }
-.wb-rail-tab {
-  display: none; position: fixed; right: 16px; bottom: 16px; z-index: 1099; align-items: center; gap: 10px;
-  background: var(--ink); color: #fff; border: 0; border-radius: 12px; padding: 10px 14px; cursor: pointer;
-  box-shadow: 0 14px 34px rgba(15,23,42,.3); font: 600 12.5px 'Inter';
-}
-.wb-rail-tab b { font: 800 16px 'Geist'; font-variant-numeric: tabular-nums; }
-body:not(.wb-editor) .wb-rail-tab, .wb-mode-new ~ .wb-rail-tab { display: none !important; }
 @media (max-width: 820px) {
   :root { --wb-parts: 0px; --topbar-h: 56px; }
   .topbar { padding: 0 12px; }
@@ -2997,6 +3143,11 @@ body { font-size: var(--fs-m); }
         <input type="date" id="ed-data-consegna">
       </label>
     </div>
+    <!-- Due schede: il disegno è il protagonista, il prezzo sta nella successiva -->
+    <div class="wb-seg wb-vista" id="wb-vista" role="tablist" aria-label="Scheda del preventivo">
+      <button type="button" data-v="disegni" class="on" role="tab" onclick="wbVista('disegni')" title="Distinta e disegni dei pezzi (P)"><i data-lucide="drafting-compass"></i> Disegni</button>
+      <button type="button" data-v="prezzo" role="tab" onclick="wbVista('prezzo')" title="Prezzo di vendita, margine e dettagli (P)"><i data-lucide="receipt-euro"></i> Prezzo <b id="wb-vista-tot">0,00 €</b></button>
+    </div>
     <ol class="wb-flow" id="wb-flow" aria-label="Avanzamento del preventivo"></ol>
     <div class="wb-head-actions">
       <span id="stato-salvataggio" class="salva-stato" title="Stato del salvataggio"></span>
@@ -3208,6 +3359,9 @@ body { font-size: var(--fs-m); }
                 <button class="wb-btn" id="sd-btn-cad" onclick="openCadEditor()" title="Identifica il contorno nel CAD (C)">
                   <i data-lucide="scan-line"></i><span id="wb-cad-label">Apri CAD</span>
                 </button>
+                <button class="wb-btn" id="sd-btn-svl" onclick="wbSviluppo()" title="Sviluppo in piano di una lamiera piegata disegnata senza sviluppo (S)">
+                  <i data-lucide="fold-horizontal"></i><span>Sviluppo</span>
+                </button>
                 <button class="wb-icon-btn" onclick="sdStima()" title="Ricalcola la stima di questo pezzo (R)"><i data-lucide="refresh-ccw"></i></button>
                 <div class="wb-menu" id="wb-piece-menu">
                   <button class="wb-icon-btn" onclick="wbToggleMenu('wb-piece-menu', event)" title="Altre azioni sul pezzo"><i data-lucide="more-vertical"></i></button>
@@ -3383,12 +3537,13 @@ body { font-size: var(--fs-m); }
           </div>
         </section>
 
-        <!-- ── Prezzo: sempre in vista ── -->
+        <!-- ── Scheda Prezzo: vendita, margine e dettagli (si apre dalla scheda "Prezzo") ── -->
         <aside class="wb-rail" id="wb-rail" aria-label="Prezzo del preventivo">
           <div class="rl-scroll">
+           <div class="rl-page">
+            <div class="rl-col">
             <section class="rl-total">
-              <div class="rl-label">Prezzo di vendita <span class="rl-vat">IVA esclusa</span>
-                <button class="wb-icon-btn sm rl-close" onclick="document.body.classList.remove('wb-rail-open')" title="Chiudi (Esc)"><i data-lucide="x"></i></button></div>
+              <div class="rl-label">Prezzo di vendita <span class="rl-vat">IVA esclusa</span></div>
               <div class="rl-amount"><span id="wb-total">0,00</span><small>€</small></div>
               <div class="rl-delta" id="wb-delta" aria-live="polite"></div>
               <!-- Costo → utile → margine: la relazione a colpo d'occhio -->
@@ -3418,12 +3573,16 @@ body { font-size: var(--fs-m); }
                      oninput="wbMarginFromRange(this.value)" aria-label="Ricarico percentuale">
               <div class="rl-gauge" id="wb-margin-gauge"></div>
             </section>
+            </div>
 
+            <div class="rl-col">
             <section class="rl-block rl-check" id="wb-check"></section>
 
             <section class="rl-block rl-piece" id="wb-rl-piece"></section>
 
             <section class="rl-block rl-pareto" id="wb-pareto"></section>
+            </div>
+           </div>
           </div>
 
           <div class="rl-cta">
@@ -3660,6 +3819,18 @@ body { font-size: var(--fs-m); }
           <label>Soglia pieghe per applicare setup</label>
           <input type="number" id="cfg-piega-soglia" step="1" min="0">
           <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Se il pezzo ha pi&ugrave; pieghe di questa soglia, si somma il setup (attrezzaggio macchina).</div>
+        </div>
+        <div class="form-row" style="margin-top:10px;">
+          <div class="form-field">
+            <label>Fattore K (sviluppo)</label>
+            <input type="number" id="cfg-svl-k" step="0.01" min="0" max="0.5" placeholder="automatico">
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Vuoto = automatico (DIN 6935, da raggio e spessore). Tipico 0,30&ndash;0,45.</div>
+          </div>
+          <div class="form-field">
+            <label>Raggio interno di default (&times; spessore)</label>
+            <input type="number" id="cfg-svl-raggio" step="0.1" min="0" placeholder="1">
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Usato quando la tavola non indica il raggio di piega.</div>
+          </div>
         </div>
         <div class="form-row" style="margin-top:10px;">
           <div class="form-field">
@@ -4956,7 +5127,12 @@ function switchTab(tabId) {
   // L'editor e' un banco a tutta altezza: niente scroll di pagina, ogni
   // colonna scorre per conto suo.
   document.body.classList.toggle('wb-editor', tabId === 'editor');
-  if (tabId !== 'editor') document.body.classList.remove('wb-drawer-open', 'wb-rail-open', 'wb-parts-open');
+  if (tabId !== 'editor') {
+    document.body.classList.remove('wb-drawer-open', 'wb-parts-open');
+    wbVista('disegni');
+    if (_svl.on) wbSviluppo(false);
+    if (_wbMis.on) wbMisura(false);
+  }
   try { wbSync(); } catch (_) {}
   if (tabId === 'storico') { loadList(); startPipelinePolling(); }
   else stopPipelinePolling();
@@ -5094,6 +5270,8 @@ async function loadImpostazioni() {
     document.getElementById('cfg-piega-costo').value = P.costo_singola_piega ?? 0;
     document.getElementById('cfg-piega-setup').value = P.costo_setup_piega ?? 0;
     document.getElementById('cfg-piega-soglia').value = P.soglia_setup_pieghe ?? 5;
+    document.getElementById('cfg-svl-k').value = P.sviluppo_k ?? '';
+    document.getElementById('cfg-svl-raggio').value = P.sviluppo_raggio_rel ?? '';
     document.getElementById('cfg-filett-costo').value = P.costo_filettatura ?? 0;
     document.getElementById('cfg-svas-costo').value = P.costo_svasatura ?? 0;
     document.getElementById('cfg-sald-costo').value = P.costo_saldatura_metro ?? 0;
@@ -5174,6 +5352,9 @@ async function saveImpostazioni() {
         costo_singola_piega: parseFloat(document.getElementById('cfg-piega-costo').value) || 0,
         costo_setup_piega: parseFloat(document.getElementById('cfg-piega-setup').value) || 0,
         soglia_setup_pieghe: parseInt(document.getElementById('cfg-piega-soglia').value) || 5,
+        // Sviluppo guidato: null = automatico (K da DIN 6935, raggio = 1 × spessore)
+        sviluppo_k: (k => (k > 0 && k <= 0.5) ? k : null)(parseFloat(document.getElementById('cfg-svl-k').value)),
+        sviluppo_raggio_rel: (r => r > 0 ? r : null)(parseFloat(document.getElementById('cfg-svl-raggio').value)),
         costo_filettatura: parseFloat(document.getElementById('cfg-filett-costo').value) || 0,
         costo_svasatura: parseFloat(document.getElementById('cfg-svas-costo').value) || 0,
         costo_saldatura_metro: parseFloat(document.getElementById('cfg-sald-costo').value) || 0,
@@ -6857,6 +7038,7 @@ function _showSplitDetailPane(which) {
 async function selectSplitArticolo(idx) {
   _splitSelectedIdx = idx;
   _splitAssIdx = null;
+  _svlSeguiPezzo(idx);
   _showSplitDetailPane('art');
   _highlightSplitRow(idx);
   await renderSplitDetail(idx);
@@ -6870,6 +7052,7 @@ async function selectSplitAssieme(code) {
   if (idx < 0) return;
   _splitAssIdx = idx;
   _splitSelectedIdx = null;
+  _svlSeguiPezzo(null);
   _showSplitDetailPane('ass');
   _highlightSplitAssiemeRow(code);
   _saEsploso = false;
@@ -11997,7 +12180,7 @@ function wbRenderTotale(K) {
   if (K.sconto > 0.004) parti.push(`sconto −${_eur(K.sconto)}`);
   const sub = document.getElementById('wb-total-sub');
   if (sub) sub.textContent = parti.join(' · ') || 'nessun pezzo ancora';
-  const rt = document.getElementById('wb-rail-tab-val');
+  const rt = document.getElementById('wb-vista-tot');
   if (rt) rt.textContent = _eur(tot);
 }
 
@@ -12116,13 +12299,18 @@ function wbProblemi(a) {
       s: 'Non ha un prezzo al kg né una velocità di taglio.', az: [{ l: 'Cambia', p: 1, f: () => wbFocus('sd-materiale') }] });
   }
   if (!(a.spessore_mm > 0)) {
-    P.push({ l: 'err', g: 'Spessore mancante', t: 'Spessore mancante', s: 'Indica lo spessore della lamiera.',
-      az: [{ l: 'Inserisci', p: 1, f: () => wbFocus('sd-spessore') }] });
+    const disegno = !!(a.dxf_filename || a.cleaned_dxf_filename || a.pdf_filename);
+    P.push({ l: 'err', g: 'Spessore mancante', t: 'Spessore mancante',
+      s: disegno ? 'Indica lo spessore della lamiera. Se non è quotato, misuralo sul disegno.' : 'Indica lo spessore della lamiera.',
+      az: (disegno ? [{ l: 'Misura sul disegno', p: 1, f: () => wbMisura(true) }] : [])
+        .concat([{ l: 'Inserisci', p: disegno ? 0 : 1, f: () => wbFocus('sd-spessore') }]) });
   }
   if (!(a.area_dm2 > 0) || !(a.perimetro_taglio_m > 0)) {
     P.push({ l: 'err', g: 'Geometria mancante', t: 'Area o taglio non calcolati',
-      s: a.dxf_filename ? 'Il contorno del pezzo non è stato trovato nel disegno.' : 'Pezzo senza disegno: inserisci area e perimetro nei dati tecnici.',
-      az: a.dxf_filename ? [{ l: 'Apri CAD', p: 1, f: () => openCadEditor() }] : [{ l: 'Dati tecnici', p: 1, f: () => { if (document.getElementById('split-detail-body').style.display === 'none') sdToggleForm(); } }] });
+      s: a.dxf_filename ? 'Il contorno del pezzo non è stato trovato nel disegno. Se è un pezzo piegato senza sviluppo, usa lo sviluppo guidato.'
+                        : 'Pezzo senza disegno: inserisci area e perimetro nei dati tecnici, o calcolali con lo sviluppo guidato.',
+      az: (a.dxf_filename ? [{ l: 'Apri CAD', p: 1, f: () => openCadEditor() }] : [{ l: 'Dati tecnici', p: 1, f: () => { if (document.getElementById('split-detail-body').style.display === 'none') sdToggleForm(); } }])
+        .concat([{ l: 'Sviluppo guidato', f: () => wbSviluppo(true) }]) });
   }
   // Dati completi ma costo mai calcolato: prima risultava "pronto" a 0 €
   // (LS 1184 dopo l'import AI: 37 pezzi su 70 senza costo, controllo 70/70).
@@ -12505,7 +12693,9 @@ function wbPieceSync(idx) {
   if (ric) {
     const pc = a.dxf_confidence != null ? ` · ${Math.round(a.dxf_confidence * 100)}%` : '';
     const m = {
-      confermato: ['ok', 'check-circle-2', 'Contorno confermato nel CAD'],
+      confermato: a.geometry_source === 'sviluppo'
+        ? ['ok', 'fold-horizontal', 'Sviluppo guidato applicato']
+        : ['ok', 'check-circle-2', 'Contorno confermato nel CAD'],
       auto: ['auto', 'scan-line', `Contorno riconosciuto automaticamente${pc}`],
       incerto: ['warn', 'alert-triangle', `Riconoscimento incerto${pc}: verifica nel CAD`],
       ignoto: ['auto', 'loader', 'Verifica del riconoscimento…'],
@@ -12769,13 +12959,30 @@ function wbPrimaryAction() {
   if (!currentPreventivo) return;
   openRiepilogoModal();
 }
+/** Scheda attiva dell'editor: 'disegni' (distinta + disegno) o 'prezzo'
+    (vendita, margine e dettagli a pagina intera). */
+var _wbVistaCorrente = 'disegni';
+function wbVista(v) {
+  v = v === 'prezzo' ? 'prezzo' : 'disegni';
+  const cambia = v !== _wbVistaCorrente;
+  _wbVistaCorrente = v;
+  document.body.classList.toggle('wb-view-prezzo', v === 'prezzo');
+  document.querySelectorAll('#wb-vista button').forEach(b => {
+    const on = b.dataset.v === v;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  // Il disegno era nascosto: se la finestra e' cambiata nel frattempo va riadattato
+  if (cambia && v === 'disegni') window.dispatchEvent(new Event('resize'));
+}
 function wbFocusRail() {
-  if (window.innerWidth <= 1180) document.body.classList.add('wb-rail-open');
+  wbVista('prezzo');
   const r = document.getElementById('ed-margine');
   if (r) { r.focus(); r.select && r.select(); }
 }
 function wbVai(i) {
   if (!currentArticoli[i]) return;
+  wbVista('disegni');
   if (currentArticoli[i].codice_assieme && _splitCollapsed.has(currentArticoli[i].codice_assieme)) {
     _splitCollapsed.delete(currentArticoli[i].codice_assieme);
     renderSplitTree();
@@ -12783,7 +12990,7 @@ function wbVai(i) {
   selectSplitArticolo(i);
   const tr = document.querySelector(`#split-tree-tbody tr[data-split-idx="${i}"]`);
   if (tr) tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  document.body.classList.remove('wb-parts-open', 'wb-rail-open');
+  document.body.classList.remove('wb-parts-open');
 }
 function wbNextIssue() {
   const lista = wbDaDefinire();
@@ -13075,8 +13282,11 @@ function wbShowShortcuts() {
         <dt><kbd>C</kbd></dt><dd>Apri il CAD sul pezzo selezionato</dd>
         <dt><kbd>R</kbd></dt><dd>Ricalcola la stima del pezzo</dd>
         <dt><kbd>F</kbd> · <kbd>+</kbd> <kbd>−</kbd></dt><dd>Disegno: adatta alla vista, ingrandisci, riduci (anche con la rotella; trascina per spostarti)</dd>
+        <dt><kbd>M</kbd></dt><dd>Misura sul disegno: due clic danno la distanza in mm (per lo spessore non quotato)</dd>
+        <dt><kbd>S</kbd></dt><dd>Sviluppo in piano di una lamiera piegata disegnata senza sviluppo</dd>
         <dt><kbd>E</kbd></dt><dd>Vai al prossimo pezzo da definire</dd>
         <dt><kbd>I</kbd></dt><dd>Importa disegni</dd>
+        <dt><kbd>P</kbd></dt><dd>Passa tra la scheda Disegni e la scheda Prezzo (Esc torna ai disegni)</dd>
         <dt><kbd>Ctrl</kbd> <kbd>S</kbd></dt><dd>Salva subito</dd>
         <dt><kbd>Ctrl</kbd> <kbd>↵</kbd></dt><dd>Verifica e invia</dd>
         <dt><kbd>Esc</kbd></dt><dd>Chiudi menu e pannelli</dd>
@@ -13111,12 +13321,15 @@ document.addEventListener('keydown', (e) => {
     if (k && k.classList.contains('open')) { k.classList.remove('open'); return; }
     document.querySelectorAll('.wb-menu.open').forEach(x => x.classList.remove('open'));
     wbCloseNotes();
+    if (_wbMis.on) { wbMisura(false); return; }
+    if (_svl.on) { wbSviluppo(false); return; }
     const st = document.getElementById('wb-stage');
     if (st && st.classList.contains('wb-full')) { wbStageFull(false); return; }
     const sa = document.getElementById('sa-stage');
     if (sa && sa.classList.contains('wb-full')) { saSchermoIntero(false); return; }
     if (document.body.classList.contains('wb-drawer-open')) { wbCloseDrawer(); return; }
-    document.body.classList.remove('wb-rail-open', 'wb-parts-open');
+    if (document.body.classList.contains('wb-parts-open')) { document.body.classList.remove('wb-parts-open'); return; }
+    if (_wbVistaCorrente === 'prezzo' && _wbInEditor() && !_wbModaleAperta()) { wbVista('disegni'); return; }
     return;
   }
   if (_wbModaleAperta()) return;
@@ -13142,6 +13355,9 @@ document.addEventListener('keydown', (e) => {
   if (storico && (e.key === 'n' || e.key === 'N')) { e.preventDefault(); newPreventivo(); return; }
   if (!_wbInEditor()) return;
   const k = e.key.toLowerCase();
+  if (k === 'p') { e.preventDefault(); wbVista(_wbVistaCorrente === 'prezzo' ? 'disegni' : 'prezzo'); return; }
+  // Nella scheda Prezzo il disegno non si vede: valgono solo P, E ed Esc
+  if (_wbVistaCorrente === 'prezzo' && k !== 'e') return;
   if (k === 'j' || e.key === 'ArrowDown') { e.preventDefault(); _wbSposta(1); }
   else if (k === 'k' || e.key === 'ArrowUp') { e.preventDefault(); _wbSposta(-1); }
   else if (k === 'c') { if (_splitSelectedIdx != null) { e.preventDefault(); openCadEditor(); } }
@@ -13149,6 +13365,8 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'e') { e.preventDefault(); wbNextIssue(); }
   else if (k === 'i') { e.preventDefault(); wbToggleMenu('wb-import-menu'); }
   else if (k === 'f') { e.preventDefault(); wbFit(); }
+  else if (k === 'm') { e.preventDefault(); wbMisura(); }
+  else if (k === 's') { if (_splitSelectedIdx != null) { e.preventDefault(); wbSviluppo(); } }
   else if (e.key === '+' || e.key === '=') { e.preventDefault(); wbZoom(1.25); }
   else if (e.key === '-') { e.preventDefault(); wbZoom(1 / 1.25); }
 });
@@ -13277,6 +13495,8 @@ function _wbBarra() {
         <button type="button" onclick="wbPdfPagina(1)" title="Pagina successiva"><i data-lucide="chevron-right"></i></button>
         <span class="sep"></span>
       </span>
+      <button type="button" class="wb-vw-mis" id="wb-vw-mis" onclick="wbMisura()" title="Misura sul disegno: due clic danno la distanza in mm (M)"><i data-lucide="ruler"></i><span>Misura</span></button>
+      <span class="sep"></span>
       <button type="button" onclick="wbZoom(1/1.25)" title="Riduci (−)"><i data-lucide="minus"></i></button>
       <span id="wb-vw-pct">100%</span>
       <button type="button" onclick="wbZoom(1.25)" title="Ingrandisci (+)"><i data-lucide="plus"></i></button>
@@ -13318,6 +13538,12 @@ function _wbPct() {
 function wbViewer(preview) {
   const svg = preview.querySelector('svg');
   if (!svg) return;
+  // Scala per la misura: ezdxf porta il viewBox a 1.000.000 di unita'.
+  // data-mm-w (dal server) e' esatta; width="…mm" e' arrotondata al decimo.
+  const vbMis = (svg.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+  const wAttr = svg.getAttribute('width') || '';
+  const mmW = parseFloat(svg.getAttribute('data-mm-w')) || (/mm$/.test(wAttr) ? parseFloat(wAttr) : NaN);
+  const mmU = (mmW > 0 && vbMis[2] > 0) ? mmW / vbMis[2] : null;
   svg.removeAttribute('width'); svg.removeAttribute('height');
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   svg.classList.add('wb-dwg');
@@ -13342,16 +13568,18 @@ function wbViewer(preview) {
       base = { x: bb.x - m, y: bb.y - m, w: bb.width + 2 * m, h: bb.height + 2 * m };
     }
   } catch (_) {}
-  _wbVw = { mode: 'svg', svg, base, vb: Object.assign({}, base) };
+  _wbVw = { mode: 'svg', svg, base, vb: Object.assign({}, base), mmU };
   _wbApplica();
   _wbBarra();
   _wbCollegaViewer(preview);
+  _wbMisNuovoDisegno();
 }
 function _wbApplica() {
   if (!_wbVw || _wbVw.mode !== 'svg') return;
   const v = _wbVw.vb;
   _wbVw.svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
   _wbPct();
+  if (_wbMis.on) _wbMisDisegna();
 }
 
 // ── PDF del cliente (pdf.js, gia' presente in /lib) ────────────────
@@ -13385,7 +13613,7 @@ async function wbPdfViewer(preview, url, idx) {
   const box = preview.querySelector('.wb-pdf');
   const canvas = box.querySelector('canvas');
   const w = preview.querySelector('.wb-pdf-wait'); if (w) w.remove();
-  _wbVw = { mode: 'pdf', doc, n: doc.numPages, page: 1, preview, box, canvas,
+  _wbVw = { mode: 'pdf', doc, n: doc.numPages, page: 1, preview, box, canvas, url,
             zoom: 1, fit: 1, tx: 0, ty: 0, pw: 0, ph: 0, pagina: null, rs: 0, timer: null };
   await _wbPdfApri(1);
   _wbBarra();
@@ -13399,6 +13627,7 @@ async function _wbPdfApri(n) {
   const vp = V.pagina.getViewport({ scale: 1 });
   V.pw = vp.width; V.ph = vp.height;
   _wbPdfAdatta();
+  _wbMisNuovoDisegno();     // pagina diversa: taratura e misura sono della pagina
 }
 function wbPdfPagina(d) { if (_wbVw && _wbVw.mode === 'pdf') _wbPdfApri(_wbVw.page + d); }
 /** Pagina intera nel riquadro, centrata. */
@@ -13418,6 +13647,7 @@ function _wbPdfPosa() {
   V.canvas.style.height = (V.ph * s) + 'px';
   V.canvas.style.transform = `translate(${V.tx}px, ${V.ty}px)`;
   _wbPct();
+  if (_wbMis.on) _wbMisDisegna();
 }
 /** Ridisegna alla risoluzione dello zoom attuale (limitata per la memoria). */
 async function _wbPdfRender() {
@@ -13499,13 +13729,17 @@ function _wbCollegaViewer(preview) {
   let drag = null;
   preview.addEventListener('pointerdown', (e) => {
     if (!attivo() || e.button !== 0) return;
-    drag = { x: e.clientX, y: e.clientY,
+    drag = { x: e.clientX, y: e.clientY, mosso: false,
              vb: _wbVw.vb ? Object.assign({}, _wbVw.vb) : null, tx: _wbVw.tx, ty: _wbVw.ty };
     preview.setPointerCapture(e.pointerId);
     preview.classList.add('panning');
   });
   preview.addEventListener('pointermove', (e) => {
-    if (!drag || !_wbVw) return;
+    if (!drag) { if (_wbMis.on && attivo()) _wbMisHover(e.clientX, e.clientY); return; }
+    if (!_wbVw) return;
+    // Sotto i 4 px e' un clic (punto di misura), non uno spostamento
+    if (!drag.mosso && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+    drag.mosso = true;
     if (_wbVw.mode === 'pdf') {
       _wbVw.tx = drag.tx + (e.clientX - drag.x);
       _wbVw.ty = drag.ty + (e.clientY - drag.y);
@@ -13519,14 +13753,788 @@ function _wbCollegaViewer(preview) {
     _wbApplica();
   });
   const fine = () => { drag = null; preview.classList.remove('panning'); };
-  preview.addEventListener('pointerup', fine);
+  preview.addEventListener('pointerup', (e) => {
+    const clic = drag && !drag.mosso;
+    fine();
+    if (clic && _wbMis.on && attivo()) _wbMisClick(e.clientX, e.clientY);
+  });
   preview.addEventListener('pointercancel', fine);
-  preview.addEventListener('dblclick', () => { if (attivo()) wbFit(); });
+  preview.addEventListener('pointerleave', () => { if (_wbMis.on && _wbMis.hover) { _wbMis.hover = null; _wbMisDisegna(); } });
+  preview.addEventListener('dblclick', () => { if (attivo() && !_wbMis.on) wbFit(); });
 }
+
+// ═════════════ MISURA SUL DISEGNO ═════════════
+/** Quote che mancano sul disegno (tipicamente lo spessore): due clic danno la
+    distanza in mm. Sul DXF la scala e' esatta e il clic si aggancia a spigoli,
+    centri dei fori e linee; due linee parallele danno la distanza tra le linee.
+    Sul PDF si presume la tavola in scala 1:1 e si tara con una quota nota. */
+var _wbMis = { on: false, pts: [], hover: null };
+const _WB_PT_MM = 25.4 / 72;              // punto PDF → mm
+let _wbMisTaraMem = null;                 // tarature per disegno (anche senza localStorage)
+let _wbMisRaf = 0;
+
+function wbMisura(forza) {
+  const on = typeof forza === 'boolean' ? forza : !_wbMis.on;
+  if (on && !_wbMisViewerAttivo()) {
+    wbSnack('Apri il disegno del pezzo per misurare', 'err');
+    return;
+  }
+  if (on) wbVista('disegni');
+  _wbMis.on = on; _wbMis.pts = []; _wbMis.hover = null;
+  const b = document.getElementById('wb-vw-mis');
+  if (b) b.classList.toggle('on', on);
+  _wbMisPannello(); _wbMisDisegna();
+  // Il riquadro si e' stretto (o allargato) per il pannello: il PDF si riadatta
+  requestAnimationFrame(() => {
+    if (_wbVw && _wbVw.mode === 'pdf' && _wbVw.box.isConnected) _wbPdfAdatta();
+    if (_wbMis.on) _wbMisDisegna();
+  });
+}
+function _wbMisViewerAttivo() {
+  const V = _wbVw;
+  return !!V && ((V.mode === 'svg' && V.svg && V.svg.isConnected)
+              || (V.mode === 'pdf' && V.canvas && V.canvas.isConnected && V.pw > 0));
+}
+/** Il riquadro (cornice del disegno) che ospita righello e pannello. */
+function _wbMisHost() {
+  const el = _wbVw.mode === 'svg' ? _wbVw.svg : _wbVw.box;
+  const prev = el && el.closest('.split-detail-preview');
+  return prev ? prev.parentElement : null;
+}
+/** Nuovo disegno o nuova pagina: la misura riparte, la modalita' resta. */
+function _wbMisNuovoDisegno() {
+  if (!_wbMis.on) return;
+  _wbMis.pts = []; _wbMis.hover = null;
+  _wbMisPannello(); _wbMisDisegna();
+}
+
+// ── Coordinate: schermo ↔ disegno ──
+function _wbMisDaSchermo(cx, cy) {
+  const V = _wbVw;
+  if (V.mode === 'svg') {
+    const m = V.svg.getScreenCTM();
+    if (!m) return null;
+    const p = new DOMPoint(cx, cy).matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  }
+  const r = V.canvas.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  return { x: (cx - r.left) / r.width * V.pw, y: (cy - r.top) / r.height * V.ph };
+}
+function _wbMisASchermo(p) {
+  const V = _wbVw;
+  if (V.mode === 'svg') {
+    const q = new DOMPoint(p.x, p.y).matrixTransform(V.svg.getScreenCTM());
+    return { x: q.x, y: q.y };
+  }
+  const r = V.canvas.getBoundingClientRect();
+  return { x: r.left + p.x / V.pw * r.width, y: r.top + p.y / V.ph * r.height };
+}
+
+// ── Scala e taratura ──
+function _wbMisChiave() {
+  const V = _wbVw, pid = currentPreventivo ? currentPreventivo.id : '';
+  if (V.mode === 'pdf') return `${pid}|pdf|${V.url || ''}|${V.page}`;
+  if (_saDisegnoAperto()) return `${pid}|dxf|ass|${(typeof _saDisegno !== 'undefined' && _saDisegno && _saDisegno.dxf) || ''}`;
+  const a = currentArticoli[_splitSelectedIdx];
+  return `${pid}|dxf|${(a && (a.cleaned_dxf_filename || a.dxf_filename)) || ''}`;
+}
+function _wbMisTarature() {
+  if (_wbMisTaraMem) return _wbMisTaraMem;
+  try { _wbMisTaraMem = JSON.parse(localStorage.getItem('wb_mis_tara') || '{}') || {}; }
+  catch (_) { _wbMisTaraMem = {}; }
+  return _wbMisTaraMem;
+}
+function _wbMisTara() { return _wbMisTarature()[_wbMisChiave()] || null; }
+function _wbMisSetTara(t) {
+  const tutte = _wbMisTarature();
+  if (t) tutte[_wbMisChiave()] = t; else delete tutte[_wbMisChiave()];
+  try { localStorage.setItem('wb_mis_tara', JSON.stringify(tutte)); } catch (_) {}
+}
+/** mm per unita' del disegno. certa = scala nota (DXF o PDF tarato). */
+function _wbMisScala() {
+  const V = _wbVw, t = _wbMisTara();
+  const base = V.mode === 'svg' ? (V.mmU || 1) : _WB_PT_MM;
+  return { k: base * (t || 1), tarata: !!t, certa: !!t || (V.mode === 'svg' && !!V.mmU) };
+}
+
+// ── Aggancio (solo DXF: il PDF e' un'immagine) ──
+/** Vertici, centri dei cerchi e segmenti delle linee del DXF, letti una volta. */
+function _wbMisGeo() {
+  const V = _wbVw;
+  if (V.mode !== 'svg') return null;
+  if (V.geo) return V.geo;
+  const pts = [], segs = [];
+  V.svg.querySelectorAll('path').forEach(el => _wbMisPath(el.getAttribute('d') || '', pts, segs));
+  V.svg.querySelectorAll('line').forEach(el => {
+    const x1 = +el.getAttribute('x1'), y1 = +el.getAttribute('y1'), x2 = +el.getAttribute('x2'), y2 = +el.getAttribute('y2');
+    segs.push([x1, y1, x2, y2]); pts.push({ x: x1, y: y1, t: 'v' }, { x: x2, y: y2, t: 'v' });
+  });
+  V.svg.querySelectorAll('circle').forEach(el => pts.push({ x: +el.getAttribute('cx'), y: +el.getAttribute('cy'), t: 'c' }));
+  V.geo = { pts, segs };
+  return V.geo;
+}
+function _wbMisPath(d, pts, segs) {
+  const tok = d.match(/[MmLlHhVvCcSsQqTtAaZz]|-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+  if (!tok) return;
+  let i = 0, cmd = '', x = 0, y = 0, sx = 0, sy = 0, soloCurve = true, nCurve = 0;
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+  const num = () => parseFloat(tok[i++]);
+  const bbox = (px, py) => { bx0 = Math.min(bx0, px); by0 = Math.min(by0, py); bx1 = Math.max(bx1, px); by1 = Math.max(by1, py); };
+  const vert = (px, py) => { pts.push({ x: px, y: py, t: 'v' }); bbox(px, py); };
+  const linea = (nx, ny) => { segs.push([x, y, nx, ny]); x = nx; y = ny; vert(x, y); soloCurve = false; };
+  const curva = (c1x, c1y, c2x, c2y, nx, ny) => {     // cubica campionata in 8 tratti
+    let px = x, py = y;
+    for (let k = 1; k <= 8; k++) {
+      const t = k / 8, u = 1 - t;
+      const qx = u * u * u * x + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * nx;
+      const qy = u * u * u * y + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * ny;
+      segs.push([px, py, qx, qy]); bbox(qx, qy); px = qx; py = qy;
+    }
+    x = nx; y = ny; vert(x, y); nCurve++;
+  };
+  while (i < tok.length) {
+    const t = tok[i];
+    if (/[A-Za-z]/.test(t)) {
+      cmd = t; i++;
+      if (cmd === 'Z' || cmd === 'z') { if (x !== sx || y !== sy) linea(sx, sy); x = sx; y = sy; }
+      continue;
+    }
+    const rel = cmd === cmd.toLowerCase(), ox = rel ? x : 0, oy = rel ? y : 0;
+    const n0 = i;
+    switch (cmd.toUpperCase()) {
+      case 'M': x = ox + num(); y = oy + num(); sx = x; sy = y; vert(x, y); cmd = rel ? 'l' : 'L'; break;
+      case 'L': { const nx = ox + num(), ny = oy + num(); linea(nx, ny); break; }
+      case 'H': linea(ox + num(), y); break;
+      case 'V': linea(x, oy + num()); break;
+      case 'C': { const a = num(), b = num(), c = num(), e = num(), f = num(), g = num();
+        curva(ox + a, oy + b, ox + c, oy + e, ox + f, oy + g); break; }
+      case 'S': { const c = num(), e = num(), f = num(), g = num();
+        curva(x, y, ox + c, oy + e, ox + f, oy + g); break; }
+      case 'Q': { const qx = ox + num(), qy = oy + num(), nx = ox + num(), ny = oy + num();
+        curva(x + 2 / 3 * (qx - x), y + 2 / 3 * (qy - y), nx + 2 / 3 * (qx - nx), ny + 2 / 3 * (qy - ny), nx, ny); break; }
+      case 'T': { const nx = ox + num(), ny = oy + num(); linea(nx, ny); break; }
+      case 'A': { i += 5; const nx = ox + num(), ny = oy + num(); linea(nx, ny); break; }
+      default: i++;
+    }
+    if (i === n0 || tok.slice(n0, i).some(v => isNaN(parseFloat(v)))) break;    // percorso malformato
+  }
+  // Cerchio (o foro): percorso chiuso fatto solo di curve → centro agganciabile
+  if (nCurve >= 2 && soloCurve && bx1 > bx0 && Math.hypot(x - sx, y - sy) < (bx1 - bx0) * 1e-3 + 1e-9)
+    pts.push({ x: (bx0 + bx1) / 2, y: (by0 + by1) / 2, t: 'c' });
+}
+/** Punto del disegno sotto il cursore, agganciato a centro, spigolo o linea. */
+function _wbMisAggancia(cx, cy) {
+  const p = _wbMisDaSchermo(cx, cy);
+  if (!p) return null;
+  const geo = _wbMisGeo();
+  if (!geo) return { x: p.x, y: p.y, t: 'libero' };
+  const m = _wbVw.svg.getScreenCTM();
+  const upp = m ? 1 / Math.hypot(m.a, m.b) : 1;          // unita' del disegno per pixel
+  let best = null, bd = Math.pow(11 * upp, 2);
+  for (const q of geo.pts) {
+    const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+    // a pari distanza vince il centro del foro
+    if (d < bd || (d === bd && q.t === 'c')) { bd = d; best = q; }
+  }
+  if (best) return { x: best.x, y: best.y, t: best.t === 'c' ? 'centro' : 'spigolo' };
+  let seg = null, px = 0, py = 0, be = Math.pow(8 * upp, 2);
+  for (const s of geo.segs) {
+    const dx = s[2] - s[0], dy = s[3] - s[1], l2 = dx * dx + dy * dy;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((p.x - s[0]) * dx + (p.y - s[1]) * dy) / l2)) : 0;
+    const qx = s[0] + t * dx, qy = s[1] + t * dy, d = (qx - p.x) ** 2 + (qy - p.y) ** 2;
+    if (d < be) { be = d; seg = s; px = qx; py = qy; }
+  }
+  if (seg) return { x: px, y: py, t: 'linea', seg };
+  return { x: p.x, y: p.y, t: 'libero' };
+}
+
+// ── Interazione ──
+function _wbMisClick(cx, cy) {
+  const p = _wbMisAggancia(cx, cy);
+  if (!p) return;
+  if (_wbMis.pts.length >= 2) _wbMis.pts = [];
+  _wbMis.pts.push(p);
+  _wbMisPannello(); _wbMisDisegna();
+}
+function _wbMisHover(cx, cy) {
+  cancelAnimationFrame(_wbMisRaf);
+  _wbMisRaf = requestAnimationFrame(() => {
+    if (!_wbMis.on || !_wbMisViewerAttivo()) return;
+    _wbMis.hover = _wbMisAggancia(cx, cy);
+    _wbMisDisegna();
+  });
+}
+/** Distanza misurata in mm (null se mancano i due punti). */
+function _wbMisRisultato() {
+  const [a, b] = _wbMis.pts;
+  if (!a || !b) return null;
+  const S = _wbMisScala();
+  const dx = (b.x - a.x) * S.k, dy = (b.y - a.y) * S.k;
+  let d = Math.hypot(dx, dy), par = false;
+  // Due linee parallele (i bordi della lamiera nella vista di fianco):
+  // conta la distanza tra le linee, non tra i due punti cliccati.
+  if (a.seg && b.seg) {
+    const ux = a.seg[2] - a.seg[0], uy = a.seg[3] - a.seg[1];
+    const vx = b.seg[2] - b.seg[0], vy = b.seg[3] - b.seg[1];
+    const la = Math.hypot(ux, uy), lb = Math.hypot(vx, vy);
+    if (la > 0 && lb > 0 && Math.abs(ux * vy - uy * vx) / (la * lb) < 0.017) {     // entro 1°
+      const perp = Math.abs((b.x - a.x) * uy - (b.y - a.y) * ux) / la * S.k;
+      if (perp > 1e-6) { d = perp; par = true; }
+    }
+  }
+  return { d, dx: Math.abs(dx), dy: Math.abs(dy), par, S };
+}
+function _wbMm(v) {
+  const dec = v < 100 ? 2 : 1;
+  return v.toLocaleString('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+function wbMisUsaSpessore() {
+  const r = _wbMisRisultato();
+  if (!r || !(r.d > 0) || _splitSelectedIdx == null) return;
+  const v = Math.round(r.d * 100) / 100;
+  const inp = document.getElementById('sd-spessore');
+  if (inp) inp.value = v;
+  sdOnFieldChange('spessore_mm', v, true);
+  if (_svl.on) { _svl.s.spessore = _svlTesto(v); _svlRender(); }
+  wbSnack(`Spessore impostato: ${_wbMm(v)} mm`);
+}
+function wbMisTara() {
+  const inp = document.getElementById('wb-mis-tara-v');
+  const reale = parseFloat(String(inp ? inp.value : '').replace(',', '.'));
+  const r = _wbMisRisultato();
+  if (!r || !(r.d > 0)) { wbSnack('Misura prima la quota nota', 'err'); return; }
+  if (!(reale > 0)) { wbSnack('Scrivi il valore reale della quota in mm', 'err'); if (inp) inp.focus(); return; }
+  _wbMisSetTara((_wbMisTara() || 1) * reale / r.d);
+  wbSnack(`Scala tarata: questa quota ora vale ${_wbMm(reale)} mm`);
+  _wbMisPannello(); _wbMisDisegna();
+}
+function wbMisTogliTara() { _wbMisSetTara(null); _wbMisPannello(); _wbMisDisegna(); }
+
+// ── Disegno del righello e pannello ──
+function _wbMisOverlay(host) {
+  let ov = host.querySelector(':scope > .wb-mis-ov');
+  if (!ov) {
+    ov = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    ov.setAttribute('class', 'wb-mis-ov');
+    host.appendChild(ov);
+  }
+  let box = host.querySelector(':scope > .wb-mis-box');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'wb-mis-box';
+    box.addEventListener('pointerdown', e => e.stopPropagation());
+    host.appendChild(box);
+  }
+  return { ov, box };
+}
+function _wbMisDisegna() {
+  const host = _wbMis.on && _wbMisViewerAttivo() ? _wbMisHost() : null;
+  document.querySelectorAll('.wb-mis-ov, .wb-mis-box').forEach(el => { if (el.parentElement !== host) el.remove(); });
+  document.querySelectorAll('.wb-misura').forEach(el => { if (el !== host) el.classList.remove('wb-misura'); });
+  if (!host) return;
+  host.classList.add('wb-misura');
+  const { ov, box } = _wbMisOverlay(host);
+  if (!box.innerHTML) _wbMisPannello();
+  const hr = host.getBoundingClientRect();
+  const loc = p => { const s = _wbMisASchermo(p); return { x: s.x - hr.left, y: s.y - hr.top }; };
+  const P = _wbMis.pts.map(loc);
+  const H = _wbMis.hover ? loc(_wbMis.hover) : null;
+  const f = n => n.toFixed(1);
+  let g = '';
+  if (P.length === 1 && H) g += `<line class="ml dash" x1="${f(P[0].x)}" y1="${f(P[0].y)}" x2="${f(H.x)}" y2="${f(H.y)}"/>`;
+  if (P.length === 2) {
+    g += `<line class="ml" x1="${f(P[0].x)}" y1="${f(P[0].y)}" x2="${f(P[1].x)}" y2="${f(P[1].y)}"/>`;
+    const r = _wbMisRisultato();
+    if (r) {
+      const mx = (P[0].x + P[1].x) / 2, my = (P[0].y + P[1].y) / 2;
+      g += `<text class="mt" x="${f(mx + 10)}" y="${f(my - 10)}">${_wbMm(r.d)} mm${r.S.certa ? '' : ' ?'}</text>`;
+    }
+  }
+  P.forEach(p => { g += `<circle class="mp" cx="${f(p.x)}" cy="${f(p.y)}" r="4.5"/>`; });
+  if (H) {
+    const t = _wbMis.hover.t;
+    if (t === 'spigolo') g += `<rect class="ms" x="${f(H.x - 6)}" y="${f(H.y - 6)}" width="12" height="12"/>`;
+    else if (t === 'centro') g += `<circle class="ms" cx="${f(H.x)}" cy="${f(H.y)}" r="7"/><path class="ms" d="M${f(H.x - 4)} ${f(H.y)}h8M${f(H.x)} ${f(H.y - 4)}v8"/>`;
+    else if (t === 'linea') g += `<path class="ms" d="M${f(H.x - 6)} ${f(H.y + 6)}l12 -12M${f(H.x - 6)} ${f(H.y - 6)}l12 12"/>`;
+    else g += `<path class="mc" d="M${f(H.x - 9)} ${f(H.y)}h18M${f(H.x)} ${f(H.y - 9)}v18"/>`;
+    if (t !== 'libero') g += `<text class="mh" x="${f(H.x + 10)}" y="${f(H.y + 20)}">${t}</text>`;
+  }
+  ov.innerHTML = g;
+}
+/** Pannello: istruzioni, risultato, "usa come spessore" e taratura.
+    Si ridisegna solo quando cambia la misura (non al passaggio del mouse). */
+function _wbMisPannello() {
+  const box = document.querySelector('.wb-mis-box');
+  if (!box || !_wbMis.on || !_wbMisViewerAttivo()) return;
+  const V = _wbVw, S = _wbMisScala(), r = _wbMisRisultato();
+  const pezzo = _splitSelectedIdx != null && !_saDisegnoAperto();
+  let h = `<div class="mb-head"><b><i data-lucide="ruler"></i> Misura</b>
+    <button type="button" class="wb-icon-btn sm" onclick="wbMisura(false)" title="Chiudi (Esc)"><i data-lucide="x"></i></button></div>`;
+  if (!r) {
+    h += `<div class="mb-hint">${_wbMis.pts.length ? 'Clicca il <b>secondo punto</b>.' : 'Clicca <b>due punti</b> sul disegno.'}
+      ${V.mode === 'svg'
+        ? 'Il clic si aggancia a spigoli, centri dei fori e linee. Per lo spessore clicca i due bordi della lamiera nella vista di fianco.'
+        : 'Ingrandisci con la rotella per essere precisi; trascina per spostarti.'}</div>`;
+  } else {
+    h += `<div class="mb-val">${_wbMm(r.d)} <small>mm</small></div>
+      <div class="mb-sub">${r.par ? 'distanza tra due linee parallele' : `ΔX ${_wbMm(r.dx)} · ΔY ${_wbMm(r.dy)} mm`}</div>`;
+    if (pezzo && _svl.on && _svl.campo) h += `<button type="button" class="wb-btn wb-btn-primary sm wb-btn-block" onclick="wbMisInSviluppo()">${_svl.campo.catena ? 'Aggiungi al lato' : 'Metti in'} «${escapeHtml(_svl.campo.lbl)}»</button>`;
+    if (pezzo) h += `<button type="button" class="wb-btn ${_svl.on && _svl.campo ? '' : 'wb-btn-primary'} sm wb-btn-block" onclick="wbMisUsaSpessore()">Usa come spessore</button>`;
+  }
+  // Scala: esatta sul DXF, da verificare sul PDF
+  if (S.tarata) {
+    h += `<div class="mb-scala ok">Scala tarata su una quota nota · <button type="button" class="wb-link" onclick="wbMisTogliTara()">annulla</button></div>`;
+  } else if (!S.certa) {
+    h += `<div class="mb-scala warn">${V.mode === 'pdf' ? 'Tavola PDF: scala 1:1 presunta.' : 'Scala del DXF non nota.'}
+      Misura una quota scritta sul disegno e tara qui sotto.</div>`;
+  }
+  if (r) {
+    const tara = `<div class="mb-tara"><span>Quota reale</span>
+      <span class="wb-unit sm"><input type="number" id="wb-mis-tara-v" step="0.01" min="0" placeholder="es. 250"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();wbMisTara();}"><em>mm</em></span>
+      <button type="button" class="wb-btn sm" onclick="wbMisTara()">Tara</button></div>`;
+    h += (V.mode === 'pdf' || !S.certa) ? tara
+      : `<details class="mb-more"><summary>La scala non torna?</summary>${tara}</details>`;
+  }
+  box.innerHTML = h;
+  if (window.lucide) try { lucide.createIcons(); } catch (_) {}
+}
+// ═════════════ SVILUPPO GUIDATO (lamiera piegata senza sviluppo) ═════════════
+/** Pezzo piegato disegnato senza sviluppo in piano. Un solo modello: il FONDO
+    (A × B) e, su ciascuno dei quattro lati, la catena delle ali scritta come
+    in tavola: "132", "132 su 40", "40 135° 20". Copre squadrette, U, Z,
+    vassoi, scatole e carter. Il contorno piatto si calcola col fattore K;
+    area, perimetro, inneschi e pieghe vanno sul pezzo.
+    Verificato sullo sviluppo del cliente R4 S2808034B (K 0,44, R 1,5, sp. 2). */
+var _svl = { on: false, idx: null, s: null, campo: null };
+const _SVL_LATI = [
+  { k: 'sopra', lbl: 'Sopra', ico: '↑' }, { k: 'destra', lbl: 'Destra', ico: '→' },
+  { k: 'sotto', lbl: 'Sotto', ico: '↓' }, { k: 'sinistra', lbl: 'Sinistra', ico: '←' },
+];
+const _SVL_TAGLI = {
+  foro: { lbl: 'Fori', a: 'Ø', b: '' },
+  asola: { lbl: 'Asole', a: 'lungh.', b: 'largh.' },
+  finestra: { lbl: 'Finestre', a: 'a', b: 'b' },
+  tacca: { lbl: 'Tacche sul bordo', a: 'largh.', b: 'prof.' },
+};
+
+function _svlNum(v) {
+  const x = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+  return isFinite(x) ? x : NaN;
+}
+function _svlTesto(v) { return String(Math.round(v * 100) / 100).replace('.', ','); }
+function _svlDefault(a) {
+  return { spessore: a && a.spessore_mm > 0 ? _svlTesto(a.spessore_mm) : '', raggio: '', K: '',
+           quote: 'esterne', A: '', B: '', Aint: false, Bint: false,
+           lati: { sopra: '', destra: '', sotto: '', sinistra: '' }, tagli: [] };
+}
+
+function wbSviluppo(forza) {
+  const on = typeof forza === 'boolean' ? forza : !_svl.on;
+  if (on && (_splitSelectedIdx == null || !currentArticoli[_splitSelectedIdx])) {
+    wbSnack('Seleziona prima un pezzo', 'err');
+    return;
+  }
+  if (on) wbVista('disegni');
+  _svl.on = on;
+  if (on) _svlCarica(_splitSelectedIdx); else { _svl.idx = null; _svl.campo = null; }
+  const b = document.getElementById('sd-btn-svl');
+  if (b) b.classList.toggle('on', on);
+  _svlRender();
+  if (_wbMis.on) _wbMisPannello();
+  // Il riquadro del disegno si e' stretto (o allargato): il PDF si riadatta
+  requestAnimationFrame(() => {
+    if (_wbVw && _wbVw.mode === 'pdf' && _wbVw.box.isConnected) _wbPdfAdatta();
+    if (_wbMis.on) _wbMisDisegna();
+  });
+}
+function _svlCarica(idx) {
+  const a = currentArticoli[idx];
+  _svl.idx = idx; _svl.campo = null;
+  const salvato = a.sviluppo && a.sviluppo.lati ? JSON.parse(JSON.stringify(a.sviluppo)) : {};
+  delete salvato.risultato;
+  const s = Object.assign(_svlDefault(a), salvato);
+  s.lati = Object.assign(_svlDefault(a).lati, s.lati || {});
+  if (!(_svlNum(s.spessore) > 0) && a.spessore_mm > 0) s.spessore = _svlTesto(a.spessore_mm);
+  _svl.s = s;
+}
+/** Il pannello segue il pezzo selezionato (ne prezzi tanti di fila); sugli assiemi si chiude. */
+function _svlSeguiPezzo(idx) {
+  if (!_svl.on) return;
+  if (idx == null) { wbSviluppo(false); return; }
+  if (idx !== _svl.idx) { _svlCarica(idx); _svlRender(); }
+}
+
+// ── Calcolo ──
+/** Fattore K: del pezzo, poi dalle Impostazioni, altrimenti DIN 6935 (da r/t). */
+function _svlK(r, t, kPezzo) {
+  if (kPezzo > 0 && kPezzo <= 0.5) return { K: kPezzo, fonte: 'del pezzo' };
+  const fisso = parseFloat(_prevCfg && _prevCfg.sviluppo_k);
+  if (fisso > 0 && fisso <= 0.5) return { K: fisso, fonte: 'dalle Impostazioni' };
+  const q = Math.max(0.1, r / t);
+  const kDin = q >= 5 ? 1 : Math.min(1, Math.max(0.3, 0.65 + 0.5 * Math.log10(q)));
+  return { K: kDin / 2, fonte: 'DIN 6935' };
+}
+function _svlRaggioDefault(t) {
+  const f = parseFloat(_prevCfg && _prevCfg.sviluppo_raggio_rel);
+  return (f > 0 ? f : 1) * t;
+}
+/** Catena di un lato, come in tavola: "132 su 40", "40 135° 20".
+    Ogni numero e' un'ala; "su" la piega verso l'esterno (risvolto), "giù"
+    (implicito) verso lo stesso lato delle altre ali; "N°" l'angolo tra le
+    facce se non e' 90. */
+function _svlCatena(txt) {
+  const segs = [];
+  const toks = String(txt || '').toLowerCase().replace(/,/g, '.')
+    .match(/[a-zàèéìòù']+|\d*\.?\d+\s*°?|°/g) || [];
+  let dir = 'giu', ang = 90, sospeso = false;
+  for (let tk of toks) {
+    tk = tk.replace(/\s+/g, '');
+    if (tk === 'su') { dir = 'su'; sospeso = true; continue; }
+    if (/^gi[uù]'?$/.test(tk)) { dir = 'giu'; sospeso = true; continue; }
+    if (tk.endsWith('°')) {
+      const g = parseFloat(tk);
+      if (!isFinite(g)) return { err: 'angolo senza valore' };
+      ang = g; sospeso = true; continue;
+    }
+    if (/^\d*\.?\d+$/.test(tk)) { segs.push({ len: parseFloat(tk), dir, ang }); dir = 'giu'; ang = 90; sospeso = false; continue; }
+    return { err: `non capisco «${tk}»` };
+  }
+  if (sospeso) return { err: "dopo «su», «giù» o l'angolo serve la misura dell'ala" };
+  return { segs };
+}
+/** Sviluppo del pezzo. Ogni piega: BA = angolo × (r + K·t). Le quote in
+    tavola arrivano alle facce esterne del pezzo: per una piega normale si
+    toglie (r+t)·tan(φ/2) da entrambe le ali; per un risvolto ("su") l'ala
+    lontana dal fondo e' quotata dalla faccia esterna della parete, che per
+    quella piega e' il lato interno: si toglie solo r·tan(φ/2).
+    Con "quote interne" i due casi si scambiano. */
+function _svlCalcola() {
+  const s = _svl.s, n = _svlNum;
+  const no = err => ({ ok: false, err });
+  const t = n(s.spessore);
+  if (!(t > 0)) return no('Inserisci lo spessore');
+  const r = String(s.raggio).trim() !== '' && n(s.raggio) >= 0 ? n(s.raggio) : _svlRaggioDefault(t);
+  const { K, fonte } = _svlK(r, t, n(s.K));
+  const est = s.quote !== 'interne';
+  const lati = {};
+  let pieghe = 0;
+  for (const L of _SVL_LATI) {
+    const c = _svlCatena(s.lati[L.k]);
+    if (c.err) return no(`Lato ${L.lbl.toLowerCase()}: ${c.err}`);
+    const segs = c.segs, P = [];
+    let prima = 'giu';
+    for (const g of segs) {
+      if (g.len <= 0) return no(`Lato ${L.lbl.toLowerCase()}: misura dell'ala mancante`);
+      if (g.ang < 10 || g.ang >= 180) return no(`Lato ${L.lbl.toLowerCase()}: angoli tra 10° e 179° (le schiacciature non sono gestite)`);
+      const phi = (180 - g.ang) * Math.PI / 180, tg = Math.tan(phi / 2);
+      const fuori = (r + t) * tg, dentro = r * tg;
+      const risvolto = g.dir !== prima;
+      prima = g.dir;
+      const vicino = est ? fuori : dentro;
+      const lontano = risvolto ? (est ? dentro : fuori) : vicino;
+      P.push({ ba: phi * (r + K * t), vicino, lontano, dir: g.dir });
+    }
+    let strip = 0;
+    const linee = [];
+    for (let j = 0; j < segs.length; j++) {
+      linee.push({ d: strip + P[j].ba / 2, dir: P[j].dir });
+      strip += P[j].ba;
+      const piano = segs[j].len - P[j].lontano - (j + 1 < segs.length ? P[j + 1].vicino : 0);
+      if (piano <= 0) return no(`Lato ${L.lbl.toLowerCase()}: l'ala ${_svlTesto(segs[j].len)} è troppo corta per spessore e raggio`);
+      strip += piano;
+    }
+    pieghe += segs.length;
+    lati[L.k] = { segs, strip, linee, arretra: segs.length ? P[0].vicino : 0 };
+  }
+  let A = n(s.A), B = n(s.B);
+  if (!(A > 0)) return no('Inserisci il fondo A (larghezza)');
+  if (!(B > 0)) return no('Inserisci il fondo B (lunghezza)');
+  // Quota interna: tra le facce interne delle pareti → si aggiunge uno spessore per parete
+  if (s.Aint) A += t * ((lati.sinistra.segs.length ? 1 : 0) + (lati.destra.segs.length ? 1 : 0));
+  if (s.Bint) B += t * ((lati.sopra.segs.length ? 1 : 0) + (lati.sotto.segs.length ? 1 : 0));
+  const Wb = A - lati.sinistra.arretra - lati.destra.arretra;
+  const Hb = B - lati.sopra.arretra - lati.sotto.arretra;
+  if (Wb <= 0 || Hb <= 0) return no('Fondo troppo piccolo per spessore e raggio');
+  const sL = lati.sinistra.strip, sR = lati.destra.strip, sT = lati.sopra.strip, sB = lati.sotto.strip;
+  // A croce: le ali coprono il lato del fondo, agli angoli resta lo scarico
+  let area = Wb * Hb + (sL + sR) * Hb + (sT + sB) * Wb;
+  let perim = 2 * (Wb + Hb) + 2 * (sL + sR + sT + sB);
+  let inneschi = 1;
+  for (const tg of s.tagli) {
+    const q = Math.round(n(tg.n)), a = n(tg.a), b = n(tg.b);
+    if (!(q > 0) || !(a > 0)) continue;
+    if (tg.tipo === 'foro') { area -= q * Math.PI * a * a / 4; perim += q * Math.PI * a; inneschi += q; continue; }
+    if (!(b > 0)) continue;
+    if (tg.tipo === 'asola') {
+      const w = Math.min(a, b), l = Math.max(a, b);
+      area -= q * ((l - w) * w + Math.PI * w * w / 4); perim += q * (2 * (l - w) + Math.PI * w); inneschi += q;
+    } else if (tg.tipo === 'finestra') {
+      area -= q * a * b; perim += q * 2 * (a + b); inneschi += q;
+    } else if (tg.tipo === 'tacca') {
+      area -= q * a * b; perim += q * 2 * b;          // il bordo tolto torna sul fondo della tacca
+    }
+  }
+  if (area <= 0) return no("I tagli superano l'area del pezzo");
+  const ba90 = Math.PI / 2 * (r + K * t);
+  return { ok: true, t, r, K, fonte, W: sL + Wb + sR, H: sT + Hb + sB, Wb, Hb, sL, sR, sT, sB,
+           area, perim, inneschi, pieghe, lati, bd90: 2 * (est ? r + t : r) - ba90 };
+}
+
+// ── Pannello ──
+function _svlHost() {
+  const p = document.getElementById('sd-preview');
+  return p ? p.parentElement : null;
+}
+function _svlRender() {
+  const host = _svlHost();
+  document.querySelectorAll('.wb-svl').forEach(el => { if (!_svl.on || el.parentElement !== host) el.remove(); });
+  document.querySelectorAll('.wb-sviluppo').forEach(el => { if (!_svl.on || el !== host) el.classList.remove('wb-sviluppo'); });
+  if (!_svl.on || !host) return;
+  host.classList.add('wb-sviluppo');
+  let box = host.querySelector(':scope > .wb-svl');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'wb-svl';
+    box.addEventListener('input', _svlInput);
+    box.addEventListener('focusin', _svlFocus);
+    box.addEventListener('pointerdown', e => e.stopPropagation());
+    host.appendChild(box);
+  }
+  const s = _svl.s, a = currentArticoli[_svl.idx] || {};
+  const v = x => escapeHtml(String(x == null ? '' : x));
+  const num = (k, val, unita, ph = '', lbl = k) => `<span class="wb-unit sm"><input type="text" inputmode="decimal" autocomplete="off"
+      data-k="${k}" data-lbl="${escapeHtml(lbl)}" value="${v(val)}" placeholder="${escapeHtml(ph)}"><em>${unita}</em></span>`;
+  const estInt = (k) => `<span class="wb-seg svl-ei" title="Quota esterna (fuori tutto) o interna (tra le pareti)">
+      <button type="button" class="${s[k] ? '' : 'on'}" onclick="_svlSet('${k}', false)">est</button>
+      <button type="button" class="${s[k] ? 'on' : ''}" onclick="_svlSet('${k}', true)">int</button></span>`;
+  let h = `<div class="svl-head"><div><b><i data-lucide="fold-horizontal"></i> Sviluppo lamiera</b>
+      <span>${escapeHtml(a.codice || '')}${a.geometry_source === 'sviluppo' ? ' · <em>applicato</em>' : ''}</span></div>
+    <button type="button" class="wb-icon-btn sm" onclick="wbSviluppo(false)" title="Chiudi (Esc)"><i data-lucide="x"></i></button></div>
+    <div class="svl-tre">
+      <label><span>Spessore</span>${num('spessore', s.spessore, 'mm', '', 'Spessore')}</label>
+      <label><span>Raggio int.</span>${num('raggio', s.raggio, 'mm', '', 'Raggio interno')}</label>
+      <label title="Vuoto = automatico (DIN 6935 o Impostazioni). Se il cliente ti manda il suo sviluppo, usa il suo K."><span>Fattore K</span>${num('K', s.K, '', '', 'Fattore K')}</label>
+    </div>
+    <div class="svl-sec"><div class="svl-tit">Fondo <small>A = sinistra↔destra · B = sopra↔sotto</small></div>
+      <div class="svl-fondo"><span>A</span>${num('A', s.A, 'mm', '', 'Fondo A')}${estInt('Aint')}</div>
+      <div class="svl-fondo"><span>B</span>${num('B', s.B, 'mm', '', 'Fondo B')}${estInt('Bint')}</div>
+    </div>
+    <div class="svl-sec"><div class="svl-tit">Ali sui lati <small>dal fondo verso l'esterno</small></div>
+      ${_SVL_LATI.map(L => `<label class="svl-lato" data-lato="${L.k}"><span>${L.ico} ${L.lbl}</span>
+        <input type="text" autocomplete="off" spellcheck="false" data-k="lati.${L.k}" data-catena="1" data-lbl="${L.lbl}"
+          value="${v(s.lati[L.k])}" placeholder="nessuna ala"></label>`).join('')}
+      <div class="svl-nota"><b>132</b> un'ala · <b>132 su 40</b> ala + risvolto verso l'esterno · <b>40 135° 20</b> angolo diverso da 90°</div>
+    </div>
+    <div class="svl-prev" id="svl-prev"></div>
+    <div class="svl-sec"><div class="svl-tit">Tagli <small>fori, asole, finestre, tacche</small></div>`;
+  s.tagli.forEach((tg, i) => {
+    const T = _SVL_TAGLI[tg.tipo] || _SVL_TAGLI.foro;
+    h += `<div class="svl-taglio">
+      <select data-k="tagli.${i}.tipo" aria-label="Tipo di taglio">${Object.entries(_SVL_TAGLI).map(([k, x]) =>
+        `<option value="${k}" ${k === tg.tipo ? 'selected' : ''}>${x.lbl}</option>`).join('')}</select>
+      ${num(`tagli.${i}.n`, tg.n, 'pz', '1', 'Quantità')}
+      ${num(`tagli.${i}.a`, tg.a, T.a, '', `${T.lbl}: ${T.a}`)}
+      ${T.b ? num(`tagli.${i}.b`, tg.b, T.b, '', `${T.lbl}: ${T.b}`) : '<span></span>'}
+      <button type="button" class="wb-icon-btn sm" onclick="_svlTogliTaglio(${i})" title="Togli"><i data-lucide="x"></i></button></div>`;
+  });
+  h += `<button type="button" class="wb-link svl-add" onclick="_svlAggiungiTaglio()">+ Aggiungi taglio</button></div>
+    <div class="svl-sec svl-quote"><span title="Esterne: fuori tutto, come di solito in tavola">Quote in tavola</span>
+      <span class="wb-seg">
+        <button type="button" class="${s.quote !== 'interne' ? 'on' : ''}" onclick="_svlSet('quote', 'esterne')">esterne</button>
+        <button type="button" class="${s.quote === 'interne' ? 'on' : ''}" onclick="_svlSet('quote', 'interne')">interne</button>
+      </span></div>
+    <div class="svl-res" id="svl-res"></div>
+    <div class="svl-foot">
+      <div class="svl-sum" id="svl-sum"></div>
+      <button type="button" class="wb-btn wb-btn-primary wb-btn-block" id="svl-applica" onclick="wbSvlApplica()">Applica al pezzo</button>
+    </div>`;
+  box.innerHTML = h;
+  if (window.lucide) try { lucide.createIcons(); } catch (_) {}
+  _svlSegnaCampo();
+  _svlAggiorna();
+}
+/** Risultato e anteprima: si aggiornano mentre scrivi, senza ridisegnare i campi. */
+function _svlAggiorna() {
+  const res = document.getElementById('svl-res'), prev = document.getElementById('svl-prev');
+  const btn = document.getElementById('svl-applica'), sum = document.getElementById('svl-sum');
+  if (!res || !prev) return;
+  // Suggerimenti che seguono quello che scrivi: raggio = f(spessore), K automatico
+  const tNow = _svlNum(_svl.s.spessore);
+  const rg = document.querySelector('.wb-svl input[data-k="raggio"]');
+  if (rg) rg.placeholder = tNow > 0 ? _svlTesto(_svlRaggioDefault(tNow)) : '';
+  const R = _svlCalcola();
+  const kIn = document.querySelector('.wb-svl input[data-k="K"]');
+  if (kIn) {
+    const rNow = _svlNum(_svl.s.raggio) >= 0 && String(_svl.s.raggio).trim() !== '' ? _svlNum(_svl.s.raggio) : (tNow > 0 ? _svlRaggioDefault(tNow) : NaN);
+    const kA = tNow > 0 && rNow >= 0 ? _svlK(rNow, tNow, NaN).K : NaN;
+    kIn.placeholder = isFinite(kA) ? 'auto ' + kA.toFixed(2).replace('.', ',') : 'auto';
+  }
+  if (btn) btn.disabled = !R.ok;
+  prev.innerHTML = _svlAnteprima(R.ok ? R : null);
+  if (!R.ok) {
+    res.innerHTML = '';
+    if (sum) sum.innerHTML = `<span class="svl-err">${escapeHtml(R.err)}</span>`;
+    return;
+  }
+  const a = currentArticoli[_svl.idx] || {};
+  const dens = _densitaMateriale(a.materiale);
+  const peso = dens > 0 ? (R.area / 1e4) * R.t * dens / 100 : 0;
+  const it = (x, d) => x.toLocaleString('it-IT', { maximumFractionDigits: d });
+  if (sum) sum.innerHTML = `<b>${_wbMm(R.W)} × ${_wbMm(R.H)} mm</b>
+    <span>${it(R.area / 1e4, 2)} dm² · taglio ${it(R.perim / 1000, 2)} m · ${R.pieghe} ${R.pieghe === 1 ? 'piega' : 'pieghe'}${peso > 0 ? ' · ' + it(peso, 2) + ' kg' : ''}</span>`;
+  res.innerHTML = `<div class="svl-kv">
+      <span>Area netta</span><b>${it(R.area / 1e4, 3)} dm²</b>
+      <span>Perimetro di taglio</span><b>${it(R.perim / 1000, 3)} m</b>
+      <span>Inneschi</span><b>${R.inneschi}</b>
+      <span>Pieghe</span><b>${R.pieghe}</b>
+    </div>
+    <div class="svl-nota">K ${R.K.toFixed(3).replace('.', ',')} (${R.fonte}) · raggio int. ${_wbMm(R.r)} mm ·
+      a 90° ogni piega toglie ${_wbMm(R.bd90)} mm alle quote</div>`;
+}
+/** Sviluppo disegnato in scala: fondo, ali, linee di piega (giù arancio,
+    su azzurro). Un clic su un lato porta alla sua riga. */
+function _svlAnteprima(R) {
+  if (!R) {
+    return `<div class="svl-prev-vuota">Scrivi fondo e ali: qui compare lo sviluppo in piano.</div>`;
+  }
+  const f = x => x.toFixed(2);
+  const { W, H, sL, sT, Wb, Hb } = R;
+  const x1 = sL, x2 = sL + Wb, y1 = sT, y2 = sT + Hb;
+  const m = Math.max(W, H) * 0.06, fs = Math.max(W, H) * 0.045;
+  const contorno = `M${f(x1)} 0H${f(x2)}V${f(y1)}H${f(W)}V${f(y2)}H${f(x2)}V${f(H)}H${f(x1)}V${f(y2)}H0V${f(y1)}H${f(x1)}Z`;
+  let g = `<path class="o" d="${contorno}"/><rect class="fondo" x="${f(x1)}" y="${f(y1)}" width="${f(Wb)}" height="${f(Hb)}"/>`;
+  const L = R.lati;
+  L.sinistra.linee.forEach(l => { g += `<line class="b ${l.dir}" x1="${f(x1 - l.d)}" y1="${f(y1)}" x2="${f(x1 - l.d)}" y2="${f(y2)}"/>`; });
+  L.destra.linee.forEach(l => { g += `<line class="b ${l.dir}" x1="${f(x2 + l.d)}" y1="${f(y1)}" x2="${f(x2 + l.d)}" y2="${f(y2)}"/>`; });
+  L.sopra.linee.forEach(l => { g += `<line class="b ${l.dir}" x1="${f(x1)}" y1="${f(y1 - l.d)}" x2="${f(x2)}" y2="${f(y1 - l.d)}"/>`; });
+  L.sotto.linee.forEach(l => { g += `<line class="b ${l.dir}" x1="${f(x1)}" y1="${f(y2 + l.d)}" x2="${f(x2)}" y2="${f(y2 + l.d)}"/>`; });
+  // zone cliccabili: la striscia dell'ala, o una fascia fuori dal fondo se il lato e' vuoto
+  const z = Math.max(W, H) * 0.08;
+  const zone = {
+    sopra: [x1, y1 - Math.max(R.sT, z), Wb, Math.max(R.sT, z)],
+    sotto: [x1, y2, Wb, Math.max(R.sB, z)],
+    sinistra: [x1 - Math.max(R.sL, z), y1, Math.max(R.sL, z), Hb],
+    destra: [x2, y1, Math.max(R.sR, z), Hb],
+  };
+  const s = _svl.s;
+  Object.entries(zone).forEach(([k, q]) => {
+    g += `<rect class="zona${_svl.campo && _svl.campo.k === 'lati.' + k ? ' on' : ''}" x="${f(q[0])}" y="${f(q[1])}" width="${f(q[2])}" height="${f(q[3])}"
+      onclick="_svlVaiLato('${k}')"><title>Lato ${k}: ${escapeHtml(s.lati[k] || 'nessuna ala')}</title></rect>`;
+  });
+  g += `<text class="q" x="${f(W / 2)}" y="${f(H / 2)}" font-size="${f(fs)}">${escapeHtml(_wbMm(W))} × ${escapeHtml(_wbMm(H))}</text>`;
+  return `<svg viewBox="${f(-m)} ${f(-m)} ${f(W + 2 * m)} ${f(H + 2 * m)}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Sviluppo in piano">${g}</svg>
+    <div class="svl-legenda"><span><i class="giu"></i> piega giù</span><span><i class="su"></i> piega su</span><span>· clic su un lato per scriverne le ali</span></div>`;
+}
+function _svlVaiLato(k) {
+  const inp = document.querySelector(`.wb-svl input[data-k="lati.${k}"]`);
+  if (!inp) return;
+  inp.focus();
+  inp.setSelectionRange(inp.value.length, inp.value.length);
+  inp.closest('.svl-lato').scrollIntoView({ block: 'nearest' });
+}
+function _svlInput(e) {
+  const k = e.target && e.target.dataset && e.target.dataset.k;
+  if (!k) return;
+  const parti = k.split('.');
+  let o = _svl.s;
+  for (let i = 0; i < parti.length - 1; i++) o = o[parti[i]];
+  o[parti[parti.length - 1]] = e.target.value;
+  if (k.endsWith('.tipo')) { _svlRender(); return; }      // cambiano le misure richieste
+  _svlAggiorna();
+}
+/** Il campo su cui si e' cliccato riceve la prossima misura del righello. */
+function _svlFocus(e) {
+  const inp = e.target;
+  if (!inp || !inp.dataset || !inp.dataset.k || inp.tagName === 'SELECT') return;
+  _svl.campo = { k: inp.dataset.k, lbl: inp.dataset.lbl, catena: !!inp.dataset.catena };
+  _svlSegnaCampo();
+  if (_wbMis.on) _wbMisPannello();
+}
+function _svlSegnaCampo() {
+  document.querySelectorAll('.wb-svl input[data-k]').forEach(inp => {
+    const on = !!(_svl.campo && inp.dataset.k === _svl.campo.k);
+    (inp.closest('.wb-unit') || inp).classList.toggle('svl-target', on);
+  });
+  document.querySelectorAll('.svl-prev .zona').forEach(z => z.classList.remove('on'));
+  if (_svl.campo && _svl.campo.catena) _svlAggiorna();
+}
+function _svlSet(k, val) { _svl.s[k] = val; _svlRender(); }
+function _svlAggiungiTaglio() { _svl.s.tagli.push({ tipo: 'foro', n: '1', a: '', b: '' }); _svlRender(); }
+function _svlTogliTaglio(i) { _svl.s.tagli.splice(i, 1); _svl.campo = null; _svlRender(); }
+
+/** Righello → campo scelto. Sulle righe dei lati la misura si AGGIUNGE in
+    coda (misuri le ali una dopo l'altra); sugli altri campi si sostituisce e
+    si passa al campo successivo. */
+function wbMisInSviluppo() {
+  const r = _wbMisRisultato();
+  if (!r || !_svl.on || !_svl.campo) return;
+  const inp = document.querySelector(`.wb-svl input[data-k="${_svl.campo.k}"]`);
+  if (!inp) return;
+  if (_svl.campo.k === 'K') { wbSnack('Il fattore K non si misura: scrivilo a mano', 'err'); return; }
+  const val = _svlTesto(Math.round(r.d * 10) / 10);
+  if (_svl.campo.catena) {
+    inp.value = (inp.value.trim() ? inp.value.trim() + ' ' : '') + val;
+  } else {
+    inp.value = val;
+    const tutti = Array.from(document.querySelectorAll('.wb-svl input[data-k]'))
+      .filter(x => x.dataset.k !== 'K');
+    const dopo = tutti[tutti.indexOf(inp) + 1];
+    if (dopo) _svl.campo = { k: dopo.dataset.k, lbl: dopo.dataset.lbl, catena: !!dopo.dataset.catena };
+  }
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+  _svlSegnaCampo();
+  _wbMis.pts = [];
+  _wbMisPannello(); _wbMisDisegna();
+}
+
+/** Scrive lo sviluppo sul pezzo: geometria, spessore e pieghe come valori
+    manuali (un nuovo import del DXF non li tocca), poi ristima e salva. */
+async function wbSvlApplica() {
+  const i = _svl.idx, a = currentArticoli[i];
+  const R = _svlCalcola();
+  if (!a || !R.ok) { wbSnack(R.err || 'Sviluppo incompleto', 'err'); return; }
+  const orig = Object.assign({}, a.origine_campi || {});
+  a.spessore_mm = Math.round(R.t * 100) / 100;
+  a._spessore_conf = 1.0; a._spessore_source = 'manuale';
+  a.area_dm2 = Math.round(R.area / 1e4 * 10000) / 10000;
+  a.perimetro_taglio_m = Math.round(R.perim) / 1000;
+  a.n_forature = R.inneschi;
+  a.pieghe = R.pieghe;
+  a.bbox_w_mm = Math.round(Math.max(R.W, R.H) * 10) / 10;
+  a.bbox_h_mm = Math.round(Math.min(R.W, R.H) * 10) / 10;
+  a.lunghezza_vuoto_mm = null;
+  ['spessore_mm', 'area_dm2', 'perimetro_taglio_m', 'n_forature', 'pieghe'].forEach(k => { orig[k] = 'manuale'; });
+  a.origine_campi = orig;
+  a.geometria_manuale_confermata = true;
+  a.geometry_source = 'sviluppo';
+  a.area_stimata_piega = false;
+  a.dxf_needs_verify = false;
+  a.sviluppo = Object.assign(JSON.parse(JSON.stringify(_svl.s)), {
+    risultato: { W: R.W, H: R.H, K: R.K, raggio: R.r, fonte_k: R.fonte },
+  });
+  recalcLavorazioniArt(a);
+  if (_splitSelectedIdx === i) {
+    const put = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    put('sd-spessore', a.spessore_mm); put('sd-pieghe', a.pieghe); put('sd-area', a.area_dm2);
+    put('sd-perim', Math.round(a.perimetro_taglio_m * 1000)); put('sd-forature', a.n_forature);
+  }
+  try { await stimaArt(i, { silent: true }); } catch (_) {}
+  renderSplitTree(); recalcTotali();
+  scheduleSaveArticoli(300);
+  if (_splitSelectedIdx === i) { try { _refreshSplitDetailCosts(); } catch (_) {} }
+  _svlRender();
+  wbSnack(`Sviluppo applicato: ${_wbMm(R.W)} × ${_wbMm(R.H)} mm, ${R.pieghe} ${R.pieghe === 1 ? 'piega' : 'pieghe'}`);
+}
+
 // Riquadro ridimensionato (finestra, schermo intero): il PDF si riadatta.
 window.addEventListener('resize', () => {
   clearTimeout(window._wbRz);
-  window._wbRz = setTimeout(() => { if (_wbVw && _wbVw.mode === 'pdf' && _wbVw.box.isConnected) _wbPdfAdatta(); }, 150);
+  window._wbRz = setTimeout(() => {
+    if (_wbVw && _wbVw.mode === 'pdf' && _wbVw.box.isConnected) _wbPdfAdatta();
+    if (_wbMis.on) _wbMisDisegna();
+  }, 150);
 });
 
 // ── PDF dei disegni: caricamento e abbinamento ai pezzi ────────────
@@ -13633,12 +14641,7 @@ function wbAllegaPdf() {
 
 // ═════════════ SCHERMI STRETTI ═════════════
 (function () {
-  // Prezzo a scomparsa (sotto 1180px) e distinta a scomparsa (sotto 820px)
-  const tab = document.createElement('button');
-  tab.className = 'wb-rail-tab'; tab.type = 'button';
-  tab.innerHTML = '<span>Totale</span><b id="wb-rail-tab-val">0,00 €</b>';
-  tab.onclick = () => document.body.classList.toggle('wb-rail-open');
-  document.body.appendChild(tab);
+  // Distinta a scomparsa (sotto 820px); il prezzo ha la sua scheda
   const head = document.getElementById('wb-head');
   if (head) {
     const b = document.createElement('button');
