@@ -1546,7 +1546,11 @@ def dxf_to_svg_string(path: str) -> str:
                     units=layout.Units.mm,
                     margins=layout.Margins.all(0),
                 )
-                return backend.get_string(page)
+                # ezdxf porta il viewBox a 1.000.000 di unità e arrotonda
+                # width="…mm" al decimo: la larghezza esatta serve allo
+                # strumento di misura del disegno (mm per unità = data-mm-w / viewBox w).
+                return backend.get_string(page).replace(
+                    '<svg ', f'<svg data-mm-w="{w_mm:.6f}" ', 1)
     except Exception:
         pass
     return backend.get_string(layout.Page(0, 0))
