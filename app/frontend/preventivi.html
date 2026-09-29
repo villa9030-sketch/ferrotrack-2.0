@@ -1381,6 +1381,8 @@ tr.row-warn:hover { background: #FEF3C7; }
 .wb-man-tip i { width:14px; height:14px; }
 .wb-man-grid input.man-dest { outline:2px solid var(--accent, #4F46E5); }
 .wb-man { max-width: 560px; }
+.sa-comp-add { display:flex; gap:8px; margin:0 0 10px; }
+.sa-comp-add .wb-btn i { width:14px; height:14px; }
 .wb-man-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px 12px; margin-bottom:12px; }
 .wb-man-grid label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--text-3); font-weight:500; }
 .wb-man-grid label[hidden] { display:none; }
@@ -3566,6 +3568,7 @@ body { font-size: var(--fs-m); }
                   <button class="wb-icon-btn" onclick="wbToggleMenu('wb-ass-menu', event)" title="Altre azioni sull'assieme"><i data-lucide="more-vertical"></i></button>
                   <div class="wb-menu-pop right" role="menu">
                     <button role="menuitem" onclick="saApriDettaglio()"><i data-lucide="maximize-2"></i> Dettaglio completo</button>
+                    <button role="menuitem" onclick="saAggiungiTubolare()"><i data-lucide="cylinder"></i> Aggiungi tubolare <small>profilo, lunghezza, tagli</small></button>
                     <button role="menuitem" onclick="saLeggiDistinta()"><i data-lucide="list-checks"></i> Leggi distinta dal PDF</button>
                     <div class="wb-menu-sep"></div>
                     <button role="menuitem" class="danger" onclick="saRimuovi()"><i data-lucide="trash-2"></i> Rimuovi assieme</button>
@@ -3600,6 +3603,10 @@ body { font-size: var(--fs-m); }
                 <section class="pc-cost" id="sa-cost"></section>
                 <section class="sa-comp">
                   <div class="pc-sec-head"><span>Componenti</span><span class="pc-sec-hint" id="sa-comp-hint"></span></div>
+                  <div class="sa-comp-add">
+                    <button type="button" class="wb-btn sm" onclick="saAggiungiTubolare()" title="Tubo o profilo: dal catalogo, lunghezza, quantità e tagli"><i data-lucide="cylinder"></i> Tubolare</button>
+                    <button type="button" class="wb-btn sm" onclick="saAggiungiPezzo()" title="Piastra o pezzo semplice con misure, fori e filettature"><i data-lucide="square-pen"></i> Pezzo a mano</button>
+                  </div>
                   <div id="sa-comp-list"></div>
                 </section>
               </div>
@@ -7299,8 +7306,18 @@ async function saMostraDisegno(code) {
     lista = await r.json();
   } catch (_) { return false; }
   if (gen !== _wbGen || !lista || !lista.success) return false;
-  const pdf = _stepPerAssieme(code, (lista.pdf || []).map(n => ({ filename: n })));
-  const dxf = _stepPerAssieme(code, (lista.dxf || []).map(n => ({ filename: n })));
+  let pdf = _stepPerAssieme(code, (lista.pdf || []).map(n => ({ filename: n })));
+  let dxf = _stepPerAssieme(code, (lista.dxf || []).map(n => ({ filename: n })));
+  if (!pdf && !dxf) {
+    // Nessun disegno col codice dell'assieme (es. assieme creato a mano per un
+    // disegno d'insieme Todema): quello da cui sono stati ricavati i pezzi.
+    const c = currentArticoli.find(a => a.codice_assieme === code && (a.disegno_rif || (a.pezzo_manuale && (a.pdf_filename || a.dxf_filename))));
+    if (c) {
+      const R = c.disegno_rif || { pdf: c.pdf_filename, dxf: c.dxf_filename };
+      if (R.pdf) pdf = { filename: R.pdf };
+      if (R.dxf) dxf = { filename: R.dxf };
+    }
+  }
   if (!pdf && !dxf) return false;
   const A = currentAssiemi[_splitAssIdx];
   if (!A || A.codice_assieme !== code) return false;     // nel frattempo si e' aperto altro
@@ -7459,7 +7476,7 @@ function _saRenderComponenti(r, A) {
     const ang = (t.angolo_1 || t.angolo_2) ? ` · tagli ${t.angolo_1 || 0}°/${t.angolo_2 || 0}°` : '';
     const dett = `Materiale ${_eur(t.costo_materiale || 0)} · tagli ${_eur(t.costo_taglio_totale || 0)} (${t.n_tagli_dritti || 0} dritti, ${t.n_tagli_obliqui || 0} obliqui)`
       + (t.distinta ? ` · dalla distinta ${t.distinta} pos. ${t.posizione || ''}` : '');
-    righe.push(`<div class="pr nolink" title="${escapeHtml(dett)}">
+    righe.push(`<div class="pr" onclick="wbTuboAMano(${ti})" title="${escapeHtml(dett)} · clic per modificare">
       <span class="pr-lead"></span>
       <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
         <span class="pr-meta">Tubolare · ${lung}${ang} · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${avv(t)}</span>
@@ -7481,6 +7498,158 @@ function _saRenderComponenti(r, A) {
     : `<div class="sa-comp-empty">Nessun componente collegato. Assegna i pezzi a questo assieme dal campo "Assieme" nella loro scheda.</div>`;
   const n = righe.length;
   document.getElementById('sa-comp-hint').textContent = n ? `${n} · per 1 assieme` : '';
+}
+
+// ── Tubolare a mano ────────────────────────────────────────────────
+// Tubi e profili di un assieme senza STEP utilizzabile ne' distinta leggibile
+// (es. Todema: STEP fuso in un solido). Profilo dal catalogo (kg/m), oppure
+// angolare/piatto calcolati, oppure kg/m scritti; lunghezza, quantita' per
+// assieme, angoli dei tagli; costo = kg × €/kg + tagli (Impostazioni) +
+// lavorazione esterna. Stesso pannello laterale del pezzo a mano.
+let _wbCatProfili = null;
+async function _wbProfili() {
+  if (_wbCatProfili) return _wbCatProfili;
+  try {
+    const r = await fetch(`${API_URL}/api/preventivi/profili-tubolari`);
+    const d = await r.json();
+    _wbCatProfili = (d && d.profili) || {};
+  } catch (_) { _wbCatProfili = {}; }
+  return _wbCatProfili;
+}
+const _WB_TIPI_TUBO = [['SHS', 'Tubo quadro'], ['RHS', 'Tubo rettangolare'], ['CHS', 'Tubo tondo'],
+                       ['L', 'Angolare'], ['FLAT', 'Piatto'], ['ALTRO', 'Altro (kg/m a mano)']];
+/** Pannello tubolare: nuovo (ti == null) o modifica della riga currentTubolari[ti]. */
+async function wbTuboAMano(ti, codAss) {
+  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
+  const cat = await _wbProfili();
+  const t = ti != null ? currentTubolari[ti] : null;
+  const ass0 = t ? (t.codice_assieme || '') : (codAss || (_splitAssIdx != null && currentAssiemi[_splitAssIdx] ? currentAssiemi[_splitAssIdx].codice_assieme : ''));
+  const tipo0 = t ? (['SHS', 'RHS', 'CHS', 'L', 'FLAT'].includes(t.tipo) ? t.tipo : 'ALTRO') : 'SHS';
+  const q0 = t ? _qtaRiga(t) : 1;
+  const num = v => v == null || v === '' ? '' : String(v).replace('.', ',');
+  document.querySelectorAll('.wb-man-dock').forEach(e => e.remove());
+  const ov = document.createElement('div');
+  ov.className = 'wb-man-dock';
+  ov.innerHTML = `<div class="wb-man">
+    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="cylinder"></i></div><h3>${t ? 'Tubolare' : 'Aggiungi tubolare'}</h3></div>
+    <div class="wb-man-grid">
+      <label class="wide">Tipo<select id="tb-tipo">${_WB_TIPI_TUBO.map(([k, l]) => `<option value="${k}" ${k === tipo0 ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="wide tb-cat">Profilo<select id="tb-prof"></select></label>
+      <label class="tb-lb">Lato A mm<input id="tb-a" inputmode="decimal"></label>
+      <label class="tb-lb tb-l">Lato B mm<input id="tb-b" inputmode="decimal"></label>
+      <label class="tb-lb">Spessore mm<input id="tb-s" inputmode="decimal"></label>
+      <label class="tb-kg">kg/m<input id="tb-kgm" inputmode="decimal" value="${tipo0 === 'ALTRO' && t ? num(t.kg_m) : ''}"></label>
+      <label>Lunghezza mm<input id="tb-len" inputmode="decimal" value="${num(t ? (t.lunghezza_pezzo_mm || Math.round((t.lunghezza_m || 0) * 1000)) : '')}"></label>
+      <label>Quantità<input id="tb-q" type="number" min="1" value="${q0}"></label>
+      <label>Angolo taglio 1 °<input id="tb-a1" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_1 : '')}"></label>
+      <label>Angolo taglio 2 °<input id="tb-a2" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_2 : '')}"></label>
+      <label>Lav. esterna €<input id="tb-est" inputmode="decimal" placeholder="es. laser tubo" value="${num(t ? t.costo_esterno : '')}"></label>
+      <label class="wide">Assieme<select id="tb-ass"><option value="">— nessuno (struttura sciolta)</option>${currentAssiemi.map(A => `<option value="${escapeHtml(A.codice_assieme)}" ${A.codice_assieme === ass0 ? 'selected' : ''}>${escapeHtml(A.codice_assieme)}</option>`).join('')}</select></label>
+    </div>
+    <div class="wb-man-calc" id="tb-calc"></div>
+    <div class="app-confirm-actions">${t ? '<button class="btn-secondary danger" data-rim>Rimuovi</button>' : ''}<button class="btn-secondary" data-no>Chiudi</button>${t ? '' : '<button class="btn-secondary" data-altro>Aggiungi e un altro</button>'}<button class="btn-primary" data-ok>${t ? 'Applica' : 'Aggiungi'}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  if (window.lucide) lucide.createIcons();
+  const $ = id => ov.querySelector('#' + id);
+  const n = id => parseFloat(String($(id).value).replace(',', '.')) || 0;
+  const riempiProfili = () => {
+    const tipo = $('tb-tipo').value;
+    const lista = cat[tipo] || [];
+    const sel = t && t.tipo === tipo ? t.profilo : '';
+    $('tb-prof').innerHTML = '<option value="">— scegli —</option>' + lista.map((p, k) =>
+      `<option value="${k}" ${p.nome === sel ? 'selected' : ''}>${escapeHtml(p.nome)} · ${String(p.peso_kg_m).replace('.', ',')} kg/m</option>`).join('');
+  };
+  const profilo = () => {
+    const tipo = $('tb-tipo').value;
+    if (['SHS', 'RHS', 'CHS'].includes(tipo)) {
+      const p = (cat[tipo] || [])[parseInt($('tb-prof').value, 10)];
+      return p ? { nome: p.nome, tipo, kg_m: p.peso_kg_m } : null;
+    }
+    if (tipo === 'L') {
+      const a = n('tb-a'), b = n('tb-b'), s = n('tb-s');
+      return a > 0 && b > 0 && s > 0 ? { nome: `Angolare ${a}x${b}x${s}`, tipo, kg_m: Math.round(s * (a + b - s) * 7.85e-3 * 1000) / 1000 } : null;
+    }
+    if (tipo === 'FLAT') {
+      const a = n('tb-a'), s = n('tb-s');
+      return a > 0 && s > 0 ? { nome: `Piatto ${a}x${s}`, tipo, kg_m: Math.round(a * s * 7.85e-3 * 1000) / 1000 } : null;
+    }
+    const k = n('tb-kgm');
+    return k > 0 ? { nome: (t && tipo0 === 'ALTRO' ? t.profilo : '') || `Profilo ${String(k).replace('.', ',')} kg/m`, tipo: 'ALTRO', kg_m: k } : null;
+  };
+  const riga = () => {
+    const P = profilo(), L = n('tb-len'), q = Math.max(1, parseInt($('tb-q').value, 10) || 1);
+    if (!P || !(L > 0)) return null;
+    const r = { pos: t ? t.posizione : null, qta: q, lunghezza_mm: L, profilo: P,
+                angolo_1: $('tb-a1').value === '' ? null : n('tb-a1'), angolo_2: $('tb-a2').value === '' ? null : n('tb-a2') };
+    const x = _wbTuboDaRiga(r, $('tb-ass').value || null, null, 1, _wbTariffeTubi());
+    x.origine = 'manuale'; delete x.distinta;
+    x.costo_esterno = Math.max(0, n('tb-est'));
+    return x;
+  };
+  const aggiorna = () => {
+    const tipo = $('tb-tipo').value;
+    ov.querySelector('.tb-cat').hidden = !['SHS', 'RHS', 'CHS'].includes(tipo);
+    ov.querySelectorAll('.tb-lb').forEach(e => e.hidden = !['L', 'FLAT'].includes(tipo));
+    ov.querySelector('.tb-l').hidden = tipo !== 'L';
+    ov.querySelector('.tb-kg').hidden = tipo !== 'ALTRO';
+    const x = riga();
+    const f = v => v.toLocaleString('it-IT', { maximumFractionDigits: 2 });
+    $('tb-calc').innerHTML = x
+      ? `${escapeHtml(x.profilo)} · <b>${f(x.kg_m)} kg/m</b> · ${x.qty} × ${f(x.lunghezza_pezzo_mm)} mm = <b>${f(x.peso_kg)} kg</b><br>
+         Materiale ${_eur(x.costo_materiale)} · tagli ${_eur(x.costo_taglio_totale)} (${x.n_tagli_dritti} dritti, ${x.n_tagli_obliqui} obliqui)${x.costo_esterno ? ` · esterna ${_eur(x.costo_esterno)}` : ''} · <b>totale ${_eur(_costoTubolare(x))}</b>`
+      : '<span class="err">Scegli il profilo e scrivi la lunghezza</span>';
+    return x;
+  };
+  $('tb-tipo').addEventListener('change', () => { riempiProfili(); aggiorna(); });
+  ov.addEventListener('input', aggiorna); ov.addEventListener('change', aggiorna);
+  riempiProfili();
+  if (t && tipo0 === 'L') { const m = String(t.profilo).match(/([\d.]+)x([\d.]+)x([\d.]+)/); if (m) { $('tb-a').value = m[1]; $('tb-b').value = m[2]; $('tb-s').value = m[3]; } }
+  if (t && tipo0 === 'FLAT') { const m = String(t.profilo).match(/([\d.]+)x([\d.]+)/); if (m) { $('tb-a').value = m[1]; $('tb-s').value = m[2]; } }
+  aggiorna();
+  const tasti = e => {
+    if (!ov.contains(e.target)) return;
+    if (e.key === 'Escape') { e.preventDefault(); chiudi(); }
+    else if (e.key === 'Enter' && e.target.tagName === 'INPUT') ov.querySelector('[data-ok]').click();
+  };
+  const chiudi = () => { document.removeEventListener('keydown', tasti, true); ov.remove(); };
+  document.addEventListener('keydown', tasti, true);
+  ov.querySelector('[data-no]').onclick = chiudi;
+  const dopo = () => {
+    recalcTotali(); scheduleSaveTubolari(300);
+    try { renderTubolari(); } catch (_) {}
+    try { renderSplitTree(); } catch (_) {}
+    if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
+  };
+  const salva = altro => {
+    const x = aggiorna();
+    if (!x) { (profilo() ? $('tb-len') : ($('tb-prof').closest('label').hidden ? $('tb-a') : $('tb-prof'))).focus(); return; }
+    if (t) { x.id = t.id; if (t.posizione) x.posizione = t.posizione; currentTubolari[ti] = x; }
+    else { x.posizione = String(currentTubolari.filter(y => y.codice_assieme === x.codice_assieme).length + 1); currentTubolari.push(x); }
+    dopo();
+    wbSnack(`${x.profilo}: ${x.qty} × ${x.lunghezza_pezzo_mm} mm, ${_eur(_costoTubolare(x))}`);
+    if (altro) { $('tb-len').value = ''; $('tb-q').value = 1; $('tb-a1').value = ''; $('tb-a2').value = ''; $('tb-est').value = ''; aggiorna(); $('tb-len').focus(); }
+    else chiudi();
+  };
+  ov.querySelector('[data-ok]').onclick = () => salva(false);
+  const bA = ov.querySelector('[data-altro]'); if (bA) bA.onclick = () => salva(true);
+  const bR = ov.querySelector('[data-rim]');
+  if (bR) bR.onclick = async () => {
+    if (!await appConfirm(`Togliere ${t.profilo} (${q0} × ${t.lunghezza_pezzo_mm || ''} mm) dall'assieme?`, { danger: true, okLabel: 'Rimuovi' })) return;
+    currentTubolari.splice(currentTubolari.indexOf(t), 1);
+    chiudi(); dopo();
+  };
+  setTimeout(() => ($('tb-prof').closest('label').hidden ? $('tb-len') : $('tb-prof')).focus(), 50);
+}
+function saAggiungiPezzo() {
+  const A = _splitAssIdx != null ? currentAssiemi[_splitAssIdx] : null;
+  wbPezzoAMano(null);
+  const sel = document.getElementById('man-ass');
+  if (A && sel) { sel.value = A.codice_assieme; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+}
+function saAggiungiTubolare() {
+  const A = _splitAssIdx != null ? currentAssiemi[_splitAssIdx] : null;
+  wbTuboAMano(null, A ? A.codice_assieme : null);
 }
 
 // ── Pezzo a mano ───────────────────────────────────────────────────

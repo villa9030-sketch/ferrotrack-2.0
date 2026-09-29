@@ -3118,6 +3118,13 @@ def api_preventivi_verifica_pezzo(preventivo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/preventivi/profili-tubolari', methods=['GET'])
+def api_preventivi_profili_tubolari():
+    """Catalogo dei profili (tubi quadri, rettangolari, tondi) con kg/m, per
+    aggiungere un tubolare a mano. Sola lettura."""
+    return jsonify({'success': True, 'profili': _PROFILI_TUBOLARI_DB or {}}), 200
+
+
 @app.route('/api/preventivi/<preventivo_id>/distinte', methods=['GET'])
 def api_preventivi_distinte(preventivo_id):
     """Distinte base lette dai PDF d'insieme caricati (sola lettura).
