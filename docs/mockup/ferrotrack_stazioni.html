@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>FerroTrack per stazioni</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap">
+<style>
+:root {
+  --bg: #F4F5F3; --paper: #FFFFFF; --ink: #1B1F1D; --ink-2: #4A524E; --ink-3: #7A837E;
+  --line: #DDE1DD; --accent: #1F6B47; --accent-soft: #E3EFE8; --yellow: #B98700;
+  --shadow: 0 1px 2px rgba(20, 30, 25, .06), 0 10px 28px rgba(20, 30, 25, .08);
+  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #141816; --paper: #1C211E; --ink: #E8ECE9; --ink-2: #B7C0BB; --ink-3: #8A948F;
+    --line: #2E3531; --accent: #6FC39A; --accent-soft: #1F3329; --yellow: #F5B819;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 28px rgba(0, 0, 0, .3);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141816; --paper: #1C211E; --ink: #E8ECE9; --ink-2: #B7C0BB; --ink-3: #8A948F;
+  --line: #2E3531; --accent: #6FC39A; --accent-soft: #1F3329; --yellow: #F5B819;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 28px rgba(0, 0, 0, .3);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); padding-inline: 20px; padding-block: 28px 72px; }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 48px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h1 { font: 700 clamp(30px, 4.6vw, 46px)/1.08 var(--serif); letter-spacing: -.02em; }
+h2 { font: 700 clamp(22px, 3vw, 30px)/1.15 var(--serif); letter-spacing: -.01em; }
+.lede { max-width: 68ch; color: var(--ink-2); font-size: 17px; margin: 12px 0 0; }
+.eyebrow { font: 600 12px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.sec { display: grid; gap: 16px; }
+.sec > p { margin: 0; color: var(--ink-2); max-width: 70ch; }
+.schermo { overflow-x: auto; border-radius: 14px; box-shadow: var(--shadow); }
+.dida { font-size: 13px; color: var(--ink-3); margin: 0; }
+
+/* Mappa delle stazioni */
+.mappa { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.st { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 10px; align-content: start; }
+.st .zona { font: 600 11px var(--sans); letter-spacing: .1em; text-transform: uppercase; }
+.st .zona.uff { color: var(--accent); }
+.st .zona.off { color: var(--yellow); }
+.st h3 { font: 600 17px var(--sans); }
+.st .dev { font-size: 13px; color: var(--ink-3); }
+.st p { margin: 0; font-size: 14px; color: var(--ink-2); }
+.st .entra { font-size: 13px; padding: 6px 9px; border-radius: 7px; background: var(--bg); color: var(--ink-2); }
+.st .entra b { color: var(--ink); }
+
+/* Percorso all'accensione */
+.flusso { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.passo { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 6px; align-content: start; }
+.passo .n { font: 700 26px var(--serif); color: var(--accent); line-height: 1; }
+.passo h3 { font: 600 16px var(--sans); }
+.passo p { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+.coppia { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.coppia > div { display: grid; gap: 8px; }
+.via { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.via div { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.via h3 { font: 600 15px var(--sans); margin-bottom: 4px; }
+.via p { margin: 0; font-size: 14px; color: var(--ink-2); }
+
+/* ── Schermi "ufficio" (chiari, verde LS) ── */
+.u { background: #FFFFFF; color: #1A1F1C; font: 15px/1.5 'IBM Plex Sans', system-ui, sans-serif; border: 1px solid #E3E6E3; border-radius: 14px; overflow: hidden; }
+.u-setup { min-width: 560px; padding: 40px 44px; display: grid; gap: 20px; background: #F6F7F5; }
+.u-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+.u-logo i { width: 32px; height: 32px; border-radius: 8px; background: #1F6B47; color: #fff; display: grid; place-items: center; font: 700 13px 'IBM Plex Mono', monospace; font-style: normal; }
+.u-setup h4 { margin: 0; font: 700 26px 'IBM Plex Sans', sans-serif; letter-spacing: -.01em; }
+.u-setup p { margin: 0; color: #6A736E; }
+.u-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.u-opt { background: #fff; border: 1px solid #DDE2DE; border-radius: 12px; padding: 14px 16px; display: grid; gap: 2px; }
+.u-opt b { font-size: 16px; }
+.u-opt span { font-size: 13px; color: #6A736E; }
+.u-opt.on { border-color: #1F6B47; box-shadow: 0 0 0 3px #E3EFE8; }
+.u-opt.dark b::after { content: ' · officina'; font-weight: 500; color: #A07400; font-size: 13px; }
+.u-pin { min-width: 420px; padding: 44px; display: grid; justify-items: center; gap: 16px; text-align: center; background: #F6F7F5; }
+.u-pin h4 { margin: 0; font: 700 24px 'IBM Plex Sans', sans-serif; }
+.u-pin p { margin: 0; color: #6A736E; }
+.u-dots { display: flex; gap: 12px; }
+.u-dots i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #1F6B47; }
+.u-dots i.f { background: #1F6B47; }
+.u-keys { display: grid; grid-template-columns: repeat(3, 64px); gap: 10px; }
+.u-keys span { height: 56px; border-radius: 12px; background: #fff; border: 1px solid #DDE2DE; display: grid; place-items: center; font: 600 20px 'IBM Plex Sans', sans-serif; }
+
+.u-app { min-width: 1000px; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+.u-side { background: #F6F7F5; border-right: 1px solid #E3E6E3; padding: 20px 14px; display: grid; align-content: start; gap: 22px; }
+.u-grp { display: grid; gap: 2px; }
+.u-grp small { font: 600 11px 'IBM Plex Sans', sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #8A938E; padding: 0 10px 6px; }
+.u-nav { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 8px; color: #3F4843; font-weight: 500; }
+.u-nav.on { background: #E3EFE8; color: #15502F; font-weight: 600; }
+.u-nav em { font-style: normal; font: 600 12px 'IBM Plex Mono', monospace; color: #8A938E; }
+.u-nav.on em { color: #1F6B47; }
+.u-main { padding: 28px 34px 34px; display: grid; gap: 22px; align-content: start; }
+.u-hello h4 { margin: 0; font: 700 26px 'IBM Plex Sans', sans-serif; }
+.u-hello p { margin: 4px 0 0; color: #6A736E; }
+.u-todo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.u-t { border: 1px solid #E3E6E3; border-radius: 12px; padding: 16px; display: grid; gap: 6px; }
+.u-t .big { font: 700 34px 'IBM Plex Sans', sans-serif; line-height: 1; }
+.u-t .big.w { color: #A85B00; }
+.u-t b { font-size: 15px; }
+.u-t span { font-size: 13px; color: #6A736E; }
+.u-t .go { color: #1F6B47; font-weight: 600; font-size: 14px; }
+.u-list h5 { margin: 0 0 6px; font: 600 12px 'IBM Plex Sans', sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #8A938E; }
+.u-row { display: grid; grid-template-columns: minmax(0, 1.5fr) 120px minmax(0, 1.6fr) 150px; gap: 16px; align-items: center; padding: 14px 2px; border-top: 1px solid #EEF0EE; }
+.u-row b { display: block; }
+.u-row .c { font: 13px 'IBM Plex Mono', monospace; color: #8A938E; }
+.u-row .d { font-weight: 600; }
+.u-row .d small { display: block; font-weight: 500; font-size: 13px; color: #A85B00; }
+.u-row .s { font-size: 14px; color: #3F4843; }
+.u-btn { justify-self: end; border: 1px solid #CBD2CD; border-radius: 9px; padding: 8px 12px; font: 600 14px 'IBM Plex Sans', sans-serif; background: #fff; color: #1A1F1C; }
+.u-btn.p { background: #1F6B47; border-color: #1F6B47; color: #fff; }
+
+.l-app { min-width: 1060px; display: grid; grid-template-rows: auto minmax(0, 1fr); font-size: 14px; }
+.l-top { display: flex; align-items: center; gap: 16px; padding: 10px 18px; border-bottom: 1px solid #E3E6E3; }
+.l-top .tabs { display: flex; gap: 2px; }
+.l-top .tabs span { padding: 6px 12px; border-radius: 7px; color: #5A635E; font-weight: 500; }
+.l-top .tabs span.on { background: #E3EFE8; color: #15502F; font-weight: 600; }
+.l-top .tabs span em { font-style: normal; font: 600 12px 'IBM Plex Mono', monospace; margin-left: 5px; }
+.l-top .meta { margin-left: auto; font-size: 13px; color: #6A736E; }
+.l-body { display: grid; grid-template-columns: 330px minmax(0, 1fr); min-height: 440px; }
+.l-list { border-right: 1px solid #E3E6E3; background: #FAFBFA; }
+.l-list h5 { margin: 0; padding: 10px 14px 6px; font: 600 11px 'IBM Plex Sans', sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #8A938E; }
+.l-it { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 9px 14px; border-top: 1px solid #EEF0EE; }
+.l-it b { font-weight: 600; }
+.l-it b em { font-style: normal; color: #1F6B47; }
+.l-it .r { text-align: right; font: 600 13px 'IBM Plex Mono', monospace; }
+.l-it span { font-size: 12.5px; color: #6A736E; }
+.l-it .late { color: #A85B00; font-weight: 600; text-align: right; }
+.l-it.on { background: #fff; box-shadow: inset 3px 0 0 #1F6B47; }
+.l-det { padding: 16px 20px; display: grid; gap: 14px; align-content: start; }
+.l-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.l-head h4 { margin: 0; font: 700 22px 'IBM Plex Sans', sans-serif; }
+.l-head h4 em { font-style: normal; color: #1F6B47; }
+.l-head p { margin: 2px 0 0; color: #5A635E; }
+.l-acts { display: flex; gap: 8px; }
+.l-b { border: 1px solid #CBD2CD; border-radius: 8px; padding: 7px 12px; font: 600 13.5px 'IBM Plex Sans', sans-serif; background: #fff; white-space: nowrap; }
+.l-b.p { background: #1F6B47; border-color: #1F6B47; color: #fff; }
+.l-grid { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; }
+.l-sheet { border: 1px solid #E3E6E3; border-radius: 10px; padding: 10px; }
+.l-sheet .cap { display: flex; justify-content: space-between; font-size: 12.5px; color: #6A736E; margin-bottom: 6px; }
+.l-draw { position: relative; height: 150px; background: #EEF1EF; border-radius: 4px; overflow: hidden; }
+.l-draw i { position: absolute; border-radius: 2px; border: 1.5px solid; }
+.l-draw .cut { position: absolute; top: 0; bottom: 0; border-left: 2px dashed #C2410C; }
+.l-draw .cut span { position: absolute; top: 4px; left: 6px; font: 600 12px 'IBM Plex Sans', sans-serif; color: #C2410C; white-space: nowrap; }
+.l-box { border: 1px solid #E3E6E3; border-radius: 10px; padding: 12px; display: grid; gap: 6px; align-content: start; font-size: 13px; }
+.l-box b { font-size: 13.5px; }
+.l-box .ok { color: #1F6B47; font-weight: 600; }
+.l-tab { width: 100%; border-collapse: collapse; font-size: 13px; }
+.l-tab th { text-align: left; font: 600 11px 'IBM Plex Sans', sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #8A938E; padding: 6px 8px; border-bottom: 1px solid #E3E6E3; }
+.l-tab td { padding: 7px 8px; border-bottom: 1px solid #F0F2F0; }
+.l-tab td.m { font-family: 'IBM Plex Mono', monospace; }
+.l-tab td.n { text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 600; }
+.l-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+
+/* ── Schermi "officina" (scuri, giallo segnaletica) ── */
+.o { background: #1D2023; color: #F2F0EA; font: 18px/1.4 'Barlow', system-ui, sans-serif; border-radius: 14px; overflow: hidden; }
+.o-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: #15171A; border-bottom: 1px solid #2B2F33; }
+.o-top b { font: 800 22px 'Barlow Condensed', sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.o-top b em { font-style: normal; color: #F5B819; }
+.o-top span { color: #9CA3A8; font-size: 16px; }
+.o-lbl { font: 700 14px 'Barlow Condensed', sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #F5B819; }
+
+.o-laser { min-width: 1000px; }
+.o-new { margin: 18px 24px 0; padding: 12px 16px; border-radius: 12px; background: #3A2F12; color: #F9D56E; display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+.o-new span:last-child { font: 700 16px 'Barlow Condensed', sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+.o-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; padding: 18px 24px 26px; }
+.o-next { background: #26292D; border-radius: 16px; padding: 22px 24px; display: grid; gap: 14px; }
+.o-mat { font: 800 64px/1 'Barlow Condensed', sans-serif; }
+.o-mat em { font-style: normal; color: #F5B819; }
+.o-say { font-size: 24px; font-weight: 600; }
+.o-say small { display: block; font-size: 17px; font-weight: 500; color: #B4BAC0; margin-top: 4px; }
+.o-sheet { position: relative; height: 150px; border-radius: 8px; background: #3A3F44; overflow: hidden; }
+.o-sheet i { position: absolute; border-radius: 4px; background: #E8E4D8; }
+.o-sheet .cut { position: absolute; top: 0; bottom: 0; width: 3px; background: #F5B819; }
+.o-sheet .cut::after { content: 'taglia a 372 mm'; position: absolute; top: 6px; left: 8px; white-space: nowrap; font: 700 15px 'Barlow Condensed', sans-serif; color: #F5B819; letter-spacing: .04em; }
+.o-actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.o-big { border-radius: 14px; padding: 22px; font: 800 28px 'Barlow Condensed', sans-serif; letter-spacing: .06em; text-transform: uppercase; background: #F5B819; color: #1D2023; text-align: center; }
+.o-sec { border-radius: 14px; padding: 22px 20px; font: 700 20px 'Barlow Condensed', sans-serif; letter-spacing: .06em; text-transform: uppercase; background: #33373C; color: #F2F0EA; display: grid; place-items: center; }
+.o-queue { display: grid; gap: 10px; align-content: start; }
+.o-q { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; background: #26292D; border-radius: 12px; padding: 14px 16px; }
+.o-q b { font: 700 24px 'Barlow Condensed', sans-serif; }
+.o-q b em { font-style: normal; color: #F5B819; }
+.o-q span { color: #B4BAC0; font-size: 16px; }
+.o-q .r { grid-row: span 2; align-self: center; font: 700 20px 'Barlow Condensed', sans-serif; text-align: right; }
+.o-q .r small { display: block; font: 500 14px 'Barlow', sans-serif; color: #E07A5F; }
+
+.o-tablet { min-width: 1000px; }
+.o-board { display: grid; gap: 10px; padding: 18px 24px 24px; }
+.o-ord { display: grid; grid-template-columns: 170px minmax(0, 1fr) 260px 170px; gap: 18px; align-items: center; background: #26292D; border-radius: 12px; padding: 16px 20px; }
+.o-ord.late { box-shadow: inset 5px 0 0 #E07A5F; }
+.o-ord .due { font: 800 30px/1 'Barlow Condensed', sans-serif; }
+.o-ord .due small { display: block; font: 600 15px 'Barlow', sans-serif; color: #B4BAC0; margin-top: 4px; }
+.o-ord.late .due small { color: #E07A5F; }
+.o-ord .cli { font: 700 28px 'Barlow Condensed', sans-serif; }
+.o-ord .cli small { display: block; font: 500 16px 'Barlow', sans-serif; color: #9CA3A8; }
+.o-ord .lav { font-size: 17px; color: #D5D9DD; }
+.o-cut { display: flex; gap: 6px; align-items: center; font-size: 15px; color: #B4BAC0; }
+.o-cut i { width: 28px; height: 10px; border-radius: 3px; background: #3A3F44; }
+.o-cut i.f { background: #F5B819; }
+
+.o-ore { min-width: 760px; }
+.o-names { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 20px 24px 26px; }
+.o-name { background: #26292D; border-radius: 14px; padding: 20px; display: grid; gap: 4px; }
+.o-name b { font: 700 30px 'Barlow Condensed', sans-serif; }
+.o-name span { font-size: 16px; color: #B4BAC0; }
+.o-name.todo { box-shadow: inset 0 0 0 2px #F5B819; }
+.o-name.todo span { color: #F5B819; font-weight: 600; }
+.o-name.ok span { color: #7FD3A1; }
+
+/* Foglio d'ordine A4 */
+.a4 { min-width: 620px; background: #FFFFFF; color: #111; font: 13px/1.45 'IBM Plex Sans', sans-serif; padding: 34px 40px; border-radius: 6px; border: 1px solid #DADDD9; display: grid; gap: 16px; }
+.a4-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 12px; }
+.a4-head h4 { margin: 0; font: 700 22px 'IBM Plex Sans', sans-serif; }
+.a4-head p { margin: 2px 0 0; color: #555; }
+.a4-head .n { text-align: right; font: 700 20px 'IBM Plex Mono', monospace; }
+.a4-head .n small { display: block; font: 600 13px 'IBM Plex Sans', sans-serif; color: #111; }
+.a4 table { width: 100%; border-collapse: collapse; }
+.a4 th { text-align: left; font: 600 11px 'IBM Plex Sans', sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #555; border-bottom: 1px solid #999; padding: 6px 4px; }
+.a4 td { padding: 6px 4px; border-bottom: 1px solid #E3E3E3; }
+.a4 td.m { font-family: 'IBM Plex Mono', monospace; }
+.a4 tr.g td { font-weight: 700; background: #F1F1EF; }
+.a4-foot { display: flex; justify-content: space-between; color: #555; font-size: 12px; }
+
+@media (max-width: 900px) {
+  .mappa { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .flusso, .coppia, .via { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">FerroTrack · come la immagino</div>
+    <h1>Cinque stazioni, ognuna fa una cosa sola</h1>
+    <p class="lede">Ogni PC o tablet viene impostato una volta come stazione. Commerciale, Ufficio e Laser sono postazioni da scrivania, chiare e dense; Tablet officina e Timbratrice sono schermi da officina, scuri e scritti grandi. Sotto trovi cosa vede ogni stazione, con i vostri ordini d’esempio.</p>
+  </header>
+
+  <!-- MAPPA -->
+  <section class="sec" aria-labelledby="mappa-t">
+    <div class="eyebrow" id="mappa-t">Le stazioni</div>
+    <div class="mappa">
+      <article class="st"><span class="zona uff">Ufficio</span><h3>Commerciale</h3><span class="dev">PC · chi fa i preventivi</span><p>Preventivi, CAD, prezzi. Come oggi.</p><span class="entra">Entra con <b>PIN</b></span></article>
+      <article class="st"><span class="zona uff">Ufficio</span><h3>Ufficio</h3><span class="dev">PC · amministrazione</span><p>Carica gli ordini, segna il lavoro finito, DDT, consegne, fatture, ore.</p><span class="entra">Entra con <b>PIN</b></span></article>
+      <article class="st"><span class="zona uff">Ufficio tecnico</span><h3>Laser</h3><span class="dev">PC accanto a Lantek</span><p>Prepara il lavoro per Lantek: lamiere, pezzi, disegni. Segna cosa è tagliato.</p><span class="entra">PC impostato, <b>entra subito</b></span></article>
+      <article class="st"><span class="zona off">Officina</span><h3>Tablet officina</h3><span class="dev">Schermo in officina</span><p>Gli ordini in lavorazione, in grande. Solo da guardare.</p><span class="entra">Si accende e <b>mostra</b></span></article>
+      <article class="st"><span class="zona off">Officina</span><h3>Timbratrice</h3><span class="dev">Tablet all’ingresso</span><p>Tocchi il tuo nome e dichiari le ore della giornata.</p><span class="entra">Si accende e <b>timbra</b></span></article>
+    </div>
+  </section>
+
+  <!-- PAGINA INIZIALE -->
+  <section class="sec" aria-labelledby="inizio-t">
+    <div class="eyebrow" id="inizio-t">La pagina iniziale</div>
+    <h2>Si vede una volta sola, quando si prepara un dispositivo</h2>
+    <div class="flusso">
+      <div class="passo"><span class="n">1</span><h3>Dispositivo nuovo</h3><p>Aprendo FerroTrack la prima volta si sceglie cosa è questo dispositivo. Serve il PIN dell’amministratore.</p></div>
+      <div class="passo"><span class="n">2</span><h3>Da lì in poi, niente scelte</h3><p>Il PC del laser apre sempre il laser, la timbratrice apre sempre le ore. Nessuno sceglie da un elenco.</p></div>
+      <div class="passo"><span class="n">3</span><h3>In ufficio, solo il PIN</h3><p>Il PC dell’ufficio chiede il PIN all’accensione e dopo un po’ di inattività, perché lì ci sono prezzi e fatture.</p></div>
+    </div>
+    <div class="coppia">
+      <div>
+        <div class="schermo"><div class="u u-setup">
+          <div class="u-logo"><i>LS</i>FerroTrack</div>
+          <h4>Cosa è questo dispositivo?</h4>
+          <p>Lo scegli una volta. Per cambiarlo serve il PIN dell’amministratore.</p>
+          <div class="u-opts">
+            <div class="u-opt"><b>Commerciale</b><span>Preventivi</span></div>
+            <div class="u-opt"><b>Ufficio</b><span>Ordini, DDT, fatture, ore</span></div>
+            <div class="u-opt on"><b>Laser</b><span>Preparazione per Lantek</span></div>
+            <div class="u-opt dark"><b>Tablet officina</b><span>Ordini in lavorazione</span></div>
+            <div class="u-opt dark"><b>Timbratrice</b><span>Ore degli operai</span></div>
+          </div>
+        </div></div>
+        <p class="dida">1 · La scelta del dispositivo, solo la prima volta.</p>
+      </div>
+      <div>
+        <div class="schermo"><div class="u u-pin">
+          <div class="u-logo"><i>LS</i>FerroTrack · Ufficio</div>
+          <h4>Buongiorno</h4>
+          <p>Inserisci il PIN per entrare</p>
+          <div class="u-dots"><i class="f"></i><i class="f"></i><i></i><i></i></div>
+          <div class="u-keys"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span></span><span>0</span><span>⌫</span></div>
+        </div></div>
+        <p class="dida">3 · L’ingresso in ufficio: solo PIN, niente elenchi.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- UFFICIO -->
+  <section class="sec" aria-labelledby="uff-t">
+    <div class="eyebrow" id="uff-t">Stazione Ufficio</div>
+    <h2>Si apre su “cosa c’è da fare oggi”</h2>
+    <p>Menu laterale al posto delle schede. Dopo il PIN l’ufficio trova le cose da fare in ordine di urgenza; ogni riga ha il pulsante del passo giusto. “Lavoro finito” lo segna l’ufficio, quando l’officina lo dice a voce.</p>
+    <div class="schermo"><div class="u u-app">
+      <aside class="u-side">
+        <div class="u-logo"><i>LS</i>FerroTrack</div>
+        <div class="u-grp"><div class="u-nav on">Oggi</div></div>
+        <div class="u-grp"><small>Ordini</small><div class="u-nav">In lavorazione <em>9</em></div><div class="u-nav">Pronti per DDT <em>2</em></div><div class="u-nav">Da fatturare <em>3</em></div><div class="u-nav">Carica ordine</div></div>
+        <div class="u-grp"><small>Clienti</small><div class="u-nav">Risposte ai preventivi <em>1</em></div></div>
+        <div class="u-grp"><small>Altro</small><div class="u-nav">Ore</div><div class="u-nav">Archivio</div><div class="u-nav">Impostazioni</div></div>
+      </aside>
+      <div class="u-main">
+        <div class="u-hello"><h4>Oggi, martedì 30 settembre</h4><p>6 cose da fare · 1 consegna in ritardo</p></div>
+        <div class="u-todo">
+          <div class="u-t"><span class="big w">1</span><b>Consegna in ritardo</b><span>Meccanica Brianza · 4711, prevista il 24/09</span><span class="go">Vedi l’ordine →</span></div>
+          <div class="u-t"><span class="big">2</span><b>Pronti per il DDT</b><span>DECA S.r.l. 156 · test 5</span><span class="go">Prepara i DDT →</span></div>
+          <div class="u-t"><span class="big">3</span><b>Da fatturare</b><span>Consegnati, fattura da registrare</span><span class="go">Registra le fatture →</span></div>
+        </div>
+        <div class="u-list">
+          <h5>In lavorazione, dalla consegna più vicina</h5>
+          <div class="u-row"><div><b>DECA</b><span class="c">PREV-2026-0001</span></div><div class="d">30/09<small>oggi</small></div><div class="s">Tagliate 2 lamiere su 3, manca INOX 2 mm</div><span class="u-btn">Stampa ordine</span></div>
+          <div class="u-row"><div><b>Meccanica Brianza</b><span class="c">4711</span></div><div class="d">24/09<small>in ritardo di 6 gg</small></div><div class="s">Tagliato, in officina</div><span class="u-btn p">Lavoro finito</span></div>
+          <div class="u-row"><div><b>TECNOMETAL</b><span class="c">BANCO-04</span></div><div class="d">06/10<small style="color:#6A736E">tra 6 giorni</small></div><div class="s">In coda al laser</div><span class="u-btn">Stampa ordine</span></div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- LASER -->
+  <section class="sec" aria-labelledby="laser-t">
+    <div class="eyebrow" id="laser-t">Stazione Laser · PC accanto a Lantek</div>
+    <h2>Prepara il lavoro per Lantek, e segna cosa è tagliato</h2>
+    <p>Postazione da scrivania, chiara e densa come l’Ufficio. A sinistra le lamiere da tagliare, per materiale e spessore; a destra la lamiera scelta: formato consigliato, pezzi di tutti gli ordini, disegni. “Esporta per Lantek” prepara i DXF e l’elenco con le quantità da importare; finito il taglio, “Lamiera tagliata” aggiorna tutti gli ordini che ne avevano pezzi. Sta bene anche su mezzo schermo o su un secondo monitor, accanto a Lantek.</p>
+    <div class="schermo"><div class="u l-app">
+      <div class="l-top">
+        <div class="u-logo"><i>LS</i>Laser</div>
+        <div class="tabs"><span class="on">Lamiere<em>10</em></span><span>Da smistare<em>2</em></span><span>Tagliati</span></div>
+        <span class="meta">10 lamiere · 1 h 5 min di taglio stimato</span>
+      </div>
+      <div class="l-body">
+        <aside class="l-list">
+          <h5>INOX 304</h5>
+          <div class="l-it"><b>INOX 304 <em>1,5 mm</em></b><span class="r">1 fg</span><span>8 pz · 5 ordini · 2500×1250</span><span class="late">oggi</span></div>
+          <div class="l-it"><b>INOX 304 <em>2 mm</em></b><span class="r">1 fg</span><span>27 pz · 5 ordini · 2000×1000</span><span class="late">oggi</span></div>
+          <h5>S235</h5>
+          <div class="l-it on"><b>S235 <em>3 mm</em></b><span class="r">1 fg</span><span>20 pz · 5 ordini · 2500×1250</span><span class="late">oggi</span></div>
+          <div class="l-it"><b>S235 <em>10 mm</em></b><span class="r">1 fg</span><span>5 pz · 5 ordini · 2000×1000</span><span>06/10</span></div>
+          <div class="l-it"><b>S235 <em>12 mm</em></b><span class="r">1 fg</span><span>5 pz · 5 ordini · 2500×1250</span><span class="late">oggi</span></div>
+        </aside>
+        <div class="l-det">
+          <div class="l-head">
+            <div><h4>S235 <em>3 mm</em></h4><p>1 foglio 2500 × 1250 (il più conveniente) · usi 372 mm · 20 pezzi di 5 ordini · 6 min</p></div>
+            <div class="l-acts"><span class="l-b">Disegni</span><span class="l-b">Esporta per Lantek</span><span class="l-b p">Lamiera tagliata</span></div>
+          </div>
+          <div class="l-grid">
+            <div class="l-sheet">
+              <div class="cap"><span>Foglio 1 di 1 · 2500 × 1250 · stima per ingombro</span><span>resa 38%</span></div>
+              <div class="l-draw" aria-hidden="true">
+                <i style="left:6px;top:6px;width:18px;height:62px;background:#E0E7FF;border-color:#6366F1"></i>
+                <i style="left:6px;top:72px;width:18px;height:62px;background:#CCFBF1;border-color:#0D9488"></i>
+                <i style="left:27px;top:6px;width:30px;height:40px;background:#FEF3C7;border-color:#D97706"></i>
+                <i style="left:27px;top:50px;width:30px;height:40px;background:#FFE4E6;border-color:#E11D48"></i>
+                <i style="left:27px;top:94px;width:30px;height:40px;background:#E0F2FE;border-color:#0284C7"></i>
+                <span class="cut" style="left:64px"><span>taglia a 372 mm</span></span>
+              </div>
+            </div>
+            <div class="l-box">
+              <b>Per Lantek</b>
+              <span>20 DXF puliti · elenco pezzi con quantità (CSV)</span>
+              <span class="ok">Pronti nella cartella condivisa</span>
+              <span>\\server\laser\S235-3mm</span>
+            </div>
+          </div>
+          <table class="l-tab">
+            <thead><tr><th>Codice</th><th>Ordine</th><th>Cliente</th><th style="text-align:right">Q.tà</th><th>Ingombro</th><th>Consegna</th></tr></thead>
+            <tbody>
+              <tr><td class="m"><span class="l-dot" style="background:#6366F1"></span>13PA00677-00</td><td class="m">PREV-2026-0001</td><td>DECA</td><td class="n">4</td><td class="m">194 × 187</td><td>30/09</td></tr>
+              <tr><td class="m"><span class="l-dot" style="background:#0D9488"></span>13PA00677-00</td><td class="m">BANCO-02</td><td>DECA</td><td class="n">4</td><td class="m">194 × 187</td><td>03/10</td></tr>
+              <tr><td class="m"><span class="l-dot" style="background:#D97706"></span>13PA00190-00</td><td class="m">BANCO-03</td><td>man</td><td class="n">4</td><td class="m">194 × 115</td><td>05/10</td></tr>
+              <tr><td class="m"><span class="l-dot" style="background:#E11D48"></span>13PA00190-00</td><td class="m">BANCO-04</td><td>TECNOMETAL</td><td class="n">4</td><td class="m">194 × 115</td><td>06/10</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- TABLET OFFICINA -->
+  <section class="sec" aria-labelledby="tab-t">
+    <div class="eyebrow" id="tab-t">Stazione Tablet officina</div>
+    <h2>Da guardare, anche da lontano</h2>
+    <p>Nessun pulsante: gli ordini in lavorazione dalla consegna più vicina, cosa fare e quanto è già tagliato. Il ritardo si vede dal bordo rosso. Il foglio d’ordine stampato gira con il materiale.</p>
+    <div class="schermo"><div class="o o-tablet">
+      <div class="o-top"><b>Officina <em>·</em> ordini in lavorazione</b><span>aggiornato alle 10:42</span></div>
+      <div class="o-board">
+        <div class="o-ord late"><div class="due">24/09<small>in ritardo di 6 gg</small></div><div class="cli">Meccanica Brianza<small>4711</small></div><div class="lav">Piega e saldatura</div><div class="o-cut"><i class="f"></i><i class="f"></i><i class="f"></i> tagliato</div></div>
+        <div class="o-ord"><div class="due">30/09<small>oggi</small></div><div class="cli">DECA<small>PREV-2026-0001</small></div><div class="lav">Piega, filettatura ×4</div><div class="o-cut"><i class="f"></i><i class="f"></i><i></i> 2 lamiere su 3</div></div>
+        <div class="o-ord"><div class="due">06/10<small>tra 6 giorni</small></div><div class="cli">TECNOMETAL<small>BANCO-04</small></div><div class="lav">Solo taglio</div><div class="o-cut"><i></i><i></i> in coda al laser</div></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- TIMBRATRICE -->
+  <section class="sec" aria-labelledby="ore-t">
+    <div class="eyebrow" id="ore-t">Stazione Timbratrice</div>
+    <h2>Tocchi il tuo nome</h2>
+    <p>Chi deve ancora dichiarare le ore di oggi è evidenziato in giallo. Toccando il nome si dichiarano le ore per cliente, come oggi.</p>
+    <div class="schermo"><div class="o o-ore">
+      <div class="o-top"><b>Ore <em>·</em> martedì 30 settembre</b><span>2 da dichiarare</span></div>
+      <div class="o-names">
+        <div class="o-name todo"><b>Marco</b><span>Da dichiarare</span></div>
+        <div class="o-name ok"><b>Stefano</b><span>8 h · DECA, TECNOMETAL</span></div>
+        <div class="o-name todo"><b>Luca</b><span>Da dichiarare</span></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- FOGLIO D'ORDINE -->
+  <section class="sec" aria-labelledby="foglio-t">
+    <div class="eyebrow" id="foglio-t">Al posto del cartellino</div>
+    <h2>Il foglio d’ordine stampato</h2>
+    <p>Per gli ordini arrivati col PDF del cliente si stampa quello. Per gli ordini nati da un preventivo, che un PDF non ce l’hanno, “Stampa ordine” genera questo foglio A4: cliente, consegna e pezzi raggruppati per lamiera, come si tagliano.</p>
+    <div class="schermo" style="box-shadow:none"><div class="a4">
+      <div class="a4-head"><div><h4>DECA</h4><p>Consegna <b>30/09/2026</b> · 22 pezzi · 3 lamiere</p></div><div class="n">PREV-2026-0001<small>ordine di produzione</small></div></div>
+      <table>
+        <thead><tr><th>Codice</th><th>Descrizione</th><th>Q.tà</th><th>Lavorazioni</th></tr></thead>
+        <tbody>
+          <tr class="g"><td colspan="4">S235 · 3 mm</td></tr>
+          <tr><td class="m">12B100102-00</td><td>Fazzoletto</td><td>2</td><td>solo taglio</td></tr>
+          <tr><td class="m">12B100105-00</td><td>Staffa L</td><td>4</td><td>foratura, svasatura</td></tr>
+          <tr class="g"><td colspan="4">INOX 304 · 2 mm</td></tr>
+          <tr><td class="m">12B100111-00</td><td>Flangia</td><td>8</td><td>filettatura ×4</td></tr>
+          <tr class="g"><td colspan="4">S235 · 10 mm</td></tr>
+          <tr><td class="m">12B100108-00</td><td>Piastra base</td><td>1</td><td>piega</td></tr>
+        </tbody>
+      </table>
+      <div class="a4-foot"><span>Stampato il 30/09/2026</span><span>Pagina 1 di 1</span></div>
+    </div></div>
+  </section>
+
+  <!-- COSA SPARISCE -->
+  <section class="sec" aria-labelledby="via-t">
+    <div class="eyebrow" id="via-t">Cosa sparisce</div>
+    <div class="via">
+      <div><h3>Cartellini</h3><p>Sostituiti dal foglio d’ordine stampato.</p></div>
+      <div><h3>Pagina del capo officina</h3><p>Non c’è una postazione del capo: quello che serve passa all’Ufficio.</p></div>
+      <div><h3>Pagina Archivio separata</h3><p>Diventa una voce del menu dell’Ufficio.</p></div>
+      <div><h3>Login con l’elenco delle postazioni</h3><p>Al suo posto la scelta del dispositivo (una volta) e il PIN in ufficio.</p></div>
+    </div>
+    <p class="dida">Gli schermi sono esempi statici, con dati d’esempio presi dai vostri ordini di prova: servono a vedere l’organizzazione, i bottoni non fanno niente.</p>
+  </section>
+</div>
+
+</body>
+</html>

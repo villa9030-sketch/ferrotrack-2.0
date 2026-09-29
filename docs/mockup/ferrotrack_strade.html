@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<title>FerroTrack, tre strade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700;800&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap">
+<style>
+:root {
+  --bg: #F4F5F3; --paper: #FFFFFF; --ink: #1B1F1D; --ink-2: #4A524E; --ink-3: #7A837E;
+  --line: #DDE1DD; --accent: #1F6B47; --accent-soft: #E3EFE8; --warn: #A85B00;
+  --shadow: 0 1px 2px rgba(20, 30, 25, .06), 0 8px 24px rgba(20, 30, 25, .06);
+  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #141816; --paper: #1C211E; --ink: #E8ECE9; --ink-2: #B7C0BB; --ink-3: #8A948F;
+    --line: #2E3531; --accent: #6FC39A; --accent-soft: #1F3329; --warn: #F0A64B;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141816; --paper: #1C211E; --ink: #E8ECE9; --ink-2: #B7C0BB; --ink-3: #8A948F;
+  --line: #2E3531; --accent: #6FC39A; --accent-soft: #1F3329; --warn: #F0A64B;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .25);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); padding-inline: 20px; padding-block: 28px 64px; }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 36px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h1 { font: 700 clamp(30px, 4.6vw, 46px)/1.08 var(--serif); letter-spacing: -.02em; }
+.lede { max-width: 66ch; color: var(--ink-2); font-size: 17px; margin: 12px 0 0; }
+.eyebrow { font: 600 12px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+
+/* Diagnosi */
+.diag { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.diag article { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 16px; display: grid; gap: 8px; align-content: start; }
+.diag h3 { font: 600 16px var(--sans); }
+.diag p { margin: 0; color: var(--ink-2); font-size: 14px; }
+.diag .num { font: 700 30px var(--serif); color: var(--accent); line-height: 1; }
+
+/* Selettore delle strade */
+.pick { display: flex; gap: 10px; flex-wrap: wrap; }
+.pick button {
+  display: grid; gap: 2px; text-align: left; cursor: pointer; font: inherit; color: var(--ink);
+  padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); min-width: 220px; flex: 1;
+}
+.pick button b { font: 600 15px var(--sans); }
+.pick button span { font-size: 13px; color: var(--ink-3); }
+.pick button[aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pick button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.strada { display: grid; gap: 18px; }
+.strada-head { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.strada-head h2 { font: 700 28px/1.15 var(--serif); letter-spacing: -.01em; }
+.strada-head p { margin: 8px 0 0; color: var(--ink-2); max-width: 60ch; }
+.prosecons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 14px; }
+.prosecons div { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.prosecons h4 { margin: 0 0 6px; font: 600 12px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.prosecons ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; color: var(--ink-2); }
+.palette { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--ink-3); }
+.palette i { width: 22px; height: 22px; border-radius: 6px; border: 1px solid rgba(0,0,0,.08); display: inline-block; }
+.palette span { margin-right: 8px; }
+.schermo { overflow-x: auto; border-radius: 14px; box-shadow: var(--shadow); }
+.nota { font-size: 13px; color: var(--ink-3); margin: 0; }
+
+/* ─────────── Strada A: Officina calma ─────────── */
+.a { min-width: 980px; display: grid; grid-template-columns: 224px minmax(0, 1fr); background: #FFFFFF; color: #1A1F1C; font: 15px/1.5 'IBM Plex Sans', system-ui, sans-serif; border-radius: 14px; overflow: hidden; border: 1px solid #E3E6E3; }
+.a-side { background: #F6F7F5; border-right: 1px solid #E3E6E3; padding: 20px 14px; display: grid; align-content: start; gap: 22px; }
+.a-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+.a-logo i { width: 30px; height: 30px; border-radius: 8px; background: #1F6B47; color: #fff; display: grid; place-items: center; font: 700 13px 'IBM Plex Mono', monospace; font-style: normal; }
+.a-grp { display: grid; gap: 2px; }
+.a-grp small { font: 600 11px 'IBM Plex Sans', sans-serif; letter-spacing: .1em; text-transform: uppercase; color: #8A938E; padding: 0 10px 6px; }
+.a-nav { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 8px; color: #3F4843; font-weight: 500; }
+.a-nav.on { background: #E3EFE8; color: #15502F; font-weight: 600; }
+.a-nav em { font-style: normal; font: 600 12px 'IBM Plex Mono', monospace; color: #8A938E; }
+.a-nav.on em { color: #1F6B47; }
+.a-main { padding: 30px 36px 36px; display: grid; gap: 26px; align-content: start; }
+.a-top { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; }
+.a-top h3 { font: 700 28px/1.1 'IBM Plex Sans', sans-serif; letter-spacing: -.01em; }
+.a-top p { margin: 6px 0 0; color: #6A736E; }
+.a-btn { background: #1F6B47; color: #fff; border: 0; border-radius: 10px; padding: 11px 18px; font: 600 15px 'IBM Plex Sans', sans-serif; }
+.a-stage { display: flex; gap: 0; border-bottom: 1px solid #E3E6E3; }
+.a-stage span { padding: 10px 16px 12px; color: #6A736E; font-weight: 500; border-bottom: 2px solid transparent; }
+.a-stage span b { font-family: 'IBM Plex Mono', monospace; font-weight: 600; margin-left: 6px; color: #1A1F1C; }
+.a-stage span.on { color: #1A1F1C; border-color: #1F6B47; font-weight: 600; }
+.a-rows { display: grid; }
+.a-row { display: grid; grid-template-columns: minmax(0, 1.6fr) 140px 180px minmax(0, 1.4fr) 150px; gap: 18px; align-items: center; padding: 18px 4px; border-bottom: 1px solid #EEF0EE; }
+.a-row .who b { display: block; font-size: 16px; }
+.a-row .who span { font: 13px 'IBM Plex Mono', monospace; color: #8A938E; }
+.a-row .due { font-weight: 600; }
+.a-row .due small { display: block; font-weight: 500; font-size: 13px; color: #A85B00; }
+.a-row .due small.ok { color: #6A736E; }
+.a-prog { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6A736E; }
+.a-prog i { width: 26px; height: 6px; border-radius: 3px; background: #E3E6E3; display: inline-block; }
+.a-prog i.f { background: #1F6B47; }
+.a-act { justify-self: end; border: 1px solid #CBD2CD; background: #fff; border-radius: 9px; padding: 8px 14px; font: 600 14px 'IBM Plex Sans', sans-serif; color: #1A1F1C; }
+.a-act.p { background: #1F6B47; border-color: #1F6B47; color: #fff; }
+.a-tag { font-size: 13px; color: #3F4843; }
+.a-tag b { font-weight: 600; }
+
+/* ─────────── Strada B: Flusso a colonne ─────────── */
+.b { min-width: 1080px; background: #EEF1F4; color: #182230; font: 14px/1.45 'Public Sans', system-ui, sans-serif; border-radius: 14px; overflow: hidden; border: 1px solid #D8DEE6; }
+.b-top { display: flex; align-items: center; gap: 18px; padding: 14px 20px; background: #182230; color: #E6EBF1; }
+.b-top .b-logo { font: 800 16px 'Public Sans', sans-serif; letter-spacing: -.01em; }
+.b-top .b-logo em { font-style: normal; color: #7FB2E5; }
+.b-chip { padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.08); color: #C8D2DE; font-weight: 600; font-size: 13px; }
+.b-chip.on { background: #E6EBF1; color: #182230; }
+.b-search { margin-left: auto; background: rgba(255,255,255,.08); border-radius: 8px; padding: 7px 12px; color: #93A1B3; min-width: 240px; }
+.b-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; padding: 16px; }
+.b-col { display: grid; gap: 10px; align-content: start; }
+.b-col h4 { margin: 0; display: flex; justify-content: space-between; font: 700 13px 'Public Sans', sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #4A5A6E; padding: 2px 4px 4px; border-bottom: 3px solid #C9D3DF; }
+.b-col.hot h4 { border-color: #2F6FB0; color: #1E4F82; }
+.b-card { background: #fff; border-radius: 10px; padding: 12px; display: grid; gap: 8px; border: 1px solid #DCE2EA; }
+.b-card b { font-size: 15px; }
+.b-card .m { display: flex; justify-content: space-between; font-size: 12.5px; color: #5F6F82; }
+.b-card .m .late { color: #B4462B; font-weight: 700; }
+.b-bar { height: 5px; border-radius: 3px; background: #E3E8EF; overflow: hidden; }
+.b-bar i { display: block; height: 100%; background: #2F6FB0; }
+.b-card .go { justify-self: start; font: 700 12.5px 'Public Sans', sans-serif; color: #1E4F82; }
+.b-mat { font: 600 12px 'IBM Plex Mono', monospace; color: #4A5A6E; }
+
+/* ─────────── Strada C: Postazione officina ─────────── */
+.c { min-width: 980px; background: #1D2023; color: #F2F0EA; font: 18px/1.4 'Barlow', system-ui, sans-serif; border-radius: 14px; overflow: hidden; }
+.c-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; background: #15171A; border-bottom: 1px solid #2B2F33; }
+.c-top b { font: 800 22px 'Barlow Condensed', sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+.c-top b em { font-style: normal; color: #F5B819; }
+.c-top span { color: #9CA3A8; font-size: 16px; }
+.c-main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; padding: 22px 24px 26px; }
+.c-next { background: #26292D; border-radius: 16px; padding: 22px 24px; display: grid; gap: 14px; }
+.c-lbl { font: 700 14px 'Barlow Condensed', sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #F5B819; }
+.c-mat { font: 800 64px/1 'Barlow Condensed', sans-serif; letter-spacing: -.01em; }
+.c-mat em { font-style: normal; color: #F5B819; }
+.c-say { font-size: 24px; font-weight: 600; }
+.c-say small { display: block; font-size: 17px; font-weight: 500; color: #B4BAC0; margin-top: 4px; }
+.c-sheet { position: relative; height: 150px; border-radius: 8px; background: #3A3F44; overflow: hidden; }
+.c-sheet i { position: absolute; top: 10px; bottom: 10px; border-radius: 4px; background: #E8E4D8; }
+.c-sheet .cut { position: absolute; top: 0; bottom: 0; width: 3px; background: #F5B819; }
+.c-sheet .cut::after { content: 'taglia a 372 mm'; position: absolute; top: 6px; left: 8px; white-space: nowrap; font: 700 15px 'Barlow Condensed', sans-serif; color: #F5B819; letter-spacing: .04em; }
+.c-big { border: 0; border-radius: 14px; padding: 22px; font: 800 28px 'Barlow Condensed', sans-serif; letter-spacing: .06em; text-transform: uppercase; background: #F5B819; color: #1D2023; text-align: center; }
+.c-queue { display: grid; gap: 10px; align-content: start; }
+.c-q { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; background: #26292D; border-radius: 12px; padding: 14px 16px; }
+.c-q b { font: 700 24px 'Barlow Condensed', sans-serif; letter-spacing: .01em; }
+.c-q b em { font-style: normal; color: #F5B819; }
+.c-q span { color: #B4BAC0; font-size: 16px; }
+.c-q .r { grid-row: span 2; align-self: center; font: 700 20px 'Barlow Condensed', sans-serif; text-align: right; }
+.c-q .r small { display: block; font: 500 14px 'Barlow', sans-serif; color: #E07A5F; }
+
+@media (max-width: 860px) {
+  .diag, .strada-head, .prosecons { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .strada { animation: entra .25s ease-out; }
+  @keyframes entra { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">FerroTrack · riorganizzare l’interfaccia</div>
+    <h1>Tre strade per un’app che si usa senza pensarci</h1>
+    <p class="lede">Stessa officina e stessi dati (gli ordini DECA, TECNOMETAL, la lamiera S235 da 3 mm), organizzati in tre modi diversi. Scegli la strada, o prendi pezzi da più strade: poi la applico a tutte le pagine.</p>
+  </header>
+
+  <section aria-labelledby="diag-t">
+    <h2 id="diag-t" class="eyebrow" style="margin-bottom:12px">Cosa non funziona oggi</h2>
+    <div class="diag">
+      <article><div class="num">26</div><h3>Schede ovunque</h3><p>8 schede nell’Ufficio, 5 nel Laser, 3 nelle Ore, più le code dentro le schede. Si cerca dove sta una cosa invece di farla.</p></article>
+      <article><div class="num">5</div><h3>Lo stesso ordine, cinque facce</h3><p>Un ordine si vede in Ufficio, Laser, Capo officina, Tablet e Archivio, ogni volta con campi e parole diverse. Il pezzo di lavoro è sempre quello, ma cambia aspetto a ogni pagina.</p></article>
+      <article><div class="num">12px</div><h3>Tutto grigio, piccolo e incorniciato</h3><p>Fondo grigio, riquadri con bordo ovunque, testo a 12–13 px e tanti colori di stato: niente spicca davvero, e in officina da un metro non si legge.</p></article>
+    </div>
+  </section>
+
+  <section aria-labelledby="strade-t" style="display:grid;gap:18px">
+    <h2 id="strade-t" class="eyebrow">Le tre strade</h2>
+    <div class="pick" role="tablist" aria-label="Scegli la strada">
+      <button role="tab" id="tab-a" aria-controls="strada-a" aria-selected="true"><b>A · Officina calma</b><span>Menu laterale, una pagina per cosa</span></button>
+      <button role="tab" id="tab-b" aria-controls="strada-b" aria-selected="false"><b>B · Flusso a colonne</b><span>Tutti gli ordini su una lavagna</span></button>
+      <button role="tab" id="tab-c" aria-controls="strada-c" aria-selected="false"><b>C · Postazione officina</b><span>Una cosa alla volta, scritta grande</span></button>
+    </div>
+
+    <!-- A -->
+    <div class="strada" id="strada-a" role="tabpanel" aria-labelledby="tab-a">
+      <div class="strada-head">
+        <div>
+          <h2>A · Officina calma</h2>
+          <p>Niente schede in alto: un <b>menu laterale</b> raggruppato per come lavorate (Vendite, Produzione, Ufficio), uguale per tutti; ognuno vede solo le voci che gli servono. Ogni ordine si apre sempre nella <b>stessa pagina</b>, con la sua storia. Fondo bianco, molto spazio, testo più grande, <b>un solo colore</b>: il verde LS del vostro marchio.</p>
+          <div class="palette" style="margin-top:12px"><i style="background:#FFFFFF"></i><i style="background:#F6F7F5"></i><i style="background:#1A1F1C"></i><i style="background:#1F6B47"></i><i style="background:#A85B00"></i><span>IBM Plex Sans + Plex Mono · testo 15 px</span></div>
+        </div>
+        <div class="prosecons">
+          <div><h4>Pro</h4><ul><li>La più ordinata e riconoscibile</li><li>Si aggiungono funzioni senza nuove schede</li><li>Adatta a ufficio e commerciale</li></ul></div>
+          <div><h4>Contro</h4><ul><li>Il menu occupa spazio laterale</li><li>In officina resta “da ufficio”</li></ul></div>
+        </div>
+      </div>
+      <div class="schermo" tabindex="0" aria-label="Esempio della strada A">
+        <div class="a">
+          <aside class="a-side">
+            <div class="a-logo"><i>LS</i>FerroTrack</div>
+            <div class="a-grp"><small>Vendite</small><div class="a-nav">Preventivi <em>8</em></div><div class="a-nav">Richieste <em>2</em></div></div>
+            <div class="a-grp"><small>Produzione</small><div class="a-nav on">Ordini <em>12</em></div><div class="a-nav">Banco lamiere <em>10</em></div><div class="a-nav">Calendario</div></div>
+            <div class="a-grp"><small>Ufficio</small><div class="a-nav">Da fatturare <em>3</em></div><div class="a-nav">Ore</div><div class="a-nav">Archivio</div></div>
+          </aside>
+          <div class="a-main">
+            <div class="a-top">
+              <div><h3>Ordini</h3><p>12 aperti · 3 in ritardo · 2 pronti per il DDT</p></div>
+              <button class="a-btn" type="button">+ Carica ordine</button>
+            </div>
+            <div class="a-stage"><span class="on">In lavorazione<b>7</b></span><span>Pronti<b>2</b></span><span>Consegnati<b>3</b></span><span>Chiusi</span></div>
+            <div class="a-rows">
+              <div class="a-row"><div class="who"><b>DECA</b><span>PREV-2026-0001</span></div><div class="due">30/09<small>domani</small></div><div class="a-prog"><i class="f"></i><i class="f"></i><i></i><i></i> taglio 2/3</div><div class="a-tag"><b>S235 3 mm</b> e INOX 2 mm da tagliare</div><button class="a-act" type="button">Apri</button></div>
+              <div class="a-row"><div class="who"><b>TECNOMETAL</b><span>BANCO-04</span></div><div class="due">06/10<small class="ok">tra 7 giorni</small></div><div class="a-prog"><i class="f"></i><i></i><i></i><i></i> da tagliare</div><div class="a-tag">in coda al laser</div><button class="a-act" type="button">Apri</button></div>
+              <div class="a-row"><div class="who"><b>Meccanica Brianza</b><span>4711</span></div><div class="due">24/09<small>in ritardo di 5 gg</small></div><div class="a-prog"><i class="f"></i><i class="f"></i><i class="f"></i><i></i> in officina</div><div class="a-tag">tagliato, piega e saldatura</div><button class="a-act p" type="button">Lavoro finito</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B -->
+    <div class="strada" id="strada-b" role="tabpanel" aria-labelledby="tab-b" hidden>
+      <div class="strada-head">
+        <div>
+          <h2>B · Flusso a colonne</h2>
+          <p>Una <b>lavagna</b> con una colonna per tappa: da smistare, da tagliare, in officina, pronti, da fatturare. Ogni ordine è un cartellino che avanza verso destra; il colore dice solo cosa è in ritardo. Ognuno apre la lavagna sulle sue colonne. Via quasi tutte le schede: si filtra con pochi bottoni in alto.</p>
+          <div class="palette" style="margin-top:12px"><i style="background:#EEF1F4"></i><i style="background:#FFFFFF"></i><i style="background:#182230"></i><i style="background:#2F6FB0"></i><i style="background:#B4462B"></i><span>Public Sans · colonne per tappa</span></div>
+        </div>
+        <div class="prosecons">
+          <div><h4>Pro</h4><ul><li>Si vede tutta la fabbrica in un colpo</li><li>Chiaro chi deve fare cosa</li><li>Ottimo su grande schermo in officina</li></ul></div>
+          <div><h4>Contro</h4><ul><li>Con molti ordini le colonne si allungano</li><li>Meno adatta a preventivi e fatture</li></ul></div>
+        </div>
+      </div>
+      <div class="schermo" tabindex="0" aria-label="Esempio della strada B">
+        <div class="b">
+          <div class="b-top"><span class="b-logo">Ferro<em>Track</em></span><span class="b-chip on">Tutti</span><span class="b-chip">Laser</span><span class="b-chip">Officina</span><span class="b-chip">Ufficio</span><span class="b-search">Cerca cliente o ordine</span></div>
+          <div class="b-board">
+            <div class="b-col"><h4>Da smistare <span>1</span></h4>
+              <div class="b-card"><b>ciao</b><div class="m"><span>BANCO-05</span><span>08/10</span></div><div class="b-mat">S235 3 · INOX 2</div><span class="go">Smista →</span></div></div>
+            <div class="b-col hot"><h4>Da tagliare <span>2</span></h4>
+              <div class="b-card"><b>DECA</b><div class="m"><span>PREV-0001</span><span class="late">domani</span></div><div class="b-bar"><i style="width:66%"></i></div><div class="b-mat">tagliate 2 lamiere su 3</div></div>
+              <div class="b-card"><b>TECNOMETAL</b><div class="m"><span>BANCO-04</span><span>06/10</span></div><div class="b-bar"><i style="width:0%"></i></div><div class="b-mat">S235 12 · S235 3</div></div></div>
+            <div class="b-col"><h4>In officina <span>1</span></h4>
+              <div class="b-card"><b>Meccanica Brianza</b><div class="m"><span>4711</span><span class="late">+5 gg</span></div><div class="b-mat">piega · saldatura</div><span class="go">Lavoro finito →</span></div></div>
+            <div class="b-col"><h4>Pronti <span>2</span></h4>
+              <div class="b-card"><b>DECA S.r.l.</b><div class="m"><span>156</span><span>01/10</span></div><span class="go">Prepara DDT →</span></div>
+              <div class="b-card"><b>test</b><div class="m"><span>5</span><span>30/09</span></div><span class="go">Prepara DDT →</span></div></div>
+            <div class="b-col"><h4>Da fatturare <span>1</span></h4>
+              <div class="b-card"><b>tesdt32</b><div class="m"><span>4275</span><span>cons. 17/09</span></div><span class="go">Registra fattura →</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C -->
+    <div class="strada" id="strada-c" role="tabpanel" aria-labelledby="tab-c" hidden>
+      <div class="strada-head">
+        <div>
+          <h2>C · Postazione officina</h2>
+          <p>Per chi lavora in piedi (laser, officina, ore): <b>una cosa alla volta, scritta grande</b>, leggibile da due metri e con i guanti. Fondo scuro che non abbaglia, giallo da segnaletica per l’azione. La pagina dice cosa fare adesso e ha un solo bottone grande. Ufficio e commerciale restano su A o B.</p>
+          <div class="palette" style="margin-top:12px"><i style="background:#1D2023"></i><i style="background:#26292D"></i><i style="background:#F2F0EA"></i><i style="background:#F5B819"></i><i style="background:#E07A5F"></i><span>Barlow Condensed · testo 18–64 px</span></div>
+        </div>
+        <div class="prosecons">
+          <div><h4>Pro</h4><ul><li>Zero addestramento per l’operatore</li><li>Si legge da lontano, anche al sole o con la luce di officina</li><li>Pochissimi errori di tocco</li></ul></div>
+          <div><h4>Contro</h4><ul><li>Due stili nell’app (ufficio e officina)</li><li>Meno informazioni per schermo</li></ul></div>
+        </div>
+      </div>
+      <div class="schermo" tabindex="0" aria-label="Esempio della strada C">
+        <div class="c">
+          <div class="c-top"><b>Laser <em>·</em> postazione 1</b><span>10 lamiere in coda · finisci verso le 16:40</span></div>
+          <div class="c-main">
+            <div class="c-next">
+              <div class="c-lbl">Adesso</div>
+              <div class="c-mat">S235 <em>3 mm</em></div>
+              <div class="c-say">Prepara 1 foglio 2500 × 1250<small>20 pezzi di 5 ordini · 6 minuti di taglio</small></div>
+              <div class="c-sheet" aria-hidden="true"><i style="left:10px;width:34px"></i><i style="left:48px;width:22px;bottom:70px"></i><i style="left:48px;width:22px;top:86px"></i><span class="cut" style="left:78px"></span></div>
+              <div class="c-big" role="button">Lamiera tagliata</div>
+            </div>
+            <div class="c-queue">
+              <div class="c-lbl">Dopo</div>
+              <div class="c-q"><b>S235 <em>12 mm</em></b><span class="r">1 foglio<small>domani</small></span><span>5 pezzi · 35 min</span></div>
+              <div class="c-q"><b>INOX 304 <em>2 mm</em></b><span class="r">1 foglio<small>domani</small></span><span>27 pezzi · 4 min</span></div>
+              <div class="c-q"><b>INOX 304 <em>3 mm</em></b><span class="r">1 foglio</span><span>10 pezzi · 5 min</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="nota">Le schermate sono esempi statici per confrontare struttura, colori e spazi: i bottoni non fanno niente.</p>
+  </section>
+
+  <section aria-labelledby="cons-t" style="display:grid;gap:10px;max-width:72ch">
+    <h2 id="cons-t" class="eyebrow">Il mio consiglio</h2>
+    <p style="margin:0;font-size:17px"><b>A per l’ufficio e il commerciale, C per le postazioni in officina.</b> A mette ordine: una sola navigazione, un solo modo di vedere un ordine, un solo colore. C è pensata per chi lavora in piedi e non deve cercare niente. La lavagna B diventa una vista dentro A (“Ordini → come lavagna”) per chi vuole vedere tutta la fabbrica.</p>
+  </section>
+</div>
+
+<script>
+(function () {
+  const tabs = [...document.querySelectorAll('.pick [role="tab"]')];
+  function scegli(id) {
+    tabs.forEach(t => {
+      const on = t.id === 'tab-' + id;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    try { localStorage.setItem('ft_strada', id); } catch (_) {}
+  }
+  tabs.forEach(t => t.addEventListener('click', () => scegli(t.id.slice(4))));
+  let salvata = null;
+  try { salvata = localStorage.getItem('ft_strada'); } catch (_) {}
+  if (salvata && document.getElementById('tab-' + salvata)) scegli(salvata);
+})();
+</script>
+
+</body>
+</html>
