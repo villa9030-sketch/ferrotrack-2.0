@@ -4855,6 +4855,9 @@ class PreventivoManager:
                                     .order_by(PreventivoArticolo.codice).all()]
                 PreventivoManager._leggi_extra_articoli(session, preventivo_id,
                                                         data['articoli'])
+                # nell'ordine in cui erano (salvati prima: per codice)
+                if any(a.get('riga') is not None for a in data['articoli']):
+                    data['articoli'].sort(key=lambda a: a['riga'] if isinstance(a.get('riga'), int) else 10 ** 6)
                 data['assiemi'] = [PreventivoManager._serialize_assieme(a) for a in
                                    session.query(PreventivoAssieme)
                                    .filter(PreventivoAssieme.preventivo_id == preventivo_id).all()]
@@ -5171,7 +5174,9 @@ class PreventivoManager:
                       'contorno_auto',
                       # Riga dell'ordine del cliente (PDF allegato): posizione,
                       # quantita' letta e stato (ok / da controllare / non c'e').
-                      'ordine')
+                      'ordine',
+                      # posizione nella lista (scritta dal server al salvataggio)
+                      'riga')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -5474,11 +5479,13 @@ class PreventivoManager:
             ).delete(synchronize_session=False)
             # Insert i nuovi
             extra_da_scrivere = []
-            for a in articoli or []:
+            for _riga, a in enumerate(articoli or []):
                 _id_nuovo = str(uuid.uuid4())
                 _extra = PreventivoManager._extra_articolo(a)
-                if _extra:
-                    extra_da_scrivere.append((_id_nuovo, _extra))
+                # posizione nella lista (es. l'ordine delle righe dell'ordine
+                # del cliente): alla riapertura i pezzi tornano cosi'
+                _extra['riga'] = _riga
+                extra_da_scrivere.append((_id_nuovo, _extra))
                 session.add(PreventivoArticolo(
                     id=_id_nuovo,
                     preventivo_id=preventivo_id,

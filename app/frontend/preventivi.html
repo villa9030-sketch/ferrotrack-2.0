@@ -6846,46 +6846,67 @@ function renderSplitTree() {
     const k = A.codice_assieme || '';
     if (k && !groups.has(k)) groups.set(k, []);
   });
-  const orderedKeys = Array.from(groups.keys()).sort((a, b) => {
-    if (a === '') return -1;
-    if (b === '') return 1;
-    return a.localeCompare(b);
-  });
   let html = '';
   let nascosti = 0;
-  for (const key of orderedKeys) {
+  const rigaAssieme = key => {
     const idxs = groups.get(key);
-    if (key === '') {
-      const righe = idxs.map(i => _splitRowHtml(i, false, totCosto)).filter(Boolean);
-      nascosti += idxs.length - righe.length;
-      if (!righe.length) continue;
-      const sub = idxs.reduce((s, i) => s + wbCostoRiga(currentArticoli[i]), 0);
-      html += `<tr class="standalone-header pl-group"><td><div class="pl-group-row">
-        <span>Pezzi singoli · ${idxs.length}</span><b>${formatEurStr(sub)}</b></div></td></tr>`;
-      html += righe.join('');
-    } else {
-      const A = currentAssiemi.find(x => x.codice_assieme === key);
-      const collapsed = _splitCollapsed.has(key);
-      const arrow = collapsed ? '▸' : '▾';
-      // Conteggio reale = DXF + tubolari + piastre (non solo gli articoli DXF)
-      const _roll = computeAssiemeRollup(key);
-      const nCmp = _roll.articoli.length + _roll.tubolari.length + _roll.piastre.length;
-      const keyEsc = key.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const pr = A ? computeAssiemePricing(A) : null;
-      html += `<tr class="ass-header" data-ass-code="${escapeHtml(key)}" onclick="selectSplitAssieme('${keyEsc}')" title="Apri l'assieme: 3D, componenti e prezzo">
-        <td><div class="ah">
-          <span class="toggle-ass" onclick="event.stopPropagation(); toggleAssiemeSplit('${keyEsc}')" title="Espandi/comprimi i componenti">${arrow}</span>
-          <span class="ah-ico"><i data-lucide="box"></i></span>
-          <span class="ah-main"><code>${escapeHtml(key)}</code><span>Assieme · ${nCmp} componenti${pr ? ' · × ' + pr.qty : ''}</span></span>
-          <span class="pr-price"><b>${pr ? formatEurStr(pr.costoTotale) : '—'}</b>${pr && pr.qty > 1 ? `<small>${formatEurStr(pr.costoSingoloAssieme)} cad.</small>` : ''}</span>
-        </div></td>
-      </tr>`;
-      if (!collapsed) {
-        for (const i of idxs) {
-          const r = _splitRowHtml(i, true, totCosto);
-          if (r) html += r; else nascosti++;
-        }
+    const A = currentAssiemi.find(x => x.codice_assieme === key);
+    const collapsed = _splitCollapsed.has(key);
+    const arrow = collapsed ? '▸' : '▾';
+    // Conteggio reale = DXF + tubolari + piastre (non solo gli articoli DXF)
+    const _roll = computeAssiemeRollup(key);
+    const nCmp = _roll.articoli.length + _roll.tubolari.length + _roll.piastre.length;
+    const keyEsc = key.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const pr = A ? computeAssiemePricing(A) : null;
+    html += `<tr class="ass-header" data-ass-code="${escapeHtml(key)}" onclick="selectSplitAssieme('${keyEsc}')" title="Apri l'assieme: 3D, componenti e prezzo">
+      <td><div class="ah">
+        <span class="toggle-ass" onclick="event.stopPropagation(); toggleAssiemeSplit('${keyEsc}')" title="Espandi/comprimi i componenti">${arrow}</span>
+        <span class="ah-ico"><i data-lucide="box"></i></span>
+        <span class="ah-main"><code>${escapeHtml(key)}</code><span>Assieme · ${nCmp} componenti${pr ? ' · × ' + pr.qty : ''}</span></span>
+        <span class="pr-price"><b>${pr ? formatEurStr(pr.costoTotale) : '—'}</b>${pr && pr.qty > 1 ? `<small>${formatEurStr(pr.costoSingoloAssieme)} cad.</small>` : ''}</span>
+      </div></td>
+    </tr>`;
+    if (!collapsed) {
+      for (const i of idxs) {
+        const r = _splitRowHtml(i, true, totCosto);
+        if (r) html += r; else nascosti++;
       }
+    }
+  };
+  if (currentArticoli.some(a => a.ordine)) {
+    // Ordine del cliente applicato: la distinta segue le sue righe. Pezzi
+    // singoli e assiemi mescolati come nell'ordine (l'assieme dove compare
+    // il primo suo pezzo: "Applica" mette i componenti sotto la riga
+    // dell'assieme). Prima: tutti i singoli in cima e gli assiemi in fondo.
+    const visti = new Set();
+    const nSingoli = (groups.get('') || []).length;
+    html += `<tr class="standalone-header pl-group"><td><div class="pl-group-row">
+      <span>Come nell'ordine del cliente</span><b>${nSingoli} singoli · ${groups.size - (nSingoli ? 1 : 0)} assiemi</b></div></td></tr>`;
+    currentArticoli.forEach((a, i) => {
+      const k = a.codice_assieme || '';
+      if (!k) {
+        const r = _splitRowHtml(i, false, totCosto);
+        if (r) html += r; else nascosti++;
+      } else if (!visti.has(k)) { visti.add(k); rigaAssieme(k); }
+    });
+    for (const k of groups.keys()) if (k && !visti.has(k)) rigaAssieme(k);   // assiemi senza pezzi DXF
+  } else {
+    const orderedKeys = Array.from(groups.keys()).sort((a, b) => {
+      if (a === '') return -1;
+      if (b === '') return 1;
+      return a.localeCompare(b);
+    });
+    for (const key of orderedKeys) {
+      const idxs = groups.get(key);
+      if (key === '') {
+        const righe = idxs.map(i => _splitRowHtml(i, false, totCosto)).filter(Boolean);
+        nascosti += idxs.length - righe.length;
+        if (!righe.length) continue;
+        const sub = idxs.reduce((s, i) => s + wbCostoRiga(currentArticoli[i]), 0);
+        html += `<tr class="standalone-header pl-group"><td><div class="pl-group-row">
+          <span>Pezzi singoli · ${idxs.length}</span><b>${formatEurStr(sub)}</b></div></td></tr>`;
+        html += righe.join('');
+      } else rigaAssieme(key);
     }
   }
   // Tubolari e piastre fuori assieme: stanno nel cassetto 3D, qui un rimando.
