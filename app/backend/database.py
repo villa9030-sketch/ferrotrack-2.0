@@ -5175,6 +5175,8 @@ class PreventivoManager:
                       # Riga dell'ordine del cliente (PDF allegato): posizione,
                       # quantita' letta e stato (ok / da controllare / non c'e').
                       'ordine',
+                      # Pezzo a mano: forma e misure inserite (per riaprirlo com'era)
+                      'pezzo_manuale',
                       # posizione nella lista (scritta dal server al salvataggio)
                       'riga')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
@@ -5347,6 +5349,15 @@ class PreventivoManager:
                 prima['confermato'] = bool(pr.get('confermato'))
                 pulito['prima'] = prima
             out['contorno_auto'] = pulito
+        pm = a.get('pezzo_manuale')
+        if isinstance(pm, dict) and pm.get('forma') in ('rett', 'tondo'):
+            n = PreventivoManager._num_o_none
+            fori = []
+            for f in (pm.get('fori') or [])[:10]:
+                if isinstance(f, dict) and n(f.get('n'), 1e4) and n(f.get('d'), 1e4):
+                    fori.append({'n': int(n(f.get('n'), 1e4)), 'd': n(f.get('d'), 1e4)})
+            out['pezzo_manuale'] = {'forma': pm['forma'], 'l': n(pm.get('l'), 1e5), 'h': n(pm.get('h'), 1e5),
+                                    'd': n(pm.get('d'), 1e5), 'fori': fori}
         od = a.get('ordine')
         if isinstance(od, dict) and od.get('stato') in ('ok', 'senza_qta', 'dubbio', 'non_trovato', 'controllato'):
             n = PreventivoManager._num_o_none

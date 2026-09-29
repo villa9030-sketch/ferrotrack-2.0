@@ -1374,6 +1374,18 @@ tr.row-warn:hover { background: #FEF3C7; }
 .wb-ord-cand { display:flex; flex-direction:column; gap:6px; margin:-8px 0 16px; }
 .wb-ord-cand button { display:flex; align-items:center; gap:6px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .wb-ord-cand button i { width:15px; height:15px; flex:none; }
+.wb-man { max-width: 560px; }
+.wb-man-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px 12px; margin-bottom:12px; }
+.wb-man-grid label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--text-3); font-weight:500; }
+.wb-man-grid label[hidden] { display:none; }
+.wb-man-grid .wide { grid-column: 1 / -1; }
+.wb-man-grid input, .wb-man-grid select { box-sizing:border-box; width:100%; font-size:13.5px; padding:7px 9px; border:1px solid var(--border, #d0d5dd); border-radius:7px; background:var(--surface, #fff); color:var(--text); min-width:0; }
+.man-fori { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:11.5px; color:var(--text-3); font-weight:500; }
+.man-foro { display:inline-flex; align-items:center; gap:4px; }
+.man-foro input { width:58px !important; }
+.wb-man-calc { font-size:12.5px; color:var(--text-2); background:var(--surface-2, #f6f7f9); border-radius:8px; padding:8px 10px; margin-bottom:16px; }
+.wb-man-calc .err { color:#B45309; }
+@media (max-width: 560px) { .wb-man-grid { grid-template-columns: 1fr 1fr; } }
 .app-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 /* Sezione Importa file collassabile */
 .card.import-collapsed .import-body { display: none; }
@@ -3417,6 +3429,7 @@ body { font-size: var(--fs-m); }
                   <div class="wb-menu-pop right" role="menu">
                     <button role="menuitem" onclick="sdOpenFullDetail()"><i data-lucide="maximize-2"></i> Dettaglio completo</button>
                     <button role="menuitem" onclick="wbAllegaPdf()"><i data-lucide="file-text"></i> Allega PDF del disegno</button>
+                    <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbPezzoAMano(_splitSelectedIdx)"><i data-lucide="square-pen"></i> Misure a mano <small>piastra rettangolare o tonda, fori</small></button>
                     <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbCostoAMano(_splitSelectedIdx)"><i data-lucide="pencil-line"></i> Costo a mano <small>profili, pezzi comprati</small></button>
                     <button role="menuitem" id="sd-btn-clean" onclick="sdOpenCleanup()" style="display:none;"><i data-lucide="eraser"></i> Pulisci DXF</button>
                     <div class="wb-menu-sep"></div>
@@ -7459,6 +7472,139 @@ function _saRenderComponenti(r, A) {
   document.getElementById('sa-comp-hint').textContent = n ? `${n} · per 1 assieme` : '';
 }
 
+// ── Pezzo a mano ───────────────────────────────────────────────────
+// Piastre e pezzi semplici senza disegno utilizzabile (assiemi con DXF senza
+// testo, piedini, distanziali): misure → area, taglio e inneschi calcolati
+// qui, poi la stima come per ogni pezzo. Prima "+ Pezzo" creava "ART-n"
+// senza aprirlo e area/perimetro andavano calcolati a mano nei dati tecnici.
+function _wbManCalcola(m) {
+  const n = v => Math.max(0, parseFloat(String(v ?? '').replace(',', '.')) || 0);
+  const fori = (m.fori || []).map(f => ({ n: Math.round(n(f.n)), d: n(f.d) })).filter(f => f.n > 0 && f.d > 0);
+  let area, perim, w, h;
+  if (m.forma === 'tondo') {
+    const D = n(m.d); w = h = D;
+    area = Math.PI * D * D / 4; perim = Math.PI * D;
+  } else {
+    w = n(m.l); h = n(m.h);
+    area = w * h; perim = 2 * (w + h);
+  }
+  const foriArea = fori.reduce((s, f) => s + f.n * Math.PI * f.d * f.d / 4, 0);
+  const foriPerim = fori.reduce((s, f) => s + f.n * Math.PI * f.d, 0);
+  const nFori = fori.reduce((s, f) => s + f.n, 0);
+  return {
+    ok: area > 0 && foriArea < area,
+    area_dm2: Math.round((area - foriArea) / 1e4 * 10000) / 10000,
+    perimetro_taglio_m: Math.round((perim + foriPerim) / 1000 * 10000) / 10000,
+    n_forature: area > 0 ? 1 + nFori : 0,
+    bbox_w_mm: w, bbox_h_mm: h, fori,
+  };
+}
+/** Finestra "Pezzo a mano": nuovo pezzo (i == null) o misure di un pezzo esistente. */
+function wbPezzoAMano(i) {
+  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
+  const a = i != null ? currentArticoli[i] : null;
+  const pm = (a && a.pezzo_manuale) || {};
+  const assAttuale = a ? (a.codice_assieme || '') : (_splitAssIdx != null && currentAssiemi[_splitAssIdx] ? currentAssiemi[_splitAssIdx].codice_assieme : '');
+  const fori = (pm.fori || []).slice(0, 3);
+  while (fori.length < 3) fori.push({ n: '', d: '' });
+  const num = v => v == null || v === 0 ? '' : String(v).replace('.', ',');
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay active'; ov.style.zIndex = 3000;
+  ov.innerHTML = `<div class="modal app-confirm-box wb-man">
+    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="square-pen"></i></div>
+      <h3>${a ? 'Misure a mano' : 'Pezzo a mano'}</h3></div>
+    <div class="wb-man-grid">
+      <label class="wide">Codice<input id="man-cod" value="${escapeHtml(a ? a.codice || '' : '')}" placeholder="es. PIEDINO-100x80"></label>
+      <label>Forma<select id="man-forma"><option value="rett">Rettangolo</option><option value="tondo" ${pm.forma === 'tondo' ? 'selected' : ''}>Tondo</option></select></label>
+      <label class="man-rett">Lunghezza mm<input id="man-l" inputmode="decimal" value="${num(pm.l ?? (a && a.bbox_w_mm))}"></label>
+      <label class="man-rett">Larghezza mm<input id="man-h" inputmode="decimal" value="${num(pm.h ?? (a && a.bbox_h_mm))}"></label>
+      <label class="man-tondo">Diametro mm<input id="man-d" inputmode="decimal" value="${num(pm.d)}"></label>
+      <label>Spessore mm<input id="man-sp" inputmode="decimal" value="${num(a ? a.spessore_mm : '')}"></label>
+      <label>Materiale<select id="man-mat">${_opzioniMateriale(a ? a.materiale : 'S235')}</select></label>
+      <label>Quantità<input id="man-q" type="number" min="1" value="${a ? a.quantita || 1 : 1}"></label>
+      <label>Filettature<input id="man-filett" type="number" min="0" value="${a ? a.filettatura_pz || 0 : 0}"></label>
+      <div class="wide man-fori"><span>Fori</span>${fori.map((f, k) => `<span class="man-foro"><input id="man-fn${k}" type="number" min="0" placeholder="n°" value="${f.n || ''}"> × Ø <input id="man-fd${k}" inputmode="decimal" placeholder="mm" value="${num(f.d)}"></span>`).join('')}</div>
+      <label class="wide">Assieme<select id="man-ass"><option value="">— nessuno (pezzo singolo)</option>${currentAssiemi.map(A => `<option value="${escapeHtml(A.codice_assieme)}" ${A.codice_assieme === assAttuale ? 'selected' : ''}>${escapeHtml(A.codice_assieme)}</option>`).join('')}<option value="__nuovo__">+ nuovo assieme…</option></select></label>
+      <label class="wide man-nuovo-ass" hidden>Codice del nuovo assieme<input id="man-ass-nuovo" placeholder="es. ACM.Z1016.KOI"></label>
+    </div>
+    <div class="wb-man-calc" id="man-calc"></div>
+    <div class="app-confirm-actions"><button class="btn-secondary" data-no>Annulla</button><button class="btn-primary" data-ok>${a ? 'Applica' : 'Aggiungi'}</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  if (window.lucide) lucide.createIcons();
+  const $ = id => ov.querySelector('#' + id);
+  const leggi = () => ({
+    forma: $('man-forma').value, l: $('man-l').value, h: $('man-h').value, d: $('man-d').value,
+    fori: [0, 1, 2].map(k => ({ n: $('man-fn' + k).value, d: $('man-fd' + k).value })),
+  });
+  const aggiorna = () => {
+    const tondo = $('man-forma').value === 'tondo';
+    ov.querySelectorAll('.man-rett').forEach(e => e.hidden = tondo);
+    ov.querySelectorAll('.man-tondo').forEach(e => e.hidden = !tondo);
+    ov.querySelector('.man-nuovo-ass').hidden = $('man-ass').value !== '__nuovo__';
+    const c = _wbManCalcola(leggi());
+    const sp = parseFloat(String($('man-sp').value).replace(',', '.')) || 0;
+    const kg = c.area_dm2 * sp / 100 * (_densitaMateriale($('man-mat').value) || 7.85);
+    $('man-calc').innerHTML = c.ok
+      ? `Area <b>${c.area_dm2.toLocaleString('it-IT', { maximumFractionDigits: 3 })} dm²</b> · taglio <b>${Math.round(c.perimetro_taglio_m * 1000).toLocaleString('it-IT')} mm</b> · inneschi <b>${c.n_forature}</b>${sp > 0 ? ` · peso <b>${kg.toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg</b>` : ''}`
+      : '<span class="err">Inserisci le misure del pezzo</span>';
+    return c;
+  };
+  ov.addEventListener('input', aggiorna); ov.addEventListener('change', aggiorna);
+  aggiorna();
+  setTimeout(() => $(a ? 'man-l' : 'man-cod').focus(), 50);
+  const tasti = e => {
+    if (e.key === 'Escape') { e.preventDefault(); chiudi(); }
+    else if (e.key === 'Enter' && e.target.tagName === 'INPUT' && ov.contains(e.target)) ov.querySelector('[data-ok]').click();
+  };
+  const chiudi = () => { document.removeEventListener('keydown', tasti, true); ov.remove(); };
+  document.addEventListener('keydown', tasti, true);
+  ov.querySelector('[data-no]').onclick = chiudi;
+  ov.querySelector('[data-ok]').onclick = async () => {
+    const c = aggiorna();
+    const sp = parseFloat(String($('man-sp').value).replace(',', '.')) || 0;
+    if (!c.ok) { $(($('man-forma').value === 'tondo') ? 'man-d' : 'man-l').focus(); return; }
+    if (!(sp > 0)) { $('man-sp').focus(); wbSnack('Manca lo spessore', 'warn'); return; }
+    if (!$('man-mat').value) { $('man-mat').focus(); wbSnack('Manca il materiale', 'warn'); return; }
+    let ass = $('man-ass').value;
+    if (ass === '__nuovo__') {
+      ass = $('man-ass-nuovo').value.trim();
+      if (!ass) { $('man-ass-nuovo').focus(); return; }
+      if (!currentAssiemi.some(A => A.codice_assieme === ass)) {
+        currentAssiemi.push({ id: 'tmp-' + Date.now(), codice_assieme: ass, qty: 1, ore_montaggio: 0, ore_puntatura: 0, costo: 0,
+          costo_puntatura: 0, costo_saldatura_assieme: 0, saldatura_mt: 0, peso_kg: 0, componenti_qty: {} });
+        scheduleSaveAssiemi(300);
+      }
+    }
+    const m = leggi();
+    const x = a || { id: 'tmp-' + Date.now(), costo_materiale: 0, costo_base_stimato: 0, costo_base_override: null,
+      pieghe: 0, saldatura_ml: 0, svasatura_pz: 0, costo_piega: 0, costo_saldatura: 0, costo_svasatura: 0, costo_apporto: 0, costo_pulizia: 0 };
+    x.codice = $('man-cod').value.trim() || x.codice || ('PEZZO-' + (currentArticoli.length + 1));
+    x.materiale = $('man-mat').value;
+    x.spessore_mm = sp;
+    x.quantita = Math.max(1, parseInt($('man-q').value, 10) || 1);
+    x.filettatura_pz = Math.max(0, parseInt($('man-filett').value, 10) || 0);
+    x.codice_assieme = ass || null;
+    Object.assign(x, { area_dm2: c.area_dm2, perimetro_taglio_m: c.perimetro_taglio_m, n_forature: c.n_forature,
+                       bbox_w_mm: c.bbox_w_mm, bbox_h_mm: c.bbox_h_mm });
+    x.pezzo_manuale = { forma: m.forma === 'tondo' ? 'tondo' : 'rett',
+      l: parseFloat(String(m.l).replace(',', '.')) || null, h: parseFloat(String(m.h).replace(',', '.')) || null,
+      d: parseFloat(String(m.d).replace(',', '.')) || null, fori: c.fori };
+    ['area_dm2', 'perimetro_taglio_m', 'n_forature', 'materiale', 'spessore_mm', 'filettatura_pz'].forEach(k => _segnaManuale(x, k));
+    recalcLavorazioniArt(x);
+    let idx = currentArticoli.indexOf(x);
+    if (idx < 0) { currentArticoli.push(x); idx = currentArticoli.length - 1; }
+    chiudi();
+    renderArticoli(); recalcTotali(); segnaArticoliModificati(300);
+    try { renderSplitTree(); } catch (_) {}
+    if (_splitView) await selectSplitArticolo(idx);
+    const r = await stimaArt(idx, { silent: true });
+    if (_splitSelectedIdx === idx) { try { renderSplitDetail(idx); } catch (_) {} }
+    wbSnack(`${x.codice}: ${c.area_dm2.toLocaleString('it-IT', { maximumFractionDigits: 2 })} dm², ${Math.round(c.perimetro_taglio_m * 1000)} mm di taglio`
+      + (r && r.success ? '' : ' · costo non calcolato'), r && r.success ? '' : 'warn');
+  };
+}
+
 // ── Ordine del cliente (PDF) ───────────────────────────────────────
 // Dopo l'import dei disegni: "C'e' l'ordine?". Il PDF si legge sul server
 // SENZA AI cercando i codici dei pezzi: quantita' e ordine delle righe. Si
@@ -8598,22 +8744,8 @@ function updateArtAssieme(idx, value) {
   if (assiemiChanged) scheduleSaveAssiemi(300);
 }
 
-function addArticoloManuale() {
-  currentArticoli.push({
-    id: 'tmp-' + Date.now(),
-    codice: 'ART-' + (currentArticoli.length + 1),
-    quantita: 1,
-    materiale: 'S235',
-    spessore_mm: 2,
-    area_dm2: 0, perimetro_taglio_m: 0, n_forature: 0,
-    costo_materiale: 0, costo_base_stimato: 0, costo_base_override: null,
-    pieghe: 0, saldatura_ml: 0, filettatura_pz: 0, svasatura_pz: 0,
-    costo_piega: 0, costo_saldatura: 0, costo_filettatura: 0, costo_svasatura: 0,
-    costo_apporto: 0, costo_pulizia: 0,
-  });
-  renderArticoli();
-  segnaArticoliModificati();
-}
+/** "+ Pezzo": apre la finestra del pezzo a mano (misure → area e taglio). */
+function addArticoloManuale() { wbPezzoAMano(null); }
 
 async function removeArt(idx) {
   if (!await appConfirm('Rimuovere articolo "' + (currentArticoli[idx].codice || '?') + '"?',
