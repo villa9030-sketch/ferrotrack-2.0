@@ -247,7 +247,31 @@ def proponi_contorno(dxf_path: str, spessore: float, densita: float, peso_kg: fl
             a = c.get('area_dm2') or 0
             if a > 0 and c.get('outer_xy'):
                 candidati.setdefault(round(a, 3), c)
+    # Anche le facce chiuse del disegno (polygonize, gia' calcolato per il CAD)
+    # di area plausibile per quel peso: su un pezzo piccolo in un foglio pieno
+    # di altro, i "clic" sui tratti piu' lunghi non ci arrivano
+    # (47PA01535: la faccia giusta esisteva, 0,105 dm2 come lo STEP).
     scala = _scala_quote(doc)
+    try:
+        from shapely.geometry import Polygon
+        facce = pp._faces_from_msp(doc.modelspace(), colori)
+        attesa = peso_kg / (spessore / 100 * densita)            # dm2
+        for f in facce:
+            for s in {1.0, scala}:
+                a_lorda = Polygon(f.exterior).area / 1e4 * s * s
+                if not (0.7 * attesa <= a_lorda <= 1.6 * attesa):
+                    continue
+                g = pp._geometry_from_outer(f, facce)
+                a = g.get('area_dm2') or 0
+                if a > 0:
+                    candidati.setdefault(round(a, 3), {
+                        'area_dm2': a, 'perimetro_taglio_m': g.get('perimetro_taglio_m'),
+                        'n_forature': g.get('n_forature'),
+                        'bbox_width_mm': g.get('bbox_width_mm'), 'bbox_height_mm': g.get('bbox_height_mm'),
+                        'outer_xy': list(f.exterior.coords),
+                        'holes_xy': [list(i.coords) for i in f.interiors]})
+    except Exception as e:
+        logger.warning('candidati da facce %s: %s', dxf_path, e)
     migliore, err, s_usata = None, None, 1.0
     for c in candidati.values():
         for s in {1.0, scala}:
@@ -312,6 +336,33 @@ def quote_disegno(dxf_path: str) -> list:
     return _in_cache(('quote',) + _firma(dxf_path), calcola)
 
 
+_PAROLE_PROFILO = r"(angolar[ei]|piatt[oi]|tub[oi]|tubolar[ei]|UPN|UPE|IPE|HE[AB]|tond[oi]|profilat[oi]|scatolat[oi])"
+
+
+def descrizione_profilo(dxf_path: str) -> str | None:
+    """Testo del cartiglio che descrive un PROFILO da barra (angolare, piatto,
+    tubo, UPN...): la descrizione comincia con la parola e non parla di
+    lamiera (sp., lamiera, piastra). "Tolleranze angolari" non conta.
+    Archivio: 57 dei 59 pezzi senza un contorno col peso del cartiglio erano
+    angolari (DECA 07SA00174..., 37SA...), non lamiere da laser."""
+    def calcola():
+        import re
+        # Descrizione che COMINCIA con la parola e non parla di lamiera: "Piastra
+        # angolare ... sp.5", "Lamiera fix tondo ... sp.4", "Piatto ... sp.12"
+        # sono lamiere tagliate al laser (preventivo DECA 12e612dd).
+        rx = re.compile(r"^\s*" + _PAROLE_PROFILO + r"\b", re.I)
+        lamiera = re.compile(r"\bsp\s*\.?\s*\d|\blamier|\bpiastr", re.I)
+        try:
+            from .dxf_scanner import _raccogli_testi_dxf
+            for _x, _y, t in _raccogli_testi_dxf(dxf_path) or []:
+                if t and rx.search(t) and not lamiera.search(t):
+                    return ' '.join(t.split())[:120]
+        except Exception:
+            return None
+        return None
+    return _in_cache(('profilo',) + _firma(dxf_path), calcola)
+
+
 def ingombro_letto(dxf_path: str, config: dict | None) -> dict | None:
     """Area e ingombro del contorno che l'import sceglie da solo (stessa
     funzione e stessa configurazione, in sola lettura)."""
@@ -331,10 +382,12 @@ def ingombro_letto(dxf_path: str, config: dict | None) -> dict | None:
 def verifica_pezzo(cartella: str, dxf_filename: str | None, codice: str | None,
                    config: dict | None = None) -> dict:
     """Dati indipendenti per il controllo di coerenza di un pezzo."""
-    out = {'versione': 2, 'peso_cartiglio': None, 'step': None, 'quote': [], 'ingombro_letto': None}
+    out = {'versione': 4, 'peso_cartiglio': None, 'step': None, 'quote': [], 'ingombro_letto': None,
+           'profilo': None}
     dxf_path = os.path.join(cartella, os.path.basename(dxf_filename)) if dxf_filename else None
     if dxf_path and os.path.exists(dxf_path):
         out['peso_cartiglio'] = peso_cartiglio(dxf_path)
+        out['profilo'] = descrizione_profilo(dxf_path)
         out['quote'] = quote_disegno(dxf_path)
         if out['quote']:
             out['ingombro_letto'] = ingombro_letto(dxf_path, config)
