@@ -7018,6 +7018,7 @@ let _cadEditorIdx = null;   // indice articolo in attesa di conferma dal CAD
 /** Apre il CAD interno per identificare il pezzo — INLINE nella preview di
  *  destra (niente più finestra separata). Clicchi il contorno direttamente sul
  *  disegno; al Conferma arriva la geometria via postMessage. */
+const _wbCadChiusi = new Set();   // pezzi il cui CAD e' stato chiuso a mano: non si riapre da solo
 function openCadEditor() {
   const idx = _splitSelectedIdx;
   if (idx == null || !currentArticoli[idx]) { appAlert('Seleziona prima un articolo.'); return; }
@@ -7102,7 +7103,11 @@ function _messaggioDelPreventivoCorrente(p) {
 window.addEventListener('message', (ev) => {
   if (!_messaggioAffidabile(ev)) return;
   if (ev.data && ev.data.type === 'cad-close') {
-    if (_cadEditorIdx != null && currentArticoli[_cadEditorIdx]) selectSplitArticolo(_cadEditorIdx);
+    // Chiuso dall'operatore: per questo pezzo il CAD non si riapre piu' da
+    // solo (prima si riapriva subito: contorno ancora incerto → CAD, e non
+    // si usciva). Resta "Apri CAD" nell'avviso del pezzo.
+    const a = _cadEditorIdx != null ? currentArticoli[_cadEditorIdx] : null;
+    if (a) { _wbCadChiusi.add(a.id || a.dxf_filename); selectSplitArticolo(_cadEditorIdx); }
   }
 });
 
@@ -8059,7 +8064,7 @@ async function renderSplitDetail(idx) {
     // un contorno trovato con sicurezza si mostra come disegno, verificabile
     // con "Apri CAD" ma senza imporlo a ogni pezzo.
     const _daVerificare = (typeof wbContorno === 'function') ? wbContorno(a) === 'incerto' : !a.geometria_manuale_confermata;
-    if (!a.geometria_manuale_confermata && _editabile && _daVerificare) {
+    if (!a.geometria_manuale_confermata && _editabile && _daVerificare && !_wbCadChiusi.has(a.id || a.dxf_filename)) {
       // Pezzo NON identificato (e preventivo modificabile) → apre subito il CAD.
       preview.onclick = null; preview.style.cursor = 'default';
       openCadEditor();
