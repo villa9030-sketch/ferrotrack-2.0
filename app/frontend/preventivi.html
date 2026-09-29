@@ -11542,8 +11542,12 @@ async function exportPdf(interno = false) {
     const blob = await r.blob();
     const objectUrl = URL.createObjectURL(blob);
     const cd = r.headers.get('Content-Disposition') || '';
-    const m = cd.match(/filename[^;=\n]*=(?:UTF-\d['"]*)?["']?([^;"'\n]*)["']?/i);
-    const filename = m ? m[1] : `preventivo_${currentPreventivo.id.slice(0,8)}.pdf`;
+    // filename*=UTF-8''... (nomi con accenti) ha la precedenza sul filename semplice
+    const mStar = cd.match(/filename\*\s*=\s*UTF-8''([^;\n]+)/i);
+    const m = cd.match(/filename\s*=\s*"([^"]*)"|filename\s*=\s*([^;\n]*)/i);
+    let filename = `preventivo_${currentPreventivo.id.slice(0,8)}.pdf`;
+    if (mStar) { try { filename = decodeURIComponent(mStar[1].trim()); } catch (_) {} }
+    else if (m) filename = (m[1] || m[2] || '').trim() || filename;
     const a = document.createElement('a');
     a.href = objectUrl; a.download = filename; document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(objectUrl); a.remove(); }, 200);

@@ -5438,8 +5438,10 @@ def api_preventivi_pdf(preventivo_id):
         exporter = _pdf_exporter.PDFPreventivo(app_cfg)
         exporter.genera_pdf(pdf_path, dati_pdf, interno=interno)
 
+        # Nome del file scaricato: cliente, ordine e data (il file sul server
+        # resta col nome univoco).
         return send_file(pdf_path, mimetype='application/pdf',
-                         as_attachment=not inline, download_name=filename)
+                         as_attachment=not inline, download_name=_nome_pdf_preventivo(p, interno))
     except Exception as e:
         logger.exception('preventivi pdf failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -5566,6 +5568,21 @@ def api_preventivi_invia(preventivo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _nome_pdf_preventivo(p: dict, interno: bool = False) -> str:
+    """Nome leggibile del PDF: cliente, ordine e data, cosi' si ritrova nella
+    cartella Download e negli allegati. L'interno comincia con INTERNO per non
+    mandarlo per sbaglio al cliente."""
+    def _pulito(s):
+        s = ''.join(ch for ch in str(s or '') if ch not in '\\/:*?"<>|\r\n\t').strip()
+        return ' '.join(s.split())[:60]
+    parti = [_pulito(p.get('cliente')) or 'senza cliente']
+    rif = _pulito(p.get('numero_ordine_cliente'))
+    if rif:
+        parti.append(f'ord {rif}')
+    parti.append(datetime.now().strftime('%Y-%m-%d'))
+    return ('INTERNO costi - ' if interno else 'Preventivo ') + ' - '.join(parti) + '.pdf'
+
+
 def _genera_pdf_cliente_bytes(p: dict) -> tuple[bytes, str]:
     """Genera il PDF CLIENTE del preventivo e ne ritorna (bytes, filename).
 
@@ -5581,7 +5598,7 @@ def _genera_pdf_cliente_bytes(p: dict) -> tuple[bytes, str]:
     app_cfg = BarcodeManager.load_config() or {}
     _pdf_exporter.PDFPreventivo(app_cfg).genera_pdf(pdf_path, dati_pdf, interno=False)
     with open(pdf_path, 'rb') as fp:
-        return fp.read(), filename
+        return fp.read(), _nome_pdf_preventivo(p)
 
 
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
