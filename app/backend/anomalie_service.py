@@ -21,6 +21,7 @@ import uuid
 from datetime import date, datetime, timedelta
 
 from .database import get_session
+from .orario import data_locale, iso_utc
 from .models import RUOLI_UFFICIO, User
 from .models_ore import (
     AnomaliaOre, EccezioneGiorno, GiornataOre, OreAttese, RigaOre,
@@ -223,8 +224,10 @@ def controlla_periodo(dal=None, al=None) -> dict:
         # allarmi finti addosso a una persona appena entrata.
         attivi = {}
         for u in session.query(User).filter(User.is_active == True).all():  # noqa: E712
-            da = getattr(u, 'created_at', None)
-            attivi[u.id] = da.date() if da is not None else None
+            # created_at e' un istante UTC: il giorno e' quello italiano. Con
+            # .date() chi veniva aggiunto fra mezzanotte e le 2 risultava
+            # arrivato il giorno prima, e si trovava addosso una mancanza.
+            attivi[u.id] = data_locale(getattr(u, 'created_at', None))
 
         giorno = da_giorno
         n_giorni = 0
@@ -373,7 +376,7 @@ def elenco_anomalie(stato: str = 'aperta', dal=None, al=None, limite: int = 200)
             'minuti_dichiarati': int(a.minuti_dichiarati or 0),
             'minuti_attesi': int(a.minuti_attesi or 0),
             'stato': a.stato,
-            'rilevata_il': a.rilevata_il.isoformat() if a.rilevata_il else None,
+            'rilevata_il': iso_utc(a.rilevata_il),
             # "l'operaio sapeva": distingue una giornata corta confermata
             # (mezza giornata, permesso) da una dimenticanza o da un errore.
             'confermata_dall_operaio': bool(confermate.get((a.operatore_id, a.data))),

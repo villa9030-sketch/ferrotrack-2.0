@@ -1405,6 +1405,13 @@ body {
 </div>
 
 <script>
+// AAAA-MM-GG del giorno LOCALE: toISOString() da' il giorno UTC e fra
+// mezzanotte e le 2 spostava calendario e "oggi" al giorno prima.
+function _giornoLocale(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
 const API_BASE = '';  // Stessa origin (es: http://localhost:5000)
 
 let currentUser = null;
@@ -1457,6 +1464,37 @@ async function loadUsers() {
   }
 }
 
+// Ogni postazione apre sulla cosa che da li' si fa. Nessuno deve cercarla.
+//
+// UNA sola funzione, usata sia dal login sia dalla sessione gia' salvata:
+// prima erano due elenchi scritti a mano e quello della sessione salvata era
+// rimasto indietro (Amministrazione e Timbratrice finivano sulla bacheca
+// operai, la postazione laser sul pannello del capo).
+//
+// L'ordine conta: la postazione laser ha la delega del capo, quindi va
+// riconosciuta prima del controllo sul comando, altrimenti finirebbe sul
+// pannello capo invece che davanti ai pezzi da tagliare.
+function paginaDiPartenza(u) {
+  const ruolo = (u && u.role) || '';
+  // Timbratrice: si dichiarano le ore, e basta.
+  if (ruolo === 'Timbratrice') return '/ore.html';
+  // I due tablet in officina: gli ordini in corso, in sola lettura.
+  if (ruolo === 'Visione') return '/operaio-info.html';
+  // Laser: la coda da tagliare. Il pannello del capo e' raggiungibile
+  // da li', ma non e' quello che serve aprendo.
+  if (ruolo === 'Laser' || ruolo === 'Operaio Laser') return '/laser.html';
+  // Amministrazione: ordini, consegne, fatturazione.
+  if (ruolo === 'Amministrazione' || ruolo === 'Impiegata') return '/impiegata.html';
+  // Commerciale: i preventivi.
+  if (ruolo === 'Commerciale') return '/preventivi.html';
+  // Utenze vecchie ancora attive (capi seedati prima delle postazioni).
+  if (u && (u.is_capo || ruolo === 'Capo Officina' || ruolo === 'Amministratore')) {
+    return '/capo-officina.html';
+  }
+  // Chiunque altro: gli ordini in corso, in sola lettura.
+  return '/operaio-info.html';
+}
+
 async function loginUser(userId) {
   // Entra in fullscreen solo su tablet/mobile (non su PC)
   const isTouch = 'ontouchstart' in window && window.innerWidth <= 1024;
@@ -1487,51 +1525,7 @@ async function loginUser(userId) {
     currentUser = { id: userId, ...userData };
     localStorage.setItem('currentUser', JSON.stringify(currentUser));
 
-    // Ogni postazione apre sulla cosa che da li' si fa. Nessuno deve cercarla.
-    //
-    // L'ordine conta: la postazione laser ha la delega del capo, quindi va
-    // riconosciuta prima del controllo sul comando, altrimenti finirebbe sul
-    // pannello capo invece che davanti ai pezzi da tagliare.
-
-    // Timbratrice: si dichiarano le ore, e basta.
-    if (currentUser.role === 'Timbratrice') {
-      window.location.href = '/ore.html';
-      return;
-    }
-
-    // I due tablet in officina: gli ordini in corso, in sola lettura.
-    if (currentUser.role === 'Visione') {
-      window.location.href = '/operaio-info.html';
-      return;
-    }
-
-    // Laser: la coda da tagliare. Il pannello del capo e' raggiungibile
-    // da li', ma non e' quello che serve aprendo.
-    if (currentUser.role === 'Laser' || currentUser.role === 'Operaio Laser') {
-      window.location.href = '/laser.html';
-      return;
-    }
-
-    // Amministrazione: ordini, consegne, fatturazione.
-    if (currentUser.role === 'Amministrazione' || currentUser.role === 'Impiegata') {
-      window.location.href = '/impiegata.html';
-      return;
-    }
-
-    // Commerciale: i preventivi.
-    if (currentUser.role === 'Commerciale') {
-      window.location.href = '/preventivi.html';
-      return;
-    }
-
-    // Utenze vecchie ancora attive (capi seedati prima delle postazioni).
-    if (currentUser.is_capo || currentUser.role === 'Capo Officina' || currentUser.role === 'Amministratore') {
-      window.location.href = '/capo-officina.html';
-      return;
-    }
-
-    // Chiunque altro: gli ordini in corso, in sola lettura.
-    window.location.href = '/operaio-info.html';
+    window.location.href = paginaDiPartenza(currentUser);
     return;
 
     // Hide login, show dashboard
@@ -2184,29 +2178,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const userData = JSON.parse(saved);
       currentUser = userData;
 
-      // Redirect to the correct page based on role
-      if (currentUser.role === 'Impiegata') {
-        window.location.href = '/impiegata.html';
-        return;
-      }
-      if (currentUser.role === 'Commerciale') {
-        window.location.href = '/preventivi.html';
-        return;
-      }
-      if (currentUser.role === 'Amministratore') {
-        window.location.href = '/admin.html';
-        return;
-      }
-      if (currentUser.is_capo || currentUser.role === 'Capo Officina') {
-        window.location.href = '/capo-officina.html';
-        return;
-      }
-      if (currentUser.role === 'Operaio Laser') {
-        window.location.href = '/laser.html';
-        return;
-      }
-      // Operai officina: bacheca ordini in sola lettura + dichiarazione ore
-      window.location.href = '/operaio-info.html';
+      // Stessa destinazione del login: vedi paginaDiPartenza().
+      window.location.href = paginaDiPartenza(currentUser);
       return;
 
       // Fallback: show built-in dashboard
@@ -2281,7 +2254,7 @@ function renderCalendar() {
   const today = new Date();
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month, day);
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = _giornoLocale(date);
     const ordersOnDay = allOrders.filter(o => {
       const deliveryDate = o.data_consegna ? o.data_consegna.split('T')[0] : null;
       return deliveryDate === dateStr;
@@ -2357,7 +2330,7 @@ function selectCalendarDay(dateStr) {
 
 function updateCalendarOrders() {
   // Show today's orders or first day with orders
-  const today = new Date().toISOString().split('T')[0];
+  const today = _giornoLocale(new Date());
   const todayOrders = allOrders.filter(o => o.data_consegna && o.data_consegna.split('T')[0] === today);
 
   if (todayOrders.length > 0) {

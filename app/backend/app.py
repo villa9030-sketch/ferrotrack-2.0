@@ -20,6 +20,8 @@ from .models import (initialize_database, Order, OrderFile, get_session,
 from .database import OrderManager, UserManager, AuditManager, ArchiveManager, FatturazioneManager, NotificationManager, AlertManager, KPIManager, BarcodeManager, PreventivoManager
 from .pdf_cartellino import genera_cartellino_pdf
 from .events import OrderEventBus
+from .orario import iso_utc, iso_data, data_locale, oggi_locale, giorno_locale_in_utc
+from urllib.parse import quote
 from .preventivi import (
     xlsx_importer as _xlsx_importer,
     dxf_scanner as _dxf_scanner,
@@ -628,10 +630,15 @@ def mark_laser_undone(order_id):
 
 @app.route('/api/orders/<order_id>/close', methods=['POST'])
 def close_order(order_id):
-    """Marca un ordine come 'lavoro finito' → status=DA_FATTURARE.
+    """Capo officina: "Lavoro finito". E' il completamento del ciclo ordini
+    (data e autore registrati, ufficio avvisato), non uno stato a parte.
 
     Permesso: capi officina E impiegata (Elena fa da backup quando i capi
     si dimenticano o accumulano).
+
+    Risposta: {success, order_id, scan_chiuse, nuovo_status, gia_registrato,
+    ordine, avviso?}. `avviso` c'e' quando il laser doveva tagliare l'ordine e
+    non ha segnato il taglio: non blocca, ma va detto.
     """
     try:
         data = request.get_json(silent=True) or {}
@@ -646,7 +653,9 @@ def close_order(order_id):
         if not is_allowed:
             return jsonify({'error': 'Permesso negato'}), 403
         result = OrderManager.close_order(order_id, user_id=user_id)
-        return jsonify(result), (200 if result.get('success') else 400)
+        if result.get('success'):
+            return jsonify(result), 200
+        return jsonify(result), (404 if result.get('codice') == 'non_trovato' else 400)
     except Exception as e:
         logger.exception('close_order endpoint failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -764,7 +773,8 @@ def get_order_pdf(order_id):
         try:
             order = session.query(Order).filter(Order.id == order_id).first()
             if not order:
-                return jsonify({'error': 'Ordine non trovato'}), 404
+                return jsonify({'success': False, 'codice': 'non_trovato',
+                                'error': 'Ordine non trovato'}), 404
 
             # Cerca il file PDF tra i file allegati
             pdf_file = session.query(OrderFile).filter(
@@ -772,8 +782,12 @@ def get_order_pdf(order_id):
                 OrderFile.file_type == 'PDF'
             ).first()
 
-            if not pdf_file or not os.path.exists(pdf_file.filepath):
-                return jsonify({'error': 'PDF non trovato'}), 404
+            # Gli ordini nati da un preventivo spesso non hanno un PDF: non e'
+            # un errore del server, e la pagina deve poterlo distinguere da un
+            # guasto per mostrare "nessun PDF" invece di un messaggio rosso.
+            if not pdf_file or not pdf_file.filepath or not os.path.exists(pdf_file.filepath):
+                return jsonify({'success': False, 'codice': 'pdf_assente',
+                                'error': "Quest'ordine non ha un PDF allegato"}), 404
 
             # Serve il PDF inline per iframe
             return send_file(
@@ -790,30 +804,538 @@ def get_order_pdf(order_id):
         logger.error(f"get_order_pdf: {e}")
         return jsonify({'error': str(e)}), 500
 
+# ============ DISEGNI E DISTINTA DELL'ORDINE ============
+#
+# Accettando un preventivo i DXF vengono copiati in uploads/drawings/<order_id>/,
+# ma lo scaricamento li cercava in uploads/drawings/<nome> (la cartella piatta
+# dei caricamenti vecchi): 404, e nessuna pagina riusciva ad aprire i disegni
+# di un ordine. Qui c'e' UN solo elenco dei disegni di un ordine, e tutti gli
+# endpoint (elenco, scarica, anteprima, zip) passano da li': un nome che non
+# e' nell'elenco non si apre, e questo chiude anche la porta ai "../".
+
+_ESTENSIONI_DISEGNO = ('.dxf', '.dwg')
+
+
+def _ordine_esistente(order_id: str):
+    """L'ordine (anche annullato: i disegni restano consultabili), o None."""
+    session = get_session()
+    try:
+        return session.query(Order).filter(Order.id == order_id).first()
+    finally:
+        session.close()
+
+
+def _nome_mostrato(nome: str, order_id: str) -> str:
+    """Il nome con cui l'utente riconosce il file.
+
+    I caricamenti vecchi stavano nella cartella piatta come "<id>_<nome>" e a
+    volte con un "draft_" davanti: quei prefissi sono nostri, non del disegno.
+    """
+    base = os.path.basename(nome or '')
+    if order_id and base.startswith(order_id + '_'):
+        base = base[len(order_id) + 1:]
+    if base.startswith('draft_'):
+        base = base[len('draft_'):]
+    return base
+
+
+def _disegni_ordine(order) -> list:
+    """Tutti i disegni di un ordine: [{nome, percorso, dimensione}].
+
+    Dove si cercano, nell'ordine:
+      1. uploads/drawings/<order_id>/   (ordini da preventivo, e da oggi)
+      2. la cartella piatta uploads/drawings/<order_id>_<nome> (caricamenti vecchi)
+      3. le righe di order_files, per gli ordini vecchi che hanno il percorso
+         registrato altrove
+    Lo stesso nome compare una volta sola: vince il primo trovato.
+    """
+    order_id = order.id
+    visti = {}
+
+    def aggiungi(percorso, nome=None):
+        if not percorso or not os.path.isfile(percorso):
+            return
+        nome = _nome_mostrato(nome or percorso, order_id)
+        if not nome.lower().endswith(_ESTENSIONI_DISEGNO):
+            return
+        chiave = nome.lower()
+        if chiave in visti:
+            return
+        try:
+            dim = os.path.getsize(percorso)
+        except OSError:
+            dim = None
+        visti[chiave] = {'nome': nome, 'percorso': os.path.normpath(percorso),
+                         'dimensione': dim}
+
+    cartella = os.path.join(DRAWINGS_FOLDER, order_id)
+    if os.path.isdir(cartella):
+        for nome in sorted(os.listdir(cartella), key=str.lower):
+            aggiungi(os.path.join(cartella, nome), nome)
+
+    prefisso = order_id + '_'
+    try:
+        for nome in sorted(os.listdir(DRAWINGS_FOLDER), key=str.lower):
+            if nome.startswith(prefisso):
+                aggiungi(os.path.join(DRAWINGS_FOLDER, nome), nome)
+    except OSError:
+        pass
+
+    session = get_session()
+    try:
+        righe = session.query(OrderFile).filter(OrderFile.order_id == order_id).all()
+        for r in righe:
+            nome = r.filename or os.path.basename(r.filepath or '')
+            if not nome.lower().endswith(_ESTENSIONI_DISEGNO):
+                continue
+            percorso = r.filepath
+            if not (percorso and os.path.isfile(percorso)):
+                # Percorso registrato su un'altra macchina o spostato: si
+                # riprova nelle cartelle note col solo nome del file.
+                base = os.path.basename(nome)
+                for tentativo in (os.path.join(cartella, base),
+                                  os.path.join(DRAWINGS_FOLDER, base),
+                                  os.path.join(DRAWINGS_FOLDER, prefisso + base)):
+                    if os.path.isfile(tentativo):
+                        percorso = tentativo
+                        break
+            aggiungi(percorso, nome)
+    finally:
+        session.close()
+    return list(visti.values())
+
+
+def _trova_disegno(order, filename: str):
+    """Il disegno richiesto, solo se fa parte dell'elenco dell'ordine."""
+    richiesto = os.path.basename((filename or '').replace('\\', '/'))
+    if not richiesto or richiesto in ('.', '..') or richiesto != (filename or ''):
+        return None
+    chiave = _nome_mostrato(richiesto, order.id).lower()
+    for d in _disegni_ordine(order):
+        if d['nome'].lower() == chiave:
+            return d
+    return None
+
+
+def _cartella_condivisa(order) -> dict:
+    """Stato della copia dei disegni nella cartella di rete (quella di Lantek)."""
+    out = {'configurata': False, 'percorso': None, 'esportato': False}
+    try:
+        root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+        if not root:
+            return out
+        out['configurata'] = True
+        from .preventivi.dxf_cleanup import _sanitize_path_part
+        percorso = os.path.normpath(os.path.join(
+            root,
+            _sanitize_path_part(order.cliente or '', 'cliente_sconosciuto'),
+            _sanitize_path_part(order.numero_ordine or order.id[:8], 'ordine')))
+        out['percorso'] = percorso
+        out['esportato'] = os.path.isdir(percorso) and any(
+            os.path.isfile(os.path.join(percorso, n)) for n in os.listdir(percorso))
+    except Exception:
+        logger.exception('stato cartella condivisa non determinabile')
+    return out
+
+
+def _url_disegno(order_id: str, nome: str) -> str:
+    from urllib.parse import quote
+    return f'/api/orders/{order_id}/dxf/{quote(nome)}'
+
+
+def _non_trovato_ordine():
+    return jsonify({'success': False, 'codice': 'non_trovato',
+                    'error': 'Ordine non trovato'}), 404
+
+
+@app.route('/api/orders/<order_id>/disegni', methods=['GET'])
+def api_ordine_disegni(order_id):
+    """Elenco dei disegni dell'ordine, con i link per scaricarli e vederli."""
+    try:
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        disegni = []
+        for d in _disegni_ordine(order):
+            url = _url_disegno(order_id, d['nome'])
+            disegni.append({
+                'nome': d['nome'],
+                'dimensione': d['dimensione'],
+                'url_dxf': url,
+                # L'anteprima c'e' solo per i DXF: un DWG va prima convertito.
+                'url_svg': (url + '/svg') if d['nome'].lower().endswith('.dxf') else None,
+            })
+        return jsonify({
+            'success': True,
+            'disegni': disegni,
+            'url_zip': f'/api/orders/{order_id}/disegni.zip',
+            'cartella_condivisa': _cartella_condivisa(order),
+        }), 200
+    except Exception as e:
+        logger.exception('elenco disegni ordine fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/dxf/<filename>', methods=['GET'])
 def get_dxf_file(order_id, filename):
-    """Serve DXF file per download"""
+    """Scarica un disegno dell'ordine, col suo nome."""
     try:
-        # Sanitize filename to prevent directory traversal
-        filename = os.path.basename(filename)
-
-        # Verify file exists in drawings folder
-        dxf_path = os.path.join(DRAWINGS_FOLDER, filename)
-
-        if not os.path.exists(dxf_path):
-            return jsonify({'error': 'File non trovato'}), 404
-
-        # Serve file for download with proper headers
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        d = _trova_disegno(order, filename)
+        if not d:
+            return jsonify({'success': False, 'codice': 'disegno_assente',
+                            'error': 'Disegno non trovato per quest\'ordine'}), 404
         return send_file(
-            dxf_path,
+            d['percorso'],
             mimetype='application/dxf',
             as_attachment=True,
-            download_name=filename.replace('draft_', '')
+            download_name=d['nome']
         )
-
     except Exception as e:
         logger.error(f"Get DXF file error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/dxf/<filename>/svg', methods=['GET'])
+def api_ordine_dxf_svg(order_id, filename):
+    """Anteprima SVG di un disegno dell'ordine: stesso disegnatore (e stessa
+    cache) dell'anteprima nel preventivo, cosi' il pezzo si vede uguale."""
+    try:
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        d = _trova_disegno(order, filename)
+        if not d:
+            return jsonify({'success': False, 'codice': 'disegno_assente',
+                            'error': 'Disegno non trovato per quest\'ordine'}), 404
+        if not d['nome'].lower().endswith('.dxf'):
+            return jsonify({'success': False, 'codice': 'anteprima_non_disponibile',
+                            'error': 'Anteprima disponibile solo per i file DXF'}), 415
+        from flask import Response
+        resp = Response(_get_dxf_svg_cached(d['percorso']),
+                        mimetype='image/svg+xml; charset=utf-8')
+        resp.headers['Cache-Control'] = 'private, max-age=3600'
+        return resp
+    except Exception as e:
+        logger.exception('svg disegno ordine fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/disegni.zip', methods=['GET'])
+def api_ordine_disegni_zip(order_id):
+    """Tutti i disegni dell'ordine in un file zip (in memoria: sono decine di
+    file da pochi KB, non serve scrivere su disco)."""
+    try:
+        import io
+        import zipfile
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        disegni = _disegni_ordine(order)
+        if not disegni:
+            return jsonify({'success': False, 'codice': 'nessun_disegno',
+                            'error': 'Quest\'ordine non ha disegni'}), 404
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for d in disegni:
+                zf.write(d['percorso'], arcname=d['nome'])
+        buf.seek(0)
+        from werkzeug.utils import secure_filename
+        nome = secure_filename(f"disegni_{order.numero_ordine or order.id[:8]}.zip") \
+            or 'disegni.zip'
+        return send_file(buf, mimetype='application/zip', as_attachment=True,
+                         download_name=nome)
+    except Exception as e:
+        logger.exception('zip disegni ordine fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
+    """Le righe della distinta di un ordine nato da un preventivo.
+
+    Le quantita' seguono le stesse regole del calcolo del prezzo
+    (preventivi/calcolo.py):
+      - articolo sciolto: quantita' x quantita' del lotto
+      - articolo, tubolare o piastra dentro un assieme: quantita' x pezzi
+        dell'assieme (la riga descrive UN assieme)
+      - tubolare o piastra sciolti: la riga e' gia' il totale (qty, o 1)
+    """
+    def _q(v, default=1):
+        try:
+            n = int(round(float(v)))
+            return n if n > 0 else default
+        except (TypeError, ValueError):
+            return default
+
+    def _f(v):
+        try:
+            x = float(v)
+            return x if x > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _geometria(area_dm2, w, h, stima):
+        """Ingombro del pezzo per il banco lamiere del laser.
+
+        'disegno': larghezza x altezza lette dal DXF nel preventivatore.
+        'stimato': c'e' solo l'area (pezzi vecchi, piastre da STEP): si usa il
+        quadrato di pari area, e il laser lo vede segnato come stima.
+        """
+        area = _f(area_dm2)
+        w, h = _f(w), _f(h)
+        if w and h:
+            fonte = 'disegno'
+        elif area:
+            w = h = round((area * 10000) ** 0.5, 1)
+            fonte = 'stimato'
+        else:
+            fonte = 'mancante'
+        tempo = _f((stima or {}).get('tempo_totale_min')) if isinstance(stima, dict) else None
+        return {'area_dm2': area, 'bbox_w_mm': w, 'bbox_h_mm': h,
+                'ingombro': fonte, 'tempo_min': tempo}
+
+    lotto = _q(prev.get('quantita'))
+    qta_assieme = {a.get('codice_assieme'): _q(a.get('qty'))
+                   for a in (prev.get('assiemi') or []) if a.get('codice_assieme')}
+    righe = []
+
+    def disegno_di(nome):
+        if not nome:
+            return None
+        d = disegni_per_nome.get(os.path.basename(nome).lower())
+        return d['nome'] if d else None
+
+    for a in prev.get('assiemi') or []:
+        cod = a.get('codice_assieme')
+        if not cod:
+            continue
+        lav = []
+        if float(a.get('ore_montaggio') or 0) > 0 or float(a.get('costo') or 0) > 0:
+            lav.append('Montaggio')
+        if float(a.get('ore_puntatura') or 0) > 0:
+            lav.append('Puntatura')
+        if float(a.get('saldatura_mt') or 0) > 0 or float(a.get('costo_saldatura_assieme') or 0) > 0:
+            lav.append('Saldatura')
+        righe.append({'codice': cod, 'descrizione': 'Assieme', 'tipo': 'assieme',
+                      'quantita': qta_assieme.get(cod, 1), 'materiale': None,
+                      'spessore_mm': None, 'lavorazioni': lav, 'assieme': None,
+                      'disegno': None})
+
+    for a in prev.get('articoli') or []:
+        cod_ass = a.get('codice_assieme') or None
+        molt = qta_assieme.get(cod_ass, 1) if cod_ass else lotto
+        lav = ['Taglio laser']
+        if int(a.get('pieghe') or 0) > 0:
+            lav.append(f"Piegatura ({int(a['pieghe'])} pieghe)")
+        if float(a.get('saldatura_ml') or 0) > 0 or float(a.get('saldatura_min') or 0) > 0:
+            lav.append('Saldatura')
+        if int(a.get('filettatura_pz') or 0) > 0:
+            lav.append(f"Filettatura ({int(a['filettatura_pz'])})")
+        if int(a.get('svasatura_pz') or 0) > 0:
+            lav.append(f"Svasatura ({int(a['svasatura_pz'])})")
+        sp = a.get('spessore_mm')
+        desc = 'Lamiera' + (f' sp. {sp:g} mm' if isinstance(sp, (int, float)) and sp else '')
+        righe.append({'codice': a.get('codice') or '', 'descrizione': desc,
+                      'tipo': 'lamiera', 'quantita': _q(a.get('quantita')) * molt,
+                      'materiale': a.get('materiale') or None, 'spessore_mm': sp,
+                      'lavorazioni': lav, 'assieme': cod_ass,
+                      'disegno': disegno_di(a.get('dxf_filename')),
+                      **_geometria(a.get('area_dm2'), a.get('bbox_w_mm'), a.get('bbox_h_mm'),
+                                   a.get('stima_dettaglio'))})
+
+    for t in prev.get('tubolari') or []:
+        cod_ass = t.get('codice_assieme') or None
+        n = _q(t.get('qty'))
+        if cod_ass:
+            n *= qta_assieme.get(cod_ass, 1)
+        lung = t.get('lunghezza_pezzo_mm')
+        if not lung and t.get('lunghezza_m'):
+            lung = round(float(t['lunghezza_m']) * 1000)
+        desc = (t.get('profilo') or 'Tubolare') + (f' L={lung:g} mm' if lung else '')
+        lav = []
+        if int(t.get('n_tagli_dritti') or 0) > 0:
+            lav.append(f"Taglio dritto ({int(t['n_tagli_dritti'])})")
+        if int(t.get('n_tagli_obliqui') or 0) > 0:
+            lav.append(f"Taglio obliquo ({int(t['n_tagli_obliqui'])})")
+        righe.append({'codice': t.get('posizione') or t.get('profilo') or '',
+                      'descrizione': desc, 'tipo': 'tubolare', 'quantita': n,
+                      'materiale': t.get('materiale') or None, 'spessore_mm': None,
+                      'lavorazioni': lav or ['Taglio'], 'assieme': cod_ass,
+                      'disegno': None})
+
+    for pl in prev.get('piastre') or []:
+        cod_ass = pl.get('codice_assieme') or None
+        n = qta_assieme.get(cod_ass, 1) if cod_ass else 1
+        sp = pl.get('spessore_mm')
+        righe.append({'codice': f'Piastra sp. {sp:g}' if isinstance(sp, (int, float)) and sp else 'Piastra',
+                      'descrizione': 'Piastra' + (f" {float(pl['area_dm2']):g} dm2" if pl.get('area_dm2') else ''),
+                      'tipo': 'piastra', 'quantita': n,
+                      'materiale': pl.get('materiale') or None, 'spessore_mm': sp,
+                      'lavorazioni': ['Taglio'], 'assieme': cod_ass, 'disegno': None,
+                      **_geometria(pl.get('area_dm2'), None, None, None)})
+    return righe
+
+
+@app.route('/api/orders/<order_id>/distinta', methods=['GET'])
+def api_ordine_distinta(order_id):
+    """Distinta dei pezzi dell'ordine.
+
+    Un ordine nato da un preventivo non ha articoli suoi: stanno sul
+    preventivo d'origine (orders.preventivo_id_origine), e da li' si
+    ricostruiscono, ognuno col suo disegno quando c'e'.
+    """
+    try:
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        righe, origine, prev = _distinta_ordine(order)
+        totale = sum(r['quantita'] for r in righe if r.get('tipo') != 'assieme')
+        return jsonify({'success': True, 'origine': origine, 'righe': righe,
+                        'totale_pezzi': totale,
+                        'preventivo_id': order.preventivo_id_origine if prev else None}), 200
+    except Exception as e:
+        logger.exception('distinta ordine fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _distinta_ordine(order):
+    """(righe, origine, preventivo) della distinta di un ordine."""
+    disegni_per_nome = {d['nome'].lower(): d for d in _disegni_ordine(order)}
+    righe, origine = [], 'nessuna'
+    prev = None
+    if order.preventivo_id_origine:
+        prev = PreventivoManager.get(order.preventivo_id_origine, include_children=True)
+    if prev:
+        righe = _distinta_da_preventivo(prev, disegni_per_nome)
+        # Ordine caricato dall'ufficio col pacchetto del cliente: i pezzi
+        # stanno su un preventivo tecnico, ma vengono dall'ordine del cliente.
+        origine = 'pacchetto' if prev.get('solo_tecnico') else 'preventivo'
+    else:
+        # Ordini a mano: se un domani avranno articoli propri, si usano.
+        propri = getattr(order, 'articles', None) or []
+        if isinstance(propri, list) and propri:
+            origine = 'ordine'
+            for a in propri:
+                if not isinstance(a, dict):
+                    continue
+                nome_dis = a.get('disegno') or a.get('dxf_filename')
+                d = disegni_per_nome.get(os.path.basename(nome_dis).lower()) if nome_dis else None
+                righe.append({
+                    'codice': a.get('codice') or '',
+                    'descrizione': a.get('descrizione') or '',
+                    'tipo': 'articolo',
+                    'quantita': int(a.get('quantita') or 1),
+                    'materiale': a.get('materiale') or None,
+                    'spessore_mm': a.get('spessore_mm'),
+                    'lavorazioni': list(a.get('lavorazioni') or []),
+                    'assieme': a.get('assieme') or None,
+                    'disegno': d['nome'] if d else None,
+                })
+    return righe, origine, prev
+
+
+# Formati di lamiera proposti al laser (mm). Si cambiano da app_config.json,
+# chiave "laser_formati_lamiera": [[3000, 1500], [2500, 1250], ...].
+_FORMATI_LAMIERA = ((3000, 1500), (2500, 1250), (2000, 1000))
+
+
+def _formati_lamiera():
+    try:
+        cfg = (BarcodeManager.load_config() or {}).get('laser_formati_lamiera')
+        formati = [(float(w), float(h)) for w, h in (cfg or []) if float(w) > 0 and float(h) > 0]
+    except (TypeError, ValueError):
+        formati = []
+    return [{'nome': '%g × %g' % (w, h), 'w_mm': w, 'h_mm': h}
+            for w, h in (formati or _FORMATI_LAMIERA)]
+
+
+@app.route('/api/laser/banco', methods=['GET'])
+def api_laser_banco():
+    """Banco lamiere: i pezzi da tagliare raggruppati per materiale e spessore.
+
+    In macchina non si taglia un ordine alla volta: si carica una lamiera e ci
+    si mettono i pezzi di piu' ordini. Qui ogni gruppo e' una lamiera
+    (materiale + spessore) con i pezzi di tutti gli ordini in coda, ognuno col
+    suo ingombro: la pagina li dispone sui fogli e dice quanti ne servono.
+
+    ?da_smistare=1 aggiunge gli ordini che il laser non ha ancora smistato.
+    Gli ordini senza distinta (caricati a mano col solo PDF) sono elencati a
+    parte: per loro fa fede il PDF.
+    """
+    try:
+        from .ordini_service import stato_taglio, STATI_ARCHIVIO
+        con_smistare = request.args.get('da_smistare') in ('1', 'true', 'si')
+        stati_ok = ('da_tagliare', 'da_smistare') if con_smistare else ('da_tagliare',)
+        session = get_session()
+        try:
+            ordini = session.query(Order).filter(
+                Order.is_deleted == False,  # noqa: E712
+                (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO)),
+                (Order.taglio_completato.is_(None)) | (Order.taglio_completato == False),  # noqa: E712
+            ).order_by(Order.data_consegna.asc()).all()
+            ordini = [o for o in ordini if stato_taglio(o) in stati_ok]
+            gruppi, senza = {}, []
+            for o in ordini:
+                info = {'ordine_id': o.id, 'numero_ordine': o.numero_ordine or '',
+                        'cliente': o.cliente or '', 'stato_taglio': stato_taglio(o),
+                        'data_consegna': iso_data(o.data_consegna)}
+                righe, origine, _prev = _distinta_ordine(o)
+                lamiere = [r for r in righe if r.get('tipo') in ('lamiera', 'piastra')]
+                if not lamiere:
+                    senza.append({**info, 'motivo': 'solo PDF, nessuna distinta'
+                                  if origine == 'nessuna' else 'nessuna lamiera da tagliare'})
+                    continue
+                for r in lamiere:
+                    mat = (r.get('materiale') or '').strip().upper() or 'MATERIALE ?'
+                    sp = r.get('spessore_mm')
+                    try:
+                        sp = round(float(sp), 2) if sp else None
+                    except (TypeError, ValueError):
+                        sp = None
+                    chiave = '%s|%s' % (mat, sp if sp is not None else '?')
+                    g = gruppi.setdefault(chiave, {
+                        'chiave': chiave, 'materiale': mat, 'spessore_mm': sp, 'pezzi': []})
+                    disegno = r.get('disegno')
+                    g['pezzi'].append({
+                        **info,
+                        'codice': r.get('codice') or '', 'descrizione': r.get('descrizione') or '',
+                        'quantita': int(r.get('quantita') or 1),
+                        'w_mm': r.get('bbox_w_mm'), 'h_mm': r.get('bbox_h_mm'),
+                        'area_dm2': r.get('area_dm2'), 'ingombro': r.get('ingombro') or 'mancante',
+                        'tempo_min': r.get('tempo_min'),
+                        'url_svg': ('/api/orders/%s/dxf/%s/svg' % (o.id, quote(disegno))
+                                    if disegno and disegno.lower().endswith('.dxf') else None),
+                    })
+        finally:
+            session.close()
+
+        out = []
+        for g in gruppi.values():
+            pz = g['pezzi']
+            q = lambda p: p['quantita']  # noqa: E731
+            consegne = [p['data_consegna'] for p in pz if p['data_consegna']]
+            out.append({
+                **g,
+                'n_ordini': len({p['ordine_id'] for p in pz}),
+                'n_codici': len(pz),
+                'n_pezzi': sum(q(p) for p in pz),
+                'area_dm2': round(sum((p['area_dm2'] or 0) * q(p) for p in pz), 2),
+                'tempo_min': round(sum((p['tempo_min'] or 0) * q(p) for p in pz), 1),
+                'n_ingombro_stimato': sum(1 for p in pz if p['ingombro'] == 'stimato'),
+                'n_ingombro_mancante': sum(1 for p in pz if p['ingombro'] == 'mancante'),
+                'consegna_prima': min(consegne) if consegne else None,
+            })
+        # La lamiera piu' urgente per prima; a parita', la piu' grossa.
+        out.sort(key=lambda g: (g['consegna_prima'] or '9999', -g['area_dm2']))
+        return jsonify({'success': True, 'gruppi': out, 'senza_distinta': senza,
+                        'formati': _formati_lamiera(),
+                        'parametri': {'margine_mm': 10, 'distanza_mm': 5}}), 200
+    except Exception as e:
+        logger.exception('banco lamiere fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/orders', methods=['GET'])
 def get_orders():
@@ -823,9 +1345,12 @@ def get_orders():
         status = request.args.get('status')
         fase_corrente = request.args.get('fase_corrente')
         operatore = request.args.get('operatore')
+        # ?aperti=1: senza le pratiche archiviate (pagine di reparto).
+        solo_aperti = request.args.get('aperti') in ('1', 'true', 'si')
         orders_data = OrderManager.get_all_orders_dict(
             cliente=cliente, status=status,
-            fase_corrente=fase_corrente, operatore=operatore
+            fase_corrente=fase_corrente, operatore=operatore,
+            solo_aperti=solo_aperti
         )
 
         # Includi ordini in supporto per l'operatore
@@ -879,6 +1404,19 @@ def get_kpi_dashboard():
 
 # ============ API ADMIN ============
 
+def _giorno_iso(testo):
+    """Giorno italiano di un istante ISO (con o senza Z). None se illeggibile."""
+    try:
+        v = datetime.fromisoformat(str(testo).replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
+    if v.tzinfo is not None:
+        from datetime import timezone as _tz
+        v = v.astimezone(_tz.utc).replace(tzinfo=None)
+        return data_locale(v)
+    return v.date()
+
+
 @app.route('/api/admin/kpi', methods=['GET'])
 def get_admin_kpi():
     """Recupera KPI sistema per admin dashboard"""
@@ -892,12 +1430,12 @@ def get_admin_kpi():
         # KPI operai (calcoli reali, nessun mock)
         kpi_operai = AuditManager.get_kpi_operai()
 
-        # Login oggi
-        today = dt.now().date()
+        # Login oggi (giorno italiano: i timestamp arrivano in UTC con la Z)
+        today = oggi_locale()
         audit_logs = AuditManager.get_recent(limit=1000)
         login_oggi = len([
             log for log in audit_logs
-            if log['action'] == 'LOGIN' and dt.fromisoformat(log['timestamp']).date() == today
+            if log['action'] == 'LOGIN' and _giorno_iso(log['timestamp']) == today
         ])
 
         # Efficienza: per ordini COMPLETATI, verifica se ultimo step <= data_consegna
@@ -914,7 +1452,7 @@ def get_admin_kpi():
         # Operai online
         operai_online = sum(1 for op in kpi_operai if op.get('saturazione', 0) > 0 or
             (op.get('ultimo_accesso') and op['ultimo_accesso'] != 'Mai' and
-             dt.fromisoformat(op['ultimo_accesso']).date() == today))
+             _giorno_iso(op['ultimo_accesso']) == today))
 
         return jsonify({
             'success': True,
@@ -959,7 +1497,11 @@ def get_admin_audit_log():
 
 @app.route('/api/ordini-da-fatturare', methods=['GET'])
 def get_ordini_da_fatturare():
-    """Recupera ordini in attesa di chiusura amministrativa"""
+    """Ordini consegnati e non ancora fatturati.
+
+    E' lo STESSO insieme della vista "consegnati / da fatturare" di
+    /api/ordini/viste: prima qui finivano anche ordini mai consegnati.
+    """
     try:
         page = max(1, request.args.get('page', 1, type=int))
         limit = min(request.args.get('limit', 20, type=int), 100)
@@ -990,7 +1532,7 @@ def get_ordini_da_fatturare():
 
 @app.route('/api/ordini-da-fatturare/count', methods=['GET'])
 def get_ordini_da_fatturare_count():
-    """Conteggio ordini da fatturare (per badge)"""
+    """Conteggio ordini da fatturare (per badge): uguale alla vista "consegnati"."""
     try:
         count = FatturazioneManager.get_count()
         return jsonify({'success': True, 'count': count}), 200
@@ -1017,8 +1559,13 @@ def salva_bozza_fattura(order_id):
 
 @app.route('/api/orders/<order_id>/chiudi-amministrativo', methods=['POST'])
 def chiudi_ordine_amministrativo(order_id):
-    """Chiude ordine amministrativamente — status → CHIUSO.
-    Autorizzato: Impiegata, Capi, Amministratore."""
+    """Vecchia chiusura amministrativa, tenuta per compatibilita'.
+
+    Passa dalla stessa chiusura di POST /api/ordini/<id>/chiudi: servono la
+    consegna registrata e il numero della fattura. Se nel corpo c'e' un
+    numero_ddt e l'ordine non ha ancora un DDT, lo registra prima.
+    Corpo: {user_id, numero_fattura, data_fattura?, numero_ddt?, data_ddt?,
+    note_chiusura?}. Autorizzato: Impiegata, Capi, Amministratore."""
     try:
         data = request.get_json() or {}
         user_id = data.get('user_id', '')
@@ -1026,7 +1573,7 @@ def chiudi_ordine_amministrativo(order_id):
             return jsonify({'success': False, 'error': 'Permesso negato'}), 403
         result = FatturazioneManager.chiudi_ordine(order_id, data, user_id)
         if not result['success']:
-            return jsonify(result), 400
+            return jsonify(result), (404 if result.get('codice') == 'non_trovato' else 400)
 
         # Log audit
         AuditManager.log(
@@ -1034,7 +1581,8 @@ def chiudi_ordine_amministrativo(order_id):
             action='CHIUSURA_AMMINISTRATIVA',
             entity_type='order',
             entity_id=order_id,
-            detail=f"DDT: {data.get('numero_ddt', '-')}, Fattura: {data.get('numero_fattura', '-')}",
+            detail=f"DDT: {data.get('numero_ddt') or data.get('ddt_numero') or '-'}, "
+                   f"Fattura: {data.get('numero_fattura', '-')}",
             ip_address=request.remote_addr
         )
 
@@ -1052,7 +1600,7 @@ def riapri_ordine(order_id):
         user_id = data.get('user_id', '')
         if not _require_role(user_id, ['Impiegata', 'CAPO']):
             return jsonify({'success': False, 'error': 'Permesso negato'}), 403
-        result = FatturazioneManager.riapri_ordine(order_id)
+        result = FatturazioneManager.riapri_ordine(order_id, user_id)
         if not result['success']:
             return jsonify(result), 400
 
@@ -1347,7 +1895,7 @@ def health_check():
     """
     return jsonify({
         'status': 'online',
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': iso_utc(datetime.utcnow()),
         'istanza_di_prova': e_istanza_di_prova(),
     }), 200
 
@@ -1375,45 +1923,43 @@ def api_dashboard_live():
                 OfficinaScan.timestamp_fine == None  # noqa: E711
             ).count()
 
-            # 2. Ordini in produzione ORA (con scan attive negli ultimi 24h, non chiusi)
-            from datetime import timedelta
+            # 2-6. Ordini per fase: le STESSE fasi delle viste dell'ufficio
+            # (ordini_service.fase). Prima "pronti" contava gli ordini
+            # tagliati ma ancora in officina (taglio fatto + RICEVUTO), cioe'
+            # proprio quelli in lavorazione.
+            #   in produzione = ordini aperti: in coda al laser, tagliati, in
+            #                   lavorazione in officina
+            #   pronti        = lavoro finito, non ancora consegnati
+            #   ricevuti      = aperti che nessuno ha ancora toccato (non
+            #                   mandati al laser, non tagliati, mai scansionati)
+            from .ordini_service import fase as _fase
             ora = datetime.utcnow()
-            since = ora - timedelta(hours=24)
-            in_produzione_ids = session.query(OfficinaScan.order_id).filter(
-                OfficinaScan.timestamp_inizio >= since
-            ).distinct()
-            in_produzione_ids_set = {r[0] for r in in_produzione_ids}
-            n_in_produzione = session.query(Order).filter(
-                Order.id.in_(in_produzione_ids_set),
-                Order.is_deleted == False,  # noqa: E712
-                Order.status.in_(['RICEVUTO'])
-            ).count() if in_produzione_ids_set else 0
-
-            # 3. Ordini pronti (taglio completato + non chiusi)
-            n_pronti = session.query(Order).filter(
-                Order.is_deleted == False,  # noqa: E712
-                Order.taglio_completato == True,  # noqa: E712
-                Order.status == 'RICEVUTO'
-            ).count()
-
-            # 4. Ordini "ricevuti" mai iniziati (per kanban proporzionale)
-            n_ricevuti = session.query(Order).filter(
-                Order.is_deleted == False,  # noqa: E712
-                Order.status == 'RICEVUTO',
-                Order.taglio_completato == False,  # noqa: E712
-            ).count()
-            # Sottraggo quelli già in produzione per non contarli 2 volte
-            n_ricevuti_puri = max(0, n_ricevuti - n_in_produzione)
-
-            # 5. Ordini "in lavorazione" per kanban (ricevuti in produzione)
-            n_kanban_lavorazione = n_in_produzione
-
-            # 6. Ordini "pronti" per kanban (taglio ok, in attesa chiusura Elena)
+            ordini = session.query(Order).filter(
+                Order.is_deleted == False  # noqa: E712
+            ).all()
+            con_scan = {r[0] for r in session.query(OfficinaScan.order_id).distinct()}
+            n_in_produzione = 0
+            n_pronti = 0
+            n_ricevuti_puri = 0
+            for o in ordini:
+                f = _fase(o)
+                if f == 'pronto_ddt':
+                    n_pronti += 1
+                elif f == 'aperto':
+                    n_in_produzione += 1
+                    toccato = (o.taglio_richiesto is True
+                               or bool(o.taglio_completato)
+                               or o.id in con_scan)
+                    if not toccato:
+                        n_ricevuti_puri += 1
+            n_kanban_lavorazione = n_in_produzione - n_ricevuti_puri
             n_kanban_pronti = n_pronti
 
-            # 7. Curva attività ORE giornata (anonimo — solo count sessioni per ora)
-            # Dalle 07:00 alle 18:00 dell'oggi corrente
-            oggi_00 = datetime(ora.year, ora.month, ora.day)
+            # 7. Curva attivita' ORE giornata (anonimo — solo count sessioni per ora)
+            # Dalle 07:00 alle 18:00 di OGGI in Italia: le fasce sono ore
+            # locali, le scan sono salvate in UTC, quindi si convertono gli
+            # estremi (prima la curva era spostata di due ore).
+            oggi_00 = giorno_locale_in_utc()[0]
             curva_ore = []
             for h in range(7, 19):  # 7-18
                 slot_start = oggi_00 + timedelta(hours=h)
@@ -1443,7 +1989,7 @@ def api_dashboard_live():
                     'pronti': n_kanban_pronti,
                 },
                 'curva_ore': curva_ore,
-                'timestamp': ora.isoformat(),
+                'timestamp': iso_utc(ora),
             }), 200
         finally:
             session.close()
@@ -1818,10 +2364,15 @@ def api_ordine_completamento_annulla(order_id):
 
 @app.route('/api/ordini/<order_id>/ddt', methods=['POST'])
 def api_ordine_ddt(order_id):
-    """Registra il riferimento del DDT emesso nell'altro sistema."""
+    """Registra il riferimento del DDT emesso nell'altro sistema.
+
+    Corpo: {user_id, numero, data?: AAAA-MM-GG (default: oggi, ora italiana)}.
+    """
     from .ordini_service import registra_ddt
     dati = request.get_json(silent=True) or {}
-    return _transizione(registra_ddt, order_id, numero=dati.get('numero'))
+    return _transizione(registra_ddt, order_id,
+                        numero=dati.get('numero') or dati.get('ddt_numero'),
+                        data=dati.get('data') or dati.get('ddt_data'))
 
 
 @app.route('/api/ordini/<order_id>/consegna', methods=['POST'])
@@ -1836,9 +2387,19 @@ def api_ordine_consegna(order_id):
 
 @app.route('/api/ordini/<order_id>/chiudi', methods=['POST'])
 def api_ordine_chiudi(order_id):
-    """Ciclo amministrativo concluso: in archivio."""
+    """Fatturato: ciclo amministrativo concluso, l'ordine va in archivio.
+
+    Corpo: {user_id, numero_fattura (obbligatorio), data_fattura?: AAAA-MM-GG
+    (default: oggi), note?}. Richiede la consegna registrata e completa:
+    altrimenti 409 con un messaggio che dice cosa manca (`codice`:
+    sequenza | consegna_parziale | fattura_mancante | data_non_valida).
+    """
     from .ordini_service import chiudi_pratica
-    return _transizione(chiudi_pratica, order_id)
+    dati = request.get_json(silent=True) or {}
+    return _transizione(chiudi_pratica, order_id,
+                        numero_fattura=dati.get('numero_fattura'),
+                        data_fattura=dati.get('data_fattura'),
+                        note=dati.get('note') or dati.get('note_chiusura'))
 
 
 @app.route('/api/ordini/<order_id>/riapri', methods=['POST'])
@@ -2196,6 +2757,34 @@ def api_admin_pistole_delete(pistola_uuid):
 _PREV_WRITE_ROLES = ['Commerciale', 'Amministratore', 'CAPO']
 _PREV_READ_ROLES = ['Commerciale', 'Amministratore', 'CAPO', 'Impiegata']
 
+_RX_ROTTA_PREVENTIVO = re.compile(
+    r'^/api/preventivi/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(/.*)?$')
+
+
+@app.before_request
+def _blocca_preventivi_tecnici():
+    """Il preventivo tecnico di un ordine caricato col pacchetto del cliente
+    non passa dalle rotte del preventivatore: non si apre, non si modifica,
+    non si invia, non si accetta. Si lasciano solo le anteprime in lettura
+    (SVG dei disegni, PDF d'ordine) che la revisione dell'ufficio usa prima
+    di creare l'ordine.
+
+    Un solo controllo qui, invece che in ognuna delle decine di rotte
+    /api/preventivi/<id>/...: una rotta aggiunta domani e' coperta da sola.
+    """
+    m = _RX_ROTTA_PREVENTIVO.match(request.path or '')
+    if not m or not PreventivoManager.e_tecnico(m.group(1)):
+        return None
+    resto = m.group(2) or ''
+    if request.method == 'GET' and re.match(r'^/(dxf/.+/svg|disegni-pdf/[^/]+)$', resto):
+        return None
+    from .database import ERRORE_TECNICO
+    if request.method == 'GET':
+        return jsonify({'success': False, 'codice': 'pacchetto_ordine',
+                        'error': 'Preventivo non trovato. ' + ERRORE_TECNICO}), 404
+    return jsonify({'success': False, 'codice': 'pacchetto_ordine',
+                    'error': ERRORE_TECNICO}), 409
+
 
 @app.route('/api/preventivi', methods=['GET'])
 def api_preventivi_list():
@@ -2540,6 +3129,315 @@ def api_preventivi_rfq_diagnostic():
     return jsonify({'ai': False, 'messaggio': 'Lettura ordini senza AI: nessun servizio esterno.'}), 200
 
 
+def _zip_dalla_richiesta():
+    """Il pacchetto del cliente come ZIP in memoria, dal form multipart.
+
+    Accetta sia uno ZIP (campo "zip", flusso commerciale) sia file SCIOLTI
+    (campo "files": PDF + DXF). I file sciolti vengono impacchettati in uno
+    ZIP in memoria e passati alla stessa pipeline; "paths" porta i percorsi
+    relativi di una cartella trascinata (le sottocartelle sono gli assiemi).
+    Ritorna (zip_bytes, file_caricato); (None, None) se non c'e' nessun file.
+    Usato dall'import del preventivatore e dal pacchetto d'ordine dell'ufficio.
+    """
+    f = request.files.get('zip')
+    loose = [x for x in request.files.getlist('files') if x and x.filename]
+    if f and f.filename:
+        zip_bytes = f.read()
+    elif len(loose) == 1 and loose[0].filename.lower().endswith('.zip'):
+        zip_bytes = loose[0].read()
+    elif loose:
+        import io as _io
+        import zipfile as _zipfile
+        # Percorsi relativi (cartella trascinata o scelta): le sottocartelle
+        # sono gli assiemi, come nello ZIP. Senza, tutto finiva alla radice.
+        percorsi = request.form.getlist('paths')
+        buf = _io.BytesIO()
+        with _zipfile.ZipFile(buf, 'w', _zipfile.ZIP_DEFLATED) as zf:
+            for i, uf in enumerate(loose):
+                data = uf.read()
+                if not data:
+                    continue
+                rel = percorsi[i] if i < len(percorsi) and percorsi[i] else uf.filename
+                parti = [p for p in str(rel).replace('\\', '/').split('/')
+                         if p and p not in ('.', '..') and ':' not in p]
+                zf.writestr('/'.join(parti) or os.path.basename(uf.filename), data)
+        zip_bytes = buf.getvalue()
+    else:
+        return None, None
+    # nome per la nota "importato da …"
+    return zip_bytes, (f if (f and f.filename) else (loose[0] if loose else None))
+
+
+# Da dove viene la quantita' di un pezzo del pacchetto (rfq_importer.qta_fonte)
+# → stato della riga d'ordine sul pezzo (extra 'ordine', lo stesso del preventivatore).
+_STATO_RIGA_ORDINE = {'pdf': 'ok', 'dubbio': 'dubbio', 'senza_qta': 'senza_qta',
+                      'non_trovato': 'non_trovato'}
+
+
+def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
+                                  da_prezzare=False, solo_tecnico=False):
+    """Dal pacchetto letto (rfq_importer.process_rfq_package) al preventivo
+    con i suoi pezzi: salva PDF, tavole, DXF e STEP in preventivi_tmp/<id>/,
+    analizza i DXF in parallelo (detector v3 + scanner), unisce i dati del
+    PDF con quelli dei disegni, stima i costi, salva articoli e assiemi.
+
+    E' la stessa strada per il preventivatore (import-rfq-package) e per
+    l'ordine caricato dall'ufficio col pacchetto (solo_tecnico=True): i pezzi
+    di un ordine devono uscire identici a quelli di un preventivo.
+
+    Ritorna {preventivo_id, articoli_db, saved_tasks, n_step, dxf_results},
+    oppure None se il preventivo non si e' potuto creare.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from .preventivi.dxf_batch_worker import process_single_dxf
+
+    # 2. Crea preventivo BOZZA
+    data_consegna_dt = None
+    if result.data_consegna:
+        try:
+            data_consegna_dt = datetime.strptime(result.data_consegna[:10], '%Y-%m-%d')
+        except (ValueError, TypeError):
+            pass
+    new_prev = PreventivoManager.create(
+        cliente=result.cliente,
+        created_by=creato_da,
+        quantita=1,
+        numero_ordine_cliente=result.numero_ordine_cliente or None,
+        margine_pct=25.0,
+        data_consegna_proposta=data_consegna_dt,
+        note=result.note or (f'Importato da {nome_file}' if nome_file else ''),
+        da_prezzare=da_prezzare,
+        solo_tecnico=solo_tecnico,
+    )
+    if not new_prev or 'id' not in new_prev:
+        return None
+    preventivo_id = new_prev['id']
+
+    # 3. Scrivi DXF su disco (solo quelli matchati)
+    prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+    os.makedirs(prev_dir, exist_ok=True)
+
+    # Salva il PDF ordine originale: è il documento con disegni/lavorazioni che
+    # Mirko deve vedere. All'accettazione viene allegato all'ordine FerroTrack.
+    rfq_pdf_bytes = getattr(result, 'pdf_bytes', None)
+    rfq_pdf_filename = getattr(result, 'pdf_filename', None) or 'ordine.pdf'
+    if rfq_pdf_bytes:
+        try:
+            pdf_target = os.path.join(prev_dir, os.path.basename(rfq_pdf_filename))
+            with open(pdf_target, 'wb') as fp:
+                fp.write(rfq_pdf_bytes)
+            _segna_ordine_cliente(prev_dir, os.path.basename(rfq_pdf_filename))
+        except Exception:
+            logger.warning('salvataggio PDF ordine RFQ fallito: %s', rfq_pdf_filename)
+
+    # PDF dei disegni (tavole del cliente, con quote e note): si salvano
+    # tutti e si abbinano ai pezzi per nome, come nell'import da cartella.
+    # Prima si teneva solo il PDF dell'ordine: i pezzi mostravano solo il
+    # DXF e gli assiemi senza STEP non avevano nulla da guardare.
+    def _chiave_disegno(n):
+        stem = os.path.splitext(os.path.basename(n or ''))[0]
+        return re.sub(r'\s*\(\d+\)$', '', stem).strip().lower().replace(' ', '-')
+    pdf_per_chiave = {}
+    try:
+        import io as _io2
+        import zipfile as _zf2
+        with _zf2.ZipFile(_io2.BytesIO(zip_bytes)) as _z:
+            for info in _z.infolist():
+                base = os.path.basename(info.filename)
+                if (info.is_dir() or not base.lower().endswith('.pdf') or '__MACOSX' in info.filename
+                        or base == os.path.basename(rfq_pdf_filename)):
+                    continue
+                dati = _z.read(info)
+                if not dati.startswith(b'%PDF-'):
+                    continue
+                salvato = _nome_disegno_libero(prev_dir, base)
+                with open(os.path.join(prev_dir, salvato), 'wb') as fp:
+                    fp.write(dati)
+                pdf_per_chiave.setdefault(_chiave_disegno(base), salvato)
+    except Exception:
+        logger.exception('salvataggio PDF disegni RFQ fallito')
+
+    dxf_map = getattr(result, 'dxf_map', {}) or {}
+    saved_tasks = []  # (dxf_path, nome_salvato, nome_originale)
+    matched_dxfs = {a.matched_dxf for a in result.articoli if a.matched_dxf}
+    for fname, data in dxf_map.items():
+        if fname not in matched_dxfs:
+            continue  # skip DXF non associati (ma appaiono in dxf_no_match warning)
+        target_path = os.path.join(prev_dir, os.path.basename(fname))
+        with open(target_path, 'wb') as fp:
+            fp.write(data)
+        saved_tasks.append((target_path, os.path.basename(fname)))
+
+    # 3b. Scrivi gli STEP su disco: il visore 3D li aggancia per nome
+    # all'assieme (montaggio esatto = il vero wow 3D). Non serve matching:
+    # li salviamo tutti, il frontend li abbina per codice.
+    step_map = getattr(result, 'step_map', {}) or {}
+    n_step = 0
+    for sname, sdata in step_map.items():
+        try:
+            with open(os.path.join(prev_dir, os.path.basename(sname)), 'wb') as fp:
+                fp.write(sdata)
+            n_step += 1
+        except Exception:
+            logger.warning('salvataggio STEP fallito: %s', sname)
+
+    # 4. Processa i DXF in parallelo (detector v3 + scanner dettagli)
+    app_cfg = BarcodeManager.load_config()
+    dxf_cfg = app_cfg.get('dxf_detection') or {
+        'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
+        'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
+        'dxf_svasatura_ratio_min': 1.8, 'dxf_svasatura_ratio_max': 3.0,
+        'dxf_semicerchio_angolo_min': 150.0, 'dxf_semicerchio_angolo_max': 320.0,
+        'dxf_filtra_zona_sviluppata': True,
+    }
+    dxf_results: dict[str, dict] = {}
+    from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_rfq, trova as _trova_mat
+    _mats_rfq = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali')
+    if saved_tasks:
+        max_workers = min(8, max(1, len(saved_tasks)))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {
+                pool.submit(process_single_dxf, path, fname, dxf_cfg): fname
+                for path, fname in saved_tasks
+            }
+            for fut in as_completed(futures):
+                fname = futures[fut]
+                try:
+                    dxf_results[fname] = _mat_pers_rfq(fut.result(), _mats_rfq)
+                except Exception as e:
+                    logger.exception('rfq worker fail per %s', fname)
+                    dxf_results[fname] = {'success': False, 'error': str(e)}
+
+    # 5. Costruisci articoli DB combinando dati PDF + DXF
+    # L'assieme NON è un pezzo tagliabile: il suo disegno 2D (master) non va
+    # parsato né prezzato. È rappresentato dal record ASSIEME (rollup dei
+    # componenti + montaggio) e dallo STEP per il 3D. Quindi salto il pezzo
+    # il cui codice è un codice-assieme.
+    assiemi_set = {c for c in (getattr(result, 'assiemi', None) or [])}
+    n_master_saltati = 0
+    articoli_db = []
+    for a in result.articoli:
+        if a.codice in assiemi_set:
+            n_master_saltati += 1
+            continue  # master assieme: rappresentato dal record assieme, non tagliabile
+        dxf_info = dxf_results.get(a.matched_dxf) if a.matched_dxf else None
+        # process_single_dxf risponde con 'geometria', 'lavorazioni' e
+        # 'cartiglio' (come l'import batch): qui si leggevano 'geometry',
+        # le lavorazioni al primo livello e 'cartiglio_materiale', che non
+        # esistono → ogni pezzo importato con l'AI arrivava senza area,
+        # perimetro, lavorazioni e materiale del cartiglio.
+        geom = (dxf_info or {}).get('geometria') or (dxf_info or {}).get('geometry') or {}
+        lav = (dxf_info or {}).get('lavorazioni') or dxf_info or {}
+        item = {
+            'codice': a.codice,
+            'quantita': a.quantita,
+            'codice_assieme': getattr(a, 'codice_assieme', None),  # da sottocartella ZIP
+            'materiale': _trova_mat(a.materiale, _mats_rfq) or a.materiale,  # dal PDF (o None); C75... se aggiunto
+            'spessore_mm': a.spessore_mm,      # dal PDF (o None)
+            'area_dm2': geom.get('area_dm2', 0),
+            'perimetro_taglio_m': geom.get('perimetro_taglio_m', 0),
+            'n_forature': geom.get('n_pierce', 0),
+            'dxf_filename': a.matched_dxf,
+            'pieghe': lav.get('pieghe', 0) or 0,
+            'saldatura_ml': lav.get('saldatura_ml', 0) or 0,
+            'filettatura_pz': lav.get('filettatura_pz', 0) or 0,
+            'svasatura_pz': lav.get('svasatura_pz', 0) or 0,
+            # come l'import batch: affidabilita' del contorno, ingombro,
+            # spostamenti a vuoto (campi extra dell'articolo)
+            'dxf_confidence': geom.get('confidence'),
+            'dxf_needs_verify': bool(geom.get('needs_manual_select')),
+            'bbox_w_mm': geom.get('bbox_width_mm'),
+            'bbox_h_mm': geom.get('bbox_height_mm'),
+            'lunghezza_vuoto_mm': geom.get('lunghezza_vuoto_mm'),
+            # tavola PDF del pezzo (stesso nome del DXF o del codice)
+            'pdf_filename': (pdf_per_chiave.get(_chiave_disegno(a.matched_dxf)) if a.matched_dxf else None)
+                             or pdf_per_chiave.get(_chiave_disegno(a.codice)),
+            # Non salvati (chiavi con "_"): servono alla revisione dell'ufficio.
+            '_descrizione': getattr(a, 'descrizione', '') or '',
+            '_qta_fonte': getattr(a, 'qta_fonte', 'pdf') or 'pdf',
+            '_errore_dxf': ((dxf_info or {}).get('error')
+                            if dxf_info and dxf_info.get('success') is False else None),
+        }
+        if solo_tecnico:
+            # Riga dell'ordine del cliente: dice all'ufficio quali quantita'
+            # ricontrollare, e alla conferma quali disegni l'ordine non
+            # chiedeva (entrano solo se l'ufficio da' loro una quantita').
+            item['ordine'] = {'stato': _STATO_RIGA_ORDINE.get(item['_qta_fonte'], 'ok'),
+                              'pos': len(articoli_db), 'qta': a.quantita,
+                              'file': os.path.basename(rfq_pdf_filename)}
+        # Se il PDF NON aveva materiale/spessore, prova a leggerli dal cartiglio DXF
+        if not item['materiale'] and dxf_info:
+            cart = dxf_info.get('cartiglio') or dxf_info.get('cartiglio_materiale') or {}
+            cart_mat = cart.get('materiale') if (cart.get('confidence') or 0) >= 0.5 else None
+            if cart_mat:
+                item['materiale'] = cart_mat
+        if not item['spessore_mm'] and dxf_info:
+            cart_sp = (dxf_info.get('spessore') or {}).get('spessore_mm')
+            if cart_sp:
+                item['spessore_mm'] = float(cart_sp)
+        # Arrotonda lo spessore agli spessori realmente tagliati (1-1.5-2-3-4-…)
+        if item.get('spessore_mm'):
+            from .preventivi.pick_part import _snap_stock
+            item['spessore_mm'] = _snap_stock(float(item['spessore_mm']))
+        # Costo stimato subito, come l'import dei disegni: prima nasceva a 0
+        # e si calcolava solo aprendo i pezzi uno per uno (LS 1184: 37 pezzi
+        # su 70 a 0 € dopo l'import, e nessun avviso).
+        if (item.get('materiale') and item.get('spessore_mm') and item.get('area_dm2')
+                and item.get('perimetro_taglio_m')):
+            try:
+                st = _laser_estimator.stima_base(item, app_cfg)
+                item['costo_base_stimato'] = st.get('base') or 0
+                item['stima_dettaglio'] = {k: st.get(k) for k in (
+                    'peso_kg', 'costo_materiale', 'costo_lavoro', 'setup_eur',
+                    'tempo_taglio_s', 'tempo_pierce_s', 'tempo_vuoto_s',
+                    'tempo_ausiliario_s', 'tempo_totale_min', 'base')}
+                item['avvisi_stima'] = list(st.get('warnings') or [])[:10]
+                item['stima_firma'] = _firma_tariffe(app_cfg)
+                for k in ('ricetta_mancante', 'materiale_sconosciuto', 'spessore_fuori_tabella'):
+                    item[k] = bool(st.get(k))
+            except Exception:
+                logger.exception('stima import RFQ fallita per %s', a.codice)
+        articoli_db.append(item)
+
+    if n_master_saltati:
+        result.warnings.append(
+            f'{n_master_saltati} disegno/i assieme (master) non prezzati come pezzo — '
+            f'l\'assieme costa come somma componenti + montaggio')
+    # Materiale e spessore mancanti si contano DOPO i cartigli dei DXF: il
+    # conteggio fatto sul solo PDF segnalava 46 "senza materiale" su LS 1184
+    # quando i disegni li avevano quasi tutti.
+    result.warnings = [w for w in result.warnings
+                       if not re.search(r'articoli senza (materiale|spessore) specificato', w)]
+    n_no_mat = sum(1 for it in articoli_db if not it.get('materiale'))
+    n_no_sp = sum(1 for it in articoli_db if not it.get('spessore_mm'))
+    if n_no_mat:
+        result.warnings.append(f'{n_no_mat} articoli senza materiale (ne\' nell\'ordine ne\' nel cartiglio)')
+    if n_no_sp:
+        result.warnings.append(f'{n_no_sp} articoli senza spessore (ne\' nell\'ordine ne\' nel cartiglio)')
+
+    # Salva articoli
+    if articoli_db:
+        try:
+            PreventivoManager.replace_articoli(preventivo_id, articoli_db)
+        except Exception as ae:
+            logger.warning('replace_articoli fallito: %s', ae)
+            result.warnings.append(f'Errore salvataggio articoli: {ae}')
+
+    # Crea i record ASSIEME riconosciuti dalle sottocartelle
+    if getattr(result, 'assiemi', None):
+        assiemi_db = []
+        for cod in result.assiemi:
+            assiemi_db.append({'codice_assieme': cod, 'qty': 1,
+                               'componenti_qty': {}, 'ore_montaggio': 0, 'costo': 0})
+        try:
+            PreventivoManager.replace_assiemi(preventivo_id, assiemi_db)
+        except Exception as ae:
+            logger.warning('replace_assiemi fallito: %s', ae)
+
+    return {'preventivo_id': preventivo_id, 'articoli_db': articoli_db,
+            'saved_tasks': saved_tasks, 'n_step': n_step, 'dxf_results': dxf_results}
+
+
 @app.route('/api/preventivi/import-rfq-package', methods=['POST'])
 def api_preventivi_import_rfq_package():
     """AI RFQ Importer: da ZIP (PDF ordine + cartella DXF) → preventivo BOZZA pronto.
@@ -2552,6 +3450,9 @@ def api_preventivi_import_rfq_package():
        (detector v3 + scanner dettagli + cache)
     5. Response: preventivo_id, articoli, warnings
 
+    I passi 2-5 stanno in _crea_preventivo_da_pacchetto, condivisi con
+    l'ordine caricato dall'ufficio col pacchetto del cliente.
+
     Body multipart/form-data:
         zip: file .zip contenente PDF ordine + N file .dxf
         admin_id: id utente
@@ -2559,8 +3460,6 @@ def api_preventivi_import_rfq_package():
     Response 200: {success:True, preventivo_id, cliente, n_articoli, warnings, articoli:[...]}
     Response 400/403/500: {success:False, error}
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from .preventivi.dxf_batch_worker import process_single_dxf
     from .preventivi import rfq_importer
     try:
         admin_id = request.form.get('admin_id') or ''
@@ -2574,35 +3473,9 @@ def api_preventivi_import_rfq_package():
         # e il commerciale non sa che c'e' qualcosa da fare.
         is_intake_elena = (_caller.get('role') in RUOLI_UFFICIO)
 
-        # Accetta sia uno ZIP (campo "zip", flusso commerciale) sia file SCIOLTI
-        # (campo "files": PDF della richiesta + DXF). I file sciolti vengono
-        # impacchettati in uno ZIP in memoria e passati alla stessa pipeline.
-        f = request.files.get('zip')
-        loose = [x for x in request.files.getlist('files') if x and x.filename]
-        if f and f.filename:
-            zip_bytes = f.read()
-        elif len(loose) == 1 and loose[0].filename.lower().endswith('.zip'):
-            zip_bytes = loose[0].read()
-        elif loose:
-            import io as _io
-            import zipfile as _zipfile
-            # Percorsi relativi (cartella trascinata o scelta): le sottocartelle
-            # sono gli assiemi, come nello ZIP. Senza, tutto finiva alla radice.
-            percorsi = request.form.getlist('paths')
-            buf = _io.BytesIO()
-            with _zipfile.ZipFile(buf, 'w', _zipfile.ZIP_DEFLATED) as zf:
-                for i, uf in enumerate(loose):
-                    data = uf.read()
-                    if not data:
-                        continue
-                    rel = percorsi[i] if i < len(percorsi) and percorsi[i] else uf.filename
-                    parti = [p for p in str(rel).replace('\\', '/').split('/')
-                             if p and p not in ('.', '..') and ':' not in p]
-                    zf.writestr('/'.join(parti) or os.path.basename(uf.filename), data)
-            zip_bytes = buf.getvalue()
-        else:
+        zip_bytes, f = _zip_dalla_richiesta()
+        if zip_bytes is None:
             return jsonify({'success': False, 'error': 'Nessun file: carica il PDF della richiesta e i DXF (oppure uno ZIP)'}), 400
-        f = (f if (f and f.filename) else (loose[0] if loose else None))  # nome per la nota "importato da …"
         if not zip_bytes:
             return jsonify({'success': False, 'error': 'File vuoto'}), 400
 
@@ -2625,236 +3498,16 @@ def api_preventivi_import_rfq_package():
                     'numero_ordine_cliente': result.numero_ordine_cliente,
                 }), 200
 
-        # 2. Crea preventivo BOZZA
-        data_consegna_dt = None
-        if result.data_consegna:
-            try:
-                data_consegna_dt = datetime.strptime(result.data_consegna[:10], '%Y-%m-%d')
-            except (ValueError, TypeError):
-                pass
-        new_prev = PreventivoManager.create(
-            cliente=result.cliente,
-            created_by=admin_id,
-            quantita=1,
-            numero_ordine_cliente=result.numero_ordine_cliente or None,
-            margine_pct=25.0,
-            data_consegna_proposta=data_consegna_dt,
-            note=result.note or f'Importato da {f.filename}',
-            da_prezzare=is_intake_elena,
-        )
-        if not new_prev or 'id' not in new_prev:
+        # 2-5. Preventivo, file, disegni analizzati, articoli e assiemi
+        esito = _crea_preventivo_da_pacchetto(
+            result, zip_bytes, f.filename if f else '',
+            creato_da=admin_id, da_prezzare=is_intake_elena)
+        if not esito:
             return jsonify({'success': False, 'error': 'Creazione preventivo fallita'}), 500
-        preventivo_id = new_prev['id']
-
-        # 3. Scrivi DXF su disco (solo quelli matchati)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
-        os.makedirs(prev_dir, exist_ok=True)
-
-        # Salva il PDF ordine originale: è il documento con disegni/lavorazioni che
-        # Mirko deve vedere. All'accettazione viene allegato all'ordine FerroTrack.
-        rfq_pdf_bytes = getattr(result, 'pdf_bytes', None)
-        rfq_pdf_filename = getattr(result, 'pdf_filename', None) or 'ordine.pdf'
-        if rfq_pdf_bytes:
-            try:
-                pdf_target = os.path.join(prev_dir, os.path.basename(rfq_pdf_filename))
-                with open(pdf_target, 'wb') as fp:
-                    fp.write(rfq_pdf_bytes)
-                _segna_ordine_cliente(prev_dir, os.path.basename(rfq_pdf_filename))
-            except Exception:
-                logger.warning('salvataggio PDF ordine RFQ fallito: %s', rfq_pdf_filename)
-
-        # PDF dei disegni (tavole del cliente, con quote e note): si salvano
-        # tutti e si abbinano ai pezzi per nome, come nell'import da cartella.
-        # Prima si teneva solo il PDF dell'ordine: i pezzi mostravano solo il
-        # DXF e gli assiemi senza STEP non avevano nulla da guardare.
-        def _chiave_disegno(n):
-            stem = os.path.splitext(os.path.basename(n or ''))[0]
-            return re.sub(r'\s*\(\d+\)$', '', stem).strip().lower().replace(' ', '-')
-        pdf_per_chiave = {}
-        try:
-            import io as _io2
-            import zipfile as _zf2
-            with _zf2.ZipFile(_io2.BytesIO(zip_bytes)) as _z:
-                for info in _z.infolist():
-                    base = os.path.basename(info.filename)
-                    if (info.is_dir() or not base.lower().endswith('.pdf') or '__MACOSX' in info.filename
-                            or base == os.path.basename(rfq_pdf_filename)):
-                        continue
-                    dati = _z.read(info)
-                    if not dati.startswith(b'%PDF-'):
-                        continue
-                    salvato = _nome_disegno_libero(prev_dir, base)
-                    with open(os.path.join(prev_dir, salvato), 'wb') as fp:
-                        fp.write(dati)
-                    pdf_per_chiave.setdefault(_chiave_disegno(base), salvato)
-        except Exception:
-            logger.exception('salvataggio PDF disegni RFQ fallito')
-
-        dxf_map = getattr(result, 'dxf_map', {}) or {}
-        saved_tasks = []  # (dxf_path, nome_salvato, nome_originale)
-        matched_dxfs = {a.matched_dxf for a in result.articoli if a.matched_dxf}
-        for fname, data in dxf_map.items():
-            if fname not in matched_dxfs:
-                continue  # skip DXF non associati (ma appaiono in dxf_no_match warning)
-            target_path = os.path.join(prev_dir, os.path.basename(fname))
-            with open(target_path, 'wb') as fp:
-                fp.write(data)
-            saved_tasks.append((target_path, os.path.basename(fname)))
-
-        # 3b. Scrivi gli STEP su disco: il visore 3D li aggancia per nome
-        # all'assieme (montaggio esatto = il vero wow 3D). Non serve matching:
-        # li salviamo tutti, il frontend li abbina per codice.
-        step_map = getattr(result, 'step_map', {}) or {}
-        n_step = 0
-        for sname, sdata in step_map.items():
-            try:
-                with open(os.path.join(prev_dir, os.path.basename(sname)), 'wb') as fp:
-                    fp.write(sdata)
-                n_step += 1
-            except Exception:
-                logger.warning('salvataggio STEP fallito: %s', sname)
-
-        # 4. Processa i DXF in parallelo (detector v3 + scanner dettagli)
-        app_cfg = BarcodeManager.load_config()
-        dxf_cfg = app_cfg.get('dxf_detection') or {
-            'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
-            'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
-            'dxf_svasatura_ratio_min': 1.8, 'dxf_svasatura_ratio_max': 3.0,
-            'dxf_semicerchio_angolo_min': 150.0, 'dxf_semicerchio_angolo_max': 320.0,
-            'dxf_filtra_zona_sviluppata': True,
-        }
-        dxf_results: dict[str, dict] = {}
-        from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_rfq, trova as _trova_mat
-        _mats_rfq = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali')
-        if saved_tasks:
-            max_workers = min(8, max(1, len(saved_tasks)))
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures = {
-                    pool.submit(process_single_dxf, path, fname, dxf_cfg): fname
-                    for path, fname in saved_tasks
-                }
-                for fut in as_completed(futures):
-                    fname = futures[fut]
-                    try:
-                        dxf_results[fname] = _mat_pers_rfq(fut.result(), _mats_rfq)
-                    except Exception as e:
-                        logger.exception('rfq worker fail per %s', fname)
-                        dxf_results[fname] = {'success': False, 'error': str(e)}
-
-        # 5. Costruisci articoli DB combinando dati PDF + DXF
-        # L'assieme NON è un pezzo tagliabile: il suo disegno 2D (master) non va
-        # parsato né prezzato. È rappresentato dal record ASSIEME (rollup dei
-        # componenti + montaggio) e dallo STEP per il 3D. Quindi salto il pezzo
-        # il cui codice è un codice-assieme.
-        assiemi_set = {c for c in (getattr(result, 'assiemi', None) or [])}
-        n_master_saltati = 0
-        articoli_db = []
-        for a in result.articoli:
-            if a.codice in assiemi_set:
-                n_master_saltati += 1
-                continue  # master assieme: rappresentato dal record assieme, non tagliabile
-            dxf_info = dxf_results.get(a.matched_dxf) if a.matched_dxf else None
-            # process_single_dxf risponde con 'geometria', 'lavorazioni' e
-            # 'cartiglio' (come l'import batch): qui si leggevano 'geometry',
-            # le lavorazioni al primo livello e 'cartiglio_materiale', che non
-            # esistono → ogni pezzo importato con l'AI arrivava senza area,
-            # perimetro, lavorazioni e materiale del cartiglio.
-            geom = (dxf_info or {}).get('geometria') or (dxf_info or {}).get('geometry') or {}
-            lav = (dxf_info or {}).get('lavorazioni') or dxf_info or {}
-            item = {
-                'codice': a.codice,
-                'quantita': a.quantita,
-                'codice_assieme': getattr(a, 'codice_assieme', None),  # da sottocartella ZIP
-                'materiale': _trova_mat(a.materiale, _mats_rfq) or a.materiale,  # dal PDF (o None); C75... se aggiunto
-                'spessore_mm': a.spessore_mm,      # dal PDF (o None)
-                'area_dm2': geom.get('area_dm2', 0),
-                'perimetro_taglio_m': geom.get('perimetro_taglio_m', 0),
-                'n_forature': geom.get('n_pierce', 0),
-                'dxf_filename': a.matched_dxf,
-                'pieghe': lav.get('pieghe', 0) or 0,
-                'saldatura_ml': lav.get('saldatura_ml', 0) or 0,
-                'filettatura_pz': lav.get('filettatura_pz', 0) or 0,
-                'svasatura_pz': lav.get('svasatura_pz', 0) or 0,
-                # come l'import batch: affidabilita' del contorno, ingombro,
-                # spostamenti a vuoto (campi extra dell'articolo)
-                'dxf_confidence': geom.get('confidence'),
-                'dxf_needs_verify': bool(geom.get('needs_manual_select')),
-                'bbox_w_mm': geom.get('bbox_width_mm'),
-                'bbox_h_mm': geom.get('bbox_height_mm'),
-                'lunghezza_vuoto_mm': geom.get('lunghezza_vuoto_mm'),
-                # tavola PDF del pezzo (stesso nome del DXF o del codice)
-                'pdf_filename': (pdf_per_chiave.get(_chiave_disegno(a.matched_dxf)) if a.matched_dxf else None)
-                                 or pdf_per_chiave.get(_chiave_disegno(a.codice)),
-            }
-            # Se il PDF NON aveva materiale/spessore, prova a leggerli dal cartiglio DXF
-            if not item['materiale'] and dxf_info:
-                cart = dxf_info.get('cartiglio') or dxf_info.get('cartiglio_materiale') or {}
-                cart_mat = cart.get('materiale') if (cart.get('confidence') or 0) >= 0.5 else None
-                if cart_mat:
-                    item['materiale'] = cart_mat
-            if not item['spessore_mm'] and dxf_info:
-                cart_sp = (dxf_info.get('spessore') or {}).get('spessore_mm')
-                if cart_sp:
-                    item['spessore_mm'] = float(cart_sp)
-            # Arrotonda lo spessore agli spessori realmente tagliati (1-1.5-2-3-4-…)
-            if item.get('spessore_mm'):
-                from .preventivi.pick_part import _snap_stock
-                item['spessore_mm'] = _snap_stock(float(item['spessore_mm']))
-            # Costo stimato subito, come l'import dei disegni: prima nasceva a 0
-            # e si calcolava solo aprendo i pezzi uno per uno (LS 1184: 37 pezzi
-            # su 70 a 0 € dopo l'import, e nessun avviso).
-            if (item.get('materiale') and item.get('spessore_mm') and item.get('area_dm2')
-                    and item.get('perimetro_taglio_m')):
-                try:
-                    st = _laser_estimator.stima_base(item, app_cfg)
-                    item['costo_base_stimato'] = st.get('base') or 0
-                    item['stima_dettaglio'] = {k: st.get(k) for k in (
-                        'peso_kg', 'costo_materiale', 'costo_lavoro', 'setup_eur',
-                        'tempo_taglio_s', 'tempo_pierce_s', 'tempo_vuoto_s',
-                        'tempo_ausiliario_s', 'tempo_totale_min', 'base')}
-                    item['avvisi_stima'] = list(st.get('warnings') or [])[:10]
-                    item['stima_firma'] = _firma_tariffe(app_cfg)
-                    for k in ('ricetta_mancante', 'materiale_sconosciuto', 'spessore_fuori_tabella'):
-                        item[k] = bool(st.get(k))
-                except Exception:
-                    logger.exception('stima import RFQ fallita per %s', a.codice)
-            articoli_db.append(item)
-
-        if n_master_saltati:
-            result.warnings.append(
-                f'{n_master_saltati} disegno/i assieme (master) non prezzati come pezzo — '
-                f'l\'assieme costa come somma componenti + montaggio')
-        # Materiale e spessore mancanti si contano DOPO i cartigli dei DXF: il
-        # conteggio fatto sul solo PDF segnalava 46 "senza materiale" su LS 1184
-        # quando i disegni li avevano quasi tutti.
-        result.warnings = [w for w in result.warnings
-                           if not re.search(r'articoli senza (materiale|spessore) specificato', w)]
-        n_no_mat = sum(1 for it in articoli_db if not it.get('materiale'))
-        n_no_sp = sum(1 for it in articoli_db if not it.get('spessore_mm'))
-        if n_no_mat:
-            result.warnings.append(f'{n_no_mat} articoli senza materiale (ne\' nell\'ordine ne\' nel cartiglio)')
-        if n_no_sp:
-            result.warnings.append(f'{n_no_sp} articoli senza spessore (ne\' nell\'ordine ne\' nel cartiglio)')
-
-        # Salva articoli
-        if articoli_db:
-            try:
-                PreventivoManager.replace_articoli(preventivo_id, articoli_db)
-            except Exception as ae:
-                logger.warning('replace_articoli fallito: %s', ae)
-                result.warnings.append(f'Errore salvataggio articoli: {ae}')
-
-        # Crea i record ASSIEME riconosciuti dalle sottocartelle
-        if getattr(result, 'assiemi', None):
-            assiemi_db = []
-            for cod in result.assiemi:
-                n_comp = sum(1 for it in articoli_db if it.get('codice_assieme') == cod)
-                assiemi_db.append({'codice_assieme': cod, 'qty': 1,
-                                   'componenti_qty': {}, 'ore_montaggio': 0, 'costo': 0})
-            try:
-                PreventivoManager.replace_assiemi(preventivo_id, assiemi_db)
-            except Exception as ae:
-                logger.warning('replace_assiemi fallito: %s', ae)
+        preventivo_id = esito['preventivo_id']
+        articoli_db = esito['articoli_db']
+        saved_tasks = esito['saved_tasks']
+        n_step = esito['n_step']
 
         # Audit
         try:
@@ -2914,6 +3567,455 @@ def api_preventivi_import_rfq_package():
     except Exception as e:
         logger.exception('import-rfq-package failed')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+#  ORDINE DAL PACCHETTO DEL CLIENTE (PDF d'ordine + disegni)
+#  L'ufficio trascina la cartella che manda il cliente. Il pacchetto si legge
+#  con la stessa pipeline dell'import del preventivatore e i pezzi finiscono
+#  su un PREVENTIVO TECNICO nascosto (solo_tecnico, senza prezzi) a cui
+#  l'ordine si aggancia con preventivo_id_origine: distinta, disegni e banco
+#  lamiere funzionano come per un ordine nato da un preventivo accettato.
+#  Due passi: /analizza (legge, l'ufficio rivede) e /conferma (crea l'ordine).
+# ============================================================================
+
+_RUOLI_PACCHETTO = ['Impiegata', 'Commerciale', 'Amministratore', 'CAPO']
+# Un'analisi lasciata a meta' (pagina chiusa) si butta dopo tanto tempo.
+_ORE_PACCHETTO_ABBANDONATO = 24
+# Due clic su "Crea ordine" non devono creare due ordini dallo stesso pacchetto.
+_LOCK_PACCHETTO = threading.Lock()
+_FONTE_QTA_UFFICIO = {'pdf': 'pdf', 'dubbio': 'dubbio', 'senza_qta': 'mancante',
+                      'non_trovato': 'mancante'}
+
+
+def _errore_pacchetto(codice, messaggio, stato=400, **extra):
+    return jsonify({'success': False, 'codice': codice, 'error': messaggio, **extra}), stato
+
+
+def _pulisci_pacchetti_abbandonati():
+    """Butta le analisi mai confermate da piu' di un giorno (record + file).
+    Si fa qui, all'inizio di una nuova analisi: non serve un processo a parte."""
+    try:
+        for pid in PreventivoManager.tecnici_abbandonati(_ORE_PACCHETTO_ABBANDONATO):
+            if PreventivoManager.elimina_tecnico(pid):
+                _cleanup_preventivo_files(pid)
+                logger.info('Pacchetto d\'ordine %s abbandonato: eliminato', pid)
+    except Exception:
+        logger.exception('pulizia pacchetti abbandonati fallita')
+
+
+def _ordine_gia_caricato(numero_ordine, cliente):
+    """Un ordine non cancellato con lo stesso numero (e lo stesso cliente, se
+    lo si conosce). Per avvisare di un doppione: stesso controllo, a meno
+    delle maiuscole, del caricamento col solo PDF."""
+    numero = (numero_ordine or '').strip().lower()
+    if not numero:
+        return None
+    cli = (cliente or '').strip().lower()
+    session = get_session()
+    try:
+        from sqlalchemy import func
+        q = session.query(Order).filter(
+            Order.is_deleted == False,  # noqa: E712
+            func.lower(func.trim(Order.numero_ordine)) == numero)
+        if cli:
+            q = q.filter(func.lower(func.trim(Order.cliente)) == cli)
+        o = q.first()
+        return ({'id': o.id, 'numero_ordine': o.numero_ordine, 'cliente': o.cliente}
+                if o else None)
+    finally:
+        session.close()
+
+
+def _avvisa_capi_nuovo_ordine(order):
+    """Notifica "Nuovo ordine" a tutti i capi officina (come il caricamento
+    col solo PDF)."""
+    numero_display = order.numero_ordine or order.id[:8]
+    try:
+        for u in UserManager.get_all_users() or []:
+            if u.get('is_capo') and u.get('is_active', True):
+                NotificationManager.create_notification(
+                    user_id=u['id'],
+                    order_id=order.id,
+                    title='Nuovo ordine',
+                    message=f'Ordine #{numero_display} ({order.cliente})',
+                    notification_type='order',
+                    notification_category='informativa'
+                )
+    except Exception as exc:
+        logger.warning('notifica nuovo ordine ai capi fallita: %s', exc)
+
+
+def _avvisi_riga_pacchetto(it, fonte):
+    """Avvisi in parole semplici su un pezzo del pacchetto, per l'ufficio."""
+    avvisi = []
+    if fonte == 'non_trovato':
+        avvisi.append("Disegno non citato nell'ordine: entra solo se gli dai una quantita'")
+    elif fonte == 'senza_qta':
+        avvisi.append("Quantita' non trovata nell'ordine: messa 1, controllala")
+    elif fonte == 'dubbio':
+        avvisi.append("Quantita' incerta: sulla stessa riga dell'ordine ci sono piu' codici")
+    if not it.get('dxf_filename'):
+        avvisi.append('Nessun disegno per questo pezzo')
+    elif it.get('_errore_dxf'):
+        avvisi.append('Disegno non letto: ' + str(it['_errore_dxf'])[:120])
+    else:
+        conf = it.get('dxf_confidence')
+        if it.get('dxf_needs_verify') or (isinstance(conf, (int, float)) and conf < 0.5):
+            avvisi.append("Contorno del disegno incerto: l'ingombro va controllato")
+    if not it.get('materiale'):
+        avvisi.append('Materiale da indicare')
+    if not it.get('spessore_mm'):
+        avvisi.append('Spessore da indicare')
+    return avvisi
+
+
+@app.route('/api/orders/da-pacchetto/analizza', methods=['POST'])
+def api_ordine_pacchetto_analizza():
+    """Legge il pacchetto del cliente (PDF d'ordine + disegni) senza creare
+    l'ordine: l'ufficio rivede quantita', materiali e spessori, poi conferma.
+
+    Multipart: `zip` oppure `files` (+ `paths` per le cartelle), `user_id`.
+    Crea il preventivo tecnico nascosto (pacchetto_id) con i pezzi e i file.
+    """
+    from .preventivi import rfq_importer
+    try:
+        user_id = (request.form.get('user_id') or '').strip()
+        if not _require_role(user_id, _RUOLI_PACCHETTO):
+            return _errore_pacchetto('permesso_negato',
+                                     "Solo l'ufficio o il commerciale possono caricare un ordine.", 403)
+        _pulisci_pacchetti_abbandonati()
+
+        zip_bytes, file_caricato = _zip_dalla_richiesta()
+        if zip_bytes is None:
+            return _errore_pacchetto('nessun_file',
+                                     "Nessun file: trascina la cartella del cliente, lo ZIP "
+                                     "oppure il PDF dell'ordine con i disegni.")
+        if not zip_bytes:
+            return _errore_pacchetto('file_vuoto', 'Il file caricato e\' vuoto.')
+
+        result = rfq_importer.process_rfq_package(zip_bytes, tollerante=True)
+        if not result.success:
+            return _errore_pacchetto('pacchetto_illeggibile',
+                                     result.error or 'Non riesco a leggere il pacchetto.')
+
+        # I disegni che l'ordine non cita si analizzano lo stesso: l'ufficio
+        # li vede e decide se aggiungerli (quantita' > 0) o lasciarli fuori.
+        for fn in list(result.dxf_no_match or []):
+            result.articoli.append(rfq_importer.ArticoloRFQ(
+                codice=os.path.splitext(fn)[0], quantita=1, matched_dxf=fn,
+                qta_fonte='non_trovato'))
+
+        esito = _crea_preventivo_da_pacchetto(
+            result, zip_bytes, file_caricato.filename if file_caricato else '',
+            creato_da=user_id, solo_tecnico=True)
+        if not esito:
+            return _errore_pacchetto('errore_interno', 'Non riesco a salvare il pacchetto. Riprova.', 500)
+        pid = esito['preventivo_id']
+
+        # Id dei pezzi salvati: stessa posizione della lista (extra 'riga').
+        salvato = PreventivoManager.get(pid, include_children=True) or {}
+        per_riga = {a.get('riga'): a for a in salvato.get('articoli') or []}
+        righe = []
+        for i, it in enumerate(esito['articoli_db']):
+            a = per_riga.get(i) or {}
+            fonte = it.get('_qta_fonte') or 'pdf'
+            dxf = it.get('dxf_filename')
+            conf = it.get('dxf_confidence')
+            righe.append({
+                'id': a.get('id'),
+                'codice': it.get('codice') or '',
+                'descrizione': it.get('_descrizione') or '',
+                # 0 = "non entra nell'ordine": il disegno non c'e' nell'ordine
+                'quantita': 0 if fonte == 'non_trovato' else int(it.get('quantita') or 1),
+                'quantita_fonte': _FONTE_QTA_UFFICIO.get(fonte, 'pdf'),
+                'fuori_ordine': fonte == 'non_trovato',
+                'assieme': it.get('codice_assieme'),
+                'materiale': it.get('materiale'),
+                'spessore_mm': it.get('spessore_mm'),
+                'bbox_w_mm': it.get('bbox_w_mm'),
+                'bbox_h_mm': it.get('bbox_h_mm'),
+                'area_dm2': it.get('area_dm2') or None,
+                'confidenza': round(float(conf), 3) if isinstance(conf, (int, float)) else None,
+                'disegno': dxf,
+                'url_svg': (f'/api/preventivi/{pid}/dxf/{quote(dxf)}/svg'
+                            if dxf and dxf.lower().endswith('.dxf') else None),
+                'avvisi': _avvisi_riga_pacchetto(it, fonte),
+            })
+
+        cliente = (result.cliente or '').strip()
+        if cliente == 'Cliente da specificare':
+            cliente = ''   # il segnaposto del preventivatore non e' un cliente
+        numero = (result.numero_ordine_cliente or '').strip()
+        pdf_nome = getattr(result, 'pdf_filename', None)
+
+        try:
+            AuditManager.log(
+                user_id=user_id, action='ORDER_PACKAGE_ANALYZE',
+                entity_type='preventivi', entity_id=pid,
+                detail=f'Pacchetto d\'ordine letto: {len(righe)} pezzi, '
+                       f'{len(esito["saved_tasks"])} DXF')
+        except Exception:
+            pass
+
+        return jsonify({
+            'success': True,
+            'pacchetto_id': pid,
+            'cliente': cliente,
+            'numero_ordine': numero,
+            'data_consegna': (result.data_consegna or '')[:10] or None,
+            'note': result.note or '',
+            'pdf': ({'nome': pdf_nome,
+                     'url': f'/api/preventivi/{pid}/disegni-pdf/{quote(os.path.basename(pdf_nome))}'}
+                    if getattr(result, 'pdf_bytes', None) and pdf_nome else None),
+            'righe': righe,
+            'assiemi': [{'codice': cod,
+                         'n_pezzi': sum(1 for r in righe if r['assieme'] == cod)}
+                        for cod in (getattr(result, 'assiemi', None) or [])],
+            'tubolari': [],   # la lettura del pacchetto non ne produce (vengono dagli STEP)
+            'dxf_senza_riga': list(result.dxf_no_match or []),
+            'righe_senza_disegno': [r['codice'] for r in righe
+                                    if not r['disegno'] and not r['fuori_ordine']],
+            'avvisi': list(result.warnings or []),
+            'ordine_esistente': _ordine_gia_caricato(numero, cliente),
+        }), 200
+    except Exception as e:
+        logger.exception('analisi pacchetto ordine fallita')
+        return _errore_pacchetto('errore_interno', 'Errore nella lettura del pacchetto: ' + str(e), 500)
+
+
+def _leggi_correzioni_pacchetto(prev, righe_in):
+    """Valida le correzioni dell'ufficio e ritorna (articoli, errore).
+
+    Le righe non nominate tengono i loro valori; quantita' 0 toglie il pezzo;
+    i disegni che l'ordine non citava entrano solo con una quantita' > 0.
+    """
+    articoli = prev.get('articoli') or []
+    per_id = {a['id']: a for a in articoli}
+    correzioni = {}
+    if righe_in is not None and not isinstance(righe_in, list):
+        return None, ('righe_non_valide', 'Le righe corrette non sono una lista.')
+    for r in righe_in or []:
+        if not isinstance(r, dict) or r.get('id') not in per_id:
+            return None, ('riga_sconosciuta',
+                          'Una riga corretta non fa parte di questo pacchetto: ricarica la pagina.')
+        c = {}
+        cod = per_id[r['id']].get('codice') or '?'
+        if 'quantita' in r:
+            try:
+                q = float(r['quantita'])
+                if q != int(q) or q < 0 or q > 100000:
+                    raise ValueError
+                c['quantita'] = int(q)
+            except (TypeError, ValueError):
+                return None, ('quantita_non_valida',
+                              f"Quantita' non valida per {cod}: serve un numero intero da 0 in su.")
+        if 'spessore_mm' in r:
+            v = r['spessore_mm']
+            if v in (None, ''):
+                c['spessore_mm'] = None
+            else:
+                try:
+                    v = float(str(v).replace(',', '.'))
+                    if not (0 < v <= 200):
+                        raise ValueError
+                    c['spessore_mm'] = round(v, 2)
+                except (TypeError, ValueError):
+                    return None, ('spessore_non_valido',
+                                  f'Spessore non valido per {cod}: scrivi i millimetri (es. 3 o 1,5).')
+        if 'materiale' in r:
+            m = str(r.get('materiale') or '').strip()
+            if len(m) > 40:
+                return None, ('materiale_non_valido', f'Materiale troppo lungo per {cod}.')
+            c['materiale'] = m or None
+        correzioni[r['id']] = c
+
+    nuovi = []
+    for a in articoli:
+        c = correzioni.get(a['id'], {})
+        od = a.get('ordine') if isinstance(a.get('ordine'), dict) else None
+        fuori = bool(od and od.get('stato') == 'non_trovato')
+        q = c['quantita'] if 'quantita' in c else (0 if fuori else int(a.get('quantita') or 0))
+        if q <= 0:
+            continue
+        a = dict(a)
+        a['quantita'] = q
+        for k in ('materiale', 'spessore_mm'):
+            if k in c:
+                a[k] = c[k]
+        if c and od:
+            # controllata dall'ufficio: non e' piu' "da controllare"
+            a['ordine'] = {**od, 'stato': 'controllato'}
+        nuovi.append(a)
+    return nuovi, None
+
+
+@app.route('/api/orders/da-pacchetto/<pacchetto_id>/conferma', methods=['POST'])
+def api_ordine_pacchetto_conferma(pacchetto_id):
+    """Crea l'ordine dal pacchetto analizzato, con le correzioni dell'ufficio.
+
+    JSON: {user_id, numero_ordine, cliente, data_consegna (YYYY-MM-DD), note?,
+           righe: [{id, quantita, materiale, spessore_mm}], forza?}
+    `forza`: crea anche se esiste gia' un ordine con lo stesso numero.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = (data.get('user_id') or '').strip()
+        if not _require_role(user_id, _RUOLI_PACCHETTO):
+            return _errore_pacchetto('permesso_negato',
+                                     "Solo l'ufficio o il commerciale possono caricare un ordine.", 403)
+
+        numero = str(data.get('numero_ordine') or '').strip()
+        cliente = str(data.get('cliente') or '').strip()
+        data_consegna = str(data.get('data_consegna') or '').strip()
+        note = str(data.get('note') or '').strip()
+        if not numero:
+            return _errore_pacchetto('numero_mancante', "Scrivi il numero dell'ordine.")
+        if not cliente:
+            return _errore_pacchetto('cliente_mancante', 'Scrivi il cliente.')
+        if not data_consegna:
+            return _errore_pacchetto('data_mancante', 'Scegli la data di consegna.')
+        try:
+            dc = datetime.strptime(data_consegna, '%Y-%m-%d').date()
+        except ValueError:
+            return _errore_pacchetto('data_non_valida',
+                                     'La data di consegna non e\' valida (serve AAAA-MM-GG).')
+        # Come il caricamento col solo PDF: tolleranza di un giorno.
+        if dc < (datetime.utcnow() - timedelta(days=1)).date():
+            return _errore_pacchetto('data_passata',
+                                     f'La data di consegna {dc.strftime("%d/%m/%Y")} e\' nel passato.')
+
+        with _LOCK_PACCHETTO:
+            # Gia' confermato? (anche se l'ordine poi e' stato cancellato:
+            # il pacchetto e' stato usato, non si riusa)
+            session = get_session()
+            try:
+                gia = session.query(Order).filter(
+                    Order.preventivo_id_origine == pacchetto_id).first()
+                gia = {'id': gia.id, 'numero_ordine': gia.numero_ordine} if gia else None
+            finally:
+                session.close()
+            if gia:
+                return _errore_pacchetto(
+                    'gia_confermato',
+                    f"Da questo pacchetto e' gia' stato creato l'ordine {gia['numero_ordine'] or gia['id'][:8]}.",
+                    409, order_id=gia['id'], numero_ordine=gia['numero_ordine'])
+            prev = PreventivoManager.get_tecnico(pacchetto_id)
+            if not prev:
+                return _errore_pacchetto('pacchetto_non_trovato',
+                                         'Pacchetto non trovato: forse e\' stato annullato. Ricaricalo.', 404)
+            if prev.get('status') != 'BOZZA':
+                return _errore_pacchetto('gia_confermato',
+                                         "Questo pacchetto e' gia' stato usato per un ordine.", 409)
+
+            nuovi, err = _leggi_correzioni_pacchetto(prev, data.get('righe'))
+            if err:
+                return _errore_pacchetto(*err)
+
+            doppione = _ordine_gia_caricato(numero, cliente)
+            if doppione and not data.get('forza'):
+                return _errore_pacchetto(
+                    'ordine_duplicato', f'Ordine #{numero} per {cliente} esiste gia\'.', 409,
+                    ordine_esistente=doppione)
+
+            # Correzioni dell'ufficio sul preventivo tecnico (ancora in BOZZA)
+            r = PreventivoManager.replace_articoli(pacchetto_id, nuovi)
+            if isinstance(r, dict) and r.get('error'):
+                return _errore_pacchetto('righe_non_valide', 'Pezzi non salvati: ' + r['error'])
+            PreventivoManager.aggiorna_tecnico(
+                pacchetto_id, cliente=cliente, numero_ordine_cliente=numero,
+                data_consegna_proposta=datetime.combine(dc, datetime.min.time()), note=note)
+
+            # L'ordine, come il caricamento col solo PDF, ma agganciato ai pezzi
+            order = OrderManager.create_order(
+                cliente=cliente, data_consegna=data_consegna, numero_ordine=numero,
+                note=note, origine='PACCHETTO', preventivo_id_origine=pacchetto_id)
+            # Pacchetto usato: non si conferma una seconda volta
+            PreventivoManager.aggiorna_tecnico(pacchetto_id, status='ACCETTATO')
+
+        # Disegni nella cartella dell'ordine (li taglia il laser da li') e
+        # PDF d'ordine allegato: le stesse funzioni dell'accettazione.
+        dxf_stats = _copy_cleaned_dxf_to_drawings(pacchetto_id, order.id)
+        try:
+            export = _esporta_disegni_per_officina(order.id, cliente, numero)
+        except Exception as _e:
+            logger.warning('export disegni in cartella di rete: %s', _e)
+            export = {'error': str(_e)}
+        pdf_stats = _copy_order_pdf_to_order(pacchetto_id, order.id)
+
+        # I file temporanei si cancellano solo se e' arrivato tutto quello che
+        # doveva arrivare (stessa regola dell'accettazione). Un pezzo senza
+        # disegno non e' un disegno perso: si contano solo i DXF attesi.
+        cartella = os.path.join(UPLOAD_FOLDER, 'drawings', order.id)
+        attesi = {os.path.basename(a['dxf_filename']) for a in nuovi if a.get('dxf_filename')}
+        mancanti = sum(1 for n in attesi if not os.path.isfile(os.path.join(cartella, n)))
+        src_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', pacchetto_id)
+        if _ordine_cliente_segnato(src_dir) and not pdf_stats.get('copied'):
+            mancanti += 1
+        avviso = None
+        if mancanti:
+            avviso = (f"{mancanti} file non sono passati all'ordine: gli originali sono "
+                      "stati conservati. Controlla i disegni dell'ordine.")
+            logger.warning('Pacchetto %s: %d file non trasferiti, sorgenti conservati',
+                           pacchetto_id, mancanti)
+        else:
+            _cleanup_preventivo_files(pacchetto_id)
+
+        _avvisa_capi_nuovo_ordine(order)
+        try:
+            OrderEventBus.publish('order.created', {
+                'order_id': order.id, 'numero_ordine': numero, 'cliente': cliente,
+                'origine': 'PACCHETTO', 'preventivo_id_origine': pacchetto_id})
+        except Exception:
+            pass
+        try:
+            AuditManager.log(
+                user_id=user_id, action='CREATE_ORDER_FROM_PACKAGE',
+                entity_type='orders', entity_id=order.id,
+                detail=f'Ordine {numero} ({cliente}) dal pacchetto {pacchetto_id}: '
+                       f'{len(nuovi)} pezzi, {len(attesi) - mancanti} disegni'
+                       + (f', {mancanti} file non trasferiti' if mancanti else ''))
+        except Exception:
+            pass
+
+        from .ordini_service import riga_ordine
+        return jsonify({
+            'success': True,
+            'order_id': order.id,
+            'numero_ordine': numero,
+            'cartellino_url': f'/api/orders/{order.id}/cartellino',
+            'ordine': riga_ordine(order.id),
+            'n_pezzi': len(nuovi),
+            'dxf_transfer': dxf_stats,
+            'pdf_transfer': pdf_stats,
+            'export_disegni': export,
+            'avviso': avviso,
+        }), 201
+    except Exception as e:
+        logger.exception('conferma pacchetto ordine fallita')
+        return _errore_pacchetto('errore_interno', 'Ordine non creato: ' + str(e), 500)
+
+
+@app.route('/api/orders/da-pacchetto/<pacchetto_id>', methods=['DELETE'])
+def api_ordine_pacchetto_scarta(pacchetto_id):
+    """L'ufficio annulla un'analisi: via il preventivo tecnico e i suoi file.
+    Un pacchetto gia' diventato ordine non si tocca (la distinta sta li')."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = (data.get('user_id') or request.args.get('user_id') or '').strip()
+        if not _require_role(user_id, _RUOLI_PACCHETTO):
+            return _errore_pacchetto('permesso_negato',
+                                     "Solo l'ufficio o il commerciale possono annullare un caricamento.", 403)
+        if not PreventivoManager.e_tecnico(pacchetto_id):
+            return _errore_pacchetto('pacchetto_non_trovato', 'Pacchetto non trovato.', 404)
+        if not PreventivoManager.elimina_tecnico(pacchetto_id):
+            return _errore_pacchetto('gia_confermato',
+                                     "Questo pacchetto e' gia' diventato un ordine: non si annulla.", 409)
+        _cleanup_preventivo_files(pacchetto_id)
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.exception('annullamento pacchetto fallito')
+        return _errore_pacchetto('errore_interno', str(e), 500)
 
 
 @app.route('/api/preventivi/<preventivo_id>/import-dxf-batch', methods=['POST'])
@@ -5209,8 +6311,8 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     data_str = ''
     if p.get('data_creazione'):
         try:
-            dt = datetime.fromisoformat(p['data_creazione'])
-            data_str = dt.strftime('%d/%m/%Y')
+            giorno = _giorno_iso(p['data_creazione'])
+            data_str = giorno.strftime('%d/%m/%Y') if giorno else p['data_creazione']
         except Exception:
             data_str = p['data_creazione']
     else:

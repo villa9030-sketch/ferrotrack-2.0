@@ -238,11 +238,14 @@ def main():
     prima_chiusura = c.post('/api/ordini/ord-1/chiudi', json={'user_id': 'elena'})
     c.post('/api/ordini/ord-1/consegna', json={'user_id': 'elena', 'completa': True})
     dopo_consegna = osv.elenco()['conteggi']
-    c.post('/api/ordini/ord-1/chiudi', json={'user_id': 'elena'})
+    c.post('/api/ordini/ord-1/chiudi', json={'user_id': 'elena', 'numero_fattura': 'FT 1'})
     finale = osv.elenco()['conteggi']
+    # Il solo DDT lascia l'ordine fra i pronti: "consegnati" e' la vista da
+    # fatturare, e si fattura cio' che e' stato consegnato.
     check(13, 'Pronto, consegnato e archiviato non confusi',
           prima_chiusura.status_code == 409
-          and f_ddt['consegnato'] == 1 and dopo_consegna['consegnato'] == 1
+          and f_ddt['pronto_ddt'] == 1 and f_ddt['consegnato'] == 0
+          and dopo_consegna['consegnato'] == 1
           and finale['archivio'] == 1 and finale['consegnato'] == 0,
           (f_ddt, dopo_consegna, finale))
 

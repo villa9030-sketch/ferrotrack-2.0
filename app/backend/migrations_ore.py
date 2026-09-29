@@ -45,7 +45,10 @@ _NUOVE_TABELLE_COLS = {
                      'scostamento_confermato': 'BOOLEAN'},
     # Fotografia economica scattata all'INVIO: un'offerta gia' mandata non deve
     # cambiare prezzo se qualcuno modifica i costi in configurazione.
-    'preventivi': {'snapshot_economico': 'TEXT'},
+    'preventivi': {'snapshot_economico': 'TEXT',
+                   # Preventivo tecnico nascosto dietro un ordine caricato
+                   # col pacchetto del cliente (PDF + disegni).
+                   'solo_tecnico': 'BOOLEAN'},
     # Distingue una POSTAZIONE da cui si entra (timbratrice, laser, ufficio)
     # da una PERSONA di cui si contano le ore. Prima stavano mescolate.
     'users': {'e_postazione': 'BOOLEAN'},
@@ -62,6 +65,8 @@ _NUOVE_TABELLE_COLS = {
 _VALORE_DI_PARTENZA = {
     # Chi c'era prima delle postazioni e' una persona, non un posto.
     ('users', 'e_postazione'): 0,
+    # I preventivi che c'erano sono tutti offerte vere: nessuno e' tecnico.
+    ('preventivi', 'solo_tecnico'): 0,
     # `orders.taglio_richiesto` NON sta qui: 0 vorrebbe dire "il laser ha
     # deciso che non va tagliato", e nessuno lo ha deciso. Se ne occupa
     # _smistamento_iniziale(), che guarda cosa e' gia' stato tagliato.
@@ -182,10 +187,15 @@ def _seed_clienti(engine, insp):
         for tabella in ('orders', 'preventivi'):
             if tabella not in insp.get_table_names():
                 continue
+            # Un preventivo tecnico (pacchetto d'ordine) puo' portare un nome
+            # letto male dal PDF, poi corretto sull'ordine: non fa anagrafica.
+            filtro = (' AND COALESCE(solo_tecnico, 0) = 0'
+                      if tabella == 'preventivi'
+                      and _column_exists(insp, 'preventivi', 'solo_tecnico') else '')
             try:
                 rows = conn.execute(text(
                     f'SELECT DISTINCT cliente FROM {tabella} '
-                    f'WHERE cliente IS NOT NULL AND TRIM(cliente) <> ""'
+                    f'WHERE cliente IS NOT NULL AND TRIM(cliente) <> ""' + filtro
                 )).fetchall()
                 for (nome,) in rows:
                     n = (nome or '').strip()
@@ -244,6 +254,89 @@ def _seed_ore_attese(engine, insp):
     return creati
 
 
+def _unifica_ddt(engine, insp):
+    """Un DDT solo: copia numero_ddt/data_ddt nei campi buoni ddt_numero/ddt_data.
+
+    La vecchia scheda "Ordini da fatturare" scriveva nelle colonne vecchie,
+    la vista ordini in quelle nuove, e ogni schermata leggeva solo le sue: lo
+    stesso ordine aveva il DDT per una pagina e non per l'altra. Si copia SOLO
+    dove il campo nuovo e' vuoto: un valore gia' scritto non si tocca.
+
+    Poi si sistemano le date DDT salvate come istante UTC (la vista ordini
+    usava utcnow): un DDT ha una data di calendario, e un DDT delle 00:30
+    italiane risultava del giorno prima. Si riconoscono perche' non sono a
+    mezzanotte; quelle a mezzanotte sono gia' date e restano come sono.
+
+    Idempotente: alla seconda esecuzione non trova piu' niente da fare.
+    """
+    if 'orders' not in insp.get_table_names():
+        return 0
+    servono = ('numero_ddt', 'data_ddt', 'ddt_numero', 'ddt_data')
+    if not all(_column_exists(insp, 'orders', c) for c in servono):
+        return 0
+    from .orario import data_locale
+    toccati = 0
+    with engine.connect() as conn:
+        toccati += conn.execute(text(
+            "UPDATE orders SET ddt_numero = numero_ddt "
+            "WHERE (ddt_numero IS NULL OR TRIM(ddt_numero) = '') "
+            "AND numero_ddt IS NOT NULL AND TRIM(numero_ddt) != ''")).rowcount or 0
+        toccati += conn.execute(text(
+            "UPDATE orders SET ddt_data = data_ddt "
+            "WHERE ddt_data IS NULL AND data_ddt IS NOT NULL "
+            "AND ddt_numero = numero_ddt")).rowcount or 0
+        righe = conn.execute(text(
+            "SELECT id, ddt_data FROM orders WHERE ddt_data IS NOT NULL "
+            "AND time(ddt_data) != '00:00:00'")).fetchall()
+        for oid, valore in righe:
+            try:
+                istante = valore if isinstance(valore, datetime) else \
+                    datetime.fromisoformat(str(valore))
+            except ValueError:
+                continue
+            giorno = data_locale(istante)
+            conn.execute(text("UPDATE orders SET ddt_data = :d WHERE id = :id"),
+                         {'d': datetime(giorno.year, giorno.month, giorno.day)
+                          .strftime('%Y-%m-%d %H:%M:%S.%f'), 'id': oid})
+            toccati += 1
+        conn.commit()
+    if toccati:
+        logger.info('migrations_ore: DDT unificati/normalizzati su %d campi', toccati)
+    return toccati
+
+
+# (tabella, colonne) degli indici che servono alle liste lette di continuo.
+# Senza, ogni lettura degli ordini scorreva file, fasi e sessioni per intero:
+# con qualche anno di archivio la coda del laser costava secondi a chiamata.
+_INDICI = (
+    ('orders', ('status',)),
+    ('orders', ('is_deleted', 'data_consegna')),
+    ('order_files', ('order_id',)),
+    ('processing_steps', ('order_id',)),
+    ('phase_sessions', ('order_id',)),
+    ('phase_sessions', ('step_id',)),
+    ('support_requests', ('order_id',)),
+    ('notifications', ('user_id',)),
+    ('preventivo_articoli', ('preventivo_id',)),
+)
+
+
+def _indici_prestazioni(engine, insp):
+    """Crea gli indici mancanti. Idempotente (IF NOT EXISTS)."""
+    tabelle = set(insp.get_table_names())
+    creati = 0
+    with engine.connect() as conn:
+        for tab, cols in _INDICI:
+            if tab not in tabelle or not all(_column_exists(insp, tab, c) for c in cols):
+                continue
+            nome = 'ix_ft_%s_%s' % (tab, '_'.join(cols))
+            conn.execute(text('CREATE INDEX IF NOT EXISTS %s ON %s (%s)'
+                              % (nome, tab, ', '.join(cols))))
+            creati += 1
+        conn.commit()
+    return creati
+
+
 def migrate_ore(engine):
     """Punto di ingresso unico. Sicuro da chiamare a ogni avvio."""
     try:
@@ -253,6 +346,8 @@ def migrate_ore(engine):
         cols += _migra_colonne_sottosistema(engine, insp)
         insp = inspect(engine)
         _smistamento_iniziale(engine, insp)
+        _unifica_ddt(engine, insp)
+        _indici_prestazioni(engine, insp)
         cli = _seed_clienti(engine, insp)
         ore = _seed_ore_attese(engine, insp)
         if cols or cli or ore:

@@ -378,6 +378,13 @@ class Preventivo(Base):
     # True = richiesta caricata da Elena (Impiegata), in attesa di prezzatura dal
     # commerciale. Marcatore d'origine: il badge "da prezzare" si mostra finché è BOZZA.
     da_prezzare = Column(Boolean, nullable=False, default=False)
+    # True = "preventivo tecnico" nascosto, senza prezzi: regge i pezzi e i
+    # disegni di un ordine caricato dall'ufficio col pacchetto del cliente
+    # (PDF + DXF). Distinta, disegni e banco lamiere leggono i pezzi da qui
+    # come per un ordine nato da preventivo, ma nel preventivatore non deve
+    # comparire mai (non e' un'offerta). Colonna aggiunta da
+    # migrations_ore._migra_colonne_sottosistema.
+    solo_tecnico = Column(Boolean, nullable=True, default=False)
     # Tracciamento invio email al cliente (indirizzo usato + quando).
     email_cliente = Column(String, nullable=True)
     email_inviata_il = Column(DateTime, nullable=True)

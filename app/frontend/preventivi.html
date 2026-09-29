@@ -12847,8 +12847,12 @@ function _statoLeggibile(s) {
 }
 function _giorni(iso) {
   if (!iso) return null;
-  const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+  // Data pura (consegna): quel giorno. Istante (creazione, in UTC con la Z):
+  // il giorno italiano, altrimenti fra mezzanotte e le 2 "oggi" era "ieri".
+  const s = String(iso);
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T00:00:00') : new Date(s);
   if (isNaN(d)) return null;
+  d.setHours(0, 0, 0, 0);
   const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
   return Math.round((d - oggi) / 86400000);
 }

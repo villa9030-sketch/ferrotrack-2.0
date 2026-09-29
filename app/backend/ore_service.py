@@ -25,6 +25,7 @@ except Exception:  # pragma: no cover - fallback estremo
     _TZ = None
 
 from .database import get_session
+from .orario import iso_utc
 from .models import RUOLI_OPERAI, RUOLO_OPERAIO, User
 from .models_ore import Cliente, GiornataOre, RigaOre
 
@@ -293,7 +294,7 @@ def _serializza(g: GiornataOre) -> dict:
         'righe': righe,
         'totale_minuti': sum(r['minuti'] for r in righe),
         'origine': g.origine,
-        'aggiornata_il': g.aggiornata_il.isoformat() if g.aggiornata_il else None,
+        'aggiornata_il': iso_utc(g.aggiornata_il),
         'modificata_da': g.modificata_da,
         'scostamento_confermato': bool(g.scostamento_confermato),
     }

@@ -1,7 +1,7 @@
 """CRUD operations for Order management"""
 from datetime import datetime, timedelta
 from sqlalchemy import func, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 from .models import (
     Order, OrderFile, ProcessingStep, OrderNotification, PhaseSession,
@@ -13,6 +13,8 @@ import os
 import uuid
 import json
 import logging
+
+from .orario import iso_utc, iso_data, giorno_locale_in_utc, oggi_locale
 
 logger = logging.getLogger(__name__)
 
@@ -104,13 +106,17 @@ class OrderManager:
     @staticmethod
     def create_order(cliente: str, data_consegna: str,
                      numero_ordine: str = "", note: str = "",
-                     destinazione: str = None) -> Order:
+                     destinazione: str = None, *, origine: str = 'PDF',
+                     preventivo_id_origine: str = None) -> Order:
         """Crea un nuovo ordine.
 
         Non assegna fase né operatore: il sistema barcode rileva chi
         scansiona, e la chiusura è una decisione del capo.
         Il parametro 'destinazione' è kept per backward-compat di chiamate
         legacy ma viene IGNORATO.
+        origine='PACCHETTO' + preventivo_id_origine: ordine caricato
+        dall'ufficio col pacchetto del cliente (PDF + disegni); i pezzi stanno
+        sul preventivo tecnico nascosto, come per un ordine da preventivo.
         """
         session = get_session()
         try:
@@ -123,6 +129,8 @@ class OrderManager:
                 operatore_assegnato=None,  # legacy, no assegnazione automatica
                 status='RICEVUTO',
                 note=note,
+                origine=origine or 'PDF',
+                preventivo_id_origine=preventivo_id_origine,
             )
             session.add(order)
             session.commit()
@@ -220,27 +228,40 @@ class OrderManager:
 
     @staticmethod
     def close_order(order_id: str, user_id: str = '') -> dict:
-        """Capo officina dichiara 'lavoro fisico finito': l'ordine passa a
-        DA_FATTURARE e finisce nella tab di Elena per la chiusura amministrativa.
+        """Capo officina: "Lavoro finito". E' il COMPLETAMENTO del ciclo
+        ordini (ordini_service.registra_completamento), non uno stato a parte.
 
-        - Setta status='DA_FATTURARE' (NON CHIUSO — quello è dopo DDT/fattura)
-        - Chiude tutte le OfficinaScan ancora aperte (motivo='ordine_chiuso')
-        - Audit log
+        Prima metteva solo status=DA_FATTURARE: niente data, niente autore,
+        nessun avviso all'ufficio, e l'ordine finiva nella scheda fatture senza
+        essere mai stato consegnato. Ora:
+          - registra QUANDO e CHI (data_completamento_operativo, completato_operativo_da)
+          - chiude le OfficinaScan ancora aperte (motivo='ordine_chiuso')
+          - avvisa l'ufficio: c'e' un DDT da preparare
+          - se il laser doveva tagliarlo e non ha segnato il taglio, NON blocca
+            (il capo vede i pezzi, il laser puo' essersi dimenticato) ma lo
+            dice nel campo `avviso`, anche all'ufficio
+        Ripeterlo non fa danni: `gia_registrato` e nessuna notifica doppia.
         """
+        from .ordini_service import registra_completamento
         session = get_session()
         try:
-            order = session.query(Order).filter(Order.id == order_id).first()
+            order = session.query(Order).filter(
+                Order.id == order_id, Order.is_deleted == False).first()  # noqa: E712
             if not order:
-                return {'success': False, 'error': 'Ordine non trovato'}
-            if order.status in ('DA_FATTURARE', 'CHIUSO', 'SPEDITO'):
-                return {'success': False, 'error': f'Ordine già in stato {order.status}'}
-            order.status = 'DA_FATTURARE'
-            session.commit()
-        except Exception as e:
-            session.rollback()
-            return {'success': False, 'error': str(e)}
+                return {'success': False, 'error': 'Ordine non trovato',
+                        'codice': 'non_trovato'}
+            taglio_mancante = (getattr(order, 'taglio_richiesto', None) is True
+                               and not getattr(order, 'taglio_completato', False))
+            numero = order.numero_ordine or order.id[:8]
+            cliente = order.cliente or ''
         finally:
             session.close()
+
+        res = registra_completamento(order_id, user_id)
+        if res.get('error'):
+            return {'success': False, 'error': res['error'], 'codice': res.get('codice')}
+        ordine = res.get('ordine') or {}
+        gia = bool(res.get('gia_registrato'))
 
         # Chiude scan aperte
         try:
@@ -249,15 +270,59 @@ class OrderManager:
             logger.warning('close_open_scans failed in close_order: %s', exc)
             n = 0
 
+        avviso = None
+        if taglio_mancante:
+            avviso = ('Il laser non ha segnato il taglio di quest\'ordine: '
+                      'controlla che i pezzi siano stati tagliati davvero.')
+
+        if not gia:
+            OrderManager._avvisa_ufficio_lavoro_finito(
+                order_id, numero, cliente, user_id, avviso)
+
         try:
             AuditManager.log(
                 user_id=user_id, action='CLOSE_ORDER',
                 entity_type='order', entity_id=order_id,
-                detail=f'Lavorazione finita → DA_FATTURARE, scan chiuse: {n}',
+                detail=(f'Lavoro finito -> pronto per DDT, scan chiuse: {n}'
+                        + (' [taglio non segnato dal laser]' if taglio_mancante else '')),
             )
         except Exception:
             pass
-        return {'success': True, 'order_id': order_id, 'scan_chiuse': n, 'nuovo_status': 'DA_FATTURARE'}
+        out = {'success': True, 'order_id': order_id, 'scan_chiuse': n,
+               'nuovo_status': ordine.get('status') or 'DA_FATTURARE',
+               'gia_registrato': gia, 'ordine': ordine}
+        if avviso:
+            out['avviso'] = avviso
+        return out
+
+    @staticmethod
+    def _avvisa_ufficio_lavoro_finito(order_id, numero, cliente, autore_id, avviso=None):
+        """Notifica alle postazioni d'ufficio: un ordine e' pronto per il DDT.
+
+        Come "Nuovo ordine da protocollare": una notifica per ogni utenza
+        d'ufficio attiva, tranne chi ha premuto il pulsante (se e' l'ufficio
+        stesso a registrarlo, non serve avvisarsi da soli).
+        """
+        from .models import RUOLI_UFFICIO
+        try:
+            autore = UserManager.get_user(autore_id) if autore_id else None
+            chi = (autore or {}).get('name') or 'l\'officina'
+            messaggio = (f'Ordine #{numero} ({cliente}) finito, segnato da {chi}: '
+                         'prepara il DDT.')
+            if avviso:
+                messaggio += ' ATTENZIONE: ' + avviso
+            for u in UserManager.get_all_users() or []:
+                if not u.get('is_active', True) or u.get('id') == autore_id:
+                    continue
+                if u.get('role') in RUOLI_UFFICIO:
+                    NotificationManager.create_notification(
+                        user_id=u['id'], order_id=order_id,
+                        title='Lavoro finito: pronto per DDT',
+                        message=messaggio,
+                        notification_type='order',
+                        notification_category='urgente' if avviso else 'attiva')
+        except Exception as exc:
+            logger.warning('notifica lavoro finito fallita: %s', exc)
 
     @staticmethod
     def smista(order_id: str, va_tagliato: bool, user_id: str = '') -> dict:
@@ -604,11 +669,19 @@ class OrderManager:
     @staticmethod
     def get_all_orders_dict(cliente: str = None, status: str = None,
                             fase_corrente: str = None, operatore: str = None,
-                            order_ids: list = None) -> list:
-        """Recupera ordini non eliminati come dizionari con filtri per il nuovo workflow"""
+                            order_ids: list = None, solo_aperti: bool = False) -> list:
+        """Recupera ordini non eliminati come dizionari con filtri per il nuovo workflow.
+
+        solo_aperti: esclude le pratiche archiviate. Le pagine di reparto
+        (laser, officina) leggono solo quelle: con qualche anno di archivio la
+        lista completa costava secondi e megabyte a ogni aggiornamento.
+        """
         session = get_session()
         try:
             query = session.query(Order).filter(Order.is_deleted == False)
+            if solo_aperti:
+                from .ordini_service import STATI_ARCHIVIO
+                query = query.filter((Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO)))
             if order_ids:
                 query = query.filter(Order.id.in_(order_ids))
             if cliente:
@@ -620,9 +693,11 @@ class OrderManager:
             if operatore:
                 query = query.filter(Order.operatore_assegnato == operatore)
 
+            # selectinload, non joinedload: con la join file e fasi si
+            # moltiplicano fra loro (22 disegni x 4 fasi = 88 righe per ordine).
             orders = query.options(
-                joinedload(Order.files),
-                joinedload(Order.processing_steps)
+                selectinload(Order.files),
+                selectinload(Order.processing_steps)
             ).order_by(Order.data_consegna.asc()).all()
 
             # De-duplica ordini (joinedload può duplicare)
@@ -692,7 +767,7 @@ class OrderManager:
                         op_confermato = any(x.tipo_chiusura == 'totale' for x in op_ss)
                         operatori_info[op_key] = {
                             'sessione_attiva': len(op_active) > 0,
-                            'sessione_attiva_inizio': op_active[0].timestamp_inizio.isoformat() if op_active else None,
+                            'sessione_attiva_inizio': iso_utc(op_active[0].timestamp_inizio) if op_active else None,
                             'in_pausa': len(op_active) == 0 and len(op_closed) > 0,
                             'confermato': op_confermato,
                             'tempo_cumulativo_secondi': op_cumul,
@@ -702,18 +777,18 @@ class OrderManager:
                     steps_data.append({
                         'id': ps.id,
                         'fase': ps.fase,
-                        'timestamp_inizio': ps.timestamp_inizio.isoformat() if ps.timestamp_inizio else None,
-                        'timestamp_fine': ps.timestamp_fine.isoformat() if ps.timestamp_fine else None,
+                        'timestamp_inizio': iso_utc(ps.timestamp_inizio),
+                        'timestamp_fine': iso_utc(ps.timestamp_fine),
                         'operatore': ps.operatore,
                         'fase_successiva': ps.fase_successiva,
                         'completamento_parziale': ps.completamento_parziale,
                         'note': ps.note,
                         'sessione_attiva': len(active_list) > 0,
-                        'sessione_attiva_inizio': active.timestamp_inizio.isoformat() if active else None,
+                        'sessione_attiva_inizio': iso_utc(active.timestamp_inizio) if active else None,
                         'sessioni_count': len(ss),
                         'tempo_cumulativo_secondi': cumul,
                         'in_pausa': (ps.timestamp_fine is None and len(ss) > 0 and len(active_list) == 0),
-                        'sessioni_attive': [{'operatore': a.operatore, 'inizio': a.timestamp_inizio.isoformat()} for a in active_list],
+                        'sessioni_attive': [{'operatore': a.operatore, 'inizio': iso_utc(a.timestamp_inizio)} for a in active_list],
                         'operatori_info': operatori_info,
                     })
 
@@ -755,7 +830,7 @@ class OrderManager:
                     'id': order.id,
                     'cliente': order.cliente,
                     'numero_ordine': order.numero_ordine,
-                    'data_ricezione': order.data_ricezione.isoformat() if order.data_ricezione else None,
+                    'data_ricezione': iso_utc(order.data_ricezione),
                     'data_consegna': order.data_consegna.isoformat(),
                     'status': order.status,
                     'fase_corrente': order.fase_corrente,
@@ -776,12 +851,13 @@ class OrderManager:
                     'lotti_count': lotti_count,
                     'all_lotti_completed': all_lotti_completed,
                     'visto_da_operatore': bool(order.visto_da_operatore),
-                    'data_presa_visione': order.data_presa_visione.isoformat() if order.data_presa_visione else None,
+                    'data_presa_visione': iso_utc(order.data_presa_visione),
                     'taglio_completato': bool(getattr(order, 'taglio_completato', False)),
                     'taglio_richiesto': getattr(order, 'taglio_richiesto', None),
-                    'data_taglio_completato': order.data_taglio_completato.isoformat() if getattr(order, 'data_taglio_completato', None) else None,
+                    'data_taglio_completato': iso_utc(getattr(order, 'data_taglio_completato', None)),
                     'taglio_completato_da': getattr(order, 'taglio_completato_da', None),
                     'fase': _fase_ordine(order),
+                    **_campi_amministrativi(order),
                     # Cartella da aprire in Lantek: il percorso serve
                     # all'operatore, i singoli file scaricati no.
                     'cartella_disegni': _cartella_disegni(order),
@@ -1908,7 +1984,7 @@ class OrderManager:
                 "id": order.id,
                 "cliente": order.cliente,
                 "numero_ordine": order.numero_ordine,
-                "data_ricezione": order.data_ricezione.isoformat() if order.data_ricezione else None,
+                "data_ricezione": iso_utc(order.data_ricezione),
                 "data_consegna": order.data_consegna.isoformat(),
                 "status": order.status,
                 "fase_corrente": order.fase_corrente,
@@ -1929,11 +2005,13 @@ class OrderManager:
                 "lotti_count": lotti_count,
                 "all_lotti_completed": all_lotti_completed,
                 "visto_da_operatore": bool(order.visto_da_operatore),
-                "data_presa_visione": order.data_presa_visione.isoformat() if order.data_presa_visione else None,
+                "data_presa_visione": iso_utc(order.data_presa_visione),
                 "taglio_completato": bool(getattr(order, 'taglio_completato', False)),
                 "taglio_richiesto": getattr(order, 'taglio_richiesto', None),
-                "data_taglio_completato": order.data_taglio_completato.isoformat() if getattr(order, 'data_taglio_completato', None) else None,
+                "data_taglio_completato": iso_utc(getattr(order, 'data_taglio_completato', None)),
                 "taglio_completato_da": getattr(order, 'taglio_completato_da', None),
+                "fase": _fase_ordine(order),
+                **_campi_amministrativi(order),
             }
         finally:
             session.close()
@@ -1990,8 +2068,8 @@ class UserManager:
             'e_postazione': bool(getattr(user, 'e_postazione', False)),
             'is_active': user.is_active,
             'assigned_clients': assigned_clients,
-            'last_login': user.last_login.isoformat() if user.last_login else None,
-            'created_at': user.created_at.isoformat() if user.created_at else None
+            'last_login': iso_utc(user.last_login),
+            'created_at': iso_utc(user.created_at)
         }
 
     @staticmethod
@@ -2199,7 +2277,7 @@ class AuditManager:
             return [
                 {
                     'id': log.id,
-                    'timestamp': log.timestamp.isoformat(),
+                    'timestamp': iso_utc(log.timestamp),
                     'user_id': log.user_id,
                     'user_name': log.user_name,
                     'action': log.action,
@@ -2227,7 +2305,9 @@ class AuditManager:
         try:
             from sqlalchemy import func, and_
             now = datetime.utcnow()
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Mezzanotte ITALIANA in UTC: con la mezzanotte UTC, fra le 00 e
+            # le 02 il lavoro della sera prima contava come "oggi".
+            today_start = giorno_locale_in_utc()[0]
             TURNO_ORE = 8
 
             # Pre-carica dati per evitare N+1
@@ -2317,7 +2397,7 @@ class AuditManager:
                     'initials': user.initials,
                     'ordini_completati': ordini_completati,
                     'tempo_medio': tempo_medio,
-                    'ultimo_accesso': user.last_login.isoformat() if user.last_login else 'Mai',
+                    'ultimo_accesso': iso_utc(user.last_login) if user.last_login else 'Mai',
                     'puntualita': puntualita,
                     'ritardi': ritardi,
                     'saturazione': saturazione
@@ -2386,7 +2466,8 @@ class ArchiveManager:
             from sqlalchemy import func
 
             query = session.query(Order).filter(
-                Order.status.in_(["CHIUSO", "PARZIALE"]),
+                Order.status.in_(_STATI_ARCHIVIO_ELENCO),
+                Order.is_deleted == False,  # noqa: E712
                 Order.parent_order_id.is_(None)  # Escludi lotti figli
             )
 
@@ -2415,7 +2496,8 @@ class ArchiveManager:
                     ProcessingStep.timestamp_fine.isnot(None)
                 ).order_by(ProcessingStep.timestamp_fine.desc()).first()
 
-                completion_date = last_step.timestamp_fine if last_step else None
+                completion_date = (order.data_completamento_operativo
+                                   or (last_step.timestamp_fine if last_step else None))
 
                 # Calcola tempi per fase e margine
                 phase_times = ArchiveManager._calculate_phase_times(order.id, session)
@@ -2462,7 +2544,7 @@ class ArchiveManager:
                     'numero_ordine': order.numero_ordine or order.id[:8],
                     'cliente': order.cliente,
                     'data_consegna': order.data_consegna.isoformat(),
-                    'data_completamento': completion_date.isoformat() if completion_date else None,
+                    'data_completamento': iso_utc(completion_date),
                     'tempo_totale': total_time,
                     'prezzo_quotato': order.prezzo_quotato,
                     'costo_manodopera': round(costo_manodopera, 2),
@@ -2473,13 +2555,9 @@ class ArchiveManager:
                     'lotto_numero': order.lotto_numero or 0,
                     'lotto_nome': order.lotto_nome or '',
                     'lotti_detail': lotti_detail,
-                    # Dati chiusura amministrativa
-                    'numero_ddt': order.numero_ddt or '',
-                    'data_ddt': order.data_ddt.isoformat() if order.data_ddt else '',
-                    'numero_fattura': order.numero_fattura or '',
-                    'data_fattura': order.data_fattura.isoformat() if order.data_fattura else '',
-                    'note_chiusura': order.note_chiusura or '',
-                    'data_chiusura_amministrativa': order.data_chiusura_amministrativa.isoformat() if order.data_chiusura_amministrativa else '',
+                    # Dati chiusura amministrativa (DDT unificato, vedi
+                    # _campi_amministrativi: vecchi nomi con stringa vuota)
+                    **_campi_archivio(order),
                 })
 
             total_pages = (total + limit - 1) // limit
@@ -2523,6 +2601,7 @@ class ArchiveManager:
                 last_completed = [s for s in steps if s.timestamp_fine]
                 if last_completed:
                     completion_date = max(s.timestamp_fine for s in last_completed)
+            completion_date = order.data_completamento_operativo or completion_date
 
             # Calcola margine
             total_hours = OrderManager._calculate_total_hours(order_id, session)
@@ -2539,7 +2618,7 @@ class ArchiveManager:
                 'numero_ordine': order.numero_ordine or order.id[:8],
                 'cliente': order.cliente,
                 'data_consegna': order.data_consegna.isoformat(),
-                'data_completamento': completion_date.isoformat() if completion_date else None,
+                'data_completamento': iso_utc(completion_date),
                 'tempo_totale': notification.tempi_totali if notification else "N/A",
                 'prezzo_quotato': order.prezzo_quotato,
                 'costo_manodopera': round(costo_manodopera, 2),
@@ -2550,15 +2629,15 @@ class ArchiveManager:
                     {
                         'fase': step.fase,
                         'operatore': step.operatore or 'N/A',
-                        'data_inizio': step.timestamp_inizio.isoformat() if step.timestamp_inizio else None,
-                        'data_fine': step.timestamp_fine.isoformat() if step.timestamp_fine else None,
+                        'data_inizio': iso_utc(step.timestamp_inizio),
+                        'data_fine': iso_utc(step.timestamp_fine),
                         'tempo': phase_times.get(step.fase, 'N/A'),
                         'fase_successiva': step.fase_successiva,
                         'completamento_parziale': step.completamento_parziale,
                         'sessioni': [
                             {
-                                'timestamp_inizio': s.timestamp_inizio.isoformat() if s.timestamp_inizio else None,
-                                'timestamp_fine': s.timestamp_fine.isoformat() if s.timestamp_fine else None,
+                                'timestamp_inizio': iso_utc(s.timestamp_inizio),
+                                'timestamp_fine': iso_utc(s.timestamp_fine),
                                 'tipo_chiusura': s.tipo_chiusura,
                                 'operatore': s.operatore,
                                 'durata_secondi': int((s.timestamp_fine - s.timestamp_inizio).total_seconds()) if s.timestamp_fine and s.timestamp_inizio else None
@@ -2571,13 +2650,8 @@ class ArchiveManager:
                     for step in steps
                 ],
                 'status': order.status,
-                # Dati chiusura amministrativa
-                'numero_ddt': order.numero_ddt or '',
-                'data_ddt': order.data_ddt.isoformat() if order.data_ddt else '',
-                'numero_fattura': order.numero_fattura or '',
-                'data_fattura': order.data_fattura.isoformat() if order.data_fattura else '',
-                'note_chiusura': order.note_chiusura or '',
-                'data_chiusura_amministrativa': order.data_chiusura_amministrativa.isoformat() if order.data_chiusura_amministrativa else '',
+                # Dati chiusura amministrativa (DDT unificato)
+                **_campi_archivio(order),
                 'support_requests': [{
                     'id': sr.id,
                     'operatore_principale': sr.operatore_principale,
@@ -2599,7 +2673,7 @@ class ArchiveManager:
         session = get_session()
         try:
             query = session.query(Order).filter(
-                Order.status.in_(["CHIUSO", "PARZIALE"])
+                Order.status.in_(_STATI_ARCHIVIO_ELENCO)
             )
             query = ArchiveManager._apply_archive_filters(query, filters, session)
             orders = query.order_by(Order.data_consegna.desc()).all()
@@ -2655,7 +2729,7 @@ class ArchiveManager:
         session = get_session()
         try:
             query = session.query(Order).filter(
-                Order.status.in_(["CHIUSO", "PARZIALE"]),
+                Order.status.in_(_STATI_ARCHIVIO_ELENCO),
                 Order.parent_order_id.is_(None)  # Solo ordini padre/normali
             )
             query = ArchiveManager._apply_archive_filters(query, filters, session)
@@ -2825,7 +2899,7 @@ class ArchiveManager:
             operators = session.query(ProcessingStep.operatore).join(
                 Order, Order.id == ProcessingStep.order_id
             ).filter(
-                Order.status.in_(["CHIUSO", "PARZIALE"]),
+                Order.status.in_(_STATI_ARCHIVIO_ELENCO),
                 ProcessingStep.operatore.isnot(None)
             ).distinct().all()
             return sorted([op[0] for op in operators if op[0]])
@@ -2838,7 +2912,7 @@ class ArchiveManager:
         session = get_session()
         try:
             clients = session.query(Order.cliente).filter(
-                Order.status.in_(["CHIUSO", "PARZIALE"])
+                Order.status.in_(_STATI_ARCHIVIO_ELENCO)
             ).distinct().all()
             return sorted([c[0] for c in clients if c[0]])
         finally:
@@ -2846,38 +2920,50 @@ class ArchiveManager:
 
 
 class FatturazioneManager:
-    """Gestore ordini da fatturare — chiusura amministrativa (DDT/Fattura)"""
+    """Scheda "Ordini da fatturare": una FINESTRA sul ciclo di ordini_service.
+
+    Prima aveva regole sue: elencava gli ordini in stato DA_FATTURARE (anche
+    quelli mai consegnati), scriveva il DDT in un'altra colonna e chiudeva
+    senza chiedere la consegna. Ora elenco, contatore, bozza e chiusura passano
+    tutti da ordini_service, cosi' badge, vista "consegnati" e archivio dicono
+    la stessa cosa.
+    """
+
+    @staticmethod
+    def _query_da_fatturare(session, filters: dict = None):
+        from .ordini_service import filtro_consegnati
+        query = filtro_consegnati(session.query(Order))
+        if filters:
+            if filters.get('cliente'):
+                query = query.filter(Order.cliente.ilike(f"%{filters['cliente']}%"))
+            if filters.get('numero_ordine'):
+                query = query.filter(Order.numero_ordine.ilike(f"%{filters['numero_ordine']}%"))
+            if filters.get('date_from'):
+                date_from = datetime.fromisoformat(filters['date_from'])
+                query = query.filter(Order.data_consegna >= date_from)
+            if filters.get('date_to'):
+                date_to = datetime.fromisoformat(filters['date_to'])
+                date_to = date_to.replace(hour=23, minute=59, second=59)
+                query = query.filter(Order.data_consegna <= date_to)
+        return query
 
     @staticmethod
     def get_ordini_da_fatturare(filters: dict = None, page: int = 1, limit: int = 20,
                                  sort_by: str = 'data_consegna', sort_dir: str = 'asc') -> dict:
-        """Recupera ordini in stato DA_FATTURARE con paginazione e filtri"""
+        """Ordini CONSEGNATI e non ancora fatturati, con paginazione e filtri.
+
+        Stesso insieme della vista "consegnati / da fatturare" di
+        /api/ordini/viste (vedi ordini_service.filtro_consegnati).
+        """
+        from .ordini_service import _riga
         session = get_session()
         try:
-            query = session.query(Order).filter(
-                Order.status == "DA_FATTURARE",
-                Order.is_deleted == False,
-                Order.parent_order_id.is_(None)
-            )
-
-            # Filtri
-            if filters:
-                if filters.get('cliente'):
-                    query = query.filter(Order.cliente.ilike(f"%{filters['cliente']}%"))
-                if filters.get('numero_ordine'):
-                    query = query.filter(Order.numero_ordine.ilike(f"%{filters['numero_ordine']}%"))
-                if filters.get('date_from'):
-                    date_from = datetime.fromisoformat(filters['date_from'])
-                    query = query.filter(Order.data_consegna >= date_from)
-                if filters.get('date_to'):
-                    date_to = datetime.fromisoformat(filters['date_to'])
-                    date_to = date_to.replace(hour=23, minute=59, second=59)
-                    query = query.filter(Order.data_consegna <= date_to)
-
+            query = FatturazioneManager._query_da_fatturare(session, filters)
             total = query.count()
 
             # Ordinamento
-            ALLOWED_SORT = {'data_consegna', 'cliente', 'numero_ordine', 'data_ricezione'}
+            ALLOWED_SORT = {'data_consegna', 'cliente', 'numero_ordine', 'data_ricezione',
+                            'data_consegna_effettiva'}
             if sort_by not in ALLOWED_SORT:
                 sort_by = 'data_consegna'
             if sort_dir.lower() == 'desc':
@@ -2887,6 +2973,7 @@ class FatturazioneManager:
 
             offset = (page - 1) * limit
             orders = query.offset(offset).limit(limit).all()
+            nomi = {u.id: u.name for u in session.query(User).all()}
 
             orders_data = []
             for order in orders:
@@ -2895,11 +2982,15 @@ class FatturazioneManager:
                 ).first()
                 total_time = notification.tempi_totali if notification else "N/A"
 
-                last_step = session.query(ProcessingStep).filter(
-                    ProcessingStep.order_id == order.id,
-                    ProcessingStep.timestamp_fine.isnot(None)
-                ).order_by(ProcessingStep.timestamp_fine.desc()).first()
-                completion_date = last_step.timestamp_fine if last_step else None
+                # La lavorazione e' finita quando lo dice chi l'ha registrata;
+                # l'ultima fase chiusa resta il ripiego per gli ordini vecchi.
+                completion_date = order.data_completamento_operativo
+                if not completion_date:
+                    last_step = session.query(ProcessingStep).filter(
+                        ProcessingStep.order_id == order.id,
+                        ProcessingStep.timestamp_fine.isnot(None)
+                    ).order_by(ProcessingStep.timestamp_fine.desc()).first()
+                    completion_date = last_step.timestamp_fine if last_step else None
 
                 phase_times = ArchiveManager._calculate_phase_times(order.id, session)
                 total_hours = OrderManager._calculate_total_hours(order.id, session)
@@ -2917,26 +3008,22 @@ class FatturazioneManager:
                     OrderFile.file_type == 'PDF'
                 ).first()
 
+                riga = _riga(order, nomi)
                 orders_data.append({
-                    'id': order.id,
-                    'numero_ordine': order.numero_ordine or order.id[:8],
+                    **riga,
                     'cliente': order.cliente,
-                    'data_consegna': order.data_consegna.isoformat() if order.data_consegna else None,
-                    'data_ricezione': order.data_ricezione.isoformat() if order.data_ricezione else None,
-                    'data_completamento': completion_date.isoformat() if completion_date else None,
+                    'data_completamento': iso_utc(completion_date),
                     'tempo_totale': total_time,
-                    'prezzo_quotato': order.prezzo_quotato,
                     'costo_manodopera': round(costo_manodopera, 2),
                     'margine': round(margine, 2) if margine is not None else None,
                     'margine_pct': margine_pct,
                     'phase_times': phase_times,
-                    'note': order.note or '',
                     'has_pdf': pdf_file is not None,
-                    # Dati bozza DDT/fattura (se salvati in precedenza)
-                    'numero_ddt': order.numero_ddt or '',
-                    'data_ddt': order.data_ddt.isoformat() if order.data_ddt else '',
+                    # La scheda vecchia vuole stringhe vuote, non null.
+                    'numero_ddt': riga['ddt_numero'] or '',
+                    'data_ddt': riga['ddt_data'] or '',
                     'numero_fattura': order.numero_fattura or '',
-                    'data_fattura': order.data_fattura.isoformat() if order.data_fattura else '',
+                    'data_fattura': iso_data(order.data_fattura) or '',
                     'note_chiusura': order.note_chiusura or '',
                 })
 
@@ -2953,118 +3040,63 @@ class FatturazioneManager:
 
     @staticmethod
     def get_count() -> int:
-        """Ritorna il conteggio ordini DA_FATTURARE (per badge)"""
-        session = get_session()
-        try:
-            return session.query(Order).filter(
-                Order.status == "DA_FATTURARE",
-                Order.is_deleted == False,
-                Order.parent_order_id.is_(None)
-            ).count()
-        finally:
-            session.close()
+        """Quanti ordini sono consegnati e da fatturare (badge)."""
+        from .ordini_service import conta_da_fatturare
+        return conta_da_fatturare()
 
     @staticmethod
     def salva_bozza(order_id: str, data: dict) -> dict:
-        """Salva dati DDT/fattura come bozza senza chiudere l'ordine"""
-        session = get_session()
-        try:
-            order = session.query(Order).filter(Order.id == order_id).first()
-            if not order:
-                return {"success": False, "error": "Ordine non trovato"}
-            if order.status not in ("DA_FATTURARE",):
-                return {"success": False, "error": "Ordine non in stato DA_FATTURARE"}
-
-            if 'numero_ddt' in data:
-                order.numero_ddt = data['numero_ddt'] or None
-            if 'data_ddt' in data and data['data_ddt']:
-                order.data_ddt = datetime.fromisoformat(data['data_ddt'])
-            elif 'data_ddt' in data:
-                order.data_ddt = None
-            if 'numero_fattura' in data:
-                order.numero_fattura = data['numero_fattura'] or None
-            if 'data_fattura' in data and data['data_fattura']:
-                order.data_fattura = datetime.fromisoformat(data['data_fattura'])
-            elif 'data_fattura' in data:
-                order.data_fattura = None
-            if 'note_chiusura' in data:
-                order.note_chiusura = data['note_chiusura'] or None
-
-            session.commit()
-            return {"success": True, "order_id": order_id}
-
-        except Exception as e:
-            session.rollback()
-            return {"success": False, "error": str(e)}
-        finally:
-            session.close()
+        """Salva DDT/fattura come bozza senza chiudere (vedi ordini_service)."""
+        from .ordini_service import salva_bozza
+        return salva_bozza(order_id, data or {})
 
     @staticmethod
     def chiudi_ordine(order_id: str, data: dict, user_id: str) -> dict:
-        """Chiude ordine amministrativamente — DDT/fattura + status → CHIUSO"""
-        session = get_session()
-        try:
-            order = session.query(Order).filter(Order.id == order_id).first()
-            if not order:
-                return {"success": False, "error": "Ordine non trovato"}
-            if order.status not in ("DA_FATTURARE",):
-                return {"success": False, "error": "Ordine non in stato DA_FATTURARE"}
+        """Vecchia "chiusura amministrativa": ora e' la stessa chiusura della
+        vista ordini, con le stesse regole (consegna registrata + fattura).
 
-            now = datetime.utcnow()
-
-            # Salva dati amministrativi
-            if data.get('numero_ddt'):
-                order.numero_ddt = data['numero_ddt']
-            if data.get('data_ddt'):
-                order.data_ddt = datetime.fromisoformat(data['data_ddt'])
-            if data.get('numero_fattura'):
-                order.numero_fattura = data['numero_fattura']
-            if data.get('data_fattura'):
-                order.data_fattura = datetime.fromisoformat(data['data_fattura'])
-            if data.get('note_chiusura'):
-                order.note_chiusura = data['note_chiusura']
-
-            order.data_chiusura_amministrativa = now
-            order.chiuso_da = user_id
-            order.status = "CHIUSO"
-
-            session.commit()
-            return {
-                "success": True,
-                "order_id": order_id,
-                "status": "CHIUSO",
-                "data_chiusura": now.isoformat()
-            }
-
-        except Exception as e:
-            session.rollback()
-            return {"success": False, "error": str(e)}
-        finally:
-            session.close()
+        Se il corpo porta un DDT e l'ordine non ne ha ancora uno, lo si
+        registra prima: e' quello che la vecchia scheda faceva nello stesso
+        clic.
+        """
+        from .ordini_service import (chiudi_pratica, registra_ddt, riga_ordine)
+        data = data or {}
+        numero_ddt = (data.get('ddt_numero') or data.get('numero_ddt') or '').strip()
+        if numero_ddt:
+            attuale = riga_ordine(order_id)
+            if attuale is None:
+                return {"success": False, "error": "Ordine non trovato",
+                        "codice": "non_trovato"}
+            if not attuale.get('ddt_numero') and attuale.get('fase') != 'archivio':
+                r = registra_ddt(order_id, user_id, numero_ddt,
+                                 data.get('ddt_data') or data.get('data_ddt'))
+                if r.get('error'):
+                    return {"success": False, **r}
+        res = chiudi_pratica(order_id, user_id,
+                             numero_fattura=data.get('numero_fattura'),
+                             data_fattura=data.get('data_fattura'),
+                             note=data.get('note_chiusura') or data.get('note'))
+        if res.get('error'):
+            return {"success": False, **res}
+        ordine = res.get('ordine') or {}
+        return {
+            "success": True,
+            "order_id": order_id,
+            "status": "CHIUSO",
+            "data_chiusura": ordine.get('data_chiusura_amministrativa'),
+            "ordine": ordine,
+        }
 
     @staticmethod
-    def riapri_ordine(order_id: str) -> dict:
-        """Riapre un ordine CHIUSO riportandolo a DA_FATTURARE"""
-        session = get_session()
-        try:
-            order = session.query(Order).filter(Order.id == order_id).first()
-            if not order:
-                return {"success": False, "error": "Ordine non trovato"}
-            if order.status != "CHIUSO":
-                return {"success": False, "error": "Solo ordini CHIUSO possono essere riaperti"}
-
-            order.status = "DA_FATTURARE"
-            order.data_chiusura_amministrativa = None
-            order.chiuso_da = None
-
-            session.commit()
-            return {"success": True, "order_id": order_id, "status": "DA_FATTURARE"}
-
-        except Exception as e:
-            session.rollback()
-            return {"success": False, "error": str(e)}
-        finally:
-            session.close()
+    def riapri_ordine(order_id: str, user_id: str = '') -> dict:
+        """Riapre un ordine archiviato (vedi ordini_service.riapri)."""
+        from .ordini_service import riapri
+        res = riapri(order_id, user_id)
+        if res.get('error'):
+            return {"success": False, **res}
+        return {"success": True, "order_id": order_id,
+                "status": (res.get('ordine') or {}).get('status', 'DA_FATTURARE'),
+                "ordine": res.get('ordine')}
 
 
 class NotificationManager:
@@ -3353,7 +3385,7 @@ class KPIManager:
         try:
             STATI_FINALI = ('COMPLETATO', 'DA_FATTURARE', 'CHIUSO', 'SPEDITO')
             now = datetime.utcnow()
-            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = giorno_locale_in_utc()[0]  # mezzanotte italiana, in UTC
             all_orders = session.query(Order).filter(Order.is_deleted == False).all()  # noqa: E712
             tot = len(all_orders)
             aperti = sum(1 for o in all_orders if o.status not in STATI_FINALI)
@@ -3776,6 +3808,53 @@ def _cartella_disegni(order) -> str:
         return _cartella_disegni_ordine(order)
     except Exception:
         return ''
+
+
+# Stati che l'archivio elenca: quelli "chiusi" di ordini_service, piu' il
+# vecchio PARZIALE che l'archivio mostrava gia'.
+_STATI_ARCHIVIO_ELENCO = ('CHIUSO', 'SPEDITO', 'ARCHIVIATO', 'PARZIALE')
+
+
+def _campi_amministrativi(order) -> dict:
+    """DDT, consegna, fattura e completamento, uguali per ogni schermata.
+
+    Il DDT si legge "campo nuovo, o se manca il vecchio" ed esce con i due
+    nomi: le schermate scritte prima leggono numero_ddt/data_ddt, quelle nuove
+    ddt_numero/ddt_data, e devono vedere lo stesso valore.
+    """
+    numero = getattr(order, 'ddt_numero', None) or getattr(order, 'numero_ddt', None) or None
+    data = iso_data(getattr(order, 'ddt_data', None) or getattr(order, 'data_ddt', None))
+    return {
+        'ddt_numero': numero,
+        'ddt_data': data,
+        'numero_ddt': numero,
+        'data_ddt': data,
+        'data_completamento_operativo': iso_utc(getattr(order, 'data_completamento_operativo', None)),
+        'completato_operativo_da': getattr(order, 'completato_operativo_da', None),
+        'data_consegna_effettiva': iso_utc(getattr(order, 'data_consegna_effettiva', None)),
+        'consegna_parziale': bool(getattr(order, 'consegna_parziale', False)),
+        'numero_fattura': getattr(order, 'numero_fattura', None),
+        'data_fattura': iso_data(getattr(order, 'data_fattura', None)),
+        'data_chiusura_amministrativa': iso_utc(getattr(order, 'data_chiusura_amministrativa', None)),
+    }
+
+
+def _campi_archivio(order) -> dict:
+    """Come _campi_amministrativi, ma con le stringhe vuote che l'archivio
+    ha sempre restituito al posto di null (le pagine le mostrano cosi')."""
+    c = _campi_amministrativi(order)
+    return {
+        'ddt_numero': c['ddt_numero'] or '',
+        'ddt_data': c['ddt_data'] or '',
+        'numero_ddt': c['ddt_numero'] or '',
+        'data_ddt': c['ddt_data'] or '',
+        'numero_fattura': c['numero_fattura'] or '',
+        'data_fattura': c['data_fattura'] or '',
+        'note_chiusura': getattr(order, 'note_chiusura', None) or '',
+        'data_chiusura_amministrativa': c['data_chiusura_amministrativa'] or '',
+        'data_consegna_effettiva': c['data_consegna_effettiva'] or '',
+        'data_completamento_operativo': c['data_completamento_operativo'] or '',
+    }
 
 
 def _fase_ordine(order) -> str:
@@ -4333,10 +4412,13 @@ class BarcodeManager:
             return BarcodeManager._kpi_operai_da_dichiarazioni()
         session = get_session()
         try:
+            # Oggi, settimana e mese sono quelli del calendario italiano; le
+            # scan sono salvate in UTC, quindi gli estremi si convertono.
             now = datetime.utcnow()
-            inizio_oggi = datetime(now.year, now.month, now.day)
-            inizio_settimana = inizio_oggi - timedelta(days=inizio_oggi.weekday())
-            inizio_mese = datetime(now.year, now.month, 1)
+            oggi = oggi_locale()
+            inizio_oggi = giorno_locale_in_utc(oggi)[0]
+            inizio_settimana = giorno_locale_in_utc(oggi - timedelta(days=oggi.weekday()))[0]
+            inizio_mese = giorno_locale_in_utc(oggi.replace(day=1))[0]
 
             # Solo operai con almeno una pistola registrata
             pistole_op_ids = {p.operatore_id for p in session.query(Pistola).all()}
@@ -4718,6 +4800,20 @@ class BarcodeManager:
 #  PREVENTIVI — gestione preventivi (porting Preventivatore desktop)
 # ============================================================================
 
+def _non_tecnico():
+    """Filtro dei preventivi VERI (offerte), senza i preventivi tecnici nascosti
+    che reggono gli ordini caricati col pacchetto del cliente.
+
+    NULL vale "non tecnico": e' il valore delle righe nate prima della colonna,
+    e un semplice `solo_tecnico == False` in SQL le escluderebbe.
+    """
+    return or_(Preventivo.solo_tecnico.is_(None), Preventivo.solo_tecnico == False)  # noqa: E712
+
+
+ERRORE_TECNICO = ("Questo e' il pacchetto di un ordine caricato dall'ufficio, "
+                  "non un preventivo: si modifica dall'ordine, non dal preventivatore.")
+
+
 class PreventivoManager:
     """CRUD preventivi + workflow status (BOZZA → INVIATO → ACCETTATO).
 
@@ -4731,10 +4827,12 @@ class PreventivoManager:
     @staticmethod
     def create(cliente, created_by, *, quantita=1, numero_ordine_cliente=None,
                margine_pct=0.0, data_consegna_proposta=None, note=None,
-               da_prezzare=False):
+               da_prezzare=False, solo_tecnico=False):
         """Crea un nuovo preventivo in BOZZA.
 
         da_prezzare=True → richiesta caricata da Elena, in attesa del commerciale.
+        solo_tecnico=True → preventivo nascosto, senza prezzi, che regge un
+        ordine caricato dall'ufficio col pacchetto del cliente.
         """
         session = get_session()
         try:
@@ -4750,6 +4848,7 @@ class PreventivoManager:
                 created_by=created_by,
                 note=note,
                 da_prezzare=bool(da_prezzare),
+                solo_tecnico=bool(solo_tecnico),
             )
             session.add(p)
             session.commit()
@@ -4776,7 +4875,8 @@ class PreventivoManager:
         session = get_session()
         try:
             src = session.query(Preventivo).filter(
-                Preventivo.id == source_id, Preventivo.is_deleted == False  # noqa: E712
+                Preventivo.id == source_id, Preventivo.is_deleted == False,  # noqa: E712
+                _non_tecnico(),
             ).first()
             if not src:
                 return None
@@ -4877,7 +4977,8 @@ class PreventivoManager:
         """Lista preventivi non eliminati, ordinati per data_creazione desc."""
         session = get_session()
         try:
-            q = session.query(Preventivo).filter(Preventivo.is_deleted == False)  # noqa: E712
+            q = session.query(Preventivo).filter(Preventivo.is_deleted == False,  # noqa: E712
+                                                 _non_tecnico())
             if cliente:
                 q = q.filter(Preventivo.cliente.ilike('%' + cliente + '%'))
             if status:
@@ -4916,6 +5017,7 @@ class PreventivoManager:
             q = (session.query(PreventivoArticolo, Preventivo)
                  .join(Preventivo, PreventivoArticolo.preventivo_id == Preventivo.id)
                  .filter(Preventivo.is_deleted == False)  # noqa: E712
+                 .filter(_non_tecnico())
                  .filter(or_(*conds)))
             if exclude_preventivo_id:
                 q = q.filter(PreventivoArticolo.preventivo_id != exclude_preventivo_id)
@@ -4937,7 +5039,7 @@ class PreventivoManager:
                     'cliente': p.cliente,
                     'status': p.status,
                     'data': p.data_creazione.strftime('%d/%m/%Y') if p.data_creazione else '',
-                    'data_iso': p.data_creazione.isoformat() if p.data_creazione else '',
+                    'data_iso': iso_utc(p.data_creazione) or '',
                     'codice': a.codice,
                     'materiale': a.materiale,
                     'spessore_mm': a.spessore_mm,
@@ -4996,6 +5098,7 @@ class PreventivoManager:
             q = (session.query(PreventivoArticolo, Preventivo)
                  .join(Preventivo, PreventivoArticolo.preventivo_id == Preventivo.id)
                  .filter(Preventivo.is_deleted == False)  # noqa: E712
+                 .filter(_non_tecnico())
                  .filter(or_(*conds)))
             if exclude_preventivo_id:
                 q = q.filter(PreventivoArticolo.preventivo_id != exclude_preventivo_id)
@@ -5012,7 +5115,7 @@ class PreventivoManager:
                 occ = {
                     'art_id': a.id,
                     'costo_base': round(float(base or 0) + lav, 2),
-                    'data_iso': p.data_creazione.isoformat() if p.data_creazione else '',
+                    'data_iso': iso_utc(p.data_creazione) or '',
                     'data': p.data_creazione.strftime('%d/%m/%Y') if p.data_creazione else '',
                     'cliente': p.cliente,
                 }
@@ -5062,6 +5165,8 @@ class PreventivoManager:
             ).first()
             if not p:
                 return None
+            if getattr(p, 'solo_tecnico', False):
+                return {'error': ERRORE_TECNICO}
             if p.status in ('INVIATO', 'ACCETTATO'):
                 return {'error': 'Preventivo ' + p.status + ': immutabile. Crea nuova versione.'}
             editable = {'cliente', 'numero_ordine_cliente', 'quantita', 'margine_pct',
@@ -5107,6 +5212,7 @@ class PreventivoManager:
             from sqlalchemy import func
             p = session.query(Preventivo).filter(
                 Preventivo.is_deleted == False,  # noqa: E712
+                _non_tecnico(),
                 func.lower(func.trim(Preventivo.numero_ordine_cliente)) == n.lower(),
             ).order_by(Preventivo.data_creazione.desc()).first()
             if not p:
@@ -5115,7 +5221,7 @@ class PreventivoManager:
                 'id': p.id, 'cliente': p.cliente,
                 'numero_ordine_cliente': p.numero_ordine_cliente,
                 'status': p.status,
-                'data_creazione': p.data_creazione.isoformat() if p.data_creazione else None,
+                'data_creazione': iso_utc(p.data_creazione),
             }
         finally:
             session.close()
@@ -5146,6 +5252,108 @@ class PreventivoManager:
             p.is_deleted = True
             session.commit()
             return True
+        finally:
+            session.close()
+
+    # ---- Preventivi tecnici (pacchetto d'ordine dell'ufficio) ---------------
+    # Reggono pezzi e disegni di un ordine caricato col pacchetto del cliente.
+    # Nascono dall'analisi del pacchetto, diventano "usati" (ACCETTATO) quando
+    # l'ufficio crea l'ordine, e se l'analisi viene abbandonata si cancellano
+    # davvero: non sono offerte, non c'e' storico da conservare.
+
+    @staticmethod
+    def get_tecnico(preventivo_id):
+        """Il preventivo tecnico con i suoi pezzi, o None se l'id non e' di un
+        preventivo tecnico (o e' stato scartato)."""
+        p = PreventivoManager.get(preventivo_id, include_children=True)
+        if not p or not p.get('solo_tecnico'):
+            return None
+        return p
+
+    @staticmethod
+    def e_tecnico(preventivo_id) -> bool:
+        """Vero se l'id e' di un preventivo tecnico (anche gia' usato)."""
+        if not preventivo_id:
+            return False
+        session = get_session()
+        try:
+            riga = session.query(Preventivo.solo_tecnico).filter(
+                Preventivo.id == preventivo_id).first()
+            return bool(riga and riga[0])
+        finally:
+            session.close()
+
+    @staticmethod
+    def aggiorna_tecnico(preventivo_id, **campi):
+        """Testata del preventivo tecnico (cliente, numero ordine, consegna,
+        note, status). `update` la rifiuta di proposito: passa solo da qui."""
+        ammessi = {'cliente', 'numero_ordine_cliente', 'data_consegna_proposta',
+                   'note', 'status'}
+        session = get_session()
+        try:
+            p = session.query(Preventivo).filter(
+                Preventivo.id == preventivo_id,
+                Preventivo.is_deleted == False,  # noqa: E712
+                Preventivo.solo_tecnico == True,  # noqa: E712
+            ).first()
+            if not p:
+                return None
+            for k, v in campi.items():
+                if k in ammessi:
+                    setattr(p, k, v)
+            session.commit()
+            return PreventivoManager._serialize(p)
+        finally:
+            session.close()
+
+    @staticmethod
+    def elimina_tecnico(preventivo_id) -> bool:
+        """Cancella DAVVERO un preventivo tecnico con i suoi pezzi.
+
+        Mai se un ordine lo usa: la distinta di quell'ordine sta li'.
+        """
+        session = get_session()
+        try:
+            p = session.query(Preventivo).filter(
+                Preventivo.id == preventivo_id,
+                Preventivo.solo_tecnico == True,  # noqa: E712
+            ).first()
+            if not p:
+                return False
+            usato = session.query(Order.id).filter(
+                Order.preventivo_id_origine == preventivo_id).first()
+            if usato:
+                return False
+            for modello in (PreventivoArticolo, PreventivoAssieme,
+                            PreventivoTubolare, PreventivoPiastra):
+                session.query(modello).filter(
+                    modello.preventivo_id == preventivo_id).delete(synchronize_session=False)
+            session.delete(p)
+            session.commit()
+            return True
+        except Exception:
+            session.rollback()
+            logger.exception('eliminazione preventivo tecnico %s fallita', preventivo_id)
+            return False
+        finally:
+            session.close()
+
+    @staticmethod
+    def tecnici_abbandonati(ore=24) -> list:
+        """Id dei preventivi tecnici analizzati e mai confermati da piu' di
+        `ore` ore: l'ufficio ha chiuso la pagina senza creare l'ordine."""
+        limite = datetime.utcnow() - timedelta(hours=ore)
+        session = get_session()
+        try:
+            usati = session.query(Order.preventivo_id_origine).filter(
+                Order.preventivo_id_origine.isnot(None))
+            righe = session.query(Preventivo.id).filter(
+                Preventivo.solo_tecnico == True,  # noqa: E712
+                Preventivo.status == 'BOZZA',
+                Preventivo.data_creazione < limite,
+                ~Preventivo.id.in_(usati),
+            ).all()
+            return [r[0] for r in righe]
         finally:
             session.close()
 
@@ -5726,6 +5934,8 @@ class PreventivoManager:
             ).first()
             if not p:
                 return {'error': 'Preventivo non trovato'}
+            if getattr(p, 'solo_tecnico', False):
+                return {'error': ERRORE_TECNICO}
 
             # --- 1. Ordine gia' esistente per questo preventivo -------------
             gia = session.query(Order).filter(
@@ -5949,6 +6159,8 @@ class PreventivoManager:
             ).first()
             if not p:
                 return None
+            if getattr(p, 'solo_tecnico', False):
+                return {'error': ERRORE_TECNICO}
             valid_transitions = {
                 'BOZZA': {'INVIATO'},
                 'INVIATO': {'ACCETTATO', 'RIFIUTATO'},
@@ -5974,7 +6186,7 @@ class PreventivoManager:
                     completo = PreventivoManager.get(preventivo_id) or {}
                     tot = calcola(completo, cfg)
                     p.snapshot_economico = json.dumps({
-                        'congelato_il': datetime.utcnow().isoformat(),
+                        'congelato_il': iso_utc(datetime.utcnow()),
                         'congelato_da': user_id or '',
                         'costo_generali_pct': tot['costi_generali_pct'],
                         'ricarico_pct': tot['ricarico_pct'],
@@ -6024,11 +6236,12 @@ class PreventivoManager:
             'snapshot_economico': (json.loads(p.snapshot_economico)
                                    if getattr(p, 'snapshot_economico', None) else None),
             'created_by': p.created_by,
-            'data_creazione': p.data_creazione.isoformat() if p.data_creazione else None,
+            'data_creazione': iso_utc(p.data_creazione),
             'note': p.note,
             'da_prezzare': bool(getattr(p, 'da_prezzare', False)),
+            'solo_tecnico': bool(getattr(p, 'solo_tecnico', False)),
             'email_cliente': getattr(p, 'email_cliente', None),
-            'email_inviata_il': (p.email_inviata_il.isoformat() if getattr(p, 'email_inviata_il', None) else None),
+            'email_inviata_il': iso_utc(getattr(p, 'email_inviata_il', None)),
         }
 
     @staticmethod

@@ -151,11 +151,18 @@ def main():
     check('numero DDT obbligatorio', r.status_code == 409, r.status_code)
     r = c.post('/api/ordini/o-aperto/ddt', json={'user_id': 'elena', 'numero': 'DDT 128'})
     check('DDT registrato (200)', r.status_code == 200, r.get_json())
-    check('DDT sposta la vista a consegnato', fasi()['o-aperto'] == 'consegnato')
+    # Il solo DDT non e' una consegna: l'ordine resta fra i pronti, al passo
+    # "DDT registrato". "Consegnati" e' la vista da fatturare.
+    check('DDT registrato: resta fra i pronti finche non e consegnato',
+          fasi()['o-aperto'] == 'pronto_ddt')
 
     r = c.post('/api/ordini/o-aperto/consegna', json={'user_id': 'elena', 'completa': True})
     check('consegna registrata', r.status_code == 200, r.status_code)
+    check('consegnato: ora e fra i consegnati', fasi()['o-aperto'] == 'consegnato')
     r = c.post('/api/ordini/o-aperto/chiudi', json={'user_id': 'elena'})
+    check('senza fattura non si chiude (409)', r.status_code == 409, r.get_json())
+    r = c.post('/api/ordini/o-aperto/chiudi',
+               json={'user_id': 'elena', 'numero_fattura': 'FT 1'})
     check('ora la pratica si chiude', r.status_code == 200, r.get_json())
     check('e finisce in archivio', fasi()['o-aperto'] == 'archivio')
 
@@ -176,7 +183,8 @@ def main():
 
     r = c.post('/api/ordini/o-aperto2/consegna', json={'user_id': 'elena', 'completa': True})
     check('completata la consegna', r.status_code == 200)
-    r = c.post('/api/ordini/o-aperto2/chiudi', json={'user_id': 'elena'})
+    r = c.post('/api/ordini/o-aperto2/chiudi',
+               json={'user_id': 'elena', 'numero_fattura': 'FT 2'})
     check('ora si archivia', r.status_code == 200, r.get_json())
 
     # =====================================================================

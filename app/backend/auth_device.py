@@ -39,6 +39,7 @@ from functools import wraps
 from flask import g, jsonify, request
 
 from .database import get_session
+from .orario import iso_utc
 from .models_ore import DeviceToken
 
 logger = logging.getLogger(__name__)
@@ -116,8 +117,8 @@ def elenca_token() -> list:
         return [{
             'id': r.id, 'label': r.label, 'scope': r.scope,
             'is_active': bool(r.is_active),
-            'created_at': r.created_at.isoformat() if r.created_at else None,
-            'last_used_at': r.last_used_at.isoformat() if r.last_used_at else None,
+            'created_at': iso_utc(r.created_at),
+            'last_used_at': iso_utc(r.last_used_at),
         } for r in rows]
     finally:
         session.close()

@@ -42,6 +42,11 @@ class ArticoloRFQ:
     matched_dxf: str | None = None  # filename DXF matchato (basename)
     _matched_score: float = 0.0     # score fuzzy match (0-1)
     codice_assieme: str | None = None  # se il DXF è dentro una sottocartella-assieme
+    # Da dove viene la quantita': 'pdf' (letta sulla riga dell'ordine),
+    # 'dubbio' (riga con piu' codici), 'senza_qta' (codice citato senza
+    # quantita', messa 1), 'non_trovato' (disegno che nell'ordine non c'e').
+    # Serve all'ufficio per sapere quali quantita' ricontrollare.
+    qta_fonte: str = 'pdf'
 
 
 @dataclass
@@ -90,7 +95,9 @@ def ordine_da_codici(pdf_bytes: bytes, dxf_names: list) -> dict | None:
         if not t['qta']:
             senza_qta.append(per_chiave[k])
         articoli.append({'codice': per_chiave[k], 'quantita': max(1, int(round(t['qta'] or 1))),
-                         'descrizione': ''})
+                         'descrizione': '',
+                         '_qta_fonte': ('senza_qta' if not t['qta']
+                                        else 'dubbio' if t.get('dubbio') else 'pdf')})
     testa = intestazione(pdf_bytes)
     note = []
     if testa.get('numero_ordine'):
@@ -150,6 +157,7 @@ def match_dxf_to_articoli(articoli: list[dict], dxf_filenames: list[str]) -> tup
             materiale=(a.get('materiale') or None),
             spessore_mm=(float(a['spessore_mm']) if a.get('spessore_mm') is not None else None),
             descrizione=(a.get('descrizione') or ''),
+            qta_fonte=(a.get('_qta_fonte') or 'pdf'),
         )
         # Trova best match tra DXF non ancora usati
         best_fn, best_score = None, 0.0
@@ -334,12 +342,17 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
 
 # ─── Pipeline completo ────────────────────────────────────────────────────
 
-def process_rfq_package(zip_bytes: bytes) -> RFQParseResult:
+def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseResult:
     """Pipeline end-to-end: ZIP → RFQParseResult.
 
     NON crea il preventivo (compito del caller). Ritorna solo i dati strutturati
     + warnings, così il caller può decidere se scrivere in DB, chiedere conferma
     all'utente, ecc.
+
+    tollerante=True (ordine caricato dall'ufficio): se nel PDF non si trovano
+    i codici dei disegni non e' un errore. Ogni DXF diventa una riga con
+    quantita' 1 da controllare, e l'ufficio scrive le quantita' a mano: il
+    pacchetto e' comunque l'ordine del cliente, va messo in produzione.
     """
     result = RFQParseResult(success=False)
 
@@ -382,6 +395,21 @@ def process_rfq_package(zip_bytes: bytes) -> RFQParseResult:
             result.warnings.append(
                 f"Ordine letto cercando i codici dei disegni nel PDF ({pdf_filename}): "
                 f"{len(parsed['articoli'])} righe, senza AI")
+    if not parsed and tollerante:
+        from .ordine_codici import intestazione
+        try:
+            testa = intestazione(pdf_bytes)
+        except Exception:
+            testa = {}
+        parsed = {
+            'cliente': None, 'numero_ordine_cliente': testa.get('numero_ordine'),
+            'data_consegna': None, 'note': '',
+            'articoli': [{'codice': os.path.splitext(n)[0], 'quantita': 1, '_qta_fonte': 'senza_qta'}
+                         for n in sorted(dxf_map)],
+        }
+        result.warnings.append(
+            f"Nel PDF d'ordine ({pdf_filename}) non ho trovato i codici dei disegni: "
+            "le quantita' sono da scrivere a mano")
     if not parsed:
         result.error = (f"Nel PDF d'ordine \"{pdf_filename}\" non ho trovato i codici dei disegni. "
                         "Importa i disegni normalmente: le quantita' le scrivi a mano.")
