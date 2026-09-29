@@ -289,12 +289,55 @@ def proponi_contorno(dxf_path: str, spessore: float, densita: float, peso_kg: fl
     return out
 
 
-def verifica_pezzo(cartella: str, dxf_filename: str | None, codice: str | None) -> dict:
+def quote_disegno(dxf_path: str) -> list:
+    """Valori delle quote lineari del disegno (testo scritto, mm veri), unici."""
+    def calcola():
+        import re
+        try:
+            from .pick_part import _leggi_dxf
+            doc = _leggi_dxf(dxf_path)
+        except Exception:
+            return []
+        val = set()
+        for d in doc.modelspace().query('DIMENSION'):
+            if (d.dimtype & 7) not in (0, 1):          # lineari e allineate
+                continue
+            blk = doc.blocks.get(d.dxf.geometry) if d.dxf.hasattr('geometry') else None
+            for e in (blk or []):
+                if e.dxftype() in ('MTEXT', 'TEXT'):
+                    s = (e.plain_text() if e.dxftype() == 'MTEXT' else e.dxf.text).replace(',', '.').strip()
+                    if re.fullmatch(r'\d+(\.\d+)?', s) and 0 < float(s) < 1e5:
+                        val.add(round(float(s), 2))
+        return sorted(val)[:300]
+    return _in_cache(('quote',) + _firma(dxf_path), calcola)
+
+
+def ingombro_letto(dxf_path: str, config: dict | None) -> dict | None:
+    """Area e ingombro del contorno che l'import sceglie da solo (stessa
+    funzione e stessa configurazione, in sola lettura)."""
+    def calcola():
+        try:
+            from .dxf_scanner import estrai_geometria_taglio
+            g = estrai_geometria_taglio(dxf_path, config or {})
+            if not (g.get('area_dm2') or 0) > 0:
+                return None
+            return {'area_dm2': round(g['area_dm2'], 4), 'bbox_w_mm': round(g.get('bbox_width_mm') or 0, 2),
+                    'bbox_h_mm': round(g.get('bbox_height_mm') or 0, 2)}
+        except Exception:
+            return None
+    return _in_cache(('letto',) + _firma(dxf_path), calcola)
+
+
+def verifica_pezzo(cartella: str, dxf_filename: str | None, codice: str | None,
+                   config: dict | None = None) -> dict:
     """Dati indipendenti per il controllo di coerenza di un pezzo."""
-    out = {'versione': 1, 'peso_cartiglio': None, 'step': None}
+    out = {'versione': 2, 'peso_cartiglio': None, 'step': None, 'quote': [], 'ingombro_letto': None}
     dxf_path = os.path.join(cartella, os.path.basename(dxf_filename)) if dxf_filename else None
     if dxf_path and os.path.exists(dxf_path):
         out['peso_cartiglio'] = peso_cartiglio(dxf_path)
+        out['quote'] = quote_disegno(dxf_path)
+        if out['quote']:
+            out['ingombro_letto'] = ingombro_letto(dxf_path, config)
     stp = trova_step(cartella, codice, dxf_filename)
     if stp:
         out['step'] = dati_step_lamiera(stp)

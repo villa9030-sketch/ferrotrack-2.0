@@ -12371,6 +12371,14 @@ function wbProblemi(a) {
           .concat([{ l: 'Sviluppo guidato', f: () => wbSviluppo(true) },
                    { l: 'Ho verificato', f: i => wbVistoOk(i, 'peso') }]) });
     }
+    if (ck.quote && !ck.quote.ok && !_wbVistoOk(a, 'quote')) {
+      P.push({ l: 'warn', g: 'Ingombro senza riscontro nelle quote',
+        t: `Ingombro ${_wbMm(ck.quote.w)} × ${_wbMm(ck.quote.h)} mm: nessuna quota del disegno corrisponde`,
+        s: 'Il cartiglio non ha il peso, quindi si controlla con le quote: di solito lunghezza o larghezza del pezzo sono quotate. Il contorno preso potrebbe essere una vista, un dettaglio o la cornice.',
+        az: [{ l: 'Rivedi contorno', p: 1, f: () => openCadEditor() },
+             { l: 'Sviluppo guidato', f: () => wbSviluppo(true) },
+             { l: 'Ho verificato', f: i => wbVistoOk(i, 'quote') }] });
+    }
     if (ck.step && !ck.step.ok && !_wbVistoOk(a, 'step')) {
       const q = ck.step;
       P.push({ l: q.grave && !a.geometria_manuale_confermata ? 'err' : 'warn', g: 'Diverso dallo STEP',
@@ -12438,7 +12446,7 @@ function wbProblemi(a) {
     Taratura sull'archivio (246 lamiere DXF+STEP): col contorno sbagliato il
     peso esce dal ±15% del cartiglio nel 99% dei casi, con quello giusto ci
     resta nel 92%. */
-const _WB_VERIFICA_VER = 1;
+const _WB_VERIFICA_VER = 2;
 function _wbKg(v) { return (v || 0).toLocaleString('it-IT', { maximumFractionDigits: v < 10 ? 2 : 1 }); }
 /** Impronta dei dati che i controlli confrontano: se cambiano, un "Ho
     verificato" dato prima non vale piu'. */
@@ -12483,6 +12491,22 @@ function _wbControlliCoerenza(a) {
     if (S.inneschi > 0 && (a.n_forature || 0) !== S.inneschi) diff.push(`inneschi ${a.n_forature || 0} → ${S.inneschi}`);
     if ((a.pieghe || 0) !== (S.n_pieghe || 0)) diff.push(`pieghe ${a.pieghe || 0} → ${S.n_pieghe || 0}`);
     out.step = { ok: !diff.length, grave, diff, file: S.file };
+  }
+  // Senza peso e senza STEP: almeno un lato dell'ingombro deve essere una
+  // quota del disegno. Archivio: letti male segnalati nel 93%, falsi allarmi
+  // nel 17% dei letti bene → solo avviso, e solo quando manca un riferimento migliore.
+  const Q = V.quote || [];
+  if (!out.peso && !(out.step) && Q.length && !a.geometria_manuale_confermata
+      && a.geometry_source !== 'sviluppo' && a.geometry_source !== 'step') {
+    let w = a.bbox_w_mm, h = a.bbox_h_mm;
+    const L = V.ingombro_letto;
+    if (!(w > 0 && h > 0) && L && a.area_dm2 > 0 && L.area_dm2 > 0 && Math.abs(L.area_dm2 / a.area_dm2 - 1) <= 0.01) {
+      w = L.bbox_w_mm; h = L.bbox_h_mm;          // contorno scelto all'import
+    }
+    if (w > 0 && h > 0) {
+      const quotato = v => Q.some(x => Math.abs(v - x) <= Math.max(0.6, 0.01 * x));
+      out.quote = { ok: quotato(w) || quotato(h), w, h };
+    }
   }
   return out;
 }
@@ -14383,7 +14407,7 @@ function _wbMisRisultato() {
   }
   return { d, dx: Math.abs(dx), dy: Math.abs(dy), par, S };
 }
-function _wbMm(v) {
+function _wbMisMm(v) {
   const dec = v < 100 ? 2 : 1;
   return v.toLocaleString('it-IT', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
@@ -14395,7 +14419,7 @@ function wbMisUsaSpessore() {
   if (inp) inp.value = v;
   sdOnFieldChange('spessore_mm', v, true);
   if (_svl.on) { _svl.s.spessore = _svlTesto(v); _svlRender(); }
-  wbSnack(`Spessore impostato: ${_wbMm(v)} mm`);
+  wbSnack(`Spessore impostato: ${_wbMisMm(v)} mm`);
 }
 function wbMisTara() {
   const inp = document.getElementById('wb-mis-tara-v');
@@ -14404,7 +14428,7 @@ function wbMisTara() {
   if (!r || !(r.d > 0)) { wbSnack('Misura prima la quota nota', 'err'); return; }
   if (!(reale > 0)) { wbSnack('Scrivi il valore reale della quota in mm', 'err'); if (inp) inp.focus(); return; }
   _wbMisSetTara((_wbMisTara() || 1) * reale / r.d);
-  wbSnack(`Scala tarata: questa quota ora vale ${_wbMm(reale)} mm`);
+  wbSnack(`Scala tarata: questa quota ora vale ${_wbMisMm(reale)} mm`);
   _wbMisPannello(); _wbMisDisegna();
 }
 function wbMisTogliTara() { _wbMisSetTara(null); _wbMisPannello(); _wbMisDisegna(); }
@@ -14446,7 +14470,7 @@ function _wbMisDisegna() {
     const r = _wbMisRisultato();
     if (r) {
       const mx = (P[0].x + P[1].x) / 2, my = (P[0].y + P[1].y) / 2;
-      g += `<text class="mt" x="${f(mx + 10)}" y="${f(my - 10)}">${_wbMm(r.d)} mm${r.S.certa ? '' : ' ?'}</text>`;
+      g += `<text class="mt" x="${f(mx + 10)}" y="${f(my - 10)}">${_wbMisMm(r.d)} mm${r.S.certa ? '' : ' ?'}</text>`;
     }
   }
   P.forEach(p => { g += `<circle class="mp" cx="${f(p.x)}" cy="${f(p.y)}" r="4.5"/>`; });
@@ -14475,8 +14499,8 @@ function _wbMisPannello() {
         ? 'Il clic si aggancia a spigoli, centri dei fori e linee. Per lo spessore clicca i due bordi della lamiera nella vista di fianco.'
         : 'Ingrandisci con la rotella per essere precisi; trascina per spostarti.'}</div>`;
   } else {
-    h += `<div class="mb-val">${_wbMm(r.d)} <small>mm</small></div>
-      <div class="mb-sub">${r.par ? 'distanza tra due linee parallele' : `ΔX ${_wbMm(r.dx)} · ΔY ${_wbMm(r.dy)} mm`}</div>`;
+    h += `<div class="mb-val">${_wbMisMm(r.d)} <small>mm</small></div>
+      <div class="mb-sub">${r.par ? 'distanza tra due linee parallele' : `ΔX ${_wbMisMm(r.dx)} · ΔY ${_wbMisMm(r.dy)} mm`}</div>`;
     if (pezzo && _svl.on && _svl.campo) h += `<button type="button" class="wb-btn wb-btn-primary sm wb-btn-block" onclick="wbMisInSviluppo()">${_svl.campo.catena ? 'Aggiungi al lato' : 'Metti in'} «${escapeHtml(_svl.campo.lbl)}»</button>`;
     if (pezzo) h += `<button type="button" class="wb-btn ${_svl.on && _svl.campo ? '' : 'wb-btn-primary'} sm wb-btn-block" onclick="wbMisUsaSpessore()">Usa come spessore</button>`;
   }

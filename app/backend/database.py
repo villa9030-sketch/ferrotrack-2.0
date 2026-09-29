@@ -5231,6 +5231,12 @@ class PreventivoManager:
             out['step'] = s
         else:
             out['step'] = None
+        q = v.get('quote')
+        if isinstance(q, list):
+            out['quote'] = [x for x in (n(y, 1e5) for y in q[:300]) if x is not None and x > 0]
+        il = v.get('ingombro_letto')
+        if isinstance(il, dict):
+            out['ingombro_letto'] = {k: n(il.get(k), 1e7) for k in ('area_dm2', 'bbox_w_mm', 'bbox_h_mm')}
         return out
 
     @staticmethod
@@ -5329,7 +5335,7 @@ class PreventivoManager:
             out['contorno_auto'] = pulito
         vok = a.get('verifica_ok')
         if isinstance(vok, dict):
-            vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step') and v}
+            vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote') and v}
             if vok:
                 out['verifica_ok'] = vok
         return out

@@ -3141,7 +3141,8 @@ def api_preventivi_verifica_pezzo(preventivo_id):
         prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
         dxf = os.path.basename(request.args.get('dxf') or '') or None
         codice = request.args.get('codice') or None
-        return jsonify({'success': True, **verifica_pezzo(prev_dir, dxf, codice)}), 200
+        cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+        return jsonify({'success': True, **verifica_pezzo(prev_dir, dxf, codice, cfg)}), 200
     except Exception as e:
         logger.exception('verifica-pezzo failed')
         return jsonify({'success': False, 'error': str(e)}), 500

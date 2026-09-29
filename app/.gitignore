@@ -59,3 +59,6 @@ Thumbs.db
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Banco di prova sull archivio: risultati locali
+tools/banco_prova/
