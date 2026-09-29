@@ -76,7 +76,7 @@ def _testo_pagine(pdf_bytes: bytes) -> list[str]:
 
 
 def leggi_ordine_fornitore(pdf_bytes: bytes) -> dict | None:
-    """Dati dell'ordine nello stesso schema di rfq_importer.parse_order_pdf
+    """Dati dell'ordine nello stesso schema di rfq_importer.ordine_da_codici
     ({cliente, numero_ordine_cliente, data_consegna, note, articoli[]}),
     oppure None se il PDF non e' un "Ordine Fornitore" leggibile."""
     try:

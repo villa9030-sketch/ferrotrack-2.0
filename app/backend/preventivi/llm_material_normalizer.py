@@ -31,8 +31,17 @@ _CACHE: OrderedDict[str, str | None] = OrderedDict()   # raw → materiale | Non
 _CACHE_LOCK = threading.Lock()
 
 
+# DISATTIVATO (decisione del 2026-09-29): i testi dei cartigli dei clienti non
+# devono uscire dall'azienda. Anche con GEMINI_API_KEY impostata non parte
+# nessuna chiamata: il materiale non riconosciuto dalle regole resta da
+# impostare a mano (avviso), come quando la chiave non c'era.
+DISATTIVATO = True
+
+
 def _get_api_key() -> str | None:
     """Legge GEMINI_API_KEY dall'env, fallback su GOOGLE_API_KEY."""
+    if DISATTIVATO:
+        return None
     return os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY') or None
 
 

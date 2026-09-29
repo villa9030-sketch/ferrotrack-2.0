@@ -1371,6 +1371,9 @@ tr.row-warn:hover { background: #FEF3C7; }
 .sa-tub-est { display:flex; align-items:center; gap:4px; margin-top:3px; font-size:11px; color:var(--text-3); white-space:nowrap; }
 .sa-tub-est input { width:64px; padding:1px 4px; font-size:11px; text-align:right; border:1px solid var(--border, #d0d5dd); border-radius:4px; }
 .app-confirm-msg { font-size: 13.5px; color: var(--text-2); line-height: 1.5; white-space: pre-line; margin-bottom: 20px; }
+.wb-ord-cand { display:flex; flex-direction:column; gap:6px; margin:-8px 0 16px; }
+.wb-ord-cand button { display:flex; align-items:center; gap:6px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wb-ord-cand button i { width:15px; height:15px; flex:none; }
 .app-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 /* Sezione Importa file collassabile */
 .card.import-collapsed .import-body { display: none; }
@@ -3090,7 +3093,7 @@ body { font-size: var(--fs-m); }
         <i data-lucide="sparkles"></i>
       </div>
       <div class="rfq-text">
-        <div class="rfq-title">Importa una richiesta cliente con l'AI</div>
+        <div class="rfq-title">Importa una richiesta cliente (ordine + disegni)</div>
         <div class="rfq-sub">
           Trascina qui la <b>cartella dell'ordine</b> (PDF + disegni, anche con le sottocartelle degli assiemi) o uno ZIP: legge l'ordine, abbina i disegni e prepara la bozza.
         </div>
@@ -3100,7 +3103,7 @@ body { font-size: var(--fs-m); }
     </div>
     <div class="rfq-dropzone-loading" id="rfq-dropzone-loading" style="display:none;">
       <div class="rfq-spinner"></div>
-      <div class="rfq-loading-title">AI in analisi&hellip;</div>
+      <div class="rfq-loading-title">Lettura dell'ordine&hellip;</div>
       <div class="rfq-loading-sub" id="rfq-loading-sub">Estrazione dati dal PDF ordine e matching disegni</div>
     </div>
   </div>
@@ -3353,6 +3356,7 @@ body { font-size: var(--fs-m); }
                 <button role="menuitem" onclick="document.getElementById('inp-dxf-folder').click()"><i data-lucide="folder-tree"></i> Cartella <small>DXF + PDF, sottocartelle = assiemi</small></button>
                 <button role="menuitem" onclick="document.getElementById('inp-step').click()"><i data-lucide="box"></i> STEP 3D <small>tubolari e piastre</small></button>
                 <button role="menuitem" onclick="document.getElementById('inp-xlsx').click()"><i data-lucide="file-spreadsheet"></i> XLSX Lantek <small>articoli e costi</small></button>
+                <button role="menuitem" onclick="wbChiediOrdine(true)"><i data-lucide="file-text"></i> Ordine del cliente <small>PDF: quantità e ordine dei pezzi</small></button>
                 <button role="menuitem" onclick="wbApriRiconoscimenti()"><i data-lucide="scan-search"></i> Rivedi riconoscimenti <small>griglia dell'ultimo import</small></button>
               </div>
             </div>
@@ -5619,7 +5623,7 @@ function _rfqCinemaEl() {
       <div class="rfq-cine-head">
         <div class="rfq-cine-orb"><i data-lucide="sparkles" style="width:20px;height:20px;color:#fff;"></i></div>
         <div>
-          <div class="rfq-cine-title">Importazione AI dell'ordine</div>
+          <div class="rfq-cine-title">Importazione dell'ordine</div>
           <div class="rfq-cine-sub" id="rfq-cine-sub">Analisi del pacchetto cliente&hellip;</div>
         </div>
         <div class="rfq-cine-timer" id="rfq-cine-timer">0.0s</div>
@@ -5628,7 +5632,7 @@ function _rfqCinemaEl() {
         <div id="rfq-cine-work">
           <div class="rfq-shimmer"></div>
           <div class="rfq-stage" data-st="1"><span class="rfq-stage-ic"></span><span>Apro il pacchetto del cliente</span></div>
-          <div class="rfq-stage" data-st="2"><span class="rfq-stage-ic"></span><span>Leggo l'ordine con l'AI</span></div>
+          <div class="rfq-stage" data-st="2"><span class="rfq-stage-ic"></span><span>Leggo l'ordine (senza AI)</span></div>
           <div class="rfq-stage" data-st="3"><span class="rfq-stage-ic"></span><span>Riconosco i pezzi e abbino i disegni</span></div>
         </div>
         <div class="rfq-reveal" id="rfq-cine-reveal"></div>
@@ -7434,6 +7438,157 @@ function _saRenderComponenti(r, A) {
   document.getElementById('sa-comp-hint').textContent = n ? `${n} · per 1 assieme` : '';
 }
 
+// ── Ordine del cliente (PDF) ───────────────────────────────────────
+// Dopo l'import dei disegni: "C'e' l'ordine?". Il PDF si legge sul server
+// SENZA AI cercando i codici dei pezzi: quantita' e ordine delle righe. Si
+// propone, si applica solo con "Applica". Il PDF resta allegato e
+// all'accettazione diventa il documento dell'ordine per il laser.
+let _wbPdfLiberi = [];          // PDF dell'ultimo import non abbinati a un pezzo {originale, salvato}
+let _wbImportProf = 0;          // import annidati (trascina → cartella → PDF): si chiede alla fine
+let _wbOrdineChiesto = null;    // id del preventivo per cui si e' gia' chiesto in questa sessione
+async function _wbDopoImport(fn) {
+  const n0 = currentArticoli.length;
+  if (_wbImportProf++ === 0) _wbPdfLiberi = [];
+  try { return await fn(); } finally {
+    _wbImportProf--;
+    if (_wbImportProf === 0 && currentArticoli.length > n0 && currentPreventivo) {
+      setTimeout(() => wbChiediOrdine(false), 400);
+    }
+  }
+}
+function _wbChiaveOrdine(s) {
+  return String(s || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '').toUpperCase().trim()
+    .replace(/\s*\(\d+\)$/, '').replace(/_CLEANED$/, '').replace(/[-_]\d{2}$/, '');
+}
+/** Finestra "C'e' l'ordine del cliente?" (a mano: sempre; dopo l'import: una volta). */
+async function wbChiediOrdine(aMano) {
+  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
+  if (!aMano) {
+    if (_wbOrdineChiesto === currentPreventivo.id) return;
+    try {
+      const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/ordine-cliente`);
+      const d = await r.json();
+      if (d && d.file) return;                       // gia' allegato
+    } catch (_) {}
+  }
+  _wbOrdineChiesto = currentPreventivo.id;
+  // i PDF non abbinati ai pezzi sono i candidati (di solito l'ordine e' li')
+  const cand = _wbPdfLiberi.slice(0, 4);
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay active'; ov.style.zIndex = 3000;
+  ov.innerHTML = `<div class="modal app-confirm-box">
+    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="file-text"></i></div><h3>C'è l'ordine del cliente?</h3></div>
+    <div class="app-confirm-msg">Allega il PDF dell'ordine: leggo codici e quantità (sul server, senza AI), metto i pezzi nell'ordine delle righe e lo passo all'ordine del laser quando il preventivo è accettato.</div>
+    <div class="wb-ord-cand">${cand.map((p, i) => `<button class="btn-secondary" data-i="${i}"><i data-lucide="file-check"></i> È questo: ${escapeHtml(p.originale)}</button>`).join('')}</div>
+    <div class="app-confirm-actions">
+      <button class="btn-secondary" data-no>Non ora</button>
+      <button class="btn-primary" data-scegli>Scegli il PDF…</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  if (window.lucide) lucide.createIcons();
+  const chiudi = () => ov.remove();
+  ov.querySelector('[data-no]').onclick = chiudi;
+  ov.addEventListener('click', e => { if (e.target === ov) chiudi(); });
+  ov.querySelectorAll('.wb-ord-cand button').forEach(b => b.onclick = () => { chiudi(); wbLeggiOrdine({ salvato: cand[+b.dataset.i].salvato }); });
+  ov.querySelector('[data-scegli]').onclick = () => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = '.pdf';
+    inp.onchange = () => { chiudi(); if (inp.files[0]) wbLeggiOrdine({ file: inp.files[0] }); };
+    inp.click();
+  };
+}
+/** Legge l'ordine allegato e propone quantita' e ordine dei pezzi. */
+async function wbLeggiOrdine(src) {
+  if (!currentPreventivo) return;
+  const codici = [...new Set(currentArticoli.map(a => a.codice || a.dxf_filename_originale || a.dxf_filename)
+    .concat(currentAssiemi.map(A => A.codice_assieme)).filter(Boolean))];
+  const fd = new FormData();
+  fd.append('admin_id', (currentUser || {}).id || '');
+  fd.append('codici', JSON.stringify(codici));
+  if (src.file) fd.append('file', src.file); else fd.append('salvato', src.salvato);
+  let d;
+  try {
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/ordine-cliente`, { method: 'POST', body: fd });
+    d = await r.json();
+  } catch (e) { wbSnack('Ordine non letto: ' + e.message, 'err'); return; }
+  if (!d || !d.success) { wbSnack('Ordine non letto: ' + ((d && d.error) || ''), 'err'); return; }
+  const R = d.righe || {};
+  const riga = x => R[_wbChiaveOrdine(x)];
+  // assiemi: la quantita' dell'ordine e' il numero di assiemi
+  const assQ = [];
+  for (const A of currentAssiemi) {
+    const t = riga(A.codice_assieme);
+    if (t && t.qta && Math.round(t.qta) !== (A.qty || 1)) assQ.push([A, Math.max(1, Math.round(t.qta))]);
+  }
+  const inAss = a => a.codice_assieme && currentAssiemi.some(A => A.codice_assieme === a.codice_assieme && riga(A.codice_assieme));
+  const prop = currentArticoli.map(a => {
+    const t = riga(a.codice || a.dxf_filename_originale || a.dxf_filename);
+    if (t && t.qta) return { a, t, stato: t.dubbio ? 'dubbio' : 'ok', q: Math.max(1, Math.round(t.qta)) };
+    if (t) return { a, t, stato: 'senza_qta', q: null };
+    return { a, t: null, stato: inAss(a) ? 'componente' : 'non_trovato', q: null };
+  });
+  const cambi = prop.filter(p => p.q && p.q !== (p.a.quantita || 1));
+  const nOk = prop.filter(p => p.stato === 'ok' || p.stato === 'dubbio').length;
+  const nAss = currentAssiemi.filter(A => riga(A.codice_assieme)).length;
+  const nome = x => x.a.codice || x.a.dxf_filename;
+  const elenco = (arr, max = 8) => arr.slice(0, max).map(nome).join(', ') + (arr.length > max ? ` e altri ${arr.length - max}` : '');
+  const senzaQ = prop.filter(p => p.stato === 'senza_qta'), dubbi = prop.filter(p => p.stato === 'dubbio');
+  const fuori = prop.filter(p => p.stato === 'non_trovato'), comp = prop.filter(p => p.stato === 'componente');
+  if (!nOk && !nAss) {
+    await appAlert(`Nell'ordine "${d.file}" non ho trovato i codici dei pezzi.\n\nIl PDF resta allegato e passerà all'ordine del laser; le quantità le scrivi a mano.`);
+    return;
+  }
+  const msg = [
+    `Trovati nell'ordine: ${nOk} ${nOk === 1 ? 'pezzo' : 'pezzi'} su ${currentArticoli.length}`
+      + (nAss ? ` e ${nAss} ${nAss === 1 ? 'assieme' : 'assiemi'}` : '') + (d.numero_ordine ? ` (ordine ${d.numero_ordine}${d.data_ordine ? ' del ' + d.data_ordine : ''})` : '') + '.',
+    cambi.length ? `\nQuantità da cambiare (${cambi.length}):\n` + cambi.slice(0, 10).map(p => `• ${nome(p)}: ${p.a.quantita || 1} → ${p.q}`).join('\n') + (cambi.length > 10 ? `\n• … e altri ${cambi.length - 10}` : '') : '\nLe quantità coincidono già.',
+    assQ.length ? '\nAssiemi: ' + assQ.map(([A, q]) => `${A.codice_assieme} ${A.qty || 1} → ${q}`).join(', ') : '',
+    '\nI pezzi vengono messi nell\'ordine delle righe.',
+    senzaQ.length ? `\nDa controllare, citati senza quantità: ${elenco(senzaQ)}` : '',
+    dubbi.length ? `\nDa controllare, riga con più codici: ${elenco(dubbi)}` : '',
+    comp.length ? `\nComponenti di assiemi dell'ordine (quantità dalla distinta): ${comp.length}` : '',
+    fuori.length ? `\nNon presenti nell'ordine: ${elenco(fuori)}` : '',
+  ].filter(Boolean).join('\n');
+  if (!await appConfirm(msg, { title: 'Ordine del cliente', okLabel: 'Applica', cancelLabel: 'Solo allega' })) {
+    wbSnack(`Ordine allegato (${d.file}): passerà all'ordine del laser`);
+    return;
+  }
+  for (const p of prop) {
+    if (p.q) p.a.quantita = p.q;
+    if (p.stato !== 'componente') p.a.ordine = { stato: p.stato, pos: p.t ? p.t.pos : null, qta: p.t ? p.t.qta : null, file: d.file };
+    else delete p.a.ordine;
+  }
+  for (const [A, q] of assQ) A.qty = q;
+  // ordine delle righe dell'ordine; i pezzi non citati restano in fondo com'erano
+  // i componenti di un assieme subito dopo la riga del loro assieme
+  const posAss = a => { const t = a.codice_assieme && riga(a.codice_assieme); return t ? t.pos + 0.5 : null; };
+  const posiz = new Map(prop.map((p, i) => [p.a, p.t ? p.t.pos : (posAss(p.a) ?? 1e9 + i)]));
+  currentArticoli.sort((x, y) => posiz.get(x) - posiz.get(y));
+  _splitSelectedIdx = null;
+  const rif = document.getElementById('ed-numero-cliente');
+  if (rif && !rif.value.trim() && d.numero_ordine) { rif.value = d.numero_ordine; rif.dispatchEvent(new Event('input')); }
+  renderArticoli(); recalcTotali();
+  segnaArticoliModificati(300);
+  if (assQ.length) scheduleSaveAssiemi(300);
+  try { renderSplitTree(); } catch (_) {}
+  const daVedere = senzaQ.length + dubbi.length + fuori.length;
+  wbSnack(`Ordine applicato: ${cambi.length} quantità cambiate` + (daVedere ? ` · ${daVedere} pezzi da controllare` : ''), daVedere ? 'warn' : '', 6000);
+}
+/** Avviso sul pezzo dalla lettura dell'ordine (si toglie con "Va bene"). */
+function _wbProblemaOrdine(a) {
+  const o = a && a.ordine;
+  if (!o || !['senza_qta', 'dubbio', 'non_trovato'].includes(o.stato)) return null;
+  const ok = { l: 'Va bene', p: 1, f: i => { currentArticoli[i].ordine.stato = 'controllato'; segnaArticoliModificati(300); try { renderSplitTree(); renderSplitDetail(i); } catch (_) {} } };
+  if (o.stato === 'non_trovato')
+    return { l: 'warn', g: 'Non nell\'ordine', t: 'Il pezzo non compare nell\'ordine del cliente',
+      s: `Nell'ordine ${o.file || ''} non c'è questo codice: forse è un componente di un assieme o un disegno in più. Controlla la quantità.`,
+      az: [ok, { l: 'Quantità', f: () => wbFocus('sd-qty') }] };
+  return { l: 'warn', g: 'Quantità da controllare', t: 'Quantità dell\'ordine da controllare',
+    s: o.stato === 'dubbio' ? 'Nella stessa riga dell\'ordine ci sono più codici: la quantità potrebbe essere di un altro pezzo.'
+                            : 'Il codice è citato nell\'ordine ma senza quantità (riferimento o nota): è rimasta quella di prima.',
+    az: [ok, { l: 'Quantità', f: () => wbFocus('sd-qty') }] };
+}
+
 // ── Distinta base dal PDF d'assieme ────────────────────────────────
 // Il PDF d'insieme del cliente ha la tabella dei componenti: quantita' dei
 // pezzi laser (piastra piede ×4) e, per i telai, le righe di tubo con
@@ -8335,6 +8490,7 @@ function updateArt(idx, field, value, numeric) {
   const a = currentArticoli[idx];
   a[field] = numeric ? parseFloat(value) || 0 : value;
   _segnaManuale(a, field);
+  if (field === 'quantita' && a.ordine && a.ordine.stato !== 'ok') a.ordine.stato = 'controllato';
   if (field === 'spessore_mm' && a[field] > 0) {
     a._spessore_conf = 1.0;
     a._spessore_source = 'manuale';
@@ -12638,6 +12794,8 @@ function wbProblemi(a) {
                return x && x.costo_base_override == null && !(wbBase(x) > 0) && x.materiale
                  && x.spessore_mm > 0 && x.area_dm2 > 0 && x.perimetro_taglio_m > 0; })) }] });
   }
+  const pOrd = _wbProblemaOrdine(a);
+  if (pOrd) P.push(pOrd);
   const autoDaVedere = _wbAutoDaConfermare(a);
   if (autoDaVedere) {
     const pr = a.contorno_auto.prima || {};
@@ -13757,7 +13915,8 @@ async function wbNewEmpty() {
   const _uf = uploadFiles, _ud = uploadFolderDxf;
   // I PDF dei disegni viaggiano con i DXF: prima si importano i disegni (cosi'
   // i pezzi esistono), poi i PDF si abbinano ai pezzi per nome.
-  uploadFiles = async function (fileList, kind) {
+  uploadFiles = async function (fileList, kind) { return _wbDopoImport(() => _ufPdf.call(this, fileList, kind)); };
+  const _ufPdf = async function (fileList, kind) {
     const tutti = Array.from(fileList || []);
     if (!tutti.length) return;
     if (!currentPreventivo && !(await wbEnsureCreated())) return;
@@ -13771,7 +13930,8 @@ async function wbNewEmpty() {
       return r;
     } finally { wbProg.chiudi(); }
   };
-  uploadFolderDxf = async function (fileList) {
+  uploadFolderDxf = async function (fileList) { return _wbDopoImport(() => _udPdf.call(this, fileList)); };
+  const _udPdf = async function (fileList) {
     const tutti = Array.from(fileList || []);
     if (!tutti.length) return;
     if (!currentPreventivo && !(await wbEnsureCreated())) return;
@@ -14255,7 +14415,7 @@ async function _wbLeggiVoci(dt) {
     if (currentPreventivo && (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
     // Una barra sola per tutto: lettura della cartella, disegni, 3D, PDF
     wbProg.apri('Leggo i file trascinati…');
-    try { await _wbDropFile(e.dataTransfer); } finally { wbProg.chiudi(); }
+    try { await _wbDopoImport(() => _wbDropFile(e.dataTransfer)); } finally { wbProg.chiudi(); }
   });
   async function _wbDropFile(dataTransfer) {
     const { files, cartella } = await _wbLeggiVoci(dataTransfer);
@@ -15420,7 +15580,7 @@ async function wbCaricaPdf(files) {
       _wbChiaveNome(a.dxf_filename_originale || a.dxf_filename) === k || _wbChiaveNome(a.codice) === k);
     if (idx < 0) idx = currentArticoli.findIndex(a => a.codice && k.startsWith(_wbChiaveNome(a.codice)));
     if (idx >= 0) { currentArticoli[idx].pdf_filename = p.salvato; abbinati++; }
-    else liberi.push(p.originale);
+    else { liberi.push(p.originale); _wbPdfLiberi.push(p); }
   }
   if (abbinati) {
     segnaArticoliModificati(300);

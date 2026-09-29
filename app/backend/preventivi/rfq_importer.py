@@ -1,20 +1,18 @@
-"""AI RFQ Importer: parsing automatico di un pacchetto ZIP con
+"""RFQ Importer (senza AI): parsing automatico di un pacchetto ZIP con
 PDF ordine cliente + cartella DXF, per pre-compilare un preventivo BOZZA.
 
 Workflow:
-1. `parse_order_pdf(pdf_bytes)` → Gemini estrae header (cliente/data/N.ord)
-   + tabella articoli (codice/qty/materiale/spessore/descrizione).
+1. Lettura dell'ordine SENZA AI: formato DECA (ordine_testo) o codici dei
+   DXF cercati nel PDF (ordine_codici). Gemini tolto il 2026-09-29.
 2. `match_dxf_to_articoli(articoli, dxf_filenames)` → fuzzy match tra codice
    del PDF e nome file DXF.
 3. `build_preventivo_draft(pdf_data, matches)` → dict pronto per PreventivoManager.create()
    + lista warnings (DXF senza articolo, articolo senza DXF, campi mancanti).
 
-Dipendenze: google-generativeai (già in requirements per llm_material_normalizer).
-Fallback: se Gemini API key non presente, ritorna None con warning esplicito.
+Nessun servizio esterno: i PDF dei clienti restano sul server.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -29,8 +27,6 @@ logger = logging.getLogger(__name__)
 
 
 # ─── Config ────────────────────────────────────────────────────────────────
-GEMINI_MODEL = 'gemini-flash-latest'
-GEMINI_TIMEOUT_S = 90  # oltre questo la chiamata Gemini fallisce (niente attese infinite)
 FUZZY_MATCH_THRESHOLD = 0.55  # ratio SequenceMatcher sotto cui NON matcha
 
 
@@ -74,173 +70,35 @@ class RFQParseError(Exception):
     pass
 
 
-# ─── Gemini API ────────────────────────────────────────────────────────────
+# ─── Lettura dell'ordine SENZA AI ─────────────────────────────────────────
+# Gemini tolto il 2026-09-29: i PDF d'ordine dei clienti non escono piu'
+# dall'azienda. Formato DECA noto → ordine_testo (esatto); altrimenti si
+# cercano nel PDF i codici dei DXF del pacchetto (ordine_codici).
 
-def _get_api_key() -> str | None:
-    return os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
-
-
-def _build_extraction_prompt() -> str:
-    """Prompt strutturato per Gemini: estrai header + tabella articoli dal PDF ordine.
-
-    IMPORTANTE: il prompt chiede JSON strict. Se il PDF è ambiguo/incompleto,
-    Gemini deve lasciare i campi null invece di inventarsi valori.
-    """
-    return (
-        "Sei un assistente che estrae dati strutturati da PDF di ordini clienti "
-        "di una carpenteria metallica italiana.\n\n"
-        "Analizza il PDF allegato e estrai:\n"
-        "1. HEADER: cliente, numero ordine, data consegna (formato YYYY-MM-DD)\n"
-        "2. ARTICOLI: elenco di righe con codice pezzo, quantità, materiale, "
-        "spessore in mm, descrizione (se presente)\n\n"
-        "RISPONDI SOLO CON JSON VALIDO (nessun testo extra, nessun markdown). "
-        "Schema esatto:\n"
-        "```\n"
-        "{\n"
-        '  "cliente": "nome ragione sociale o null",\n'
-        '  "numero_ordine_cliente": "riferimento ordine cliente o null",\n'
-        '  "data_consegna": "YYYY-MM-DD o null",\n'
-        '  "note": "note generali dell\'ordine o stringa vuota",\n'
-        '  "articoli": [\n'
-        '    {\n'
-        '      "codice": "codice pezzo (obbligatorio)",\n'
-        '      "quantita": 1,\n'
-        '      "materiale": "S235|ZINCATO|INOX_304|INOX_316|ALU|ALU_5754|ALU_5083|OTTONE o null",\n'
-        '      "spessore_mm": 3.0,\n'
-        '      "descrizione": "descrizione libera"\n'
-        '    }\n'
-        '  ]\n'
-        "}\n"
-        "```\n\n"
-        "REGOLE:\n"
-        "- Se un valore non è presente nel PDF, usa null (NON inventare).\n"
-        "- 'codice' è OBBLIGATORIO per ogni riga. Se manca, salta la riga.\n"
-        "- 'quantita' default 1 se non specificato.\n"
-        "- 'materiale' — normalizza in uno dei codici standard. Esempi mapping:\n"
-        "  'acciaio', 'ferro', 'fe' → S235\n"
-        "  'acciaio zincato', 'zincato', 'zn' → ZINCATO\n"
-        "  'inox 304', 'aisi 304', 'x5crni' → INOX_304\n"
-        "  'inox 316' → INOX_316\n"
-        "  'alluminio', 'al 5754' → ALU_5754\n"
-        "  'ottone' → OTTONE\n"
-        "- 'spessore_mm' — solo il numero (es. 'sp. 3 mm' → 3.0).\n"
-        "- 'data_consegna' — parse formati italiani ('25/07/2026', '25 luglio 2026') → YYYY-MM-DD.\n"
-        "- Le tabelle sono spesso strutturate a colonne. Se il PDF ha lettera + tabella, estrai la tabella.\n"
-    )
-
-
-def parse_order_pdf(pdf_bytes: bytes, filename: str = 'order.pdf') -> dict | None:
-    """Chiama Gemini per estrarre dati strutturati dal PDF ordine.
-
-    Args:
-        pdf_bytes: contenuto binario del PDF
-        filename: nome file (per log)
-
-    Returns:
-        Dict con {cliente, numero_ordine_cliente, data_consegna, note, articoli[]}
-        oppure None se API key mancante o parsing fallito.
-    """
-    api_key = _get_api_key()
-    if not api_key:
-        raise RFQParseError(
-            'GEMINI_API_KEY mancante. Controlla che app/.env contenga la chiave e '
-            'RIAVVIA il backend (le env vars si caricano solo all\'avvio).'
-        )
-
-    try:
-        import google.generativeai as genai
-    except ImportError:
-        raise RFQParseError(
-            'Pacchetto google-generativeai non installato. '
-            'Esegui: pip install -r app/requirements.txt'
-        )
-
-    try:
-        genai.configure(api_key=api_key)
-        # Schema JSON esplicito: Google garantisce output conforme, niente più
-        # newline grezzi dentro stringhe / trailing comma / campi mancanti.
-        response_schema = {
-            'type': 'object',
-            'properties': {
-                'cliente': {'type': 'string', 'nullable': True},
-                'numero_ordine_cliente': {'type': 'string', 'nullable': True},
-                'data_consegna': {'type': 'string', 'nullable': True},
-                'note': {'type': 'string'},
-                'articoli': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'object',
-                        'properties': {
-                            'codice': {'type': 'string'},
-                            'quantita': {'type': 'integer'},
-                            'materiale': {'type': 'string', 'nullable': True},
-                            'spessore_mm': {'type': 'number', 'nullable': True},
-                            'descrizione': {'type': 'string'},
-                        },
-                        'required': ['codice'],
-                    },
-                },
-            },
-            'required': ['articoli'],
-        }
-        model = genai.GenerativeModel(
-            GEMINI_MODEL,
-            generation_config={
-                'temperature': 0.0,
-                'response_mime_type': 'application/json',
-                'response_schema': response_schema,
-            },
-        )
-
-        # Multi-modal: PDF come parte inline
-        pdf_part = {'mime_type': 'application/pdf', 'data': pdf_bytes}
-        prompt = _build_extraction_prompt()
-
-        t0 = time.perf_counter()
-        logger.info('RFQ Gemini call START: filename=%s pdf_size=%.1fKB',
-                    filename, len(pdf_bytes) / 1024)
-        # TIMEOUT esplicito: mai più attese infinite (il "9,5 minuti" del disastro).
-        # Oltre GEMINI_TIMEOUT_S la chiamata fallisce con errore chiaro, non si impianta.
-        response = model.generate_content(
-            [prompt, pdf_part],
-            request_options={'timeout': GEMINI_TIMEOUT_S},
-        )
-        elapsed = time.perf_counter() - t0
-        logger.info('RFQ Gemini call END: filename=%s elapsed=%.2fs', filename, elapsed)
-    except Exception as e:
-        # Errore lato API (rete, quota, 401, timeout, modello non disponibile)
-        msg = str(e) or type(e).__name__
-        logger.exception('RFQ Gemini call fallita: %s', msg)
-        if 'timeout' in msg.lower() or 'deadline' in msg.lower() or '504' in msg:
-            raise RFQParseError(
-                f'Gemini non ha risposto entro {GEMINI_TIMEOUT_S}s (timeout). '
-                f'Riprova; se persiste, il PDF potrebbe essere troppo pesante o la rete lenta.')
-        if '429' in msg or 'quota' in msg.lower() or 'rate' in msg.lower():
-            raise RFQParseError(f'Gemini rate limit / quota superata: {msg}')
-        if '401' in msg or '403' in msg or 'api key' in msg.lower() or 'permission' in msg.lower():
-            raise RFQParseError(f'Chiave Gemini rifiutata: {msg}. Verifica GEMINI_API_KEY in app/.env.')
-        if '404' in msg or 'not found' in msg.lower():
-            raise RFQParseError(f'Modello Gemini "{GEMINI_MODEL}" non disponibile: {msg}')
-        raise RFQParseError(f'Errore chiamata Gemini: {msg}')
-
-    try:
-        raw = (response.text or '').strip()
-        # Rimuovi eventuali fence markdown residui (Gemini a volte li aggiunge)
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw)
-        if not raw:
-            raise RFQParseError('Gemini ha risposto vuoto. Il PDF potrebbe essere una scansione illeggibile.')
-        data = json.loads(raw)
-        logger.info('RFQ parsed: cliente=%s, articoli=%d, filename=%s',
-                    data.get('cliente'), len(data.get('articoli') or []), filename)
-        return data
-    except json.JSONDecodeError as je:
-        preview = (raw[:200] if 'raw' in locals() else '')
-        logger.warning('RFQ Gemini output non JSON valido: %s | preview=%s', je, preview)
-        raise RFQParseError(
-            f'Gemini ha risposto con JSON invalido: {je}. '
-            f'Preview risposta: {preview[:120]}…'
-        )
+def ordine_da_codici(pdf_bytes: bytes, dxf_names: list) -> dict | None:
+    """Righe d'ordine per i DXF i cui codici compaiono nel PDF, nell'ordine
+    del PDF. Stesso schema di ordine_testo.leggi_ordine_fornitore."""
+    from .ordine_codici import leggi_per_codici, intestazione, chiave
+    per_chiave = {}
+    for n in dxf_names:
+        per_chiave.setdefault(chiave(n), os.path.splitext(os.path.basename(n))[0])
+    trovati = leggi_per_codici(pdf_bytes, list(per_chiave))
+    if not trovati:
+        return None
+    articoli, senza_qta = [], []
+    for k, t in sorted(trovati.items(), key=lambda kv: kv[1]['pos']):
+        if not t['qta']:
+            senza_qta.append(per_chiave[k])
+        articoli.append({'codice': per_chiave[k], 'quantita': max(1, int(round(t['qta'] or 1))),
+                         'descrizione': ''})
+    testa = intestazione(pdf_bytes)
+    note = []
+    if testa.get('numero_ordine'):
+        note.append(f"Ordine {testa['numero_ordine']} del {testa.get('data_ordine', '')}".strip())
+    if senza_qta:
+        note.append("Quantita' non trovata nell'ordine (messa 1, da controllare): " + ', '.join(senza_qta))
+    return {'cliente': None, 'numero_ordine_cliente': testa.get('numero_ordine'), 'data_consegna': None,
+            'note': ' · '.join(note), 'articoli': articoli, '_fonte': 'codici dei disegni cercati nel PDF'}
 
 
 # ─── Fuzzy matching PDF articoli ↔ DXF files ──────────────────────────────
@@ -269,7 +127,7 @@ def match_dxf_to_articoli(articoli: list[dict], dxf_filenames: list[str]) -> tup
     """Fuzzy match: per ogni articolo PDF cerca il DXF più vicino per codice.
 
     Args:
-        articoli: dict list dal parse_order_pdf (chiavi: codice, quantita, ...)
+        articoli: dict list lette dal PDF d'ordine (chiavi: codice, quantita, ...)
         dxf_filenames: lista basename DXF (es. ['20PA00693-00.dxf', 'ABC.dxf'])
 
     Returns:
@@ -506,9 +364,8 @@ def process_rfq_package(zip_bytes: bytes) -> RFQParseResult:
         result.warnings.append('Nessun file DXF trovato nel ZIP: gli articoli verranno creati senza disegno.')
 
     # 2. Lettura dell'ordine: prima dal TESTO del PDF se il formato e' noto
-    #    ("Ordine Fornitore" DECA: esatto, gratis, senza chiave), altrimenti
-    #    Gemini. Prima era solo Gemini: senza chiave o con un PDF lungo
-    #    l'ordine "non si trovava" (LS 1184, 63 righe su 5 pagine).
+    #    ("Ordine Fornitore" DECA: esatto), altrimenti i codici dei DXF cercati
+    #    nel PDF. (Fino al 2026-09 il ripiego era Gemini, tolto per riservatezza.)
     from .ordine_testo import leggi_ordine_fornitore
     parsed = leggi_ordine_fornitore(pdf_bytes)
     if parsed:
@@ -517,13 +374,17 @@ def process_rfq_package(zip_bytes: bytes) -> RFQParseResult:
             f"{len(parsed.get('articoli') or [])} righe, senza AI")
     else:
         try:
-            parsed = parse_order_pdf(pdf_bytes, pdf_filename or 'order.pdf')
-        except RFQParseError as e:
-            result.error = (f'{e} — Il PDF d\'ordine "{pdf_filename}" non e\' in un formato '
-                            f'che si legge senza AI.')
-            return result
+            parsed = ordine_da_codici(pdf_bytes, list(dxf_map.keys()))
+        except Exception as e:
+            logger.warning('ordine_da_codici: %s', e)
+            parsed = None
+        if parsed:
+            result.warnings.append(
+                f"Ordine letto cercando i codici dei disegni nel PDF ({pdf_filename}): "
+                f"{len(parsed['articoli'])} righe, senza AI")
     if not parsed:
-        result.error = 'AI extraction del PDF fallita (risposta vuota).'
+        result.error = (f"Nel PDF d'ordine \"{pdf_filename}\" non ho trovato i codici dei disegni. "
+                        "Importa i disegni normalmente: le quantita' le scrivi a mano.")
         return result
 
     # 3. Popola header

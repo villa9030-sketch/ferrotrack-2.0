@@ -2535,50 +2535,9 @@ def api_preventivi_import_dxf(preventivo_id):
 
 @app.route('/api/preventivi/rfq-diagnostic', methods=['GET'])
 def api_preventivi_rfq_diagnostic():
-    """Diagnostica rapida AI RFQ importer.
-
-    Ritorna:
-      - api_key_present: bool (GEMINI_API_KEY caricata?)
-      - api_key_prefix: primi 5 char (per verifica visiva)
-      - genai_installed: bool
-      - test_call_ok: bool (ha risposto Gemini a un ping test?)
-      - test_error: str (motivo se test_call_ok=False)
-
-    Da aprire nel browser: http://localhost:5000/api/preventivi/rfq-diagnostic
-    """
-    diag = {
-        'api_key_present': False,
-        'api_key_prefix': '',
-        'genai_installed': False,
-        'test_call_ok': False,
-        'test_error': '',
-    }
-    api_key = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
-    if api_key:
-        diag['api_key_present'] = True
-        diag['api_key_prefix'] = (api_key[:5] + '…') if len(api_key) > 5 else api_key
-    else:
-        diag['test_error'] = 'GEMINI_API_KEY non trovata in os.environ. Verifica app/.env + RIAVVIA backend.'
-        return jsonify(diag), 200
-    try:
-        import google.generativeai as genai
-        diag['genai_installed'] = True
-    except ImportError as e:
-        diag['test_error'] = f'google-generativeai non installato: {e}'
-        return jsonify(diag), 200
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-flash-latest')
-        r = model.generate_content(
-            'Rispondi solo con la parola "OK".',
-            generation_config={'temperature': 0.0},
-        )
-        txt = (r.text or '').strip()
-        diag['test_call_ok'] = True
-        diag['test_response'] = txt[:50]
-    except Exception as e:
-        diag['test_error'] = f'{type(e).__name__}: {e}'
-    return jsonify(diag), 200
+    """L'AI (Gemini) e' stata tolta il 2026-09-29: gli ordini si leggono dal
+    testo del PDF, sul server. Nessuna chiamata esterna."""
+    return jsonify({'ai': False, 'messaggio': 'Lettura ordini senza AI: nessun servizio esterno.'}), 200
 
 
 @app.route('/api/preventivi/import-rfq-package', methods=['POST'])
@@ -2587,7 +2546,7 @@ def api_preventivi_import_rfq_package():
 
     Workflow:
     1. Upload ZIP multipart (con PDF + DXFs)
-    2. Gemini parsa il PDF → header + tabella articoli
+    2. Lettura del PDF senza AI (formato DECA o codici dei DXF) → righe d'ordine
     3. Fuzzy match articoli PDF ↔ file DXF (per codice)
     4. Crea preventivo BOZZA + scrive DXF su disco + processa ognuno
        (detector v3 + scanner dettagli + cache)
@@ -2680,7 +2639,7 @@ def api_preventivi_import_rfq_package():
             numero_ordine_cliente=result.numero_ordine_cliente or None,
             margine_pct=25.0,
             data_consegna_proposta=data_consegna_dt,
-            note=result.note or f'Importato via AI RFQ da {f.filename}',
+            note=result.note or f'Importato da {f.filename}',
             da_prezzare=is_intake_elena,
         )
         if not new_prev or 'id' not in new_prev:
@@ -2700,6 +2659,7 @@ def api_preventivi_import_rfq_package():
                 pdf_target = os.path.join(prev_dir, os.path.basename(rfq_pdf_filename))
                 with open(pdf_target, 'wb') as fp:
                     fp.write(rfq_pdf_bytes)
+                _segna_ordine_cliente(prev_dir, os.path.basename(rfq_pdf_filename))
             except Exception:
                 logger.warning('salvataggio PDF ordine RFQ fallito: %s', rfq_pdf_filename)
 
@@ -4299,6 +4259,83 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
         return stats
 
 
+_ORDINE_SEGNO = '_ordine_cliente.json'
+
+
+def _segna_ordine_cliente(prev_dir: str, nome: str) -> None:
+    """Ricorda quale PDF della cartella del preventivo e' l'ordine del cliente."""
+    try:
+        with open(os.path.join(prev_dir, _ORDINE_SEGNO), 'w', encoding='utf-8') as fp:
+            _json_mod.dump({'file': nome}, fp)
+    except OSError as e:
+        logger.warning('segno ordine cliente non scritto: %s', e)
+
+
+def _ordine_cliente_segnato(prev_dir: str) -> str | None:
+    try:
+        with open(os.path.join(prev_dir, _ORDINE_SEGNO), encoding='utf-8') as fp:
+            nome = os.path.basename((_json_mod.load(fp) or {}).get('file') or '')
+        return nome if nome and os.path.isfile(os.path.join(prev_dir, nome)) else None
+    except (OSError, ValueError):
+        return None
+
+
+@app.route('/api/preventivi/<preventivo_id>/ordine-cliente', methods=['POST'])
+def api_preventivi_ordine_cliente(preventivo_id):
+    """Allega il PDF dell'ordine del cliente e lo legge SENZA AI: per ogni
+    codice dei pezzi (form 'codici', JSON) quantita' e posizione nell'ordine.
+    Il PDF resta sul server e all'accettazione diventa il documento
+    dell'ordine di produzione (laser). Non modifica i pezzi: la proposta la
+    applica la pagina dopo la conferma."""
+    try:
+        f = request.files.get('file')
+        # 'salvato': un PDF gia' caricato col resto dei disegni (non si ricarica)
+        salvato = os.path.basename(request.form.get('salvato') or '')
+        if not salvato and (not f or not f.filename.lower().endswith('.pdf')):
+            return jsonify({'success': False, 'error': 'Serve il PDF dell\'ordine'}), 400
+        prev = PreventivoManager.get(preventivo_id, include_children=False)
+        if not prev or prev.get('error'):
+            return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
+        if prev.get('status') in ('INVIATO', 'ACCETTATO'):
+            return jsonify({'success': False, 'error': 'Preventivo ' + prev['status'] + ': immutabile'}), 400
+        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        os.makedirs(prev_dir, exist_ok=True)
+        if salvato:
+            if not salvato.lower().endswith('.pdf') or not os.path.isfile(os.path.join(prev_dir, salvato)):
+                return jsonify({'success': False, 'error': 'PDF non trovato tra i file del preventivo'}), 404
+            nome = salvato
+            with open(os.path.join(prev_dir, nome), 'rb') as fp:
+                dati = fp.read()
+        else:
+            dati = f.read()
+            nome = _nome_disegno_libero(prev_dir, os.path.basename(f.filename))
+            with open(os.path.join(prev_dir, nome), 'wb') as fp:
+                fp.write(dati)
+        _segna_ordine_cliente(prev_dir, nome)
+        try:
+            codici = _json_mod.loads(request.form.get('codici') or '[]')
+        except ValueError:
+            codici = []
+        from .preventivi.ordine_codici import leggi_per_codici, intestazione
+        try:
+            righe = leggi_per_codici(dati, [str(c) for c in codici if c])
+            testa = intestazione(dati)
+        except Exception as e:
+            logger.warning('lettura ordine cliente: %s', e)
+            righe, testa = {}, {}
+        return jsonify({'success': True, 'file': nome, 'righe': righe, **testa}), 200
+    except Exception as e:
+        logger.exception('ordine-cliente failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/preventivi/<preventivo_id>/ordine-cliente', methods=['GET'])
+def api_preventivi_ordine_cliente_get(preventivo_id):
+    """Nome del PDF d'ordine allegato (None se non c'e')."""
+    prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+    return jsonify({'success': True, 'file': _ordine_cliente_segnato(prev_dir)}), 200
+
+
 def _copy_order_pdf_to_order(preventivo_id: str, order_id: str) -> dict:
     """Allega all'ordine FerroTrack il PDF ordine originale (disegni/lavorazioni)
     salvato in preventivi_tmp/<pid>/ così Mirko vede "cosa deve fare".
@@ -4316,10 +4353,19 @@ def _copy_order_pdf_to_order(preventivo_id: str, order_id: str) -> dict:
         src_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
         if not os.path.isdir(src_dir):
             return out
-        pdfs = sorted(f for f in os.listdir(src_dir) if f.lower().endswith('.pdf'))
-        if not pdfs:
-            return out
-        # Se ce n'è più d'uno, prende il primo (il PDF ordine RFQ è unico per pacchetto).
+        # Il PDF dell'ordine del cliente e' quello segnato all'import. Prima si
+        # prendeva il primo in ordine alfabetico: con le tavole PDF dei pezzi
+        # nella stessa cartella all'ordine finiva un disegno.
+        segnato = _ordine_cliente_segnato(src_dir)
+        if segnato:
+            pdfs = [segnato]
+        else:
+            pdfs = sorted(f for f in os.listdir(src_dir) if f.lower().endswith('.pdf'))
+            if len(pdfs) != 1:
+                # nessun ordine allegato e piu' PDF (tavole): non si indovina
+                if pdfs:
+                    out['warnings'].append('Nessun PDF d\'ordine allegato: tavole non copiate come ordine')
+                return out
         src = os.path.join(src_dir, pdfs[0])
         os.makedirs(PDFS_FOLDER, exist_ok=True)
         dst_name = f"{order_id}_{pdfs[0]}"

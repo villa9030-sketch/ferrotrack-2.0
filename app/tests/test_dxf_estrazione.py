@@ -511,6 +511,16 @@ def main():
     salvati = {k: sys.modules.get(k) for k in ('google', 'google.generativeai')}
     sys.modules['google'] = fake_google
     sys.modules['google.generativeai'] = fake_genai
+    # Gemini disattivato: anche con la chiave nessuna chiamata esce dal PC
+    import os as _os
+    _os.environ['GEMINI_API_KEY'] = 'chiave-finta'
+    try:
+        LLM.normalize_via_llm.cache_clear()
+        m0 = LLM.normalizza_con_esito('FE360 speciale')
+        check('Gemini disattivato: nessuna chiamata anche con la chiave', m0 == (None, 'non_disponibile') and chiamate['n'] == 0,
+              (m0, chiamate['n']))
+    finally:
+        _os.environ.pop('GEMINI_API_KEY', None)
     orig_key = LLM._get_api_key
     LLM._get_api_key = lambda: 'chiave-finta'
     try:

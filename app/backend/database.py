@@ -5168,7 +5168,10 @@ class PreventivoManager:
                       # Correzione automatica del contorno col peso del cartiglio:
                       # stato (da confermare/confermato/annullato/non trovato) e i
                       # valori di prima per "Rimetti com'era".
-                      'contorno_auto')
+                      'contorno_auto',
+                      # Riga dell'ordine del cliente (PDF allegato): posizione,
+                      # quantita' letta e stato (ok / da controllare / non c'e').
+                      'ordine')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -5339,6 +5342,11 @@ class PreventivoManager:
                 prima['confermato'] = bool(pr.get('confermato'))
                 pulito['prima'] = prima
             out['contorno_auto'] = pulito
+        od = a.get('ordine')
+        if isinstance(od, dict) and od.get('stato') in ('ok', 'senza_qta', 'dubbio', 'non_trovato', 'controllato'):
+            n = PreventivoManager._num_o_none
+            out['ordine'] = {'stato': od['stato'], 'pos': n(od.get('pos'), 1e6), 'qta': n(od.get('qta'), 1e6),
+                             'file': str(od.get('file') or '')[:200]}
         vok = a.get('verifica_ok')
         if isinstance(vok, dict):
             vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}
