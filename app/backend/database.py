@@ -5159,8 +5159,79 @@ class PreventivoManager:
                       'spessore_fuori_tabella', 'fonte_costo_base',
                       'stima_dettaglio', 'bbox_w_mm', 'bbox_h_mm', 'pdf_filename',
                       'dxf_confidence', 'dxf_needs_verify', 'avvisi_spessore',
-                      'lunghezza_vuoto_mm', 'stima_firma')
+                      'lunghezza_vuoto_mm', 'stima_firma',
+                      # Sviluppo guidato (quote inserite, per riaprirlo com'era),
+                      # controlli di coerenza (peso cartiglio / STEP) e i
+                      # "Ho verificato" dell'operatore.
+                      'sviluppo', 'verifica', 'verifica_ok',
+                      # Correzione automatica del contorno col peso del cartiglio:
+                      # stato (da confermare/confermato/annullato/non trovato) e i
+                      # valori di prima per "Rimetti com'era".
+                      'contorno_auto')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
+
+    @staticmethod
+    def _num_o_none(v, lim=1e9):
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return None
+        return round(x, 4) if x == x and abs(x) < lim else None
+
+    @staticmethod
+    def _pulisci_sviluppo(s: dict) -> dict | None:
+        """Quote dello sviluppo guidato: solo testo corto e campi noti."""
+        if not isinstance(s, dict):
+            return None
+        t = lambda v, n=24: str(v if v is not None else '')[:n]
+        out = {k: t(s.get(k)) for k in ('spessore', 'raggio', 'K', 'A', 'B') if s.get(k) is not None}
+        if s.get('quote') in ('esterne', 'interne'):
+            out['quote'] = s['quote']
+        for k in ('Aint', 'Bint'):
+            out[k] = bool(s.get(k))
+        lati = s.get('lati')
+        if isinstance(lati, dict):
+            out['lati'] = {k: t(lati.get(k), 160) for k in ('sopra', 'destra', 'sotto', 'sinistra')}
+        tagli = s.get('tagli')
+        if isinstance(tagli, list):
+            out['tagli'] = [{'tipo': x.get('tipo') if x.get('tipo') in ('foro', 'asola', 'finestra', 'tacca') else 'foro',
+                             'n': t(x.get('n')), 'a': t(x.get('a')), 'b': t(x.get('b'))}
+                            for x in tagli[:40] if isinstance(x, dict)]
+        ris = s.get('risultato')
+        if isinstance(ris, dict):
+            r = {k: PreventivoManager._num_o_none(ris.get(k)) for k in ('W', 'H', 'K', 'raggio')}
+            r = {k: v for k, v in r.items() if v is not None}
+            if ris.get('fonte_k'):
+                r['fonte_k'] = t(ris.get('fonte_k'), 40)
+            out['risultato'] = r
+        return out
+
+    @staticmethod
+    def _pulisci_verifica(v: dict) -> dict | None:
+        """Esito dei controlli di coerenza (dati letti dal server)."""
+        if not isinstance(v, dict):
+            return None
+        n = PreventivoManager._num_o_none
+        out = {'versione': int(n(v.get('versione')) or 1), '_chiave': str(v.get('_chiave') or '')[:300]}
+        pc = v.get('peso_cartiglio')
+        if isinstance(pc, dict):
+            out['peso_cartiglio'] = {'peso_kg': n(pc.get('peso_kg'), 1e5), 'confidence': n(pc.get('confidence'), 2) or 0,
+                                     'testo': str(pc.get('testo') or '')[:60]}
+        else:
+            out['peso_cartiglio'] = None
+        st = v.get('step')
+        if isinstance(st, dict):
+            s = {'ok': bool(st.get('ok')), 'file': os.path.basename(str(st.get('file') or ''))[:255],
+                 'motivo': str(st.get('motivo') or '')[:160]}
+            for k in ('spessore_mm', 'area_dm2', 'perimetro_taglio_m'):
+                s[k] = n(st.get(k), 1e7)
+            for k in ('n_pieghe', 'inneschi'):
+                x = n(st.get(k), 1e6)
+                s[k] = int(x) if x is not None else None
+            out['step'] = s
+        else:
+            out['step'] = None
+        return out
 
     @staticmethod
     def _extra_articolo(a: dict) -> dict:
@@ -5237,6 +5308,30 @@ class PreventivoManager:
         pdf = os.path.basename(str(a.get('pdf_filename') or '').strip())
         if pdf and pdf.lower().endswith('.pdf') and len(pdf) <= 255:
             out['pdf_filename'] = pdf
+        svl = PreventivoManager._pulisci_sviluppo(a.get('sviluppo'))
+        if svl:
+            out['sviluppo'] = svl
+        ver = PreventivoManager._pulisci_verifica(a.get('verifica'))
+        if ver:
+            out['verifica'] = ver
+        ca = a.get('contorno_auto')
+        if isinstance(ca, dict) and ca.get('stato') in ('da_confermare', 'confermato', 'annullato', 'non_trovato'):
+            n = PreventivoManager._num_o_none
+            pulito = {'stato': ca['stato'], 'chiave': str(ca.get('chiave') or '')[:400]}
+            if n(ca.get('scarto')) is not None:
+                pulito['scarto'] = n(ca.get('scarto'))
+            pr = ca.get('prima')
+            if isinstance(pr, dict):
+                prima = {k: n(pr.get(k), 1e7) for k in ('area_dm2', 'perimetro_taglio_m', 'n_forature', 'bbox_w_mm', 'bbox_h_mm')}
+                prima['geometry_source'] = str(pr.get('geometry_source') or '')[:40] or None
+                prima['confermato'] = bool(pr.get('confermato'))
+                pulito['prima'] = prima
+            out['contorno_auto'] = pulito
+        vok = a.get('verifica_ok')
+        if isinstance(vok, dict):
+            vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step') and v}
+            if vok:
+                out['verifica_ok'] = vok
         return out
 
     @staticmethod

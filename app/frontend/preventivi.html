@@ -2241,6 +2241,30 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 .wb-mis-box .mb-tara .wb-unit input { width: 64px; }
 .wb-mis-box .mb-more summary { cursor: pointer; font-size: 12px; color: var(--ink-3); margin-bottom: 6px; }
 
+/* Proposta di contorno dal peso del cartiglio */
+.modal.wb-prop { width: min(640px, 94vw); padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+.wbp-head { display: flex; align-items: center; justify-content: space-between; }
+.wbp-head b { display: inline-flex; align-items: center; gap: 8px; font: 700 15px 'Inter'; color: var(--ink); }
+.wbp-head b svg, .wbp-head b i { width: 18px; height: 18px; }
+.wbp-wait { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 34px 0; color: var(--ink-2); font-size: 13.5px; }
+.wbp-wait small { color: var(--ink-4); }
+.wbp-msg { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
+.wbp-msg b { display: block; color: var(--ink); margin-bottom: 4px; }
+.wbp-corpo { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
+.wbp-forma svg { display: block; width: 100%; height: 220px; background: #FAFBFC; border: 1px solid var(--line-2); border-radius: 10px; }
+.wbp-forma path { fill: #EEF2FF; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.wbp-dati { display: flex; flex-direction: column; gap: 12px; }
+.wbp-peso { font-size: 13.5px; color: var(--ink-2); }
+.wbp-peso b { font: 800 18px 'Geist'; color: var(--ok); }
+.wbp-peso small { display: block; font-size: 11.5px; color: var(--ink-4); margin-top: 2px; }
+.wbp-tab { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px 14px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.wbp-tab span { color: var(--ink-3); }
+.wbp-tab em { font-style: normal; color: var(--ink-4); text-align: right; }
+.wbp-tab b { text-align: right; color: var(--ink); }
+.wbp-nota { font-size: 12px; color: var(--ink-3); line-height: 1.45; }
+.wbp-az { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+@media (max-width: 640px) { .wbp-corpo { grid-template-columns: minmax(0, 1fr); } }
+
 /* Sviluppo guidato: pannello a destra del disegno, che resta visibile */
 #sd-btn-svl.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .wb-sviluppo > .split-detail-preview { right: 364px !important; }
@@ -6658,6 +6682,7 @@ function renderSplitTree() {
   // Il ridisegno ricostruisce le righe: la ricerca va riapplicata subito dopo,
   // altrimenti il filtro si perde a ogni modifica.
   setTimeout(() => { try { applicaRicercaDistinta(); } catch (_) {} }, 0);
+  _wbVerificaProgramma();          // pezzi nuovi o ricaricati: controlli di coerenza in sottofondo
   const tbody = document.getElementById('split-tree-tbody');
   if (!tbody) return;
   const nStrutture = currentTubolari.filter(t => !t.codice_assieme).length
@@ -11761,31 +11786,16 @@ function renderStatoBanner() {
 // ── Revisione guidata: raccoglie i punti da verificare per articolo ──────
 // Rosso = bloccante (impedisce l'invio). Giallo = attenzione (non blocca).
 function buildRevisione() {
+  // Stessi controlli della schermata dei disegni (wbProblemi): prima il
+  // riepilogo ne aveva di suoi e chiedeva di riaprire nel CAD pezzi che nei
+  // disegni risultavano a posto. Rosso (err) blocca l'invio, giallo avvisa.
   const issues = [];
   (currentArticoli || []).forEach((a, idx) => {
-    const hasDxf = !!a.dxf_filename;
-    const confermata = !!a.geometria_manuale_confermata;
-    const hasBase = (a.costo_base_override != null && a.costo_base_override > 0)
-                    || (a.costo_base_stimato || 0) > 0;
     const cod = a.codice || '(senza codice)';
-    // Contorno: blocca solo se il riconoscimento automatico e' incerto. Un
-    // contorno riconosciuto con sicurezza non va riconfermato a mano (il
-    // server lo tratta come semplice avviso).
-    const _contorno = (typeof wbContorno === 'function') ? wbContorno(a) : (confermata ? 'confermato' : 'incerto');
-    if (hasDxf && !confermata && _contorno === 'incerto') {
-      issues.push({ idx, cod, sev: 'rosso', testo: 'Riconoscimento del contorno incerto: verificalo nel CAD', azione: 'cad', btn: 'Apri CAD' });
-    } else if (hasDxf && !confermata && _contorno === 'ignoto') {
-      issues.push({ idx, cod, sev: 'giallo', testo: 'Riconoscimento del contorno non ancora verificato', azione: 'cad', btn: 'Apri CAD' });
-    } else if (!hasBase) {
-      if (!a.materiale || !a.spessore_mm) {
-        issues.push({ idx, cod, sev: 'rosso', testo: 'Manca materiale o spessore',
-                      azione: hasDxf ? 'cad' : 'sel', btn: hasDxf ? 'Apri CAD' : 'Vai all’articolo' });
-      } else {
-        issues.push({ idx, cod, sev: 'rosso', testo: 'Costo laser non stimato', azione: 'stima', btn: 'Stima ora' });
-      }
-    }
-    if (a.area_stimata_piega) {
-      issues.push({ idx, cod, sev: 'giallo', testo: 'Area = sviluppo stimato a mano (pezzo piegato)', azione: 'info' });
+    const P = (typeof wbProblemi === 'function' ? wbProblemi(a) : []).filter(p => p.l === 'err' || p.l === 'warn');
+    for (const p of P) {
+      issues.push({ idx, cod, sev: p.l === 'err' ? 'rosso' : 'giallo', testo: escapeHtml(p.t),
+                    azione: 'sel', btn: 'Vai al pezzo' });
     }
   });
   // ASSIEMI: il tempo di montaggio è OBBLIGATORIO (l'assieme costa componenti +
@@ -12267,6 +12277,10 @@ function wbRenderMargine(K) {
 function wbContorno(a) {
   if (!a || !a.dxf_filename) return 'nessuno';
   if (a.geometria_manuale_confermata) return 'confermato';
+  // Il peso che torna col cartiglio (o i dati che tornano con lo STEP) e' la
+  // prova che il contorno e' quello del pezzo: non va riaperto nel CAD solo
+  // perche' il riconoscimento automatico era poco sicuro.
+  if (_wbVerificatoCon(a).length) return 'auto';
   if (a.dxf_needs_verify) return 'incerto';
   if (a.dxf_confidence == null) return 'ignoto';
   return a.dxf_confidence >= 0.7 ? 'auto' : 'incerto';
@@ -12324,11 +12338,47 @@ function wbProblemi(a) {
                return x && x.costo_base_override == null && !(wbBase(x) > 0) && x.materiale
                  && x.spessore_mm > 0 && x.area_dm2 > 0 && x.perimetro_taglio_m > 0; })) }] });
   }
-  if (wbContorno(a) === 'incerto' && a.area_dm2 > 0) {
+  const autoDaVedere = _wbAutoDaConfermare(a);
+  if (autoDaVedere) {
+    const pr = a.contorno_auto.prima || {};
+    P.push({ l: 'warn', g: 'Contorno corretto in automatico', t: 'Contorno corretto in automatico col peso del cartiglio',
+      s: `Area ${_wbKg(pr.area_dm2 || 0)} → ${_wbKg(a.area_dm2 || 0)} dm², ora pesa come il cartiglio. Guarda che sia il pezzo e conferma.`,
+      az: [{ l: 'Va bene', p: 1, f: i => wbConfermaAuto(i) },
+           { l: 'Mostra la forma', f: i => wbProponiContorno(i) },
+           { l: 'Rimetti com\'era', f: i => wbAnnullaAuto(i) },
+           { l: 'Apri CAD', f: () => openCadEditor() }] });
+  }
+  if (wbContorno(a) === 'incerto' && a.area_dm2 > 0 && !autoDaVedere) {
     const pc = a.dxf_confidence != null ? ` (${Math.round(a.dxf_confidence * 100)}%)` : '';
     P.push({ l: 'err', g: 'Contorno da verificare', t: 'Contorno da verificare',
       s: `Il riconoscimento automatico è incerto${pc}: area e taglio potrebbero non essere quelli del pezzo.`,
       az: [{ l: 'Verifica nel CAD', p: 1, f: () => openCadEditor() }, { l: 'È corretto', f: i => wbAccettaContorno(i) }] });
+  }
+  // Coerenza con fonti indipendenti dal riconoscimento: peso del cartiglio e
+  // STEP dello stesso pezzo. Senza, un contorno sbagliato (una vista invece
+  // del pezzo) dava un prezzo sbagliato senza nessun segnale.
+  if (!manuale) {
+    const ck = _wbControlliCoerenza(a);
+    if (ck.peso && !ck.peso.ok && !_wbVistoOk(a, 'peso')) {
+      const q = ck.peso;
+      P.push({ l: q.grave && !a.geometria_manuale_confermata ? 'err' : 'warn', g: 'Peso diverso dal cartiglio',
+        t: `Peso ${_wbKg(q.app)} kg, nel cartiglio ${_wbKg(q.cartiglio)} kg`,
+        s: q.grave ? 'Il contorno preso è quasi certamente una vista o un dettaglio, non il pezzo intero: area, taglio e prezzo sono sbagliati.'
+                   : 'Area, spessore o materiale non corrispondono al pezzo del cartiglio: controlla prima di prezzare.',
+        az: (a.dxf_filename ? [{ l: 'Cerca il contorno giusto', p: 1, f: i => wbProponiContorno(i) },
+                               { l: 'Rivedi contorno', f: () => openCadEditor() }]
+                             : [{ l: 'Dati tecnici', p: 1, f: () => sdToggleForm() }])
+          .concat([{ l: 'Sviluppo guidato', f: () => wbSviluppo(true) },
+                   { l: 'Ho verificato', f: i => wbVistoOk(i, 'peso') }]) });
+    }
+    if (ck.step && !ck.step.ok && !_wbVistoOk(a, 'step')) {
+      const q = ck.step;
+      P.push({ l: q.grave && !a.geometria_manuale_confermata ? 'err' : 'warn', g: 'Diverso dallo STEP',
+        t: `Lo STEP ${q.file} dice altro`, s: q.diff.join(' · '),
+        az: [{ l: 'Usa i dati dello STEP', p: 1, f: i => wbUsaStep(i) },
+             { l: a.dxf_filename ? 'Rivedi contorno' : 'Dati tecnici', f: () => a.dxf_filename ? openCadEditor() : sdToggleForm() },
+             { l: 'Ho verificato', f: i => wbVistoOk(i, 'step') }] });
+    }
   }
   if (!manuale && a.ricetta_mancante) {
     P.push({ l: 'warn', g: 'Velocità di taglio mancante', t: 'Velocità di taglio mancante',
@@ -12381,6 +12431,344 @@ function wbProblemi(a) {
   }
   return P;
 }
+// ═════════════ VERIFICA DI COERENZA (fonti indipendenti) ═════════════
+/** Peso del cartiglio e STEP dello stesso pezzo, letti dal server in sola
+    lettura (/verifica-pezzo) e salvati sul pezzo in `verifica`. Il
+    riconoscimento del contorno non cambia: qui si confronta e si avvisa.
+    Taratura sull'archivio (246 lamiere DXF+STEP): col contorno sbagliato il
+    peso esce dal ±15% del cartiglio nel 99% dei casi, con quello giusto ci
+    resta nel 92%. */
+const _WB_VERIFICA_VER = 1;
+function _wbKg(v) { return (v || 0).toLocaleString('it-IT', { maximumFractionDigits: v < 10 ? 2 : 1 }); }
+/** Impronta dei dati che i controlli confrontano: se cambiano, un "Ho
+    verificato" dato prima non vale piu'. */
+function _wbFirmaGeo(a) {
+  return [a.area_dm2, a.spessore_mm, a.materiale, a.perimetro_taglio_m, a.n_forature, a.pieghe].join('|');
+}
+function _wbVistoOk(a, k) { return !!(a && a.verifica_ok && a.verifica_ok[k] === _wbFirmaGeo(a)); }
+function wbVistoOk(i, k) {
+  const a = currentArticoli[i];
+  if (!a) return;
+  a.verifica_ok = Object.assign({}, a.verifica_ok || {}, { [k]: _wbFirmaGeo(a) });
+  _wbDopoRisolto(i, 'Segnato come verificato');
+}
+/** Esito dei controlli: {peso: {ok, grave, app, cartiglio}|null, step: {ok, grave, diff, file}|null}. */
+function _wbControlliCoerenza(a) {
+  const V = a && a.verifica;
+  const out = { peso: null, step: null };
+  if (!V) return out;
+  const pc = V.peso_cartiglio;
+  const app = _pesoArticoloKg(a);
+  if (pc && pc.peso_kg > 0 && (pc.confidence || 0) >= 0.5 && app > 0) {
+    const r = app / pc.peso_kg, scarto = Math.abs(app - pc.peso_kg);
+    // Il cartiglio arrotonda a 0,01 kg: sui pezzi piccoli conta anche lo scarto assoluto
+    out.peso = { ok: Math.abs(r - 1) <= 0.15 || scarto <= 0.015,
+                 grave: (r < 0.5 || r > 2) && scarto > 0.05, app, cartiglio: pc.peso_kg };
+  }
+  const S = V.step;
+  if (S && S.ok) {
+    const diff = [];
+    let grave = false;
+    const rel = (x, y) => (y > 0 ? Math.abs(x / y - 1) : 0);
+    if (Math.abs((a.spessore_mm || 0) - S.spessore_mm) > 0.05) {
+      diff.push(`spessore ${_wbMm(a.spessore_mm || 0)} → ${_wbMm(S.spessore_mm)} mm`); grave = true;
+    }
+    if (S.area_dm2 > 0 && rel(a.area_dm2 || 0, S.area_dm2) > 0.05) {
+      diff.push(`area ${_wbKg(a.area_dm2 || 0)} → ${_wbKg(S.area_dm2)} dm²`);
+      if (rel(a.area_dm2 || 0, S.area_dm2) > 0.15) grave = true;
+    }
+    if (S.perimetro_taglio_m > 0 && rel(a.perimetro_taglio_m || 0, S.perimetro_taglio_m) > 0.08) {
+      diff.push(`taglio ${_wbKg(a.perimetro_taglio_m || 0)} → ${_wbKg(S.perimetro_taglio_m)} m`);
+    }
+    if (S.inneschi > 0 && (a.n_forature || 0) !== S.inneschi) diff.push(`inneschi ${a.n_forature || 0} → ${S.inneschi}`);
+    if ((a.pieghe || 0) !== (S.n_pieghe || 0)) diff.push(`pieghe ${a.pieghe || 0} → ${S.n_pieghe || 0}`);
+    out.step = { ok: !diff.length, grave, diff, file: S.file };
+  }
+  return out;
+}
+/** Con cosa e' stato verificato il pezzo (per la barra del disegno). */
+function _wbVerificatoCon(a) {
+  if (!a || a.costo_base_override != null) return [];
+  const ck = _wbControlliCoerenza(a), v = [];
+  if (ck.step && (ck.step.ok || _wbVistoOk(a, 'step'))) v.push('lo STEP');
+  if (ck.peso && (ck.peso.ok || _wbVistoOk(a, 'peso'))) v.push('il peso del cartiglio');
+  return v;
+}
+/** Legge i dati indipendenti di un pezzo (una volta per disegno). */
+const _wbVerInCorso = new Set();
+async function wbVerifica(i, forza) {
+  const a = currentArticoli[i];
+  if (!a || !currentPreventivo || (!a.dxf_filename && !a.codice)) return false;
+  const chiave = `${a.dxf_filename || ''}|${a.codice || ''}`;
+  if (!forza && a.verifica && a.verifica.versione === _WB_VERIFICA_VER && a.verifica._chiave === chiave) return false;
+  if (_wbVerInCorso.has(a)) return false;
+  _wbVerInCorso.add(a);
+  try {
+    const q = new URLSearchParams({ dxf: a.dxf_filename || '', codice: a.codice || '' });
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/verifica-pezzo?${q}`);
+    const d = await r.json();
+    if (!d || !d.success) return false;
+    delete d.success;
+    a.verifica = Object.assign(d, { _chiave: chiave });
+    return true;
+  } catch (_) { return false; }
+  finally { _wbVerInCorso.delete(a); }
+}
+/** Verifica in sottofondo i pezzi non ancora verificati (dopo apertura e import). */
+let _wbVerTimer = null, _wbVerGiro = false;
+function _wbVerificaProgramma() {
+  clearTimeout(_wbVerTimer);
+  _wbVerTimer = setTimeout(async () => {
+    if (_wbVerGiro || !currentPreventivo) return;
+    _wbVerGiro = true;
+    const pid = currentPreventivo.id;
+    let cambiati = 0;
+    try {
+      const lista = currentArticoli.map((_, i) => i);
+      for (let k = 0; k < lista.length; k += 3) {
+        const esiti = await Promise.all(lista.slice(k, k + 3).map(i => wbVerifica(i)));
+        if (!currentPreventivo || currentPreventivo.id !== pid) return;   // aperto un altro preventivo
+        cambiati += esiti.filter(Boolean).length;
+      }
+    } finally { _wbVerGiro = false; }
+    if (cambiati) {
+      try { renderSplitTree(); } catch (_) {}
+      if (_splitSelectedIdx != null) { try { wbPieceSync(_splitSelectedIdx); } catch (_) {} }
+      segnaArticoliModificati(1500);
+    }
+    _wbCorreggiContorniAuto();
+  }, 900);
+}
+
+// ── Correzione automatica del contorno col peso del cartiglio ──
+/** Dopo l'import (e all'apertura di una bozza): i pezzi il cui peso e' molto
+    lontano dal cartiglio (contorno = una vista, non il pezzo) si correggono
+    da soli col contorno del disegno che pesa quanto il cartiglio. Resta da
+    confermare ("Va bene" / "Rimetti com'era"): sull'archivio e' giusto 9 volte
+    su 10. Il riconoscimento automatico non cambia: questo viene dopo. */
+function _wbChiaveAuto(a) { return `${a.dxf_filename || ''}|${a.spessore_mm || ''}|${a.materiale || ''}`; }
+function _wbAutoDaConfermare(a) {
+  return !!(a && a.contorno_auto && a.contorno_auto.stato === 'da_confermare'
+            && a.contorno_auto.chiave === _wbChiaveAuto(a));
+}
+function _wbDaCorreggereAuto(a) {
+  // Anche i contorni gia' confermati: sul preventivo DECA 22 pezzi "confermati"
+  // (candidato scelto all'import o "È corretto") pesavano da 10 a 100 volte
+  // meno del cartiglio. Si corregge solo lo scarto grave, e resta annullabile.
+  if (!a || !a.dxf_filename || a.costo_base_override != null) return false;
+  if (a.geometry_source === 'sviluppo' || a.geometry_source === 'step') return false;   // scelte esplicite
+  if (!(a.spessore_mm > 0) || !_densitaMateriale(a.materiale)) return false;
+  if (a.contorno_auto && a.contorno_auto.chiave === _wbChiaveAuto(a)) return false;   // gia' provato
+  const ck = _wbControlliCoerenza(a);
+  return !!(ck.peso && !ck.peso.ok && ck.peso.grave);
+}
+async function _wbContornoAuto(i) {
+  const a = currentArticoli[i];
+  const pc = a.verifica.peso_cartiglio;
+  let r = null;
+  try {
+    const q = new URLSearchParams({ dxf: a.dxf_filename, spessore: a.spessore_mm,
+                                    densita: _densitaMateriale(a.materiale), peso: pc.peso_kg });
+    r = await (await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/proponi-contorno?${q}`)).json();
+  } catch (_) { return false; }
+  if (currentArticoli[i] !== a) return false;
+  const chiave = _wbChiaveAuto(a);
+  if (!r || !r.success || !r.trovato) { a.contorno_auto = { stato: 'non_trovato', chiave }; return false; }
+  a.contorno_auto = { stato: 'da_confermare', chiave, scarto: r.scarto_peso,
+    prima: { area_dm2: a.area_dm2, perimetro_taglio_m: a.perimetro_taglio_m, n_forature: a.n_forature,
+             bbox_w_mm: a.bbox_w_mm, bbox_h_mm: a.bbox_h_mm, geometry_source: a.geometry_source || null,
+             confermato: !!a.geometria_manuale_confermata } };
+  a.geometria_manuale_confermata = false;          // la conferma era su un altro contorno
+  a.area_dm2 = r.area_dm2;
+  a.perimetro_taglio_m = r.perimetro_taglio_m;
+  a.n_forature = r.n_forature;
+  a.bbox_w_mm = r.bbox_width_mm; a.bbox_h_mm = r.bbox_height_mm;
+  a.lunghezza_vuoto_mm = null;
+  a.geometry_source = 'peso-cartiglio';
+  a.origine_campi = Object.assign({}, a.origine_campi || {}, { area_dm2: 'cad', perimetro_taglio_m: 'cad', n_forature: 'cad' });
+  try { await stimaArt(i, { silent: true }); } catch (_) {}
+  return true;
+}
+let _wbAutoGiro = false;
+async function _wbCorreggiContorniAuto() {
+  if (_wbAutoGiro || !currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
+  const pid = currentPreventivo.id;
+  const lista = currentArticoli.map((_, i) => i).filter(i => _wbDaCorreggereAuto(currentArticoli[i]));
+  if (!lista.length) return;
+  _wbAutoGiro = true;
+  let fatti = 0, corretti = 0;
+  try {
+    for (let k = 0; k < lista.length; k += 2) {
+      const esiti = await Promise.all(lista.slice(k, k + 2).map(i => _wbContornoAuto(i)));
+      if (!currentPreventivo || currentPreventivo.id !== pid) return;
+      fatti += esiti.length; corretti += esiti.filter(Boolean).length;
+      wbSnack(`Correggo i contorni col peso del cartiglio: ${fatti} di ${lista.length}`, '', 5000);
+    }
+  } finally { _wbAutoGiro = false; }
+  try { renderSplitTree(); } catch (_) {}
+  if (_splitSelectedIdx != null) { try { wbPieceSync(_splitSelectedIdx); } catch (_) {} }
+  recalcTotali();
+  segnaArticoliModificati(800);
+  const resto = lista.length - corretti;
+  wbSnack(`${corretti} ${corretti === 1 ? 'contorno corretto' : 'contorni corretti'} col peso del cartiglio`
+    + (resto ? `, ${resto} da vedere a mano` : '') + ': controllali nel filtro "Da fare"', resto ? 'warn' : '', 9000);
+}
+function wbConfermaAuto(i) {
+  const a = currentArticoli[i];
+  if (!a || !a.contorno_auto) return;
+  a.contorno_auto = Object.assign({}, a.contorno_auto, { stato: 'confermato' });
+  a.geometria_manuale_confermata = true;
+  a.dxf_needs_verify = false;
+  _wbDopoRisolto(i, 'Contorno confermato');
+}
+async function wbAnnullaAuto(i) {
+  const a = currentArticoli[i];
+  const pr = a && a.contorno_auto && a.contorno_auto.prima;
+  if (!pr) return;
+  a.area_dm2 = pr.area_dm2; a.perimetro_taglio_m = pr.perimetro_taglio_m;
+  a.n_forature = pr.n_forature != null ? Math.round(pr.n_forature) : a.n_forature;
+  a.bbox_w_mm = pr.bbox_w_mm; a.bbox_h_mm = pr.bbox_h_mm;
+  a.geometry_source = pr.geometry_source || null;
+  a.geometria_manuale_confermata = !!pr.confermato;
+  a.lunghezza_vuoto_mm = null;
+  a.contorno_auto = { stato: 'annullato', chiave: _wbChiaveAuto(a) };
+  if (_splitSelectedIdx === i) {
+    const put = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    put('sd-area', a.area_dm2); put('sd-perim', Math.round((a.perimetro_taglio_m || 0) * 1000)); put('sd-forature', a.n_forature);
+  }
+  try { await stimaArt(i, { silent: true }); } catch (_) {}
+  _wbDopoRisolto(i, 'Contorno rimesso com\'era');
+}
+/** Scrive sul pezzo spessore, area, taglio, inneschi e pieghe dello STEP
+    (valori manuali: un nuovo import del DXF non li tocca), poi ristima. */
+async function wbUsaStep(i) {
+  const a = currentArticoli[i];
+  const S = a && a.verifica && a.verifica.step;
+  if (!S || !S.ok) return;
+  const orig = Object.assign({}, a.origine_campi || {});
+  a.spessore_mm = S.spessore_mm; a._spessore_conf = 1.0; a._spessore_source = 'step';
+  a.area_dm2 = S.area_dm2;
+  if (S.perimetro_taglio_m > 0) a.perimetro_taglio_m = S.perimetro_taglio_m;
+  if (S.inneschi > 0) a.n_forature = S.inneschi;
+  a.pieghe = S.n_pieghe || 0;
+  a.lunghezza_vuoto_mm = null;
+  ['spessore_mm', 'area_dm2', 'perimetro_taglio_m', 'n_forature', 'pieghe'].forEach(k => { orig[k] = 'manuale'; });
+  a.origine_campi = orig;
+  a.geometria_manuale_confermata = true;
+  a.geometry_source = 'step';
+  a.dxf_needs_verify = false;
+  recalcLavorazioniArt(a);
+  if (_splitSelectedIdx === i) {
+    const put = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    put('sd-spessore', a.spessore_mm); put('sd-pieghe', a.pieghe); put('sd-area', a.area_dm2);
+    put('sd-perim', Math.round(a.perimetro_taglio_m * 1000)); put('sd-forature', a.n_forature);
+  }
+  try { await stimaArt(i, { silent: true }); } catch (_) {}
+  _wbDopoRisolto(i, `Dati dello STEP applicati: ${_wbKg(S.area_dm2)} dm², taglio ${_wbKg(S.perimetro_taglio_m || 0)} m`);
+}
+
+/** Contorno guidato dal peso del cartiglio (senza STEP): il server prova i
+    contorni chiusi del disegno e propone quello che pesa quanto il cartiglio.
+    Si mostra la FORMA trovata: l'operatore riconosce il pezzo e conferma. */
+function _wbPropModal() {
+  let el = document.getElementById('wb-prop-overlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'modal-overlay'; el.id = 'wb-prop-overlay'; el.style.zIndex = 2900;
+    el.onclick = (e) => { if (e.target === el) el.classList.remove('active'); };
+    el.innerHTML = '<div class="modal wb-prop" role="dialog" aria-label="Contorno dal peso del cartiglio"></div>';
+    document.body.appendChild(el);
+  }
+  el.classList.add('active');
+  return el.querySelector('.wb-prop');
+}
+function _wbPropChiudi() { const el = document.getElementById('wb-prop-overlay'); if (el) el.classList.remove('active'); }
+function _wbPropForma(r) {
+  const tutti = [r.esterno].concat(r.fori || []);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  r.esterno.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
+  const m = Math.max(x1 - x0, y1 - y0) * 0.05 || 1;
+  // y del DXF verso l'alto → nello SVG verso il basso
+  const d = tutti.map(p => 'M' + p.map(([x, y]) => `${(x - x0).toFixed(2)} ${(y1 - y).toFixed(2)}`).join('L') + 'Z').join('');
+  return `<svg viewBox="${-m} ${-m} ${(x1 - x0 + 2 * m).toFixed(2)} ${(y1 - y0 + 2 * m).toFixed(2)}" preserveAspectRatio="xMidYMid meet">
+    <path d="${d}" fill-rule="evenodd"/></svg>`;
+}
+async function wbProponiContorno(i) {
+  const a = currentArticoli[i];
+  const pc = a && a.verifica && a.verifica.peso_cartiglio;
+  const box = _wbPropModal();
+  const testa = `<div class="wbp-head"><b><i data-lucide="scale"></i> Contorno dal peso del cartiglio</b>
+    <button type="button" class="wb-icon-btn sm" onclick="_wbPropChiudi()" title="Chiudi"><i data-lucide="x"></i></button></div>`;
+  const dens = _densitaMateriale(a && a.materiale);
+  if (!a || !a.dxf_filename || !pc || !(pc.peso_kg > 0) || !(a.spessore_mm > 0) || !dens) {
+    box.innerHTML = testa + `<div class="wbp-msg">Servono disegno, materiale, spessore e il peso nel cartiglio.</div>`;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+  box.innerHTML = testa + `<div class="wbp-wait"><div class="cad-spinner"></div>Cerco nel disegno il contorno che pesa ${_wbKg(pc.peso_kg)} kg…<small>qualche secondo</small></div>`;
+  if (window.lucide) lucide.createIcons();
+  let r;
+  try {
+    const q = new URLSearchParams({ dxf: a.dxf_filename, spessore: a.spessore_mm, densita: dens, peso: pc.peso_kg });
+    r = await (await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/proponi-contorno?${q}`)).json();
+  } catch (e) { r = { success: false, error: e.message }; }
+  if (currentArticoli[i] !== a) return;                         // cambiato preventivo nel frattempo
+  const azioni = (ok) => `<div class="wbp-az">
+      ${ok ? `<button class="wb-btn wb-btn-primary" onclick="wbUsaContornoProposto(${i})">Usa questo contorno</button>` : ''}
+      <button class="wb-btn" onclick="_wbPropChiudi(); openCadEditor()">Apri il CAD</button>
+      <button class="wb-btn wb-btn-ghost" onclick="_wbPropChiudi(); wbSviluppo(true)">Sviluppo guidato</button>
+    </div>`;
+  if (!r || !r.success || !r.trovato) {
+    box.innerHTML = testa + `<div class="wbp-msg"><b>Nessun contorno del disegno pesa ${_wbKg(pc.peso_kg)} kg.</b>
+      ${escapeHtml((r && (r.motivo || r.error)) || '')}. Il pezzo va definito a mano: nel CAD o, se è piegato senza sviluppo, con lo sviluppo guidato.</div>` + azioni(false);
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+  a._propostaContorno = r;
+  const riga = (k, prima, dopo) => `<span>${k}</span><em>${prima}</em><b>${dopo}</b>`;
+  box.innerHTML = testa + `<div class="wbp-corpo">
+      <div class="wbp-forma">${_wbPropForma(r)}</div>
+      <div class="wbp-dati">
+        <div class="wbp-peso">Pesa <b>${_wbKg(r.peso_kg)} kg</b> · cartiglio ${_wbKg(r.peso_cartiglio_kg)} kg
+          <small>scarto ${(r.scarto_peso * 100).toFixed(1).replace('.', ',')}%${r.scala !== 1 ? ` · disegno in scala 1:${_wbKg(r.scala)}` : ''}</small></div>
+        <div class="wbp-tab"><span></span><em>ora</em><b>proposto</b>
+          ${riga('Area', _wbKg(a.area_dm2 || 0) + ' dm²', _wbKg(r.area_dm2) + ' dm²')}
+          ${riga('Taglio', _wbKg(a.perimetro_taglio_m || 0) + ' m', _wbKg(r.perimetro_taglio_m) + ' m')}
+          ${riga('Inneschi', a.n_forature || 0, r.n_forature)}
+          ${riga('Ingombro', a.bbox_w_mm ? `${_wbMm(a.bbox_w_mm)} × ${_wbMm(a.bbox_h_mm)}` : '—', `${_wbMm(r.bbox_width_mm)} × ${_wbMm(r.bbox_height_mm)}`)}
+        </div>
+        <div class="wbp-nota">Controlla che la forma sia il pezzo del disegno (sviluppo compreso, se è piegato).</div>
+      </div>
+    </div>` + azioni(true);
+  if (window.lucide) lucide.createIcons();
+}
+/** Applica il contorno proposto: come una conferma nel CAD (origine 'cad'). */
+async function wbUsaContornoProposto(i) {
+  const a = currentArticoli[i];
+  const r = a && a._propostaContorno;
+  if (!r) return;
+  const orig = Object.assign({}, a.origine_campi || {});
+  a.area_dm2 = r.area_dm2;
+  a.perimetro_taglio_m = r.perimetro_taglio_m;
+  a.n_forature = r.n_forature;
+  a.bbox_w_mm = r.bbox_width_mm; a.bbox_h_mm = r.bbox_height_mm;
+  a.lunghezza_vuoto_mm = null;
+  orig.area_dm2 = orig.perimetro_taglio_m = orig.n_forature = 'cad';
+  a.origine_campi = orig;
+  a.geometria_manuale_confermata = true;
+  a.geometry_source = 'peso-cartiglio';
+  a.dxf_needs_verify = false;
+  a.contorno_auto = { stato: 'confermato', chiave: _wbChiaveAuto(a) };
+  delete a._propostaContorno;
+  _wbPropChiudi();
+  if (_splitSelectedIdx === i) {
+    const put = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    put('sd-area', a.area_dm2); put('sd-perim', Math.round(a.perimetro_taglio_m * 1000)); put('sd-forature', a.n_forature);
+  }
+  try { await stimaArt(i, { silent: true }); } catch (_) {}
+  _wbDopoRisolto(i, `Contorno applicato: ${_wbKg(r.area_dm2)} dm², ${_wbKg(r.peso_kg)} kg come il cartiglio`);
+}
+
 function wbNonPronto(a) { return wbProblemi(a).some(p => p.l !== 'info'); }
 function wbBloccante(a) { return wbProblemi(a).some(p => p.l === 'err'); }
 /** Pallino della distinta: solo quando serve un intervento. */
@@ -12692,15 +13080,25 @@ function wbPieceSync(idx) {
   const ric = document.getElementById('wb-ric');
   if (ric) {
     const pc = a.dxf_confidence != null ? ` · ${Math.round(a.dxf_confidence * 100)}%` : '';
-    const m = {
+    let m = {
       confermato: a.geometry_source === 'sviluppo'
         ? ['ok', 'fold-horizontal', 'Sviluppo guidato applicato']
-        : ['ok', 'check-circle-2', 'Contorno confermato nel CAD'],
+        : a.geometry_source === 'step'
+          ? ['ok', 'box', 'Dati presi dallo STEP']
+          : a.geometry_source === 'peso-cartiglio'
+            ? ['ok', 'scale', 'Contorno scelto col peso del cartiglio']
+            : ['ok', 'check-circle-2', 'Contorno confermato nel CAD'],
       auto: ['auto', 'scan-line', `Contorno riconosciuto automaticamente${pc}`],
       incerto: ['warn', 'alert-triangle', `Riconoscimento incerto${pc}: verifica nel CAD`],
       ignoto: ['auto', 'loader', 'Verifica del riconoscimento…'],
       nessuno: ['none', 'file', 'Pezzo senza disegno'],
     }[c];
+    // Controlli indipendenti superati: si dice (costo fondato su dati verificati)
+    const ver = _wbVerificatoCon(a);
+    if (ver.length && m[0] !== 'warn') {
+      if (c === 'auto' || c === 'ignoto') m = ['ok', 'check-circle-2', `Contorno verificato con ${ver.join(' e ')}`];
+      else { m[0] = 'ok'; m[2] += ` · verificato con ${ver.join(' e ')}`; }
+    }
     ric.className = 'sb-ric ' + m[0];
     ric.innerHTML = `<i data-lucide="${m[1]}"></i><span>${m[2]}</span>`;
   }

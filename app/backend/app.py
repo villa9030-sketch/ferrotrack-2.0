@@ -3128,6 +3128,50 @@ def api_preventivi_step_files_list(preventivo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/preventivi/<preventivo_id>/verifica-pezzo', methods=['GET'])
+def api_preventivi_verifica_pezzo(preventivo_id):
+    """Dati indipendenti per il controllo di coerenza di un pezzo (sola lettura):
+    peso del cartiglio del DXF e, se c'e' lo STEP dello stesso pezzo, i suoi dati
+    di lamiera. Non tocca il riconoscimento del contorno.
+
+    Query: dxf=<nome file DXF>, codice=<codice pezzo>.
+    """
+    try:
+        from .preventivi.verifica_coerenza import verifica_pezzo
+        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        dxf = os.path.basename(request.args.get('dxf') or '') or None
+        codice = request.args.get('codice') or None
+        return jsonify({'success': True, **verifica_pezzo(prev_dir, dxf, codice)}), 200
+    except Exception as e:
+        logger.exception('verifica-pezzo failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/preventivi/<preventivo_id>/proponi-contorno', methods=['GET'])
+def api_preventivi_proponi_contorno(preventivo_id):
+    """Suggerisce il contorno del disegno che pesa quanto il cartiglio (sola
+    lettura: l'operatore vede la forma e decide). Query: dxf, spessore,
+    densita (kg/dm3), peso (kg, dal cartiglio)."""
+    try:
+        from .preventivi.verifica_coerenza import proponi_contorno
+        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        dxf_path = os.path.join(prev_dir, os.path.basename(request.args.get('dxf') or ''))
+        if not os.path.isfile(dxf_path):
+            return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
+
+        def _f(k):
+            try:
+                return float(str(request.args.get(k) or '').replace(',', '.'))
+            except ValueError:
+                return 0.0
+        cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+        r = proponi_contorno(dxf_path, _f('spessore'), _f('densita'), _f('peso'), cfg)
+        return jsonify({'success': True, **r}), 200
+    except Exception as e:
+        logger.exception('proponi-contorno failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/preventivi/<preventivo_id>/step/<path:filename>', methods=['GET'])
 def api_preventivi_step_file(preventivo_id, filename):
     """Serve il file STEP raw (per viewer 3D preview-step.html che lo scarica via fetch)."""
