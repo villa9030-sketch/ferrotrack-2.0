@@ -36,7 +36,7 @@ MISURE_ARTICOLO = {
     'saldatura_min': 100_000.0,    # ~1700 ore per pezzo
 }
 CAMPI_COSTO_ASSIEME = ('costo', 'costo_puntatura', 'costo_saldatura_assieme')
-CAMPI_COSTO_TUBOLARE = ('costo_materiale', 'costo_taglio_totale')
+CAMPI_COSTO_TUBOLARE = ('costo_materiale', 'costo_taglio_totale', 'costo_esterno')
 CAMPI_COSTO_PIASTRA = ('costo',)
 
 

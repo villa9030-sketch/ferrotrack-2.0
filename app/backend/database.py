@@ -4861,6 +4861,7 @@ class PreventivoManager:
                 data['tubolari'] = [PreventivoManager._serialize_tubolare(t) for t in
                                     session.query(PreventivoTubolare)
                                     .filter(PreventivoTubolare.preventivo_id == preventivo_id).all()]
+                PreventivoManager._leggi_extra_tubolari(session, preventivo_id, data['tubolari'])
                 data['piastre'] = [PreventivoManager._serialize_piastra(pp) for pp in
                                    session.query(PreventivoPiastra)
                                    .filter(PreventivoPiastra.preventivo_id == preventivo_id).all()]
@@ -5345,6 +5346,59 @@ class PreventivoManager:
                 out['verifica_ok'] = vok
         return out
 
+    # ---- Campi tubolare senza colonna dedicata ------------------------------
+    # Riga letta dalla distinta del disegno (quantita', misura di taglio,
+    # angoli) e lavorazione esterna (taglio laser tubo dal fornitore).
+    EXTRA_TUBOLARE = ('qty', 'lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m',
+                      'costo_esterno', 'nota_esterno', 'origine', 'distinta', 'posizione')
+
+    @staticmethod
+    def _extra_tubolare(t: dict) -> dict:
+        n = PreventivoManager._num_o_none
+        out = {}
+        for k in ('lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m', 'costo_esterno'):
+            v = n(t.get(k), 1e7)
+            if v is not None and v >= 0:
+                out[k] = v
+        q = n(t.get('qty'), 1e6)
+        if q is not None and q >= 1:
+            out['qty'] = int(q)
+        for k, lim in (('nota_esterno', 120), ('origine', 20), ('distinta', 60), ('posizione', 20)):
+            if t.get(k):
+                out[k] = str(t.get(k))[:lim]
+        return out
+
+    @staticmethod
+    def _colonna_extra_tubolari_pronta(session) -> bool:
+        from sqlalchemy import text
+        try:
+            cols = {r[1] for r in session.execute(text('PRAGMA table_info(preventivo_tubolari)')).fetchall()}
+            if 'extra_campi' not in cols:
+                session.execute(text('ALTER TABLE preventivo_tubolari ADD COLUMN extra_campi TEXT'))
+            return True
+        except Exception as exc:
+            logger.warning('colonna extra_campi tubolari non disponibile: %s', exc)
+            return False
+
+    @staticmethod
+    def _leggi_extra_tubolari(session, preventivo_id, tubolari: list):
+        from sqlalchemy import text
+        try:
+            righe = session.execute(text('SELECT id, extra_campi FROM preventivo_tubolari '
+                                         'WHERE preventivo_id = :p'), {'p': preventivo_id}).fetchall()
+        except Exception:
+            session.rollback()
+            return
+        extra = {r[0]: r[1] for r in righe if r[1]}
+        for t in tubolari:
+            try:
+                dati = json.loads(extra.get(t.get('id')) or '{}')
+            except (TypeError, ValueError):
+                continue
+            for k in PreventivoManager.EXTRA_TUBOLARE:
+                if k in dati and k not in t:
+                    t[k] = dati[k]
+
     @staticmethod
     def _colonna_extra_pronta(session) -> bool:
         from sqlalchemy import text
@@ -5534,9 +5588,14 @@ class PreventivoManager:
             session.query(PreventivoTubolare).filter(
                 PreventivoTubolare.preventivo_id == preventivo_id
             ).delete(synchronize_session=False)
+            extra_tub = []
             for t in tubolari or []:
+                _id_tub = str(uuid.uuid4())
+                _ex = PreventivoManager._extra_tubolare(t)
+                if _ex:
+                    extra_tub.append((_id_tub, _ex))
                 session.add(PreventivoTubolare(
-                    id=str(uuid.uuid4()),
+                    id=_id_tub,
                     preventivo_id=preventivo_id,
                     codice_assieme=t.get('codice_assieme'),
                     profilo=t.get('profilo') or '',
@@ -5549,6 +5608,12 @@ class PreventivoManager:
                     n_tagli_dritti=int(t.get('n_tagli_dritti') or 0),
                     n_tagli_obliqui=int(t.get('n_tagli_obliqui') or 0),
                 ))
+            if extra_tub and PreventivoManager._colonna_extra_tubolari_pronta(session):
+                from sqlalchemy import text
+                session.flush()
+                for _id_tub, _ex in extra_tub:
+                    session.execute(text('UPDATE preventivo_tubolari SET extra_campi = :j WHERE id = :i'),
+                                    {'j': json.dumps(_ex, ensure_ascii=False), 'i': _id_tub})
             session.commit()
             return {'success': True, 'count': len(tubolari or [])}
         except Exception as e:

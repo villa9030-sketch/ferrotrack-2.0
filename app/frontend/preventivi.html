@@ -1368,6 +1368,8 @@ tr.row-warn:hover { background: #FEF3C7; }
 .app-confirm-ico i { width: 22px; height: 22px; }
 .app-confirm-overlay.danger .app-confirm-ico { background: #fef2f2; color: #DC2626; }
 #app-confirm-title { margin: 0; font-family: 'Geist'; font-weight: 800; font-size: 18px; letter-spacing: -0.3px; }
+.sa-tub-est { display:flex; align-items:center; gap:4px; margin-top:3px; font-size:11px; color:var(--text-3); white-space:nowrap; }
+.sa-tub-est input { width:64px; padding:1px 4px; font-size:11px; text-align:right; border:1px solid var(--border, #d0d5dd); border-radius:4px; }
 .app-confirm-msg { font-size: 13.5px; color: var(--text-2); line-height: 1.5; white-space: pre-line; margin-bottom: 20px; }
 .app-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 /* Sezione Importa file collassabile */
@@ -3541,6 +3543,7 @@ body { font-size: var(--fs-m); }
                   <button class="wb-icon-btn" onclick="wbToggleMenu('wb-ass-menu', event)" title="Altre azioni sull'assieme"><i data-lucide="more-vertical"></i></button>
                   <div class="wb-menu-pop right" role="menu">
                     <button role="menuitem" onclick="saApriDettaglio()"><i data-lucide="maximize-2"></i> Dettaglio completo</button>
+                    <button role="menuitem" onclick="saLeggiDistinta()"><i data-lucide="list-checks"></i> Leggi distinta dal PDF</button>
                     <div class="wb-menu-sep"></div>
                     <button role="menuitem" class="danger" onclick="saRimuovi()"><i data-lucide="trash-2"></i> Rimuovi assieme</button>
                   </div>
@@ -3918,6 +3921,30 @@ body { font-size: var(--fs-m); }
   </div>
 
   <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-bottom:16px;">
+
+    <!-- ═══ TUBOLARI E PROFILI ═══ righe tubo lette dalla distinta del PDF
+         d'assieme: peso × €/kg + tagli. Il taglio laser tubo e' esterno:
+         si aggiunge a mano riga per riga ("lavorazione esterna"). -->
+    <div class="card">
+      <div class="card-header"><h3>Tubolari e profili</h3></div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-field">
+            <label>Materiale (&euro;/kg)</label>
+            <input type="number" id="cfg-tub-kg" step="0.01" min="0">
+          </div>
+          <div class="form-field">
+            <label>Taglio dritto (&euro;)</label>
+            <input type="number" id="cfg-tub-dritto" step="0.1" min="0">
+          </div>
+          <div class="form-field">
+            <label>Taglio obliquo (&euro;)</label>
+            <input type="number" id="cfg-tub-obliquo" step="0.1" min="0">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Per le righe tubo lette dalla distinta dell'assieme. Il taglio laser tubo fatto fuori si scrive a parte, sulla riga.</div>
+      </div>
+    </div>
 
     <!-- ═══ MOVIMENTAZIONE ═══
          NASCOSTA (2026-09): nessun calcolo la usa. Esisteva solo nel vecchio
@@ -5391,6 +5418,9 @@ async function loadImpostazioni() {
     document.getElementById('cfg-mov-soglia').value = P.soglia_movimentazione_kg ?? 25;
     document.getElementById('cfg-generali-pct').value = P.costo_generali_pct ?? 8;
     document.getElementById('cfg-tariffa-oraria').value = P.tariffa_oraria ?? 45;
+    document.getElementById('cfg-tub-kg').value = P.tubolari_euro_kg ?? 1.5;
+    document.getElementById('cfg-tub-dritto').value = P.tubolari_taglio_dritto ?? 1;
+    document.getElementById('cfg-tub-obliquo').value = P.tubolari_taglio_obliquo ?? 2.5;
     document.getElementById('cfg-margine-default').value = P.margine_default_pct ?? 25;
     document.getElementById('cfg-margine-montaggio').value = String(!!(P.margine_su_montaggio ?? true));
     const sc = P.sconto_quantita || {};
@@ -5486,6 +5516,9 @@ async function saveImpostazioni() {
         costo_pulizia_saldatura_metro: parseFloat(document.getElementById('cfg-sald-pulizia').value) || 0,
         costo_generali_pct: parseFloat(document.getElementById('cfg-generali-pct').value) || 0,
         tariffa_oraria: parseFloat(document.getElementById('cfg-tariffa-oraria').value) || 45,
+        tubolari_euro_kg: (v => v >= 0 ? v : 1.5)(parseFloat(document.getElementById('cfg-tub-kg').value)),
+        tubolari_taglio_dritto: (v => v >= 0 ? v : 1)(parseFloat(document.getElementById('cfg-tub-dritto').value)),
+        tubolari_taglio_obliquo: (v => v >= 0 ? v : 2.5)(parseFloat(document.getElementById('cfg-tub-obliquo').value)),
         saldatura_a_tempo: (vecchia.prev.saldatura_a_tempo ?? (_prevCfg && _prevCfg.saldatura_a_tempo)) ?? true,
         margine_default_pct: parseFloat(document.getElementById('cfg-margine-default').value) || 0,
       }),
@@ -7185,6 +7218,7 @@ async function selectSplitAssieme(code) {
   const dwg = document.getElementById('sa-dwg');
   if (dwg) { dwg.hidden = true; dwg.innerHTML = ''; }
   wbRenderAssieme(idx);                       // dati subito, il 3D arriva dopo
+  _saCaricaDistinta(code);
   const gen = _wbGen;
   await _hydrateAssiemeDetail3D(code, _ASS_CTX_SPLIT);
   if (gen !== _wbGen) return;                 // si e' aperto un altro preventivo
@@ -7259,6 +7293,8 @@ function wbRenderAssieme(idx) {
   document.getElementById('sa-codice').textContent = A.codice_assieme || '(senza codice)';
   const spec = [`<b>${nComp}</b> component${nComp === 1 ? 'e' : 'i'}`];
   if (kg) spec.push(`<b>${kg}</b> kg`);
+  const ctrlPeso = _saControlloPeso(A, r.peso_kg);
+  if (ctrlPeso) spec.push(ctrlPeso);
   if (A.saldatura_mt > 0) spec.push(`<b>${A.saldatura_mt.toLocaleString('it-IT', { maximumFractionDigits: 2 })}</b> m saldatura`);
   document.getElementById('sa-specline').innerHTML = spec.join('<i>·</i>');
   const q = document.getElementById('sa-qty');
@@ -7369,11 +7405,17 @@ function _saRenderComponenti(r, A) {
   }
   const avv = x => (x.avvisi || []).length ? ` · <span class="pr-issue warn" title="${escapeHtml(x.avvisi.join(' · '))}">${escapeHtml(x.avvisi[0])}</span>` : '';
   for (const t of r.tubolari) {
-    const q = _qtaRiga(t), v = _costoTubolare(t);
-    righe.push(`<div class="pr nolink">
+    const q = _qtaRiga(t), v = _costoTubolare(t), ti = currentTubolari.indexOf(t);
+    const lung = t.lunghezza_pezzo_mm ? `L ${t.lunghezza_pezzo_mm.toLocaleString('it-IT')} mm` : `${(t.lunghezza_m || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} m`;
+    const ang = (t.angolo_1 || t.angolo_2) ? ` · tagli ${t.angolo_1 || 0}°/${t.angolo_2 || 0}°` : '';
+    const dett = `Materiale ${_eur(t.costo_materiale || 0)} · tagli ${_eur(t.costo_taglio_totale || 0)} (${t.n_tagli_dritti || 0} dritti, ${t.n_tagli_obliqui || 0} obliqui)`
+      + (t.distinta ? ` · dalla distinta ${t.distinta} pos. ${t.posizione || ''}` : '');
+    righe.push(`<div class="pr nolink" title="${escapeHtml(dett)}">
       <span class="pr-lead"></span>
       <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
-        <span class="pr-meta">Tubolare · ${(t.lunghezza_m || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} m · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${avv(t)}</span></span>
+        <span class="pr-meta">Tubolare · ${lung}${ang} · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${avv(t)}</span>
+        <label class="sa-tub-est" onclick="event.stopPropagation()" title="Lavorazione fatta fuori (es. taglio laser tubo): prezzo del fornitore per tutta la riga">
+          Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label></span>
       ${prezzo(v, v / q, q)}
     </div>`);
   }
@@ -7390,6 +7432,159 @@ function _saRenderComponenti(r, A) {
     : `<div class="sa-comp-empty">Nessun componente collegato. Assegna i pezzi a questo assieme dal campo "Assieme" nella loro scheda.</div>`;
   const n = righe.length;
   document.getElementById('sa-comp-hint').textContent = n ? `${n} · per 1 assieme` : '';
+}
+
+// ── Distinta base dal PDF d'assieme ────────────────────────────────
+// Il PDF d'insieme del cliente ha la tabella dei componenti: quantita' dei
+// pezzi laser (piastra piede ×4) e, per i telai, le righe di tubo con
+// lunghezza e angoli di taglio. Qui la si legge e si PROPONE: quantita' per
+// assieme, righe tubo (peso × €/kg + tagli), il DXF del telaio tolto dai
+// pezzi laser. Niente cambia senza "Applica".
+let _wbDistinte = {};    // chiave codice → distinta letta (peso del cartiglio incluso)
+function _wbChiaveCod(s) {
+  return String(s || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '').toUpperCase().trim()
+    .replace(/\s*\(\d+\)$/, '').replace(/[-_]\d{2}$/, '');
+}
+function _wbTariffeTubi() {
+  const P = _prevCfg || {};
+  const n = (v, d) => { const f = parseFloat(v); return f >= 0 ? f : d; };
+  return { kg: n(P.tubolari_euro_kg, 1.5), dritto: n(P.tubolari_taglio_dritto, 1), obliquo: n(P.tubolari_taglio_obliquo, 2.5) };
+}
+/** Riga tubo della distinta → tubolare dell'assieme (totali della riga, qty inclusa). */
+function _wbTuboDaRiga(r, codAss, sub, qAss, T) {
+  const q = Math.max(1, (r.qta || 1) * qAss);
+  const L = r.lunghezza_mm || 0, kgm = r.profilo.kg_m || 0;
+  const peso = kgm * L / 1000 * q;
+  const obl = [r.angolo_1, r.angolo_2].filter(a => a != null && Math.abs(a) > 0.01).length;
+  const dritti = (2 - obl) * q, obliqui = obl * q;
+  return {
+    id: 'tmp-' + Date.now() + '-' + Math.random(), codice_assieme: codAss,
+    profilo: r.profilo.nome, tipo: r.profilo.tipo, materiale: 'acciaio', qty: q,
+    lunghezza_m: L / 1000, lunghezza_pezzo_mm: L, angolo_1: r.angolo_1, angolo_2: r.angolo_2, kg_m: kgm,
+    peso_kg: Math.round(peso * 100) / 100,
+    costo_materiale: Math.round(peso * T.kg * 100) / 100,
+    n_tagli_dritti: dritti, n_tagli_obliqui: obliqui,
+    costo_taglio_totale: Math.round((dritti * T.dritto + obliqui * T.obliquo) * 100) / 100,
+    costo_esterno: 0, origine: 'distinta', distinta: sub, posizione: r.pos,
+  };
+}
+/** Legge le distinte degli assiemi (tutti o uno) e propone le modifiche. */
+async function wbApplicaDistinte(codici, opts) {
+  opts = opts || {};
+  if (!currentPreventivo || !currentAssiemi.length) { if (!opts.auto) wbSnack('Nessun assieme nel preventivo', 'warn'); return false; }
+  const cod = (codici || currentAssiemi.map(a => a.codice_assieme)).filter(Boolean);
+  let d;
+  try {
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/distinte?codici=${encodeURIComponent(cod.join(','))}`);
+    d = await r.json();
+  } catch (e) { if (!opts.auto) wbSnack('Distinta non letta: ' + e.message, 'err'); return false; }
+  if (!d || !d.success) { if (!opts.auto) wbSnack('Distinta non letta: ' + ((d && d.error) || ''), 'err'); return false; }
+  const D = d.distinte || {};
+  Object.assign(_wbDistinte, D);
+  const T = _wbTariffeTubi();
+  const qty = [], tubi = [], togli = [], righe = [];
+  for (const A of currentAssiemi) {
+    const kA = _wbChiaveCod(A.codice_assieme);
+    if (!cod.includes(A.codice_assieme) || !D[kA]) continue;
+    for (const r of D[kA].righe) {
+      const kr = _wbChiaveCod(r.codice);
+      if (kr === kA) continue;                  // la riga dell'assieme stesso
+      const sub = D[kr];
+      const tubiSub = sub ? sub.righe.filter(x => x.profilo) : [];
+      const art = currentArticoli.filter(a => _wbChiaveCod(a.codice || a.dxf_filename_originale || a.dxf_filename) === kr);
+      if (tubiSub.length) {
+        // Sotto-assieme saldato di tubi (telaio): righe tubo nell'assieme,
+        // il suo DXF non e' un pezzo da laser piano.
+        tubiSub.forEach(x => tubi.push(_wbTuboDaRiga(x, A.codice_assieme, kr, r.qta || 1, T)));
+        art.forEach(a => togli.push(a));
+        const kg = tubiSub.reduce((s, x) => s + x.profilo.kg_m * x.lunghezza_mm / 1000 * x.qta, 0) * (r.qta || 1);
+        righe.push(`• ${r.codice}${r.qta > 1 ? ' ×' + r.qta : ''}: ${tubiSub.length} righe di tubo, ${kg.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kg`
+          + (art.length ? ` — il suo DXF esce dai pezzi laser` : ''));
+        // pezzi laser dentro il telaio (es. piastrine saldate): quantita' × telaio
+        for (const x of sub.righe.filter(x => !x.profilo)) {
+          const kx = _wbChiaveCod(x.codice);
+          if (kx === kr) continue;
+          currentArticoli.filter(a => _wbChiaveCod(a.codice || a.dxf_filename_originale || a.dxf_filename) === kx)
+            .forEach(a => qty.push([a, (x.qta || 1) * (r.qta || 1), A.codice_assieme]));
+        }
+      } else if (r.profilo) {
+        tubi.push(_wbTuboDaRiga(r, A.codice_assieme, kA, 1, T));
+        righe.push(`• ${r.codice}: ${r.profilo.nome} L ${r.lunghezza_mm} mm ×${r.qta}`);
+      } else {
+        art.forEach(a => qty.push([a, r.qta || 1, A.codice_assieme]));
+      }
+    }
+  }
+  const cambiQty = qty.filter(([a, q, c]) => (a.quantita || 1) !== q || a.codice_assieme !== c);
+  // gia' applicata: stesse righe tubo, nessun DXF da togliere, quantita' uguali
+  const giaTubi = currentTubolari.filter(t => t.origine === 'distinta');
+  const stessiTubi = giaTubi.length === tubi.length
+    && tubi.every(t => giaTubi.some(g => g.codice_assieme === t.codice_assieme && g.distinta === t.distinta && g.posizione === t.posizione && g.qty === t.qty));
+  if (!cambiQty.length && !togli.length && stessiTubi) {
+    if (!opts.auto) wbSnack(Object.keys(D).length ? 'Distinta già applicata: niente da cambiare' : 'Nessuna distinta leggibile nei PDF d\'assieme', Object.keys(D).length ? '' : 'warn');
+    if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
+    return false;
+  }
+  const kgTubi = tubi.reduce((s, t) => s + t.peso_kg, 0);
+  const eurTubi = tubi.reduce((s, t) => s + t.costo_materiale + t.costo_taglio_totale, 0);
+  const msg = [
+    ...cambiQty.map(([a, q]) => `• ${a.codice || a.dxf_filename}: ${a.quantita || 1} → ${q} per assieme`),
+    ...righe,
+    tubi.length ? `\nTubi: ${kgTubi.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kg × ${_eur(T.kg)}/kg + tagli (${_eur(T.dritto)} dritto, ${_eur(T.obliquo)} obliquo) = ${_eur(eurTubi)}.`
+      + `\nIl taglio laser tubo fatto fuori lo scrivi sulla riga ("lavorazione esterna").` : '',
+    `\nSaldatura e montaggio restano da inserire a mano.`,
+  ].filter(Boolean).join('\n');
+  if (!await appConfirm(msg, { title: 'Distinta dal PDF d\'assieme', okLabel: 'Applica', cancelLabel: 'Non ora' })) return false;
+  for (const [a, q, c] of cambiQty) { a.quantita = q; a.codice_assieme = c; }
+  // rilettura: le righe tubo della distinta si rifanno, la lavorazione esterna scritta resta
+  const vecchi = currentTubolari.filter(t => t.origine === 'distinta' && tubi.some(n => n.codice_assieme === t.codice_assieme && n.distinta === t.distinta));
+  for (const n of tubi) {
+    const v = vecchi.find(t => t.codice_assieme === n.codice_assieme && t.distinta === n.distinta && t.posizione === n.posizione);
+    if (v) { n.costo_esterno = v.costo_esterno || 0; if (v.nota_esterno) n.nota_esterno = v.nota_esterno; }
+  }
+  currentTubolari = currentTubolari.filter(t => !vecchi.includes(t)).concat(tubi);
+  for (const a of togli) { const i = currentArticoli.indexOf(a); if (i >= 0) currentArticoli.splice(i, 1); }
+  if (togli.length) _splitSelectedIdx = null;
+  renderArticoli(); renderTubolari(); recalcTotali();
+  segnaArticoliModificati(300);
+  scheduleSaveTubolari(300);
+  try { renderSplitTree(); } catch (_) {}
+  if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
+  wbSnack(`Distinta applicata${tubi.length ? ` · ${tubi.length} righe tubo` : ''}${togli.length ? ` · ${togli.length} DXF di telaio tolti dai pezzi` : ''}`);
+  return true;
+}
+function saLeggiDistinta() {
+  if (_splitAssIdx == null) return;
+  wbApplicaDistinte([currentAssiemi[_splitAssIdx].codice_assieme]);
+}
+/** Taglio laser tubo o altra lavorazione fatta fuori: prezzo del fornitore sulla riga. */
+function saTubEsterno(i, v) {
+  const t = currentTubolari[i];
+  if (!t) return;
+  t.costo_esterno = Math.max(0, parseFloat(String(v).replace(',', '.')) || 0);
+  recalcTotali(); scheduleSaveTubolari();
+  if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
+}
+/** Peso dell'assieme contro il cartiglio del disegno d'insieme. */
+function _saControlloPeso(A, pesoCalc) {
+  const D = _wbDistinte[_wbChiaveCod(A.codice_assieme)];
+  if (!D || !(D.peso_kg > 0) || !(pesoCalc > 0)) return '';
+  const r = pesoCalc / D.peso_kg, f = v => v.toLocaleString('it-IT', { maximumFractionDigits: 1 });
+  if (Math.abs(r - 1) <= 0.1) return `<span title="Cartiglio del disegno d'insieme: ${f(D.peso_kg)} kg" style="color:var(--green)">peso come il cartiglio (${f(D.peso_kg)} kg)</span>`;
+  return `<span class="pr-issue warn" title="Manca o avanza qualcosa: quantità, tubi o pezzi dell'assieme">cartiglio ${f(D.peso_kg)} kg, calcolato ${f(pesoCalc)} kg</span>`;
+}
+/** Distinta dell'assieme aperto (solo lettura, per il controllo del peso). */
+async function _saCaricaDistinta(code) {
+  const k = _wbChiaveCod(code);
+  if (!currentPreventivo || k in _wbDistinte) return;
+  _wbDistinte[k] = null;
+  try {
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/distinte?codici=${encodeURIComponent(code)}`);
+    const d = await r.json();
+    if (d && d.success) Object.assign(_wbDistinte, d.distinte || {});
+  } catch (_) { delete _wbDistinte[k]; return; }
+  const A = _splitAssIdx != null ? currentAssiemi[_splitAssIdx] : null;
+  if (A && A.codice_assieme === code) wbRenderAssieme(_splitAssIdx);
 }
 
 function saSetQty(v) {
@@ -9394,7 +9589,7 @@ async function stimaTutti(indici) {
     per N (cosi' li manda import-step e cosi' li somma il server), quindi non
     si rimoltiplica. `qty` non e' salvato sul server: dopo la riapertura vale 1. */
 function _qtaRiga(r) { const n = parseInt(r && r.qty, 10); return n > 0 ? n : 1; }
-function _costoTubolare(t) { return (t.costo_materiale || 0) + (t.costo_taglio_totale || 0); }
+function _costoTubolare(t) { return (t.costo_materiale || 0) + (t.costo_taglio_totale || 0) + (parseFloat(t.costo_esterno) || 0); }
 function _costoPiastra(p) { return p.costo || 0; }
 
 function computeAssiemeRollup(codice) {
@@ -13590,6 +13785,8 @@ async function wbNewEmpty() {
       const pdf = pdfTutti.filter(f => !_wbDisegniAssieme.has(_wbChiaveNome(f.name)));
       await _wbSalvaPdfAssieme(pdfTutti.filter(f => _wbDisegniAssieme.has(_wbChiaveNome(f.name))));
       if (pdf.length) await wbCaricaPdf(pdf);
+      // distinta degli assiemi dal PDF d'insieme: proposta, da confermare
+      if (pdfTutti.length && currentAssiemi.length) { wbProg.chiudi(); await wbApplicaDistinte(null, { auto: true }); }
       return r;
     } finally { wbProg.chiudi(); }
   };
@@ -14089,6 +14286,7 @@ async function _wbLeggiVoci(dt) {
     const pdfPezzi = stepColBatch ? pdf.filter(f => !_wbDisegniAssieme.has(_wbChiaveNome(f.name))) : pdf;
     if (stepColBatch) await _wbSalvaPdfAssieme(pdf.filter(f => _wbDisegniAssieme.has(_wbChiaveNome(f.name))));
     if (pdfPezzi.length) await wbCaricaPdf(pdfPezzi);
+    if (cartella && pdf.length && currentAssiemi.length) await wbApplicaDistinte(null, { auto: true });
   }
 })();
 

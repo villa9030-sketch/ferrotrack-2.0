@@ -95,7 +95,9 @@ def costo_tubolare(t: dict) -> float:
     (`qty`), ma costo_materiale/costo_taglio_totale sono gia' il TOTALE della
     riga (qty inclusa, vedi import-step): qui NON si rimoltiplica. Cosi' il
     totale resta giusto anche dopo il salvataggio, che non conserva `qty`."""
-    return _num(t.get('costo_materiale')) + _num(t.get('costo_taglio_totale'))
+    # + lavorazione esterna (es. taglio laser tubo dal fornitore), gia' totale della riga
+    return (_num(t.get('costo_materiale')) + _num(t.get('costo_taglio_totale'))
+            + _num(t.get('costo_esterno')))
 
 
 def costo_piastra(p: dict) -> float:

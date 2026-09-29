@@ -3158,6 +3158,21 @@ def api_preventivi_verifica_pezzo(preventivo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/preventivi/<preventivo_id>/distinte', methods=['GET'])
+def api_preventivi_distinte(preventivo_id):
+    """Distinte base lette dai PDF d'insieme caricati (sola lettura).
+    Query: codici=46SA00579-00,... (codici degli assiemi). Restituisce anche le
+    distinte dei sotto-assiemi citati (es. il telaio di tubolari)."""
+    try:
+        from .preventivi.distinte_pdf import distinte_per_codici
+        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        codici = [c.strip() for c in (request.args.get('codici') or '').split(',') if c.strip()]
+        return jsonify({'success': True, 'distinte': distinte_per_codici(prev_dir, codici)}), 200
+    except Exception as e:
+        logger.exception('distinte failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/preventivi/<preventivo_id>/proponi-contorno', methods=['GET'])
 def api_preventivi_proponi_contorno(preventivo_id):
     """Suggerisce il contorno del disegno che pesa quanto il cartiglio (sola
@@ -4420,14 +4435,23 @@ def api_preventivi_import_step(preventivo_id):
             except OSError: pass
             raise
 
-        # Coefficienti da config del Preventivatore desktop (oggi inline, in futuro spostiamoli in app_config)
+        # Coefficienti: €/kg e tagli dei tubolari dalle Impostazioni
+        # (preventivi_config.tubolari_*), gli altri ancora fissi.
+        _pc_tub = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+
+        def _tar(k, d):
+            try:
+                v = float(_pc_tub.get(k))
+                return v if v >= 0 else d
+            except (TypeError, ValueError):
+                return d
         config_tubolari_piastre = {
-            'costo_materiale_acciaio_kg': 1.50,
+            'costo_materiale_acciaio_kg': _tar('tubolari_euro_kg', 1.50),
             'costo_materiale_inox_kg': 4.50,
             'costo_materiale_alluminio_kg': 3.50,
             'costo_orario_taglio_tubo': 40.0,
-            'costo_taglio_dritto': 1.0,
-            'costo_taglio_obliquo': 2.5,
+            'costo_taglio_dritto': _tar('tubolari_taglio_dritto', 1.0),
+            'costo_taglio_obliquo': _tar('tubolari_taglio_obliquo', 2.5),
             'costo_taglio_sagomato': 5.0,
         }
 
