@@ -363,6 +363,21 @@ def descrizione_profilo(dxf_path: str) -> str | None:
     return _in_cache(('profilo',) + _firma(dxf_path), calcola)
 
 
+def materiale_cartiglio(dxf_path: str) -> dict | None:
+    """Testo del materiale letto nel cartiglio (es. "C75 bonificato") e la
+    famiglia a cui il lettore lo riconduce (S235): serve a riconoscere i
+    materiali aggiunti nelle Impostazioni sui pezzi gia' importati."""
+    def calcola():
+        try:
+            from .dxf_scanner import estrai_materiale_da_cartiglio
+            r = estrai_materiale_da_cartiglio(dxf_path) or {}
+            raw = ' '.join(str(r.get('materiale_raw') or '').split())[:80]
+            return {'raw': raw, 'materiale': r.get('materiale') or ''} if raw else None
+        except Exception:
+            return None
+    return _in_cache(('materiale',) + _firma(dxf_path), calcola)
+
+
 def ingombro_letto(dxf_path: str, config: dict | None) -> dict | None:
     """Area e ingombro del contorno che l'import sceglie da solo (stessa
     funzione e stessa configurazione, in sola lettura)."""
@@ -382,12 +397,13 @@ def ingombro_letto(dxf_path: str, config: dict | None) -> dict | None:
 def verifica_pezzo(cartella: str, dxf_filename: str | None, codice: str | None,
                    config: dict | None = None) -> dict:
     """Dati indipendenti per il controllo di coerenza di un pezzo."""
-    out = {'versione': 4, 'peso_cartiglio': None, 'step': None, 'quote': [], 'ingombro_letto': None,
-           'profilo': None}
+    out = {'versione': 5, 'peso_cartiglio': None, 'step': None, 'quote': [], 'ingombro_letto': None,
+           'profilo': None, 'materiale_cartiglio': None}
     dxf_path = os.path.join(cartella, os.path.basename(dxf_filename)) if dxf_filename else None
     if dxf_path and os.path.exists(dxf_path):
         out['peso_cartiglio'] = peso_cartiglio(dxf_path)
         out['profilo'] = descrizione_profilo(dxf_path)
+        out['materiale_cartiglio'] = materiale_cartiglio(dxf_path)
         out['quote'] = quote_disegno(dxf_path)
         if out['quote']:
             out['ingombro_letto'] = ingombro_letto(dxf_path, config)

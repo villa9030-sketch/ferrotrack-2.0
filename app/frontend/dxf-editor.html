@@ -237,15 +237,54 @@ async function load() {
   GEO_EXT = _geoBBox(d.polylines);
   buildScene(d.polylines);
   zoomToPart();
+  await caricaMaterialiPersonali();
   prefillDaCartiglio(d);
+}
+
+// Materiali aggiunti nelle Impostazioni (es. C75: €/kg e densita' propri,
+// taglio come S235): nel menu e nella densita' per il controllo del peso.
+const MAT_PERS = {};
+async function caricaMaterialiPersonali() {
+  try {
+    const d = await (await fetch(`${API}/api/preventivi/config`)).json();
+    const mats = (d.laser_config && d.laser_config.materiali) || {};
+    const sel = document.getElementById('f-materiale');
+    const altro = sel.querySelector('option[value="ALTRO"]');
+    for (const [k, v] of Object.entries(mats)) {
+      if (!v || !v.taglio_come) continue;
+      MAT_PERS[k] = v;
+      if (parseFloat(v.densita_kg_dm3) > 0) DENSITA[k] = parseFloat(v.densita_kg_dm3);
+      if (Array.from(sel.options).some(o => o.value === k)) continue;
+      sel.insertBefore(new Option(`${k} (${String(v.euro_kg).replace('.', ',')} €/kg)`, k), altro || null);
+    }
+  } catch (_) { /* senza configurazione restano i materiali di base */ }
+}
+/** Materiale aggiunto citato nel testo del cartiglio ("C75 bonificato" → C75). */
+function trovaMatPersonale(testo) {
+  if (!testo) return null;
+  const t = String(testo).toUpperCase();
+  for (const nome of Object.keys(MAT_PERS).sort((x, y) => y.length - x.length)) {
+    const corpo = nome.toUpperCase().split(/[\s_\-.\/]+/).filter(Boolean)
+      .map(p => (p.match(/[A-Z]+|\d+/g) || []).join('[\\s_\\-./]?')).join('[\\s_\\-./]?');
+    if (corpo && new RegExp('(?<![A-Z0-9])' + corpo + '(?!\\d)', 'i').test(t)) return nome;
+  }
+  return null;
 }
 
 // Pre-compila materiale + spessore dal cartiglio come SUGGERIMENTO.
 // L'operatore conferma sempre (fail-safe): sono valori proposti, non imposti.
-function prefillDaCartiglio(d) {
+async function prefillDaCartiglio(d) {
   const notes = [];
   const matSel = document.getElementById('f-materiale');
   const opts = Array.from(matSel.options).map(o => o.value);
+  // Prima i materiali aggiunti: il lettore del cartiglio riconduce C75 a S235
+  if (!matSel.value && Object.keys(MAT_PERS).length) {
+    try {
+      const v = await (await fetch(`${API}/api/preventivi/${PREV}/verifica-pezzo?dxf=${encodeURIComponent(FILE)}`)).json();
+      const nome = trovaMatPersonale(v && v.materiale_cartiglio && v.materiale_cartiglio.raw);
+      if (nome) { matSel.value = nome; notes.push(`materiale ${nome}`); }
+    } catch (_) {}
+  }
   if (d.cartiglio_materiale && (d.cartiglio_materiale_conf || 0) >= 0.6
       && opts.includes(d.cartiglio_materiale) && !matSel.value) {
     matSel.value = d.cartiglio_materiale;

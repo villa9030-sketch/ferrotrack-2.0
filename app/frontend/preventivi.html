@@ -4589,6 +4589,20 @@ function _densitaMateriale(m) {
   if (pers && parseFloat(pers.densita_kg_dm3) > 0) return parseFloat(pers.densita_kg_dm3);
   return DENSITA_MATERIALI[m] || DENSITA_MATERIALI[famigliaMateriale(m)] || 0;
 }
+/** Materiale aggiunto citato in un testo del cartiglio ("C75 bonificato",
+    "C 75" → C75; non C750). Stessa regola di materiali_personali.trova. */
+function _wbTrovaMatPersonale(testo) {
+  if (!testo) return null;
+  const t = String(testo).toUpperCase();
+  const nomi = _materialiPersonali().sort((x, y) => y.length - x.length);
+  for (const nome of nomi) {
+    const pezzi = nome.toUpperCase().split(/[\s_\-.\/]+/).filter(Boolean);
+    const corpo = pezzi.map(p => (p.match(/[A-Z]+|\d+/g) || []).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('[\\s_\\-./]?')).join('[\\s_\\-./]?');
+    if (corpo && new RegExp('(?<![A-Z0-9])' + corpo + '(?!\\d)', 'i').test(t)) return nome;
+  }
+  return null;
+}
 /** Materiali aggiunti nelle Impostazioni, per i menu. */
 function _materialiPersonali() {
   const mats = _wbMatiCfg();
@@ -12445,6 +12459,20 @@ function wbProblemi(a) {
       s: `Il riconoscimento automatico è incerto${pc}: area e taglio potrebbero non essere quelli del pezzo.`,
       az: [{ l: 'Verifica nel CAD', p: 1, f: () => openCadEditor() }, { l: 'È corretto', f: i => wbAccettaContorno(i) }] });
   }
+  // Il cartiglio cita un materiale aggiunto nelle Impostazioni (C75...) ma il
+  // pezzo ne ha un altro: di solito la famiglia generica (S235) messa dal
+  // lettore del cartiglio, col prezzo al kg sbagliato.
+  {
+    const mc = a.verifica && a.verifica.materiale_cartiglio;
+    const nome = mc && _wbTrovaMatPersonale(mc.raw);
+    if (nome && _siglaMateriale(a.materiale) !== nome && !_wbVistoOk(a, 'materiale_cartiglio')) {
+      const pm = _wbMatPersonale(nome) || {};
+      P.push({ l: 'err', g: 'Materiale del cartiglio', t: `Il cartiglio dice «${escapeHtml(mc.raw)}»: materiale ${nome}, non ${escapeHtml(String(a.materiale || '—').replace(/_/g, ' '))}`,
+        s: `${nome} è tra i materiali aggiunti nelle Impostazioni (${String(pm.euro_kg || '?').replace('.', ',')} €/kg, taglio come ${String(pm.taglio_come || '').replace(/_/g, ' ')}).`,
+        az: [{ l: `Usa ${nome}`, p: 1, f: i => wbSetCampo(i, 'materiale', nome) },
+             { l: 'Ho verificato', f: i => wbVistoOk(i, 'materiale_cartiglio') }] });
+    }
+  }
   // Coerenza con fonti indipendenti dal riconoscimento: peso del cartiglio e
   // STEP dello stesso pezzo. Senza, un contorno sbagliato (una vista invece
   // del pezzo) dava un prezzo sbagliato senza nessun segnale.
@@ -12561,7 +12589,7 @@ function wbProblemi(a) {
     Taratura sull'archivio (246 lamiere DXF+STEP): col contorno sbagliato il
     peso esce dal ±15% del cartiglio nel 99% dei casi, con quello giusto ci
     resta nel 92%. */
-const _WB_VERIFICA_VER = 4;
+const _WB_VERIFICA_VER = 5;
 function _wbKg(v) { return (v || 0).toLocaleString('it-IT', { maximumFractionDigits: v < 10 ? 2 : 1 }); }
 /** Impronta dei dati che i controlli confrontano: se cambiano, un "Ho
     verificato" dato prima non vale piu'. */

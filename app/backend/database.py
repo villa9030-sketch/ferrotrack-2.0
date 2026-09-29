@@ -5236,6 +5236,9 @@ class PreventivoManager:
             out['quote'] = [x for x in (n(y, 1e5) for y in q[:300]) if x is not None and x > 0]
         if v.get('profilo'):
             out['profilo'] = str(v.get('profilo'))[:120]
+        mc = v.get('materiale_cartiglio')
+        if isinstance(mc, dict) and mc.get('raw'):
+            out['materiale_cartiglio'] = {'raw': str(mc.get('raw'))[:80], 'materiale': str(mc.get('materiale') or '')[:40]}
         il = v.get('ingombro_letto')
         if isinstance(il, dict):
             out['ingombro_letto'] = {k: n(il.get(k), 1e7) for k in ('area_dm2', 'bbox_w_mm', 'bbox_h_mm')}
@@ -5337,7 +5340,7 @@ class PreventivoManager:
             out['contorno_auto'] = pulito
         vok = a.get('verifica_ok')
         if isinstance(vok, dict):
-            vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale') and v}
+            vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}
             if vok:
                 out['verifica_ok'] = vok
         return out

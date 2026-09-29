@@ -2514,6 +2514,9 @@ def api_preventivi_import_dxf(preventivo_id):
             'dxf_filtra_zona_sviluppata': True,
         }
         payload = process_single_dxf(tmp_path, saved_filename, dxf_cfg)
+        # Materiale del cartiglio che corrisponde a un materiale aggiunto (C75...)
+        from .preventivi.materiali_personali import applica_a_risultato as _mat_pers
+        payload = _mat_pers(payload, ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali'))
         if not payload.get('success'):
             try: os.remove(tmp_path)
             except OSError: pass
@@ -2761,6 +2764,8 @@ def api_preventivi_import_rfq_package():
             'dxf_filtra_zona_sviluppata': True,
         }
         dxf_results: dict[str, dict] = {}
+        from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_rfq, trova as _trova_mat
+        _mats_rfq = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali')
         if saved_tasks:
             max_workers = min(8, max(1, len(saved_tasks)))
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -2771,7 +2776,7 @@ def api_preventivi_import_rfq_package():
                 for fut in as_completed(futures):
                     fname = futures[fut]
                     try:
-                        dxf_results[fname] = fut.result()
+                        dxf_results[fname] = _mat_pers_rfq(fut.result(), _mats_rfq)
                     except Exception as e:
                         logger.exception('rfq worker fail per %s', fname)
                         dxf_results[fname] = {'success': False, 'error': str(e)}
@@ -2800,7 +2805,7 @@ def api_preventivi_import_rfq_package():
                 'codice': a.codice,
                 'quantita': a.quantita,
                 'codice_assieme': getattr(a, 'codice_assieme', None),  # da sottocartella ZIP
-                'materiale': a.materiale,          # dal PDF (o None)
+                'materiale': _trova_mat(a.materiale, _mats_rfq) or a.materiale,  # dal PDF (o None); C75... se aggiunto
                 'spessore_mm': a.spessore_mm,      # dal PDF (o None)
                 'area_dm2': geom.get('area_dm2', 0),
                 'perimetro_taglio_m': geom.get('perimetro_taglio_m', 0),
@@ -3036,6 +3041,8 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         # Parallelismo controllato: max 8 worker anche se ho 100 file
         results = list(skipped)
         max_workers = min(8, max(1, len(saved_tasks)))
+        from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_b
+        _mats_b = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali')
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {
                 pool.submit(process_single_dxf, path, fname, dxf_cfg): (fname, originale)
@@ -3051,7 +3058,7 @@ def api_preventivi_import_dxf_batch(preventivo_id):
                     if assieme_by_base:
                         r['codice_assieme'] = (assieme_by_base.get(originale)
                                                or assieme_by_base.get(fname))
-                    results.append(r)
+                    results.append(_mat_pers_b(r, _mats_b))
                 except Exception as e:
                     logger.exception('worker fail per %s', fname)
                     results.append({'success': False, 'filename': fname,
