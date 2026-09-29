@@ -1374,6 +1374,12 @@ tr.row-warn:hover { background: #FEF3C7; }
 .wb-ord-cand { display:flex; flex-direction:column; gap:6px; margin:-8px 0 16px; }
 .wb-ord-cand button { display:flex; align-items:center; gap:6px; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .wb-ord-cand button i { width:15px; height:15px; flex:none; }
+.wb-man-dock { position:fixed; right:16px; top:112px; z-index:1500; width:min(470px, calc(100vw - 32px)); max-height:calc(100vh - 128px); overflow:auto;
+  background:var(--surface, #fff); border-radius:14px; box-shadow:0 18px 48px rgba(0,0,0,.18), 0 4px 12px rgba(0,0,0,.08); padding:20px; }
+.wb-man-dock .wb-man { max-width:none; }
+.wb-man-tip { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-3); margin:-4px 0 12px; }
+.wb-man-tip i { width:14px; height:14px; }
+.wb-man-grid input.man-dest { outline:2px solid var(--accent, #4F46E5); }
 .wb-man { max-width: 560px; }
 .wb-man-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px 12px; margin-bottom:12px; }
 .wb-man-grid label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--text-3); font-weight:500; }
@@ -7508,9 +7514,12 @@ function wbPezzoAMano(i) {
   const fori = (pm.fori || []).slice(0, 3);
   while (fori.length < 3) fori.push({ n: '', d: '' });
   const num = v => v == null || v === 0 ? '' : String(v).replace('.', ',');
+  document.querySelectorAll('.wb-man-dock').forEach(e => e.remove());
+  const rifs = _wbRifCandidati(a);
+  const rifAtt = a && a.disegno_rif ? JSON.stringify(a.disegno_rif) : (a && (a.dxf_filename || a.pdf_filename) ? '' : (rifs[0] ? rifs[0].v : ''));
   const ov = document.createElement('div');
-  ov.className = 'modal-overlay active'; ov.style.zIndex = 3000;
-  ov.innerHTML = `<div class="modal app-confirm-box wb-man">
+  ov.className = 'wb-man-dock';
+  ov.innerHTML = `<div class="wb-man">
     <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="square-pen"></i></div>
       <h3>${a ? 'Misure a mano' : 'Pezzo a mano'}</h3></div>
     <div class="wb-man-grid">
@@ -7526,9 +7535,11 @@ function wbPezzoAMano(i) {
       <div class="wide man-fori"><span>Fori</span>${fori.map((f, k) => `<span class="man-foro"><input id="man-fn${k}" type="number" min="0" placeholder="n°" value="${f.n || ''}"> × Ø <input id="man-fd${k}" inputmode="decimal" placeholder="mm" value="${num(f.d)}"></span>`).join('')}</div>
       <label class="wide">Assieme<select id="man-ass"><option value="">— nessuno (pezzo singolo)</option>${currentAssiemi.map(A => `<option value="${escapeHtml(A.codice_assieme)}" ${A.codice_assieme === assAttuale ? 'selected' : ''}>${escapeHtml(A.codice_assieme)}</option>`).join('')}<option value="__nuovo__">+ nuovo assieme…</option></select></label>
       <label class="wide man-nuovo-ass" hidden>Codice del nuovo assieme<input id="man-ass-nuovo" placeholder="es. ACM.Z1016.KOI"></label>
+      ${rifs.length && !(a && (a.dxf_filename || a.pdf_filename)) ? `<label class="wide">Disegno da tenere sul pezzo<select id="man-rif"><option value="">— nessuno</option>${rifs.map(r => `<option value="${escapeHtml(r.v)}" ${r.v === rifAtt ? 'selected' : ''}>${escapeHtml(r.nome)}</option>`).join('')}</select></label>` : ''}
     </div>
+    <div class="wb-man-tip"><i data-lucide="ruler"></i> Con <b>Misura</b> (M) sul disegno: la misura va nel campo selezionato qui.</div>
     <div class="wb-man-calc" id="man-calc"></div>
-    <div class="app-confirm-actions"><button class="btn-secondary" data-no>Annulla</button><button class="btn-primary" data-ok>${a ? 'Applica' : 'Aggiungi'}</button></div>
+    <div class="app-confirm-actions"><button class="btn-secondary" data-no>Chiudi</button>${a ? '' : '<button class="btn-secondary" data-altro title="Aggiunge e lascia il pannello aperto per il pezzo successivo">Aggiungi e un altro</button>'}<button class="btn-primary" data-ok>${a ? 'Applica' : 'Aggiungi'}</button></div>
   </div>`;
   document.body.appendChild(ov);
   if (window.lucide) lucide.createIcons();
@@ -7551,16 +7562,25 @@ function wbPezzoAMano(i) {
     return c;
   };
   ov.addEventListener('input', aggiorna); ov.addEventListener('change', aggiorna);
+  ov.addEventListener('focusin', e => {
+    const t = e.target;
+    if (t.tagName === 'INPUT' && t.id && /^man-(l|h|d|sp|fd\d)$/.test(t.id)) {
+      const lbl = t.id.startsWith('man-fd') ? 'Ø foro' : (t.closest('label') ? t.closest('label').firstChild.textContent.trim() : t.id);
+      _wbManCampo = { id: t.id, lbl };
+      try { _wbMisPannello(); } catch (_) {}
+    }
+  });
   aggiorna();
   setTimeout(() => $(a ? 'man-l' : 'man-cod').focus(), 50);
   const tasti = e => {
+    if (!ov.contains(e.target)) return;          // Esc sul disegno chiude Misura, non il pannello
     if (e.key === 'Escape') { e.preventDefault(); chiudi(); }
-    else if (e.key === 'Enter' && e.target.tagName === 'INPUT' && ov.contains(e.target)) ov.querySelector('[data-ok]').click();
+    else if (e.key === 'Enter' && e.target.tagName === 'INPUT') ov.querySelector('[data-ok]').click();
   };
-  const chiudi = () => { document.removeEventListener('keydown', tasti, true); ov.remove(); };
+  const chiudi = () => { document.removeEventListener('keydown', tasti, true); ov.remove(); _wbManCampo = null; try { _wbMisPannello(); } catch (_) {} };
   document.addEventListener('keydown', tasti, true);
   ov.querySelector('[data-no]').onclick = chiudi;
-  ov.querySelector('[data-ok]').onclick = async () => {
+  const salva = async altro => {
     const c = aggiorna();
     const sp = parseFloat(String($('man-sp').value).replace(',', '.')) || 0;
     if (!c.ok) { $(($('man-forma').value === 'tondo') ? 'man-d' : 'man-l').focus(); return; }
@@ -7587,6 +7607,8 @@ function wbPezzoAMano(i) {
     x.codice_assieme = ass || null;
     Object.assign(x, { area_dm2: c.area_dm2, perimetro_taglio_m: c.perimetro_taglio_m, n_forature: c.n_forature,
                        bbox_w_mm: c.bbox_w_mm, bbox_h_mm: c.bbox_h_mm });
+    const rifSel = $('man-rif');
+    if (rifSel) { if (rifSel.value) x.disegno_rif = JSON.parse(rifSel.value); else delete x.disegno_rif; }
     x.pezzo_manuale = { forma: m.forma === 'tondo' ? 'tondo' : 'rett',
       l: parseFloat(String(m.l).replace(',', '.')) || null, h: parseFloat(String(m.h).replace(',', '.')) || null,
       d: parseFloat(String(m.d).replace(',', '.')) || null, fori: c.fori };
@@ -7594,15 +7616,79 @@ function wbPezzoAMano(i) {
     recalcLavorazioniArt(x);
     let idx = currentArticoli.indexOf(x);
     if (idx < 0) { currentArticoli.push(x); idx = currentArticoli.length - 1; }
-    chiudi();
+    if (altro) {
+      // pannello pronto per il pezzo successivo: stessi spessore, materiale, assieme e disegno
+      ['man-cod', 'man-l', 'man-h', 'man-d', 'man-fn0', 'man-fd0', 'man-fn1', 'man-fd1', 'man-fn2', 'man-fd2'].forEach(k => { $(k).value = ''; });
+      $('man-q').value = 1; $('man-filett').value = 0;
+      if (ass) { if (!Array.from($('man-ass').options).some(o => o.value === ass)) $('man-ass').insertAdjacentHTML('afterbegin', `<option value="${escapeHtml(ass)}">${escapeHtml(ass)}</option>`); $('man-ass').value = ass; }
+      aggiorna(); $('man-cod').focus();
+    } else chiudi();
     renderArticoli(); recalcTotali(); segnaArticoliModificati(300);
     try { renderSplitTree(); } catch (_) {}
-    if (_splitView) await selectSplitArticolo(idx);
+    if (_splitView && !altro) await selectSplitArticolo(idx);
     const r = await stimaArt(idx, { silent: true });
     if (_splitSelectedIdx === idx) { try { renderSplitDetail(idx); } catch (_) {} }
     wbSnack(`${x.codice}: ${c.area_dm2.toLocaleString('it-IT', { maximumFractionDigits: 2 })} dm², ${Math.round(c.perimetro_taglio_m * 1000)} mm di taglio`
       + (r && r.success ? '' : ' · costo non calcolato'), r && r.success ? '' : 'warn');
   };
+  ov.querySelector('[data-ok]').onclick = () => salva(false);
+  const bAltro = ov.querySelector('[data-altro]');
+  if (bAltro) bAltro.onclick = () => salva(true);
+}
+let _wbManCampo = null;    // campo del pannello "pezzo a mano" che riceve la misura
+/** Disegni che un pezzo a mano puo' tenere come riferimento: quello del pezzo
+    o dell'assieme aperto (es. il disegno d'insieme da cui si ricavano le piastre). */
+function _wbRifCandidati(escludi) {
+  const out = [], visti = new Set();
+  const add = (pdf, dxf, nome) => {
+    if (!pdf && !dxf) return;
+    const v = JSON.stringify(Object.assign({}, pdf ? { pdf } : {}, dxf ? { dxf } : {}));
+    if (visti.has(v)) return; visti.add(v); out.push({ v, nome });
+  };
+  if (_saDisegnoAperto()) add(_saDisegno.pdf, _saDisegno.dxf, `${_saDisegno.codice} (disegno d'assieme)`);
+  const s = _splitSelectedIdx != null ? currentArticoli[_splitSelectedIdx] : null;
+  if (s && s !== escludi) {
+    if (s.disegno_rif) add(s.disegno_rif.pdf, s.disegno_rif.dxf, s.disegno_rif.pdf || s.disegno_rif.dxf);
+    else add(s.pdf_filename, s.dxf_filename, s.pdf_filename || s.dxf_filename);
+  }
+  return out;
+}
+/** Mostra il disegno di riferimento di un pezzo senza DXF proprio. */
+async function _wbMostraRif(preview, a, idx) {
+  const R = a.disegno_rif || {};
+  const gen = _wbGen;
+  const usaPdf = R.pdf && (wbSorgentePreferita() === 'pdf' || !R.dxf);
+  try {
+    if (usaPdf) {
+      await wbPdfViewer(preview, `${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf/${encodeURIComponent(R.pdf)}`, idx);
+    } else {
+      const resp = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/dxf/${encodeURIComponent(R.dxf)}/svg`);
+      const svgTxt = await resp.text();
+      if (gen !== _wbGen || _splitSelectedIdx !== idx) return;
+      preview.innerHTML = svgTxt;
+      preview.style.cursor = 'default'; preview.onclick = null;
+      wbViewer(preview);
+    }
+    if (gen !== _wbGen || _splitSelectedIdx !== idx) return;
+    wbAggiornaBarra({ pdf_filename: R.pdf, dxf_filename: R.dxf });
+  } catch (e) {
+    console.warn('disegno di riferimento', e);
+    preview.innerHTML = '<div class="empty">Disegno di riferimento non leggibile</div>';
+  }
+}
+/** Misura → campo selezionato del pannello "pezzo a mano". */
+function wbMisInManuale() {
+  const r = _wbMisRisultato();
+  const el = _wbManCampo && document.getElementById(_wbManCampo.id);
+  if (!r || !el) return;
+  el.value = String(Math.round(r.d * 10) / 10).replace('.', ',');
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  // campo successivo: lunghezza → larghezza → spessore
+  const dopo = { 'man-l': 'man-h', 'man-h': 'man-sp' }[el.id];
+  const n = dopo && document.getElementById(dopo);
+  if (n && !n.value) { _wbManCampo = { id: dopo, lbl: n.closest('label').firstChild.textContent.trim() }; n.classList.add('man-dest'); setTimeout(() => n.classList.remove('man-dest'), 900); }
+  wbSnack(`${_wbMisMm(r.d)} mm in «${el.closest('label') ? el.closest('label').firstChild.textContent.trim() : 'Ø foro'}»`);
+  _wbMis.pts = []; _wbMisPannello(); _wbMisDisegna();
 }
 
 // ── Ordine del cliente (PDF) ───────────────────────────────────────
@@ -8009,8 +8095,12 @@ async function renderSplitDetail(idx) {
         preview.innerHTML = '<div class="empty">Errore preview</div>';
       }
     }
+  } else if (a.disegno_rif && (a.disegno_rif.pdf || a.disegno_rif.dxf) && currentPreventivo) {
+    await _wbMostraRif(preview, a, idx);
+  } else if (a.pdf_filename && currentPreventivo) {
+    await _wbMostraRif(preview, Object.assign({}, a, { disegno_rif: { pdf: a.pdf_filename } }), idx);
   } else {
-    preview.innerHTML = '<div class="empty">Nessun DXF</div>';
+    preview.innerHTML = '<div class="empty">Nessun disegno</div>';
   }
 
   // Campi form
@@ -12885,7 +12975,7 @@ function wbRenderMargine(K) {
     incerto, in verifica (confidenza non ancora nota) o senza disegno. */
 function wbContorno(a) {
   if (!a || !a.dxf_filename) return 'nessuno';
-  if (a.geometria_manuale_confermata) return 'confermato';
+  if (a.geometria_manuale_confermata || a.pezzo_manuale) return 'confermato';
   // Il peso che torna col cartiglio (o i dati che tornano con lo STEP) e' la
   // prova che il contorno e' quello del pezzo: non va riaperto nel CAD solo
   // perche' il riconoscimento automatico era poco sicuro.
@@ -13230,6 +13320,7 @@ function _wbDaCorreggereAuto(a) {
   // meno del cartiglio. Si corregge solo lo scarto grave, e resta annullabile.
   if (!a || !a.dxf_filename || a.costo_base_override != null) return false;
   if (a.geometry_source === 'sviluppo' || a.geometry_source === 'step') return false;   // scelte esplicite
+  if (a.pezzo_manuale) return false;                                                    // misure scritte a mano
   if (!(a.spessore_mm > 0) || !_densitaMateriale(a.materiale)) return false;
   // Con materiale o spessore incerti il peso non dice nulla sul contorno: si
   // troverebbe il contorno sbagliato che "pesa giusto" con la densita' sbagliata.
@@ -15230,6 +15321,7 @@ function _wbMisPannello() {
   } else {
     h += `<div class="mb-val">${_wbMisMm(r.d)} <small>mm</small></div>
       <div class="mb-sub">${r.par ? 'distanza tra due linee parallele' : `ΔX ${_wbMisMm(r.dx)} · ΔY ${_wbMisMm(r.dy)} mm`}</div>`;
+    if (_wbManCampo && document.querySelector('.wb-man-dock')) h += `<button type="button" class="wb-btn wb-btn-primary sm wb-btn-block" onclick="wbMisInManuale()">Metti in «${escapeHtml(_wbManCampo.lbl)}»</button>`;
     if (pezzo && _svl.on && _svl.campo) h += `<button type="button" class="wb-btn wb-btn-primary sm wb-btn-block" onclick="wbMisInSviluppo()">${_svl.campo.catena ? 'Aggiungi al lato' : 'Metti in'} «${escapeHtml(_svl.campo.lbl)}»</button>`;
     if (pezzo) h += `<button type="button" class="wb-btn ${_svl.on && _svl.campo ? '' : 'wb-btn-primary'} sm wb-btn-block" onclick="wbMisUsaSpessore()">Usa come spessore</button>`;
   }

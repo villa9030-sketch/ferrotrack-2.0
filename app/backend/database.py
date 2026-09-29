@@ -5177,6 +5177,8 @@ class PreventivoManager:
                       'ordine',
                       # Pezzo a mano: forma e misure inserite (per riaprirlo com'era)
                       'pezzo_manuale',
+                      # disegno (PDF/DXF del preventivo) mostrato su un pezzo senza DXF proprio
+                      'disegno_rif',
                       # posizione nella lista (scritta dal server al salvataggio)
                       'riga')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
@@ -5358,6 +5360,11 @@ class PreventivoManager:
                     fori.append({'n': int(n(f.get('n'), 1e4)), 'd': n(f.get('d'), 1e4)})
             out['pezzo_manuale'] = {'forma': pm['forma'], 'l': n(pm.get('l'), 1e5), 'h': n(pm.get('h'), 1e5),
                                     'd': n(pm.get('d'), 1e5), 'fori': fori}
+        dr = a.get('disegno_rif')
+        if isinstance(dr, dict):
+            dr = {k: os.path.basename(str(dr.get(k)))[:255] for k in ('pdf', 'dxf') if dr.get(k)}
+            if dr:
+                out['disegno_rif'] = dr
         od = a.get('ordine')
         if isinstance(od, dict) and od.get('stato') in ('ok', 'senza_qta', 'dubbio', 'non_trovato', 'controllato'):
             n = PreventivoManager._num_o_none
