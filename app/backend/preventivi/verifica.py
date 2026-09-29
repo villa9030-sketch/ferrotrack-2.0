@@ -42,6 +42,18 @@ def _num(v):
         return 0.0
 
 
+def _famiglia_materiale(mat: str, config: dict):
+    """Famiglia di taglio: per un materiale aggiunto nelle Impostazioni (es. C75)
+    quella di "taglia come"; altrimenti la tabella dei sinonimi."""
+    mats = (config or {}).get('_materiali') or {}
+    info = mats.get((mat or '').strip().upper())
+    if isinstance(info, dict) and info.get('taglio_come'):
+        f = normalizza_materiale(info['taglio_come'])
+        if f:
+            return f
+    return normalizza_materiale(mat)
+
+
 def _controlli_cad(a: dict, config: dict):
     """Controlli su geometria, materiale e ricetta di UN articolo.
 
@@ -86,7 +98,7 @@ def _controlli_cad(a: dict, config: dict):
             errs.append(('materiale_mancante',
                          f'Pezzo {cod}: manca il materiale. Sceglilo e ristima.'))
 
-    famiglia = normalizza_materiale(mat) if mat else None
+    famiglia = _famiglia_materiale(mat, config) if mat else None
     if mat and not famiglia:
         (avv if manuale else errs).append((
             'materiale_sconosciuto',

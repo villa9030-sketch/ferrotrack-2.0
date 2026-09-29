@@ -250,7 +250,10 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
     # usiamo quelle; altrimenti il fallback è il file JSON calibrato di default.
     # La ricetta si cerca per FAMIGLIA (S235JR → S235, INOX_316L → INOX_304):
     # prima si passava la sigla originale e per le varianti non si trovava nulla.
-    famiglia = normalizza_materiale(materiale) or canonical
+    # Materiale aggiunto nelle Impostazioni (es. C75 a 6,5 €/kg): prezzo e
+    # densita' suoi, velocita' di taglio del materiale indicato in "taglia come".
+    famiglia = (normalizza_materiale(mat.get('taglio_come') or '')
+                or normalizza_materiale(materiale) or canonical)
     ricette_cfg = cfg.get('ricette_taglio') or None
     ricetta = lookup_ricetta(famiglia, spessore_mm, gas_richiesto, ricette_override=ricette_cfg)
     if ricetta and float(ricetta.get('velocita_mm_min') or 0) <= 0:

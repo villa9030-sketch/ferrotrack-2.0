@@ -1729,6 +1729,7 @@ def _verifica_preventivo(preventivo_id):
     snap = prev.get('snapshot_economico') or None
     if snap:
         cfg = {'costo_generali_pct': snap.get('costo_generali_pct') or 0}
+    cfg = dict(cfg, _materiali=((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {})
     return _v(prev, cfg)
 
 
@@ -1749,6 +1750,8 @@ def api_preventivo_verifica(preventivo_id):
         snap = prev.get('snapshot_economico') or None
         if snap:
             cfg = {'costo_generali_pct': snap.get('costo_generali_pct') or 0}
+        # Materiali aggiunti nelle Impostazioni (C75...): non sono "sconosciuti"
+        cfg = dict(cfg, _materiali=((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {})
         return jsonify({'success': True, **_verifica(prev, cfg)}), 200
     except Exception as e:
         logger.exception('api_preventivo_verifica failed')
