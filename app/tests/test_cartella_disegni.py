@@ -9,7 +9,7 @@ import sys
 import tempfile
 
 os.environ['FERROTRACK_SKIP_DB_INIT'] = '1'
-APP = r'c:\Users\sv304\Documents\PROGETTI\schedulatore-laser\app'
+APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # prima: percorso di un altro PC
 if APP not in sys.path:
     sys.path.insert(0, APP)
 

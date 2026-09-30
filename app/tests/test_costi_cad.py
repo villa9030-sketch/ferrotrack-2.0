@@ -143,7 +143,11 @@ def test_resa_e_ricette_config():
           and base['resa_nesting'] == 1.0)
     with open(os.path.join(_APP, 'app_config.json'), encoding='utf-8') as f:
         vero = json.load(f)
-    check('app_config.json: resa_nesting 1.0', vero['laser_config'].get('resa_nesting') == 1.0)
+    # La resa la sceglie l'utente nelle Impostazioni (es. 0,7): qui si
+    # controlla solo che il file ne abbia una valida, non un valore preciso.
+    _resa = vero['laser_config'].get('resa_nesting', 1.0)
+    check('app_config.json: resa_nesting valida (0,5-1)',
+          isinstance(_resa, (int, float)) and 0.5 <= _resa <= 1.0, _resa)
     r = stima_base({**PEZZO, 'materiale': 'S235'},
                    {'laser_config': {**DEFAULT_LASER_CONFIG, 'resa_nesting': 7}})
     check('resa impossibile → 1 con avviso', r['costo_materiale'] == base['costo_materiale']
