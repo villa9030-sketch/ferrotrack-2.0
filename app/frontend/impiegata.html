@@ -861,6 +861,11 @@ function showMessage(text, type) {
 /** fetch che non lancia mai: {ok, status, data, rete}. */
 async function api(url, opt) {
   try {
+    // chi sta usando l'Ufficio: il server lo chiede per backup, eliminazione
+    // e modifica degli ordini (audit)
+    opt = Object.assign({}, opt || {});
+    opt.headers = Object.assign({}, opt.headers || {});
+    if (currentUser && currentUser.id && !opt.headers['X-User-Id']) opt.headers['X-User-Id'] = currentUser.id;
     const r = await fetch(API_URL + url, opt);
     let data = null;
     if ((r.headers.get('content-type') || '').includes('json')) {

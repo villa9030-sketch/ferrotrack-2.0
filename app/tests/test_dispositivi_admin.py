@@ -123,6 +123,8 @@ def main():
     # =====================================================================
     print('\n4) L elenco non espone mai il segreto')
     r = c.get('/api/admin/dispositivi')
+    check('elenco senza utente: 403', r.status_code == 403, r.status_code)
+    r = c.get('/api/admin/dispositivi?admin_id=capo')
     righe = r.get_json()['dispositivi']
     mio = [x for x in righe if x['id'] == tid]
     check('il tablet compare in elenco', len(mio) == 1, righe)
@@ -146,7 +148,7 @@ def main():
     r = c.get('/api/ore/contesto', headers={'X-Device-Token': token})
     check('dopo la revoca e respinto (401)', r.status_code == 401, r.status_code)
 
-    r = c.get('/api/admin/dispositivi')
+    r = c.get('/api/admin/dispositivi?admin_id=capo')
     mio = [x for x in r.get_json()['dispositivi'] if x['id'] == tid]
     check('resta in elenco come revocato',
           len(mio) == 1 and mio[0]['is_active'] is False, mio)

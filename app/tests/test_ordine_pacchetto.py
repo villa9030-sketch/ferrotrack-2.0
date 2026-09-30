@@ -339,6 +339,8 @@ def main():
     r = conferma(c, pid, user_id='operaio')
     check('operaio: 403', r.status_code == 403)
     r = conferma(c, 'non-esiste-proprio')
+    check('id non valido: 400', r.status_code == 400, r.status_code)
+    r = conferma(c, str(uuid.uuid4()))
     check('pacchetto inesistente: 404', r.status_code == 404
           and r.get_json().get('codice') == 'pacchetto_non_trovato')
     check('nessun ordine creato dagli errori', not c.get('/api/orders').get_json()['orders'])

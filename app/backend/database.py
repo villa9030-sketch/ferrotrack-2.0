@@ -6056,18 +6056,30 @@ class PreventivoManager:
         else:
             data_cons_str = (datetime.utcnow() + timedelta(days=30)).strftime('%Y-%m-%d')
 
-        numero = OrderManager.next_numero_preventivo()
-        try:
-            order = OrderManager.create_order_from_preventivo(
-                preventivo=preventivo_dict,
-                data_consegna=data_cons_str,
-                numero_ordine=numero,
-                note_aggiuntive=note_aggiuntive or '',
-            )
-        except Exception as e:
-            logger.exception('create_order_from_preventivo failed: %s', e)
-            # Il preventivo e' ancora INVIATO: si puo' riprovare senza rimediare a nulla.
-            return {'error': 'Creazione ordine fallita: ' + str(e)}
+        # Numero PREV-anno-NNNN: MAX+1, con indice unico sui PREV- (models).
+        # Due accettazioni nello stesso istante: la seconda trova il numero
+        # gia' preso e riprova col successivo, invece di creare un doppione.
+        from sqlalchemy.exc import IntegrityError as _IntegrityError
+        order = None
+        for _tentativo in range(5):
+            numero = OrderManager.next_numero_preventivo()
+            try:
+                order = OrderManager.create_order_from_preventivo(
+                    preventivo=preventivo_dict,
+                    data_consegna=data_cons_str,
+                    numero_ordine=numero,
+                    note_aggiuntive=note_aggiuntive or '',
+                )
+                break
+            except _IntegrityError:
+                logger.warning('numero ordine %s gia preso: riprovo', numero)
+                continue
+            except Exception as e:
+                logger.exception('create_order_from_preventivo failed: %s', e)
+                # Il preventivo e' ancora INVIATO: si puo' riprovare senza rimediare a nulla.
+                return {'error': 'Creazione ordine fallita: ' + str(e)}
+        if order is None:
+            return {'error': 'Creazione ordine fallita: numero ordine non disponibile, riprova'}
 
         # --- 5. Ora, e solo ora, il preventivo e' ACCETTATO ----------------
         if not recupero:

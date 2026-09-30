@@ -617,7 +617,7 @@ def main():
     finally:
         s.close()
     c = app.test_client()
-    pid = 'test-step-' + uuid.uuid4().hex[:8]
+    pid = str(uuid.uuid4())      # le rotte /api/preventivi/<id> accettano solo UUID
 
     def _import(nome):
         with open(os.path.join(DIR, nome), 'rb') as fh:

@@ -157,8 +157,9 @@ def _require_capo(user_id: str) -> bool:
     if not user_id:
         return False
     user = UserManager.get_user(user_id)
-    return bool(user and (user.get('is_capo', False)
-                          or user.get('role') in RUOLI_COMANDO))
+    # un utente disattivato non comanda piu' (come in _require_role)
+    return bool(user and user.get('is_active', True)
+                and (user.get('is_capo', False) or user.get('role') in RUOLI_COMANDO))
 
 
 def _require_role(user_id: str, roles: list) -> bool:
@@ -186,6 +187,41 @@ def _require_role(user_id: str, roles: list) -> bool:
         if r == user_role:
             return True
     return False
+
+_RUOLI_GESTIONE = ['Impiegata', 'CAPO']      # amministrazione, capi, Amministratore
+
+
+def _utente_richiesta(user_id_come_identita: bool = True):
+    """Chi fa la richiesta: header X-User-Id, poi admin_id (query/body/form),
+    poi user_id. Finche' non c'e' il PIN delle stazioni e' l'identita'
+    dichiarata dalla pagina: ferma gli usi sbagliati, non un attacco voluto.
+    user_id_come_identita=False dove user_id e' un filtro (es. audit)."""
+    uid = request.headers.get('X-User-Id') or request.args.get('admin_id')
+    data = request.get_json(silent=True) if request.is_json else None
+    data = data if isinstance(data, dict) else {}
+    uid = uid or data.get('admin_id') or request.form.get('admin_id')
+    if not uid and user_id_come_identita:
+        uid = data.get('user_id') or request.form.get('user_id') or request.args.get('user_id')
+    return uid
+
+
+def _permesso_gestione(user_id_come_identita: bool = True):
+    """None se chi chiama e' amministrazione/capo, altrimenti la risposta 403."""
+    uid = _utente_richiesta(user_id_come_identita)
+    if _require_role(uid, _RUOLI_GESTIONE):
+        return None
+    return jsonify({'success': False, 'error': 'Permesso negato: serve l\'amministrazione'}), 403
+
+
+def _audit(azione: str, entita: str, entita_id: str, dettaglio: str):
+    try:
+        uid = _utente_richiesta()
+        u = UserManager.get_user(uid) if uid else None
+        AuditManager.log(user_id=uid, user_name=(u or {}).get('name'), action=azione,
+                         entity_type=entita, entity_id=entita_id, detail=dettaglio[:2000],
+                         ip_address=request.remote_addr)
+    except Exception as e:
+        logger.warning('audit %s non registrato: %s', azione, e)
 
 # ============ FRONTEND ROUTES ============
 
@@ -497,8 +533,11 @@ def get_order(order_id):
 
 @app.route('/api/orders/<order_id>/delivery-date', methods=['PUT'])
 def update_delivery_date(order_id):
-    """Aggiorna data di consegna di un ordine (drag & drop calendario laser)"""
+    """Aggiorna data di consegna di un ordine (solo amministrazione/capi)."""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         data = request.get_json()
         if not data or 'data_consegna' not in data:
             return jsonify({'success': False, 'error': 'data_consegna obbligatoria'}), 400
@@ -507,8 +546,12 @@ def update_delivery_date(order_id):
             new_date = datetime.strptime(new_date_str[:10], '%Y-%m-%d')
         except ValueError:
             return jsonify({'success': False, 'error': 'Formato YYYY-MM-DD richiesto'}), 400
+        _o = OrderManager.get_order(order_id)
+        _prima = getattr(_o, 'data_consegna', None) if _o else None
         result = OrderManager.update_delivery_date(order_id, new_date)
         if result.get('success'):
+            _audit('ORDINE_DATA_CONSEGNA', 'orders', order_id,
+                   f"data_consegna: {str(_prima)[:10] if _prima else '-'} -> {new_date_str[:10]}")
             return jsonify(result), 200
         return jsonify(result), 404
     except Exception as e:
@@ -516,13 +559,27 @@ def update_delivery_date(order_id):
 
 @app.route('/api/orders/<order_id>', methods=['PUT'])
 def update_order(order_id):
-    """Aggiorna dati ordine: cliente, note, data_consegna, numero_ordine."""
+    """Aggiorna dati ordine: cliente, note, data_consegna, numero_ordine.
+    Solo amministrazione/capi, con audit dei valori prima e dopo."""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Body JSON richiesto'}), 400
+        _prima = {}
+        _s = get_session()
+        try:
+            _ord = _s.query(Order).filter(Order.id == order_id).first()
+            if _ord:
+                _prima = {k: str(getattr(_ord, k)) for k in data if k not in ('user_id', 'admin_id') and hasattr(_ord, k)}
+        finally:
+            _s.close()
         result = OrderManager.update_order(order_id, data)
         if result.get('success'):
+            _audit('ORDINE_MODIFICA', 'orders', order_id,
+                   '; '.join(f'{k}: {v} -> {data.get(k)}' for k, v in _prima.items()))
             return jsonify(result), 200
         # 404 solo se l'ordine non c'e': un dato non valido e' 400, altrimenti
         # chi chiama non distingue "non esiste" da "hai sbagliato a scrivere".
@@ -533,8 +590,11 @@ def update_order(order_id):
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
 def delete_order(order_id):
-    """Soft delete di un ordine: setta is_deleted=True, non cancella fisicamente i dati"""
+    """Soft delete di un ordine (is_deleted=True): solo amministrazione/capi, con audit."""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         session = get_session()
         try:
             order = session.query(Order).filter(Order.id == order_id).first()
@@ -542,6 +602,8 @@ def delete_order(order_id):
                 return jsonify({'success': False, 'error': 'Ordine non trovato'}), 404
             order.is_deleted = True
             session.commit()
+            _audit('ORDINE_ELIMINATO', 'orders', order_id,
+                   f'{getattr(order, "numero_ordine", "")} {getattr(order, "cliente", "")} (recuperabile)')
             return jsonify({'success': True, 'message': f'Ordine {order_id} eliminato (recuperabile)'}), 200
         finally:
             session.close()
@@ -720,8 +782,11 @@ def api_admin_config_update():
 
 @app.route('/api/orders/<order_id>/replace-pdf', methods=['POST'])
 def replace_order_pdf(order_id):
-    """Sostituisce il PDF di un ordine esistente"""
+    """Sostituisce il PDF di un ordine esistente (solo amministrazione/capi, con audit)."""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'Nessun file inviato'}), 400
         file = request.files['file']
@@ -735,9 +800,10 @@ def replace_order_pdf(order_id):
                 return jsonify({'success': False, 'error': 'Ordine non trovato'}), 404
 
             # Salva il nuovo file
-            pdf_filename = f"{order_id}_{os.path.basename(file.filename)}"
+            pdf_filename = f"{os.path.basename(order_id)}_{os.path.basename(file.filename)}"
             pdf_path = os.path.join(PDFS_FOLDER, pdf_filename)
             file.save(pdf_path)
+            _audit('ORDINE_PDF_SOSTITUITO', 'orders', order_id, pdf_filename)
 
             # Aggiorna o crea il record file
             existing_pdf = session.query(OrderFile).filter(
@@ -2014,8 +2080,11 @@ except Exception as _e:
 
 @app.route('/api/admin/backup', methods=['POST'])
 def manual_backup():
-    """Esegue un backup manuale del database (solo admin/capo)"""
+    """Esegue un backup manuale del database (solo amministrazione/capi)"""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         ok = _integrity_check()
         path = _do_backup(motivo='manuale')
         if path:
@@ -2027,8 +2096,11 @@ def manual_backup():
 
 @app.route('/api/admin/backup/settings', methods=['GET', 'PUT'])
 def backup_settings():
-    """Leggi o aggiorna impostazioni backup"""
+    """Leggi o aggiorna impostazioni backup (solo amministrazione/capi)"""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         if request.method == 'GET':
             config = _backup_load_config()
             return jsonify({'success': True, 'settings': config}), 200
@@ -2052,14 +2124,18 @@ def backup_settings():
                         return jsonify({'success': False, 'error': f'{campo}: {errore}'}), 400
                     config[campo] = v
             _backup_save_config(config)
+            _audit('BACKUP_IMPOSTAZIONI', 'backup', '', _json_mod.dumps({k: config.get(k) for k in data if k in config}, ensure_ascii=False))
             return jsonify({'success': True, 'settings': config}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/admin/backup/list', methods=['GET'])
 def backup_list():
-    """Lista dei backup esistenti"""
+    """Lista dei backup esistenti (solo amministrazione/capi)"""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         backups = _backup_list()
         return jsonify({'success': True, 'backups': backups, 'count': len(backups)}), 200
     except Exception as e:
@@ -2067,8 +2143,11 @@ def backup_list():
 
 @app.route('/api/admin/audit', methods=['GET'])
 def get_audit_log():
-    """Recupera log attività recenti"""
+    """Recupera log attività recenti (solo amministrazione/capi; user_id = filtro)"""
     try:
+        vietato = _permesso_gestione(user_id_come_identita=False)
+        if vietato:
+            return vietato
         limit = min(request.args.get('limit', 100, type=int), 500)
         user_id = request.args.get('user_id')
         logs = AuditManager.get_recent(limit=limit, user_id=user_id)
@@ -2078,8 +2157,11 @@ def get_audit_log():
 
 @app.route('/api/admin/export-json', methods=['GET'])
 def export_json():
-    """Esporta tutti gli ordini attivi in formato JSON (download)"""
+    """Esporta tutti gli ordini attivi in formato JSON (download, solo amministrazione/capi)"""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         import json, io
         orders = OrderManager.get_all_orders_dict()
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -2449,8 +2531,12 @@ def _url_base_lan() -> str:
 
 @app.route('/api/admin/dispositivi', methods=['GET'])
 def api_dispositivi_list():
-    """Elenco dei tablet abilitati (senza segreti) + indirizzo base per il QR."""
+    """Elenco dei tablet abilitati (senza segreti) + indirizzo base per il QR.
+    Solo amministrazione/capi."""
     try:
+        vietato = _permesso_gestione()
+        if vietato:
+            return vietato
         from .auth_device import elenca_token
         return jsonify({'success': True, 'dispositivi': elenca_token(),
                         'url_base': _url_base_lan()}), 200
@@ -2769,6 +2855,36 @@ _RX_ROTTA_PREVENTIVO = re.compile(
     r'^/api/preventivi/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(/.*)?$')
 
 
+_RX_UUID = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+
+
+def _cartella_preventivo(pid) -> str:
+    """Cartella dei file di un preventivo (uploads/preventivi_tmp/<uuid>).
+
+    L'id arriva dall'indirizzo: prima si univa al percorso cosi' com'era, e un
+    id come ".." puntava fuori dalla cartella. Solo UUID, e il risultato deve
+    stare dentro preventivi_tmp."""
+    pid = str(pid or '')
+    if not _RX_UUID.match(pid):
+        raise ValueError(f'id preventivo non valido: {pid[:40]!r}')
+    base = os.path.realpath(os.path.join(UPLOAD_FOLDER, 'preventivi_tmp'))
+    cart = os.path.realpath(os.path.join(base, pid))
+    if os.path.dirname(cart) != base:
+        raise ValueError('percorso fuori da preventivi_tmp')
+    return cart
+
+
+@app.before_request
+def _valida_id_preventivo():
+    """Ogni rotta con <preventivo_id>/<pacchetto_id> accetta solo un UUID:
+    un id sbagliato si ferma qui con 400, prima di toccare file o database."""
+    va = request.view_args or {}
+    for k in ('preventivo_id', 'pacchetto_id'):
+        if k in va and not _RX_UUID.match(str(va[k] or '')):
+            return jsonify({'success': False, 'error': 'Identificativo del preventivo non valido'}), 400
+    return None
+
+
 @app.before_request
 def _blocca_preventivi_tecnici():
     """Il preventivo tecnico di un ordine caricato col pacchetto del cliente
@@ -2870,7 +2986,7 @@ def api_preventivi_get(preventivo_id):
         p = PreventivoManager.get(preventivo_id, include_children=True)
         if not p:
             return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         detection_cfg = None
         for art in (p.get('articoli') or []):
             cleaned_name = art.get('cleaned_dxf_filename')
@@ -2966,8 +3082,8 @@ def api_preventivi_duplicate(preventivo_id):
             return jsonify({'success': False, 'error': 'Preventivo sorgente non trovato'}), 404
         # Copia anche i file DXF (se presenti) nella cartella del nuovo preventivo
         try:
-            src_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
-            dst_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', result['id'])
+            src_dir = _cartella_preventivo(preventivo_id)
+            dst_dir = _cartella_preventivo(result['id'])
             if os.path.isdir(src_dir):
                 os.makedirs(dst_dir, exist_ok=True)
                 import shutil
@@ -3057,7 +3173,7 @@ def api_preventivi_import_dxf(preventivo_id):
             return jsonify({'success': False, 'error': 'File deve essere .dxf o .dwg'}), 400
         # Salva DXF (o DXF convertito da DWG) in uploads/preventivi_tmp/<id>/
         # per consentire la preview interattiva. Sarà cancellato all'accettazione/rifiuto/delete.
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         # Nome che non ne sovrascrive un altro: due "flangia.dxf" da cartelle
         # diverse sono la norma, e il secondo cancellava il primo.
@@ -3222,7 +3338,7 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     preventivo_id = new_prev['id']
 
     # 3. Scrivi DXF su disco (solo quelli matchati)
-    prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+    prev_dir = _cartella_preventivo(preventivo_id)
     os.makedirs(prev_dir, exist_ok=True)
 
     # Salva il PDF ordine originale: è il documento con disegni/lavorazioni che
@@ -3957,7 +4073,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
         cartella = os.path.join(UPLOAD_FOLDER, 'drawings', order.id)
         attesi = {os.path.basename(a['dxf_filename']) for a in nuovi if a.get('dxf_filename')}
         mancanti = sum(1 for n in attesi if not os.path.isfile(os.path.join(cartella, n)))
-        src_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', pacchetto_id)
+        src_dir = _cartella_preventivo(pacchetto_id)
         if _ordine_cliente_segnato(src_dir) and not pdf_stats.get('copied'):
             mancanti += 1
         avviso = None
@@ -4061,7 +4177,7 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         disegni_assieme = disegni_assieme_da_paths(rel_paths) if rel_paths else set()
         master_saltati = []
         # Salva tutti i file su disco (solo DXF; per DWG serve conversione singola)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         saved_tasks = []  # (dxf_path, filename)
         skipped = []
@@ -4190,7 +4306,7 @@ def _prewarm_dxf_cache(tasks):
 def api_preventivi_step_files_list(preventivo_id):
     """Elenca i file STEP (.step/.stp) caricati per il preventivo (in preventivi_tmp/<id>/)."""
     try:
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         if not os.path.isdir(prev_dir):
             return jsonify({'success': True, 'files': []}), 200
         files = []
@@ -4218,7 +4334,7 @@ def api_preventivi_verifica_pezzo(preventivo_id):
     """
     try:
         from .preventivi.verifica_coerenza import verifica_pezzo
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf = os.path.basename(request.args.get('dxf') or '') or None
         codice = request.args.get('codice') or None
         cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
@@ -4242,7 +4358,7 @@ def api_preventivi_distinte(preventivo_id):
     distinte dei sotto-assiemi citati (es. il telaio di tubolari)."""
     try:
         from .preventivi.distinte_pdf import distinte_per_codici
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        prev_dir = _cartella_preventivo(preventivo_id)
         codici = [c.strip() for c in (request.args.get('codici') or '').split(',') if c.strip()]
         return jsonify({'success': True, 'distinte': distinte_per_codici(prev_dir, codici)}), 200
     except Exception as e:
@@ -4257,7 +4373,7 @@ def api_preventivi_proponi_contorno(preventivo_id):
     densita (kg/dm3), peso (kg, dal cartiglio)."""
     try:
         from .preventivi.verifica_coerenza import proponi_contorno
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, os.path.basename(request.args.get('dxf') or ''))
         if not os.path.isfile(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -4280,7 +4396,7 @@ def api_preventivi_step_file(preventivo_id, filename):
     """Serve il file STEP raw (per viewer 3D preview-step.html che lo scarica via fetch)."""
     try:
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         step_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(step_path):
             return jsonify({'error': 'File STEP non trovato'}), 404
@@ -4309,7 +4425,7 @@ def api_preventivi_disegni_pdf_upload(preventivo_id):
         files = request.files.getlist('files')
         if not files:
             return jsonify({'success': False, 'error': 'Nessun PDF ricevuto'}), 400
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         salvati, scartati = [], []
         for f in files:
@@ -4335,7 +4451,7 @@ def api_preventivi_file_disegni(preventivo_id):
     Servono alla scheda assieme: senza STEP si mostra il disegno d'insieme
     (13C050126-00: senza, non c'era modo di stimare la manodopera)."""
     try:
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         pdf, dxf = [], []
         if os.path.isdir(prev_dir):
             for nome in sorted(os.listdir(prev_dir)):
@@ -4359,7 +4475,7 @@ def api_preventivi_disegno_pdf(preventivo_id, filename):
         safe_name = os.path.basename(filename)
         if not safe_name.lower().endswith('.pdf'):
             return jsonify({'error': 'Estensione file non valida'}), 400
-        path = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id, safe_name)
+        path = os.path.join(_cartella_preventivo(preventivo_id), safe_name)
         if not os.path.exists(path):
             return jsonify({'error': 'PDF non trovato'}), 404
         return send_file(path, mimetype='application/pdf', as_attachment=False,
@@ -4437,7 +4553,7 @@ def api_preventivi_dxf_svg(preventivo_id, filename):
     """
     try:
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         # Fallback: il DXF 'pulito' auto talvolta non è stato scritto (import RFQ);
         # invece di un 404 "DXF non trovato" mostra l'originale del pezzo.
@@ -4472,7 +4588,7 @@ def api_preventivi_dxf_confidenze(preventivo_id):
     try:
         data = request.get_json(silent=True) or {}
         nomi = [os.path.basename(str(n)) for n in (data.get('files') or [])][:300]
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
         app_cfg = BarcodeManager.load_config() or {}
         detection_cfg = app_cfg.get('dxf_detection', {})
@@ -4518,7 +4634,7 @@ def api_preventivi_dxf_candidates(preventivo_id, filename):
     """
     try:
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -4542,7 +4658,7 @@ def api_preventivi_dxf_spessore(preventivo_id, filename):
     """
     try:
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -4574,7 +4690,7 @@ def api_preventivi_dxf_select_point(preventivo_id, filename):
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'x/y richiesti (float mm DXF)'}), 400
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -4605,7 +4721,7 @@ def api_preventivi_dxf_generate_canonical(preventivo_id, filename):
             return jsonify({'success': False, 'error': 'Contorno esterno mancante'}), 400
         codice = (data.get('codice') or 'pezzo').strip() or 'pezzo'
         safe_codice = ''.join(c if c.isalnum() or c in '-_' else '_' for c in codice)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         out_name = f'{safe_codice}_canonico.dxf'
         out_path = os.path.join(prev_dir, out_name)
@@ -4625,7 +4741,7 @@ def api_preventivi_warm_cad(preventivo_id):
     preventivo, così l'apertura del CAD (e i thumbnail) è istantanea. Ritorna
     subito: il warming gira in un thread. Idempotente (cache hit = no-op)."""
     try:
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         if not os.path.isdir(prev_dir):
             return jsonify({'success': True, 'count': 0}), 200
         tasks = [(os.path.join(prev_dir, n), n) for n in os.listdir(prev_dir)
@@ -4650,7 +4766,7 @@ def api_preventivi_dxf_geometry_json(preventivo_id, filename):
     """
     try:
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'error': 'File DXF non trovato'}), 404
@@ -4687,7 +4803,7 @@ def api_preventivi_dxf_follow_contour(preventivo_id, filename):
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'x/y richiesti (float mm DXF)'}), 400
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -4717,7 +4833,7 @@ def api_preventivi_dxf_pick_candidates(preventivo_id, filename):
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'x/y richiesti'}), 400
         safe_name = os.path.basename(filename)
-        dxf_path = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id, safe_name)
+        dxf_path = os.path.join(_cartella_preventivo(preventivo_id), safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         from .preventivi.pick_part import pick_candidates
@@ -4739,7 +4855,7 @@ def api_preventivi_dxf_lavorazioni(preventivo_id, filename):
     """
     try:
         safe_name = os.path.basename(filename)
-        dxf_path = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id, safe_name)
+        dxf_path = os.path.join(_cartella_preventivo(preventivo_id), safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'error': 'File DXF non trovato'}), 404
         from .preventivi.dxf_scanner import scansiona_dxf_dettagli
@@ -4773,7 +4889,7 @@ def api_preventivi_dxf_fold_model(preventivo_id, filename):
     try:
         data = request.get_json(silent=True) or {}
         safe_name = os.path.basename(filename)
-        dxf_path = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id, safe_name)
+        dxf_path = os.path.join(_cartella_preventivo(preventivo_id), safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         app_cfg = BarcodeManager.load_config() or {}
@@ -4851,7 +4967,7 @@ def api_preventivi_dxf_trace_waypoints(preventivo_id, filename):
         if not isinstance(points, list) or len(points) < 2:
             return jsonify({'success': False, 'error': 'points: lista di almeno 2 [x,y]'}), 400
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -4882,7 +4998,7 @@ def api_preventivi_dxf_select_region(preventivo_id, filename):
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'minx/miny/maxx/maxy richiesti (float)'}), 400
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -4921,7 +5037,7 @@ def api_preventivi_dxf_save_cleaned(preventivo_id, filename):
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'minx/miny/maxx/maxy richiesti (float)'}), 400
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -5076,7 +5192,7 @@ def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
         except (TypeError, ValueError):
             return jsonify({'success': False, 'error': 'x/y richiesti (float)'}), 400
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -5270,7 +5386,7 @@ def api_preventivi_dxf_select_polygon(preventivo_id, filename):
             return jsonify({'success': False, 'error': 'candidate_idx non valido'}), 400
 
         safe_name = os.path.basename(filename)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
@@ -5291,7 +5407,7 @@ def _cleanup_preventivo_files(preventivo_id):
     """
     try:
         import shutil
-        d = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        d = _cartella_preventivo(preventivo_id)
         if os.path.isdir(d):
             shutil.rmtree(d, ignore_errors=True)
     except Exception as exc:
@@ -5332,7 +5448,7 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
         if not p:
             stats['warnings'].append(f'Preventivo {preventivo_id} non trovato')
             return stats
-        src_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        src_dir = _cartella_preventivo(preventivo_id)
         dst_dir = os.path.join(UPLOAD_FOLDER, 'drawings', order_id)
         os.makedirs(dst_dir, exist_ok=True)
         stats['drawings_dir'] = dst_dir
@@ -5415,7 +5531,7 @@ def api_preventivi_ordine_cliente(preventivo_id):
             return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
         if prev.get('status') in ('INVIATO', 'ACCETTATO'):
             return jsonify({'success': False, 'error': 'Preventivo ' + prev['status'] + ': immutabile'}), 400
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+        prev_dir = _cartella_preventivo(preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         if salvato:
             if not salvato.lower().endswith('.pdf') or not os.path.isfile(os.path.join(prev_dir, salvato)):
@@ -5449,7 +5565,7 @@ def api_preventivi_ordine_cliente(preventivo_id):
 @app.route('/api/preventivi/<preventivo_id>/ordine-cliente', methods=['GET'])
 def api_preventivi_ordine_cliente_get(preventivo_id):
     """Nome del PDF d'ordine allegato (None se non c'e')."""
-    prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', os.path.basename(preventivo_id))
+    prev_dir = _cartella_preventivo(preventivo_id)
     return jsonify({'success': True, 'file': _ordine_cliente_segnato(prev_dir)}), 200
 
 
@@ -5467,7 +5583,7 @@ def _copy_order_pdf_to_order(preventivo_id: str, order_id: str) -> dict:
     import hashlib
     out = {'copied': False, 'filename': None, 'warnings': []}
     try:
-        src_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        src_dir = _cartella_preventivo(preventivo_id)
         if not os.path.isdir(src_dir):
             return out
         # Il PDF dell'ordine del cliente e' quello segnato all'import. Prima si
@@ -5577,7 +5693,7 @@ def api_preventivi_import_step(preventivo_id):
             return jsonify({'success': False, 'error': 'File deve essere .step o .stp'}), 400
 
         # Salva STEP in preventivi_tmp/<id>/ (persistente per preview 3D; cleanup su accept/reject/delete)
-        prev_dir = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', preventivo_id)
+        prev_dir = _cartella_preventivo(preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         safe_name = os.path.basename(f.filename)
         step_path = os.path.join(prev_dir, safe_name)
@@ -6989,13 +7105,22 @@ def api_preventivi_accetta(preventivo_id):
         # del cliente e fa partire il ciclo produttivo.
         if not _require_role(user_id, _PREV_WRITE_ROLES + ['Impiegata']):
             return jsonify({'success': False, 'error': 'Permesso negato'}), 403
-        # Se il payload include articoli override, prima li salva così la validazione
-        # server-side controlla lo stato AGGIORNATO (evita race con edit non salvato).
-        if data.get('articoli'):
+        # Data di consegna: controllata PRIMA di scrivere qualsiasi cosa. Prima
+        # una data sbagliata faceva fallire la creazione dell'ordine dopo che
+        # gli articoli erano gia' stati riscritti.
+        _dc = (data.get('data_consegna') or '').strip()
+        if _dc:
             try:
-                PreventivoManager.replace_articoli(preventivo_id, data['articoli'])
-            except Exception:
-                pass  # se fallisce, la validazione userà i dati DB e comunque bloccherà
+                _d = datetime.strptime(_dc[:10], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Data di consegna non valida (serve AAAA-MM-GG)'}), 400
+            from .orario import oggi_locale as _oggi
+            if _d < _oggi() - timedelta(days=1):
+                return jsonify({'success': False, 'error': 'La data di consegna risulta nel passato'}), 400
+            data['data_consegna'] = _d.isoformat()
+        # (Prima qui c'era replace_articoli con `except: pass`: su un preventivo
+        # INVIATO falliva sempre, in silenzio. Gli articoli li salva
+        # accetta_e_crea_ordine, che in caso di errore rifiuta e ripristina.)
         invalidi = _valida_costi_preventivo(preventivo_id)
         if invalidi:
             details = '; '.join(f"{x['codice']}: {x['motivo']}" for x in invalidi[:5])

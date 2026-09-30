@@ -203,6 +203,8 @@ def main():
     check('pronto = False', d['pronto'] is False)
     check('e gli errori sono elencati', len(d['errori']) > 0)
     r = c.get('/api/preventivi/non-esiste/verifica')
+    check('id non valido -> 400', r.status_code == 400, r.status_code)
+    r = c.get(f'/api/preventivi/{uuid.uuid4()}/verifica')
     check('preventivo inesistente -> 404', r.status_code == 404)
 
     print('\n' + '=' * 60)

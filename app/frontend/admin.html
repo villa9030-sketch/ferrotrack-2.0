@@ -679,6 +679,8 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 <script>
 const API_URL = '';
 let currentUser = null;
+/** Chi sta usando la pagina: il server lo chiede per backup, audit e dispositivi. */
+function hdrUtente(extra) { return Object.assign({ 'X-User-Id': (currentUser && currentUser.id) || '' }, extra || {}); }
 let _editingUserId = null;
 
 // ---------- session / topbar ----------
@@ -916,7 +918,7 @@ async function caricaDispositivi() {
   const tb = document.getElementById('disp-tbody');
   if (!tb) return;
   try {
-    const r = await fetch(`${API_URL}/api/admin/dispositivi`);
+    const r = await fetch(`${API_URL}/api/admin/dispositivi`, { headers: hdrUtente() });
     const d = await r.json();
     const righe = d.dispositivi || [];
     if (!righe.length) {
@@ -1096,7 +1098,7 @@ async function saveConfig() {
 // ============================================================
 async function loadBackupSettings() {
   try {
-    const r = await fetch(`${API_URL}/api/admin/backup/settings`);
+    const r = await fetch(`${API_URL}/api/admin/backup/settings`, { headers: hdrUtente() });
     const d = await r.json();
     const s = d.settings || {};
     document.getElementById('bk-enabled').value  = s.backup_enabled ? 'true' : 'false';
@@ -1110,7 +1112,7 @@ async function saveBackupSettings() {
   try {
     const r = await fetch(`${API_URL}/api/admin/backup/settings`, {
       method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
+      headers: hdrUtente({'Content-Type': 'application/json'}),
       body: JSON.stringify({
         backup_enabled: document.getElementById('bk-enabled').value === 'true',
         interval_hours: parseInt(document.getElementById('bk-interval').value, 10),
@@ -1127,7 +1129,7 @@ async function saveBackupSettings() {
 async function runManualBackup() {
   showMsg('bk-manual-msg', 'Backup in corso…', 'var(--gray-text)');
   try {
-    const r = await fetch(`${API_URL}/api/admin/backup`, { method: 'POST' });
+    const r = await fetch(`${API_URL}/api/admin/backup`, { method: 'POST', headers: hdrUtente() });
     const d = await r.json();
     if (r.ok && d.success) {
       showMsg('bk-manual-msg', `✓ Creato: ${d.backup_path}${d.integrity_ok === false ? ' (integrity check fallito!)' : ''}`, d.integrity_ok === false ? 'var(--orange)' : 'var(--green)');
@@ -1142,7 +1144,7 @@ async function loadBackupList() {
   const tbody = document.getElementById('bk-tbody');
   const meta = document.getElementById('bk-list-meta');
   try {
-    const r = await fetch(`${API_URL}/api/admin/backup/list`);
+    const r = await fetch(`${API_URL}/api/admin/backup/list`, { headers: hdrUtente() });
     const d = await r.json();
     const backups = d.backups || [];
     meta.textContent = `${d.count ?? backups.length} file`;
@@ -1177,7 +1179,7 @@ async function loadAudit() {
   let url = `${API_URL}/api/admin/audit?limit=${encodeURIComponent(limit)}`;
   if (userFilter) url += `&user_id=${encodeURIComponent(userFilter)}`;
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { headers: hdrUtente() });
     const d = await r.json();
     const logs = d.logs || [];
     if (!logs.length) {

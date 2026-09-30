@@ -879,4 +879,29 @@ def initialize_database():
     from .migrations_ore import migrate_ore
     migrate_ore(engine)
 
+    _indice_numero_prev()
     seed_users()
+
+
+def _indice_numero_prev():
+    """Numeri d'ordine PREV-anno-NNNN unici (indice parziale: gli ordini dal
+    PDF del cliente hanno il numero del cliente e possono ripetersi tra
+    clienti). Senza, due accettazioni nello stesso istante davano lo stesso
+    numero (MAX+1). Se nel database ci sono gia' doppioni non si crea: lo si
+    segnala e si lascia decidere."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            doppi = conn.execute(text(
+                "SELECT numero_ordine, COUNT(*) FROM orders WHERE numero_ordine LIKE 'PREV-%' "
+                "GROUP BY numero_ordine HAVING COUNT(*) > 1")).fetchall()
+            if doppi:
+                logger.warning('Numeri PREV- doppi, indice unico NON creato: %s',
+                               ', '.join(f'{n} x{c}' for n, c in doppi[:10]))
+                return
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_numero_prev ON orders(numero_ordine) "
+                "WHERE numero_ordine LIKE 'PREV-%'"))
+            conn.commit()
+    except Exception as e:
+        logger.warning('indice numeri PREV- non creato: %s', e)
