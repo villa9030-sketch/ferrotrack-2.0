@@ -1,5 +1,6 @@
-"""Run backend Flask app"""
-from .app import app
+"""python -m backend: passa da run.py (unico avvio: waitress, log, backup, turni)."""
+import os
+import runpy
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'run.py'), run_name='__main__')

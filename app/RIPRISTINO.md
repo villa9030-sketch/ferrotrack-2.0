@@ -21,7 +21,7 @@ Dalla pagina, con il pulsante Backup. Oppure dalla cartella `app`:
 ```
 
 ## Ripristinare
-1. **Spegni il server**: Gestione attività → `python` / `pythonw` che esegue `run.py`, oppure `tools\installa_avvio.ps1 -ferma`.
+1. **Spegni il server**: Gestione attività → `python` / `pythonw` che esegue `run.py`, oppure `powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1 -Ferma`.
 2. Dalla cartella `app`, guarda le copie:
    ```
    .venv\Scripts\python.exe tools\ripristina_backup.py

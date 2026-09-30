@@ -7217,4 +7217,8 @@ def api_admin_export_orders():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Prima: app.run(debug=True, host='0.0.0.0') = debugger raggiungibile da
+    # tutta la rete e senza backup/turni. Si passa sempre da run.py.
+    import runpy
+    print('Avvio tramite run.py (unico avvio di FerroTrack)')
+    runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'run.py'), run_name='__main__')

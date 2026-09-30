@@ -170,6 +170,9 @@ def backup(motivo: str = 'schedulato', controlla: bool = True) -> str | None:
         src_conn = sqlite3.connect(str(DB_PATH))
         dst_conn = sqlite3.connect(str(dst))
         src_conn.backup(dst_conn, pages=100)
+        # la copia eredita la modalita' WAL: la si riporta a un file unico,
+        # altrimenti accanto restano -wal/-shm e la copia non e' autonoma
+        dst_conn.execute('PRAGMA journal_mode=DELETE')
         dst_conn.close()
         src_conn.close()
     except Exception as e:

@@ -1,20 +1,37 @@
 #!/usr/bin/env python
 """
-Launcher per SCHEDULATORE LASER backend
-Avvia il server Flask sulla porta 5000
+Avvio di FerroTrack: l'UNICO modo di far partire il server.
+
+- server di produzione waitress su 0.0.0.0:5000 (niente debugger esposto in
+  rete); con FLASK_DEBUG=true il server di sviluppo di Flask, ma solo su
+  127.0.0.1
+- log su file a rotazione in logs/ferrotrack.log (+ console quando c'e')
+- thread: backup, export JSON, fine turno, vigilanza
+- se il server e' gia' acceso si ferma subito (una sola istanza)
+
+Si avvia con START_FERROTRACK.bat (senza finestra) o
+START_FERROTRACK_CONSOLE.bat (con la finestra, per vedere i messaggi).
 """
 
 import sys
 import os
+import socket
 import threading
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] %(levelname)s %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+PORTA = int(os.environ.get('FERROTRACK_PORTA', 5000))
+_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(_LOG_DIR, exist_ok=True)
+_fmt = logging.Formatter('[%(asctime)s] %(levelname)s %(name)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+_handlers = [RotatingFileHandler(os.path.join(_LOG_DIR, 'ferrotrack.log'), maxBytes=10 * 1024 * 1024,
+                                 backupCount=5, encoding='utf-8')]
+if sys.stderr is not None:                      # pythonw: niente console
+    _handlers.append(logging.StreamHandler())
+for _h in _handlers:
+    _h.setFormatter(_fmt)
+logging.basicConfig(level=logging.INFO, handlers=_handlers, force=True)
 logger = logging.getLogger('schedulatore')
 
 # Verifica versione Python — richiesto 3.10+ per sintassi Union types (dict | None)
@@ -32,9 +49,9 @@ from dotenv import load_dotenv
 from pathlib import Path
 load_dotenv(Path(__file__).parent / ".env")  # Carica app/.env (contiene GEMINI_API_KEY)
 
-# Importa app dal backend
-from backend.app import app
-from backend.models import initialize_database
+# backend.app si importa in main(), DOPO il controllo della porta: l'import
+# inizializza il database (e fa la copia pre-migrazione) anche per un secondo
+# avvio che poi verrebbe rifiutato.
 
 # Intervallo export JSON in secondi (default: 24 ore)
 EXPORT_INTERVALLO = int(os.environ.get('EXPORT_INTERVALLO_SECONDI', 86400))
@@ -148,7 +165,21 @@ def _esegui_export_json():
         os.remove(old)
 
 
-if __name__ == '__main__':
+def _porta_occupata(porta: int) -> bool:
+    try:
+        with socket.create_connection(('127.0.0.1', porta), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def main():
+    if _porta_occupata(PORTA):
+        logger.error(f'La porta {PORTA} risulta gia in uso: FerroTrack e gia acceso? Non parto una seconda volta.')
+        return 1
+
+    from backend.app import app
+    from backend.models import initialize_database
     # Inizializza database
     initialize_database()
 
@@ -172,19 +203,19 @@ if __name__ == '__main__':
     t_alert.start()
     logger.info('Thread vigilanza (taglio / consegne / sospetti finiti / ore mancanti) attivo')
 
-    # Beta: debug=False per stabilità
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
+    if debug_mode:
+        # Solo sviluppo: debugger di Flask raggiungibile SOLO da questo PC
+        logger.warning(f'DEBUG attivo: server di sviluppo su http://127.0.0.1:{PORTA} (non in rete)')
+        app.run(host='127.0.0.1', port=PORTA, debug=True, use_reloader=False, threaded=True)
+        return 0
+    from waitress import serve
+    logger.info(f'Avvio FerroTrack (waitress) su porta {PORTA}: http://localhost:{PORTA}')
+    # 16 thread: anteprime SVG, autosave, stime e tablet in parallelo
+    serve(app, host='0.0.0.0', port=PORTA, threads=16, channel_timeout=300,
+          max_request_body_size=60 * 1024 * 1024, ident='FerroTrack')
+    return 0
 
-    # Controlla se esistono certificati SSL per HTTPS (necessario per PWA su tablet)
-    cert_file = os.path.join(os.path.dirname(__file__), 'certs', 'cert.pem')
-    key_file = os.path.join(os.path.dirname(__file__), 'certs', 'key.pem')
-    has_ssl = os.path.exists(cert_file) and os.path.exists(key_file)
 
-    # Avvia Flask HTTP
-    logger.info("Avvio SCHEDULATORE LASER su porta 5000")
-    logger.info("Accedi via browser: http://localhost:5000")
-    logger.info(f"Debug mode: {'ON' if debug_mode else 'OFF'}")
-    # threaded=True: consente al server dev di gestire piu' richieste concorrenti
-    # (es. thumbnail SVG multipli, autosave in background, stima costo mentre
-    # l'utente naviga). Senza questo, ogni richiesta accoda quelle successive.
-    app.run(host='0.0.0.0', port=5000, debug=debug_mode, threaded=True)
+if __name__ == '__main__':
+    sys.exit(main())
