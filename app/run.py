@@ -36,26 +36,11 @@ load_dotenv(Path(__file__).parent / ".env")  # Carica app/.env (contiene GEMINI_
 from backend.app import app
 from backend.models import initialize_database
 
-# Intervallo backup in secondi (default: 1 ora, configurabile via env)
-BACKUP_INTERVALLO = int(os.environ.get('BACKUP_INTERVALLO_SECONDI', 3600))
 # Intervallo export JSON in secondi (default: 24 ore)
 EXPORT_INTERVALLO = int(os.environ.get('EXPORT_INTERVALLO_SECONDI', 86400))
 # Orario fine turno (HH:MM) — chiusura automatica scan officina rimaste aperte
 # Default 17:30 = orario di fine turno aziendale. Configurabile via env var.
 FINE_TURNO_HHMM = os.environ.get('FINE_TURNO_HHMM', '17:30')
-
-
-def _loop_backup():
-    """Thread daemon: esegue backup orario del database."""
-    from backup_db import backup, integrity_check
-    time.sleep(60)  # Attende 1 minuto dopo l'avvio prima del primo backup
-    while True:
-        try:
-            integrity_check()
-            backup(motivo='schedulato')
-        except Exception as e:
-            logger.error(f'Errore nel thread backup schedulato: {e}')
-        time.sleep(BACKUP_INTERVALLO)
 
 
 def _loop_export_json():
@@ -167,10 +152,11 @@ if __name__ == '__main__':
     # Inizializza database
     initialize_database()
 
-    # Avvia thread backup orario (daemon: si chiude con il processo principale)
-    t_backup = threading.Thread(target=_loop_backup, daemon=True, name='backup-scheduler')
-    t_backup.start()
-    logger.info(f'Thread backup schedulato ogni {BACKUP_INTERVALLO//60} minuti')
+    # Backup: un solo scheduler (backup_db), intervallo da backup_config.json.
+    # Primo backup un minuto dopo l'avvio; database non integro = niente copia.
+    from backup_db import start_scheduler as _start_backup, load_config as _bcfg
+    _start_backup(primo_dopo_s=60)
+    logger.info(f"Backup schedulato ogni {_bcfg().get('interval_hours')} ore")
 
     # Avvia thread export JSON giornaliero
     t_export = threading.Thread(target=_loop_export_json, daemon=True, name='export-scheduler')

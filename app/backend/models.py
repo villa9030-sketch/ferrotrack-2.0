@@ -631,17 +631,46 @@ def seed_users():
     finally:
         session.close()
 
+_SNAPSHOT_FATTO = False
+
+
 def _backup_db_before_migration():
-    """Crea uno snapshot del database prima di ogni migrazione"""
-    import shutil, time
+    """Snapshot del database prima delle migrazioni, UNA volta per processo.
+
+    Con l'API di backup di SQLite (backup_db.backup): prima era shutil.copy2
+    del solo file principale, che col database in WAL puo' dare una copia
+    vecchia o incoerente. E initialize_database gira due volte all'avvio
+    (import di backend.app e run.py): una copia basta."""
+    global _SNAPSHOT_FATTO
+    if _SNAPSHOT_FATTO:
+        return
+    _SNAPSHOT_FATTO = True
     db_path = os.path.abspath(DATABASE_PATH)
     if not os.path.exists(db_path):
         return  # DB non ancora creato, nessun backup necessario
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'backup_db', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'backup_db.py'))
+        bdb = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bdb)
+        if os.path.abspath(str(bdb.DB_PATH)) != db_path:
+            raise RuntimeError('database diverso da quello di backup_db')
+        dst = bdb.backup(motivo='pre_migration', controlla=False)
+        if dst:
+            logger.info('Snapshot pre-migrazione: %s', dst)
+            return
+    except Exception as e:
+        logger.warning('Snapshot pre-migrazione con backup_db non riuscito (%s): copia semplice', e)
+    import sqlite3, time
     backup_dir = os.path.join(os.path.dirname(db_path), 'backups')
     os.makedirs(backup_dir, exist_ok=True)
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    dst = os.path.join(backup_dir, f'scheduler_pre_migration_{ts}.db')
-    shutil.copy2(db_path, dst)
+    dst = os.path.join(backup_dir, f'scheduler_pre_migration_{time.strftime("%Y%m%d_%H%M%S")}.db')
+    src = sqlite3.connect(db_path); d = sqlite3.connect(dst)
+    try:
+        src.backup(d)
+    finally:
+        d.close(); src.close()
     logger.info('Snapshot pre-migrazione: %s', dst)
 
 

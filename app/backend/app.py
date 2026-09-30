@@ -1999,17 +1999,18 @@ def api_dashboard_live():
 
 # ============ BACKUP & EXPORT ============
 
-# Avvia backup scheduler all'import del modulo
+# Funzioni di backup. Lo scheduler NON parte piu' all'import: lo avvia solo
+# run.py (prima erano due, questo ogni 12 h e quello orario di run.py, che si
+# contendevano le stesse copie).
 try:
     _backup_sys_path = os.path.join(os.path.dirname(__file__), '..')
     if _backup_sys_path not in sys.path:
         sys.path.insert(0, _backup_sys_path)
     from backup_db import backup as _do_backup, integrity_check as _integrity_check
     from backup_db import load_config as _backup_load_config, save_config as _backup_save_config
-    from backup_db import list_backups as _backup_list, start_scheduler as _start_backup_scheduler
-    _start_backup_scheduler()
+    from backup_db import list_backups as _backup_list, cartella_valida as _backup_cartella_valida
 except Exception as _e:
-    logging.warning(f'[BACKUP] Impossibile avviare scheduler: {_e}')
+    logging.warning(f'[BACKUP] modulo backup non disponibile: {_e}')
 
 @app.route('/api/admin/backup', methods=['POST'])
 def manual_backup():
@@ -2019,7 +2020,8 @@ def manual_backup():
         path = _do_backup(motivo='manuale')
         if path:
             return jsonify({'success': True, 'backup_path': os.path.basename(path), 'integrity_ok': ok}), 200
-        return jsonify({'success': False, 'error': 'Backup fallito'}), 500
+        return jsonify({'success': False, 'integrity_ok': ok,
+                        'error': 'Backup fallito' + ('' if ok else ': il database non passa il controllo di integrita (vedi RIPRISTINO.md)')}), 500
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -2039,10 +2041,16 @@ def backup_settings():
                 config['interval_hours'] = max(1, min(168, int(data['interval_hours'])))
             if 'max_backups' in data:
                 config['max_backups'] = max(5, min(100, int(data['max_backups'])))
-            if 'backup_path' in data:
-                config['backup_path'] = str(data['backup_path']).strip()
-            if 'remote_path' in data:
-                config['remote_path'] = str(data['remote_path']).strip()
+            # Cartelle: devono esistere ed essere fuori dal programma. Prima
+            # si accettava qualunque stringa e la rotazione avrebbe cancellato
+            # file scheduler_*.db ovunque puntasse.
+            for campo in ('backup_path', 'remote_path'):
+                if campo in data:
+                    v = str(data[campo] or '').strip()
+                    errore = _backup_cartella_valida(v)
+                    if errore:
+                        return jsonify({'success': False, 'error': f'{campo}: {errore}'}), 400
+                    config[campo] = v
             _backup_save_config(config)
             return jsonify({'success': True, 'settings': config}), 200
     except Exception as e:
