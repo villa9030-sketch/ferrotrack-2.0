@@ -11862,8 +11862,11 @@ async function validaCostiCompletamente() {
   const articoli_no_cad   = [];   // ha DXF ma geometria non confermata nel CAD
 
   for (const a of currentArticoli) {
-    // GUARDIA CAD: articolo con DXF ma geometria non confermata dall'operatore
-    if (a.dxf_filename && !a.geometria_manuale_confermata) {
+    // GUARDIA CAD: stessa regola della schermata dei disegni e dell'invio.
+    // Blocca solo il contorno INCERTO; quello trovato con sicurezza o che
+    // torna col peso del cartiglio va bene. Prima bloccava ogni DXF non
+    // aperto nel CAD: l'invio passava e l'accettazione no (DECA 1240).
+    if (wbCadDaConfermare(a)) {
       articoli_no_cad.push({ codice: a.codice || 'senza codice' });
       continue;
     }
@@ -11922,7 +11925,7 @@ async function validaCostiCompletamente() {
 function _validazioneErrorMessage(v) {
   const parts = [];
   if (v.articoli_no_cad && v.articoli_no_cad.length > 0) {
-    parts.push('⚠ Articoli con disegno ma geometria NON confermata nel CAD:');
+    parts.push('⚠ Articoli con il contorno incerto (da confermare nel CAD):');
     for (const a of v.articoli_no_cad) parts.push(`   • ${a.codice}`);
     parts.push('');
     parts.push('AZIONE: seleziona l\'articolo, clicca "Apri CAD", identifica il contorno del pezzo e conferma.');

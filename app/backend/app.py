@@ -6680,6 +6680,31 @@ def api_preventivi_storico_prezzo_batch():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _contorno_incerto(a: dict, materiali: dict) -> bool:
+    """Come wbContorno(a) === 'incerto' nella pagina: riconoscimento poco
+    sicuro, non confermato nel CAD, non scritto a mano, non verificato."""
+    if not a.get('dxf_filename') or a.get('geometria_manuale_confermata') or a.get('pezzo_manuale'):
+        return False
+    if a.get('geometry_source') in ('sviluppo', 'step'):
+        return False
+    if (a.get('contorno_auto') or {}).get('stato') == 'confermato' or a.get('verifica_ok'):
+        return False
+    conf = a.get('dxf_confidence')
+    if not (a.get('dxf_needs_verify') or (conf is not None and float(conf) < 0.7)):
+        return False
+    # peso che torna col cartiglio (tolleranza come in pagina: 15% o 15 g)
+    try:
+        peso = float(((a.get('verifica') or {}).get('peso_cartiglio') or {}).get('peso_kg') or 0)
+        mat = materiali.get(str(a.get('materiale') or '').upper()) or {}
+        dens = float(mat.get('densita_kg_dm3') or 7.85)
+        calc = float(a.get('area_dm2') or 0) * float(a.get('spessore_mm') or 0) / 100.0 * dens
+        if peso > 0 and calc > 0 and (abs(calc / peso - 1) <= 0.15 or abs(calc - peso) <= 0.015):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return True
+
+
 def _valida_costi_preventivo(preventivo_id):
     """GUARDIA CRITICA server-side: verifica che nessun articolo abbia costo base 0.
 
@@ -6692,12 +6717,15 @@ def _valida_costi_preventivo(preventivo_id):
     if not prev:
         return []  # non trovato → l'endpoint darà 404 da sé
     invalidi = []
+    _materiali_cfg = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {}
     for a in (prev.get('articoli') or []):
         codice = a.get('codice') or '(senza codice)'
-        # 1) Geometria confermata nel CAD interno (fail-safe): se l'articolo ha
-        #    un DXF ma non è stato confermato dall'operatore → blocco.
-        if a.get('dxf_filename') and not a.get('geometria_manuale_confermata'):
-            invalidi.append({'codice': codice, 'motivo': 'geometria non confermata nel CAD (apri e conferma il pezzo)'})
+        # 1) Contorno INCERTO (stessa regola della pagina, wbContorno): blocca
+        #    solo il riconoscimento poco sicuro non confermato e non verificato
+        #    col peso del cartiglio. Prima bloccava ogni DXF non aperto nel CAD:
+        #    l'invio passava e l'accettazione no (DECA 1240).
+        if _contorno_incerto(a, _materiali_cfg):
+            invalidi.append({'codice': codice, 'motivo': 'contorno incerto: confermalo nel CAD'})
             continue
         # 2) Costo base > 0
         overr = a.get('costo_base_override')
