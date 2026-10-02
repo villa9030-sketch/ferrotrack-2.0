@@ -5578,6 +5578,15 @@ class PreventivoManager:
             n = PreventivoManager._num_o_none
             out['ordine'] = {'stato': od['stato'], 'pos': n(od.get('pos'), 1e6), 'qta': n(od.get('qta'), 1e6),
                              'file': str(od.get('file') or '')[:200]}
+            # righe dell'ordine una per una (commessa, quantita'): per DECA il
+            # PDF del preventivo le riporta uguali
+            righe = []
+            for r in (od.get('righe') or [])[:300]:
+                if isinstance(r, dict) and n(r.get('qta'), 1e6):
+                    righe.append({'pos': n(r.get('pos'), 1e6), 'qta': n(r.get('qta'), 1e6),
+                                  'commessa': str(r.get('commessa') or '')[:40] or None})
+            if righe:
+                out['ordine']['righe'] = righe
         vok = a.get('verifica_ok')
         if isinstance(vok, dict):
             vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}

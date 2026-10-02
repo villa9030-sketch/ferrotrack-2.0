@@ -7982,7 +7982,9 @@ async function wbLeggiOrdine(src) {
   }
   for (const p of prop) {
     if (p.q) p.a.quantita = p.q;
-    if (p.stato !== 'componente') p.a.ordine = { stato: p.stato, pos: p.t ? p.t.pos : null, qta: p.t ? p.t.qta : null, file: d.file };
+    if (p.stato !== 'componente') p.a.ordine = { stato: p.stato, pos: p.t ? p.t.pos : null, qta: p.t ? p.t.qta : null, file: d.file,
+      // righe dell'ordine una per una (commessa e quantita'): per DECA il PDF le riporta uguali
+      righe: (p.t && p.t.dettaglio) || [] };
     else delete p.a.ordine;
   }
   for (const [A, q] of assQ) A.qty = q;

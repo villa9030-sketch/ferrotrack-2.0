@@ -43,9 +43,15 @@ def testo_righe(pdf_bytes: bytes) -> list[str]:
     return righe
 
 
+_COMMESSA = re.compile(r'(?<![A-Z0-9])(C\d{2}-\d{1,5}(?:-\d{1,5})?)(?![\d])')
+
+
 def leggi_per_codici(pdf_bytes: bytes, codici: list) -> dict:
-    """{chiave: {qta: float|None, pos: int, righe: int, dubbio: bool}} per i
-    codici trovati nel PDF; quelli non citati non compaiono."""
+    """{chiave: {qta: float|None, pos: int, righe: int, dubbio: bool,
+    dettaglio: [{pos, commessa, qta}]}} per i codici trovati nel PDF; quelli
+    non citati non compaiono. `dettaglio` = le righe dell'ordine una per una
+    (DECA ripete lo stesso codice su piu' commesse: il preventivo per DECA le
+    riporta uguali)."""
     chiavi = sorted({chiave(c) for c in codici if chiave(c)}, key=len, reverse=True)
     rx = {k: re.compile(r'(?<![A-Z0-9])' + re.escape(k) + r'(?:[-_]\d{2})?(?![A-Z0-9])') for k in chiavi}
     trovati = {}
@@ -59,12 +65,14 @@ def leggi_per_codici(pdf_bytes: bytes, codici: list) -> dict:
         if len(q) == 1:
             intero, dec = q[0]
             qta = float(intero + ('.' + dec if dec else ''))
+        mc = _COMMESSA.search(up)
         for k in qui:
-            t = trovati.setdefault(k, {'qta': 0.0, 'pos': i, 'righe': 0, 'dubbio': False})
+            t = trovati.setdefault(k, {'qta': 0.0, 'pos': i, 'righe': 0, 'dubbio': False, 'dettaglio': []})
             if qta is None:
                 continue
             t['qta'] += qta
             t['righe'] += 1
+            t['dettaglio'].append({'pos': i, 'commessa': mc.group(1) if mc else None, 'qta': qta})
             if len(qui) > 1:
                 t['dubbio'] = True
     for t in trovati.values():

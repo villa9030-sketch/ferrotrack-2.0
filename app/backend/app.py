@@ -6540,6 +6540,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         return ' · '.join(parts)
 
     # Articoli STANDALONE (senza codice_assieme): quantita = pezzi nel preventivo
+    _cliente_deca = bool(re.search(r'(?<![A-Za-z])DECA(?![A-Za-z])', p.get('cliente') or '', re.I))
     totale_pezzo_calc = 0.0
     for a in articoli:
         if a.get('codice_assieme'):
@@ -6552,6 +6553,26 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         totale_pezzo_calc += (base + lav) * qty_art
         prezzo_unit_finale = (base + lav) * _f_finale
         qty_tot = qty_art * qty_preventivo
+        # DECA: lo stesso codice compare su piu' righe dell'ordine (una per
+        # commessa). Il preventivo le riporta UGUALI (codice, commessa,
+        # quantita'), cosi' il cliente lo confronta riga per riga col suo
+        # ordine. Solo se le righe sommano alla quantita' del pezzo: se e'
+        # stata cambiata a mano, una riga sola come prima.
+        _righe_ord = ((a.get('ordine') or {}).get('righe') or []) if _cliente_deca else []
+        if _righe_ord and abs(sum(float(r.get('qta') or 0) for r in _righe_ord) - qty_tot) < 1e-6:
+            _pu = round(prezzo_unit_finale, 2)
+            for r in _righe_ord:
+                _q = float(r.get('qta') or 0)
+                _q = int(_q) if _q.is_integer() else _q
+                righe_cliente.append({
+                    'codice': a.get('codice') or '—',
+                    'commessa': r.get('commessa') or '',
+                    'descrizione': _desc_articolo(a),
+                    'quantita': _q,
+                    'prezzo_unitario': _pu,
+                    'importo': round(_pu * _q, 2),
+                })
+            continue
         righe_cliente.append({
             'codice': a.get('codice') or '—',
             'descrizione': _desc_articolo(a),

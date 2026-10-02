@@ -1468,7 +1468,11 @@ class PDFPreventivo:
 
         elements.append(Paragraph("Dettaglio fornitura", self.style_heading))
 
-        header = ["Codice", "Descrizione", "Q.ta", "Prezzo unit.", "Importo"]
+        # Colonna Commessa solo quando le righe la portano (preventivi DECA:
+        # stesse righe dell'ordine del cliente, una per commessa)
+        con_comm = any(r.get("commessa") for r in righe)
+        header = (["Codice", "Commessa", "Descrizione", "Q.ta", "Prezzo unit.", "Importo"] if con_comm
+                  else ["Codice", "Descrizione", "Q.ta", "Prezzo unit.", "Importo"])
         table_data = [header]
 
         if not righe:
@@ -1481,25 +1485,36 @@ class PDFPreventivo:
                 qty_str = str(int(qty)) if float(qty) == int(qty) else f"{qty}"
             except (TypeError, ValueError):
                 qty_str = str(qty)
-            table_data.append([
+            riga = [
                 r.get("codice") or "-",
                 r.get("descrizione") or "",
                 qty_str,
                 _eur_plain(r.get("prezzo_unitario") or 0),
                 _eur_plain(r.get("importo") or 0),
-            ])
+            ]
+            if con_comm:
+                riga.insert(1, r.get("commessa") or "")
+            table_data.append(riga)
 
         # Riga totale
-        table_data.append(["", "", "", "TOTALE ORDINE", _eur(totale_lotto)])
+        table_data.append([""] * (len(header) - 2) + ["TOTALE ORDINE", _eur(totale_lotto)])
 
         avail = _W - 2 * _MARGIN
-        col_widths = [
+        col_widths = ([
+            avail * 0.19,   # codice
+            avail * 0.14,   # commessa
+            avail * 0.29,   # descrizione
+            avail * 0.08,   # q.ta
+            avail * 0.15,   # prezzo unit
+            avail * 0.15,   # importo
+        ] if con_comm else [
             avail * 0.22,   # codice
             avail * 0.36,   # descrizione
             avail * 0.10,   # q.ta
             avail * 0.16,   # prezzo unit
             avail * 0.16,   # importo
-        ]
+        ])
+        k = 1 if con_comm else 0     # colonne numeriche spostate di una
         t = Table(table_data, colWidths=col_widths, repeatRows=1)
         style_cmds = [
             # Header
@@ -1515,12 +1530,12 @@ class PDFPreventivo:
             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
             ("BACKGROUND", (0, -1), (-1, -1), self.COLOR_PRIMARY_LIGHT),
             ("TEXTCOLOR", (0, -1), (-1, -1), self.COLOR_DARK),
-            ("FONTSIZE", (3, -1), (-1, -1), 11),
+            ("FONTSIZE", (3 + k, -1), (-1, -1), 11),
             ("LINEABOVE", (0, -1), (-1, -1), 1, self.COLOR_PRIMARY),
-            ("SPAN", (0, -1), (2, -1)),
+            ("SPAN", (0, -1), (2 + k, -1)),
             # Alignment
-            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-            ("ALIGN", (0, 0), (1, -1), "LEFT"),
+            ("ALIGN", (2 + k, 0), (-1, -1), "RIGHT"),
+            ("ALIGN", (0, 0), (1 + k, -1), "LEFT"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             # Padding
             ("TOPPADDING", (0, 0), (-1, -1), 6),
