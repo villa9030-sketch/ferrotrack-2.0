@@ -381,8 +381,14 @@ def main():
         s.close()
     cart = os.path.join(A.DRAWINGS_FOLDER, oid)
     check('disegni nella cartella dell\'ordine',
-          sorted(os.listdir(cart)) == ['EXTRA-900.dxf', 'PZ-A100-00.dxf', 'PZ-B200-00.dxf'],
+          sorted(n for n in os.listdir(cart) if os.path.isfile(os.path.join(cart, n)))
+          == ['EXTRA-900.dxf', 'PZ-A100-00.dxf', 'PZ-B200-00.dxf'],
           os.listdir(cart) if os.path.isdir(cart) else None)
+    lan = os.path.join(cart, 'LANTEK')
+    tutti = sorted(os.path.relpath(os.path.join(b, f), lan).replace(os.sep, '/')
+                   for b, _d, fs in os.walk(lan) for f in fs) if os.path.isdir(lan) else []
+    check('cartella LANTEK: ogni pezzo una volta, dentro una cartella per lamiera',
+          len(tutti) == 3 and all('/' in t for t in tutti), tutti)
     check('copia nella cartella di rete', os.path.isfile(
         os.path.join(_RETE, 'Officine Rossi S.r.l.', '4521', 'PZ-A100-00.dxf'))
         or (d.get('export_disegni') or {}).get('esportati') == 3, d.get('export_disegni'))

@@ -1214,19 +1214,54 @@ def api_ordine_disegni_zip(order_id):
         if not disegni:
             return jsonify({'success': False, 'codice': 'nessun_disegno',
                             'error': 'Quest\'ordine non ha disegni'}), 404
+        from .preventivi.dxf_cleanup import _sanitize_path_part
+        radice = _sanitize_path_part(
+            ' - '.join(x for x in (order.cliente or '', order.numero_ordine or order.id[:8]) if x), 'disegni')
+        try:
+            righe = _distinta_ordine(order)[0]
+        except Exception:
+            logger.warning('distinta per lo zip non letta', exc_info=True)
+            righe = []
+        voci = _struttura_zip(radice, os.path.join(DRAWINGS_FOLDER, order_id), disegni, righe)
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for d in disegni:
-                zf.write(d['percorso'], arcname=d['nome'])
+            for percorso, arcname in voci:
+                zf.write(percorso, arcname=arcname)
         buf.seek(0)
-        from werkzeug.utils import secure_filename
-        nome = secure_filename(f"disegni_{order.numero_ordine or order.id[:8]}.zip") \
-            or 'disegni.zip'
         return send_file(buf, mimetype='application/zip', as_attachment=True,
-                         download_name=nome)
+                         download_name=radice + '.zip')
     except Exception as e:
         logger.exception('zip disegni ordine fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _struttura_zip(radice: str, cartella_ordine: str, disegni: list, righe: list) -> list:
+    """[(percorso, nome nello zip)] dei disegni di un ordine, divisi per lamiera.
+
+    Ordini accettati col pulito per Lantek: la cartella LANTEK com'e' (puliti
+    per lamiera + _DA PREPARARE) e gli originali in _DISEGNI ORIGINALI.
+    Ordini di prima: gli originali divisi per lamiera secondo la distinta;
+    quelli senza materiale in "_SENZA MATERIALE"."""
+    voci = []
+    lantek = os.path.join(cartella_ordine, 'LANTEK')
+    if os.path.isdir(lantek):
+        for base, _dirs, files in os.walk(lantek):
+            for f in sorted(files):
+                p = os.path.join(base, f)
+                rel = os.path.relpath(p, lantek).replace(os.sep, '/')
+                voci.append((p, f'{radice}/{rel}'))
+        for d in disegni:
+            voci.append((d['percorso'], f"{radice}/{CARTELLA_ORIGINALI}/{d['nome']}"))
+        return voci
+    lamiera_di = {}
+    for r in righe or []:
+        nome = (r.get('disegno') or '').lower()
+        if nome and r.get('materiale'):
+            lamiera_di.setdefault(nome, _nome_lamiera(r.get('materiale'), r.get('spessore_mm')))
+    for d in disegni:
+        cartella = lamiera_di.get(d['nome'].lower(), '_SENZA MATERIALE')
+        voci.append((d['percorso'], f"{radice}/{cartella}/{d['nome']}"))
+    return voci
 
 
 _TEMPO_CACHE: dict = {}
@@ -5618,6 +5653,22 @@ def _cleanup_preventivo_files(preventivo_id):
         logger.warning('cleanup preventivo files failed for %s: %s', preventivo_id, exc)
 
 
+CARTELLA_DA_PREPARARE = '_DA PREPARARE'
+CARTELLA_ORIGINALI = '_DISEGNI ORIGINALI'
+
+
+def _nome_lamiera(materiale, spessore) -> str:
+    """Nome della cartella di una lamiera: "INOX 304 - 2 mm", "S235 - 1,5 mm"."""
+    from .preventivi.dxf_cleanup import _sanitize_path_part
+    m = (materiale or '').replace('_', ' ').strip().upper() or 'MATERIALE NON INDICATO'
+    try:
+        s = float(spessore)
+        sp = (f'{s:g}'.replace('.', ',') + ' mm') if s > 0 else 'SPESSORE NON INDICATO'
+    except (TypeError, ValueError):
+        sp = 'SPESSORE NON INDICATO'
+    return _sanitize_path_part(f'{m} - {sp}', 'lamiera')
+
+
 def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
     """Copia i DXF PULITI (o originali con warning) da preventivi_tmp/<pid>/
     in uploads/drawings/<order_id>/ per Mirko (nesting Lantek).
@@ -5701,12 +5752,19 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
                 pulito_path = os.path.join(src_dir, os.path.basename(pulito)) if pulito else None
                 cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
                 v = _dxc.prepara_pulito_lantek(src, pulito_path, a, cfg_l)
+                # divisi per lamiera (materiale + spessore): in Lantek si apre
+                # una cartella e si annida, niente smistamento a mano
+                lamiera = _nome_lamiera(a.get('materiale'), a.get('spessore_mm'))
                 if v.get('stato') == 'pronto':
-                    lantek_dir = os.path.join(dst_dir, 'LANTEK')
+                    lantek_dir = os.path.join(dst_dir, 'LANTEK', lamiera)
                     os.makedirs(lantek_dir, exist_ok=True)
                     shutil.copy2(v['path'], os.path.join(lantek_dir, dst_name))
                     stats['lantek_pronti'] += 1
                 else:
+                    # l'originale, nella stessa divisione, da preparare come prima
+                    da_prep = os.path.join(dst_dir, 'LANTEK', CARTELLA_DA_PREPARARE, lamiera)
+                    os.makedirs(da_prep, exist_ok=True)
+                    shutil.copy2(src, os.path.join(da_prep, dst_name))
                     stats['lantek_da_guardare'].append({'codice': codice, 'motivi': v.get('motivi') or []})
             except Exception as le:
                 logger.warning('pulito Lantek di %s non preparato: %s', codice, le)
@@ -6501,11 +6559,8 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str, numero_ordine: st
         for nome in os.listdir(sorgente):
             src = os.path.join(sorgente, nome)
             if os.path.isdir(src) and nome == 'LANTEK':
-                # i puliti pronti per il nesting, nella stessa sottocartella
-                os.makedirs(os.path.join(destinazione, nome), exist_ok=True)
-                for f in os.listdir(src):
-                    if os.path.isfile(os.path.join(src, f)):
-                        shutil.copy2(os.path.join(src, f), os.path.join(destinazione, nome, f))
+                # i puliti pronti per il nesting, divisi per lamiera
+                shutil.copytree(src, os.path.join(destinazione, nome), dirs_exist_ok=True)
                 continue
             if not os.path.isfile(src):
                 continue

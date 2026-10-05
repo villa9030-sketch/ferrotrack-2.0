@@ -385,8 +385,11 @@ def main():
     r = c.get('/api/orders/o-dis/disegni.zip')
     ok_zip = r.status_code == 200
     nomi_zip = sorted(zipfile.ZipFile(io.BytesIO(r.data)).namelist()) if ok_zip else []
-    check('zip di tutti i disegni', nomi_zip == ['12B100114-00.dxf', 'vecchio.dxf'],
-          (r.status_code, nomi_zip))
+    # zip "Cliente - Numero", disegni divisi per lamiera (qui senza distinta)
+    check('zip di tutti i disegni', [n.rsplit('/', 1)[-1] for n in nomi_zip] == ['12B100114-00.dxf', 'vecchio.dxf']
+          and all(n.startswith('Cliente Alfa - O-DIS/') for n in nomi_zip), (r.status_code, nomi_zip))
+    check('zip chiamato col cliente e il numero', 'Cliente Alfa - O-DIS.zip' in (r.headers.get('Content-Disposition') or ''),
+          r.headers.get('Content-Disposition'))
     r = c.get('/api/orders/o-nuovo/disegni')
     check('ordine senza disegni: elenco vuoto', r.status_code == 200
           and r.get_json()['disegni'] == [], r.get_json())

@@ -12337,9 +12337,9 @@ async function confermaAccetta() {
       const parts = [];
       if (tr.copied_cleaned) parts.push(`${tr.copied_cleaned} pulito${tr.copied_cleaned===1?'':'i'}`);
       if (tr.lantek_pronti != null) {
-        parts.push(`${tr.lantek_pronti} pronti per Lantek (cartella LANTEK)`);
+        parts.push(`${tr.lantek_pronti} pronti per Lantek (cartella LANTEK, divisi per lamiera)`);
         const dg = tr.lantek_da_guardare || [];
-        if (dg.length) parts.push(`${dg.length} da preparare in Lantek: ${dg.slice(0, 6).map(x => x.codice).join(', ')}${dg.length > 6 ? '…' : ''}`);
+        if (dg.length) parts.push(`${dg.length} da preparare in Lantek (LANTEK/_DA PREPARARE): ${dg.slice(0, 6).map(x => x.codice).join(', ')}${dg.length > 6 ? '…' : ''}`);
       } else if (tr.copied_original_fallback) parts.push(`${tr.copied_original_fallback} originale${tr.copied_original_fallback===1?'':'i'}`);
       if (tr.missing) parts.push(`⚠ ${tr.missing} mancanti`);
       dxfNote = ` · DXF officina: ${parts.join(', ')}`;
