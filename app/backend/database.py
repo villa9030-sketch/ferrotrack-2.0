@@ -361,6 +361,36 @@ class OrderManager:
             session.close()
 
     @staticmethod
+    def segna_importato(order_id: str, user_id: str = '', annulla: bool = False) -> dict:
+        """Il laserista ha importato i disegni dell'ordine in Lantek (o annulla)."""
+        session = get_session()
+        try:
+            order = session.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                return {'success': False, 'error': 'Ordine non trovato', 'codice': 'non_trovato'}
+            if annulla:
+                order.importato_lantek_il = None
+                order.importato_lantek_da = None
+            else:
+                order.importato_lantek_il = datetime.utcnow()
+                order.importato_lantek_da = user_id or None
+            session.commit()
+            try:
+                AuditManager.log(user_id=user_id, action='ORDINE_IMPORTATO_LANTEK' if not annulla else 'ORDINE_IMPORTATO_ANNULLATO',
+                                 entity_type='order', entity_id=order_id,
+                                 detail='importato in Lantek' if not annulla else 'di nuovo da importare')
+            except Exception:
+                pass
+            return {'success': True, 'order_id': order_id,
+                    'importato_lantek_il': iso_utc(order.importato_lantek_il)}
+        except Exception as e:
+            session.rollback()
+            logger.exception('segna_importato: %s', e)
+            return {'success': False, 'error': str(e)}
+        finally:
+            session.close()
+
+    @staticmethod
     def smista(order_id: str, va_tagliato: bool, user_id: str = '') -> dict:
         """Il laser decide se un ordine passa da lui.
 
@@ -902,6 +932,7 @@ class OrderManager:
                     'taglio_completato': bool(getattr(order, 'taglio_completato', False)),
                     'taglio_richiesto': getattr(order, 'taglio_richiesto', None),
                     'data_taglio_pianificata': iso_data(getattr(order, 'data_taglio_pianificata', None)),
+                    'importato_lantek_il': iso_utc(getattr(order, 'importato_lantek_il', None)),
                     'durata_laser_manuale_min': getattr(order, 'durata_laser_manuale_min', None),
                     'data_taglio_completato': iso_utc(getattr(order, 'data_taglio_completato', None)),
                     'taglio_completato_da': getattr(order, 'taglio_completato_da', None),

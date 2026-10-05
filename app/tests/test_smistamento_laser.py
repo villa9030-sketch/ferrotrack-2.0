@@ -136,10 +136,10 @@ with sync_playwright() as p:
                  if o.get('taglio_richiesto') is True and not o.get('taglio_completato')]
     check('l\'altro entra nella coda di taglio', len(accettati) >= 1, len(accettati))
 
-    pg.locator('#vt-scadenza').click()
+    pg.locator('#vt-importare').click()
     pg.wait_for_timeout(1500)
-    check('e si vede nella coda "Da tagliare"',
-          pg.locator('button.btn-taglio').count() > 0)
+    check('e si vede fra quelli "Da importare in Lantek"',
+          pg.locator('button.btn-importato').count() > 0)
     check('nella coda non ci sono piu\' i due pulsanti di smistamento',
           pg.locator('.riga-smista').count() == 0)
     check('nessun errore JavaScript in tutta la prova', not err, err[:1])

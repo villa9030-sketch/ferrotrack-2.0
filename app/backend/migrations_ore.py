@@ -60,7 +60,10 @@ _NUOVE_TABELLE_COLS = {
                # tagliarlo (vuoto = il giorno di consegna) e, per gli ordini
                # senza disegni, la durata stimata a mano.
                'data_taglio_pianificata': 'DATE',
-               'durata_laser_manuale_min': 'FLOAT'},
+               'durata_laser_manuale_min': 'FLOAT',
+               # Importato in Lantek (fase fra "da importare" e "tagliato")
+               'importato_lantek_il': 'DATETIME',
+               'importato_lantek_da': 'VARCHAR'},
 }
 
 # Con che valore nasce una colonna nuova sulle righe che c'erano gia'.

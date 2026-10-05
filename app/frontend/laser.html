@@ -22,6 +22,26 @@
 .lv { display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 41vw, 800px); height: calc(100vh - var(--ft-topbar-h)); }
 .lv-list { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .lv-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 18px 8px; }
+.lv-fasi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 14px 18px 2px; }
+.lv-fase { --c: var(--ft-ink-3); display: grid; gap: 2px; text-align: left; cursor: pointer; padding: 10px 14px 11px;
+  border: 1px solid var(--ft-line); border-top: 4px solid var(--c); border-radius: 12px; background: var(--ft-panel);
+  font: inherit; color: var(--ft-ink); transition: box-shadow .12s, background .12s; }
+.lv-fase:hover { background: var(--ft-hover); }
+.lv-fase.on { box-shadow: 0 0 0 2px var(--c); background: color-mix(in srgb, var(--c) 7%, var(--ft-panel)); }
+.lv-fase .lv-f-tit { font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--c); }
+.lv-fase .lv-f-num { display: flex; align-items: baseline; gap: 8px; }
+.lv-fase .lv-f-num b { font: 800 30px/1.05 var(--ft-display); }
+.lv-fase .lv-f-num span { font-size: 13.5px; color: var(--ft-ink-2); }
+.lv-fase .lv-f-sub { font-size: 12.5px; color: var(--ft-ink-3); min-height: 17px; }
+.lv-fase .lv-f-sub .err { color: var(--ft-err); font-weight: 700; }
+.lv-fase.zero { opacity: .62; }
+.lv.largo .lv-fasi { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lv.largo .lv-fase { padding: 8px 12px; }
+.lv.largo .lv-fase .lv-f-num b { font-size: 24px; }
+.lv-fase[data-k="smistare"] { --c: #B54708; }
+.lv-fase[data-k="importare"] { --c: #2563EB; }
+.lv-fase[data-k="importati"] { --c: #7C3AED; }
+.lv-fase[data-k="fatti"] { --c: #067647; }
 .lv-tabs { display: flex; padding: 3px; border-radius: 10px; background: var(--ft-line-2); }
 .lv-tabs button { display: flex; gap: 8px; align-items: baseline; border: 0; background: none; padding: 8px 14px; border-radius: 8px;
   font: 600 14.5px/1.2 var(--ft-font); color: var(--ft-ink-2); cursor: pointer; white-space: nowrap; }
@@ -535,8 +555,8 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
   <div class="lv">
     <!-- Lista dei lavori -->
     <section class="lv-list" aria-label="Lavori del laser">
+      <div class="lv-fasi" id="lv-tabs" role="tablist" aria-label="Fasi del laser"></div>
       <div class="lv-bar">
-        <div class="lv-tabs" id="lv-tabs" role="tablist" aria-label="Code del laser"></div>
         <div class="lv-gruppi" id="lv-gruppi">Raggruppa
           <button type="button" data-g="consegna" onclick="lvSetGruppo('consegna')">Consegna</button>
           <button type="button" data-g="lamiera" onclick="lvSetGruppo('lamiera')">Lamiera</button>
@@ -811,7 +831,7 @@ function updateConnBadge(ok) {
 let _lastOrdersFingerprint = '';
 function _ordersFingerprint(orders) {
   // Nell'impronta va TUTTO cio' che cambia quello che si vede.
-  return orders.map(o => [o.id, o.status, o.cliente, o.numero_ordine, o.numero_ordine_cliente, o.data_consegna,
+  return orders.map(o => [o.id, o.status, o.cliente, o.numero_ordine, o.numero_ordine_cliente, o.importato_lantek_il, o.data_consegna,
     o.taglio_completato ? 1 : 0, o.data_taglio_completato || '',
     o.taglio_richiesto == null ? '-' : (o.taglio_richiesto ? 1 : 0),
     nDisegni(o), o.pdf_file ? 1 : 0, o.cartella_etichetta || '',
@@ -881,12 +901,28 @@ let _lvTok = 0;
 let _chiusoAMano = false;
 let _saltatoSmistare = false;
 
-const LV_VISTE = { smistare: 'Da smistare', scadenza: 'Da tagliare', fatti: 'Tagliati oggi' };
+// Le fasi del laser: smistare → importare in Lantek → in Lantek, da tagliare → tagliato
+const LV_VISTE = { smistare: 'Da smistare', importare: 'Da importare', importati: 'In Lantek', fatti: 'Tagliati oggi' };
+const LV_PROSSIMO = { smistare: 'decidi se va tagliato', importare: 'da mettere in Lantek',
+                      importati: 'pronti da tagliare', fatti: 'si può annullare uno sbaglio' };
+function faseLaser(o) {
+  const st = statoLaser(o);
+  if (st === 'smistare') return 'smistare';
+  if (st === 'coda') return o.importato_lantek_il ? 'importati' : 'importare';
+  if (st === 'tagliato' && FT.giorniDa(o.data_taglio_completato) === 0) return 'fatti';
+  return null;
+}
+function ordiniFase(k) { return allOrders.filter(o => faseLaser(o) === k && !CHIUSI.includes(o.status)); }
 function switchLaserView(mode) {
-  if (mode === 'cliente') { lvGruppo = 'cliente'; mode = 'scadenza'; }
-  laserViewMode = LV_VISTE[mode] ? mode : 'scadenza';
+  if (mode === 'cliente') { lvGruppo = 'cliente'; mode = 'importare'; }
+  if (mode === 'scadenza') mode = 'importare';          // nome di prima ("Da tagliare")
+  laserViewMode = LV_VISTE[mode] ? mode : 'importare';
   _chiusoAMano = false;
+  // l'ordine aperto e' di un'altra fase: si apre il primo di questa
+  const aperto = ordineAperto();
+  if (aperto && vistaDi(aperto) !== laserViewMode) { selectedOrderId = null; _lvTok++; }
   renderCalendar();
+  if (!selectedOrderId && !lvOrdiniVista().length) renderWorkEmpty();
 }
 function lvSetGruppo(g) {
   lvGruppo = g;
@@ -898,16 +934,10 @@ function aggiornaConteggi() {
   const tab = document.getElementById('conta-lavoro');
   if (tab) { tab.textContent = (nS + nC) || ''; tab.classList.toggle('hot', nS > 0); }
 }
-function vistaDi(o) {
-  const st = statoLaser(o);
-  if (st === 'smistare') return 'smistare';
-  if (st === 'coda') return 'scadenza';
-  if (st === 'tagliato' && FT.giorniDa(o.data_taglio_completato) === 0) return 'fatti';
-  return null;
-}
+function vistaDi(o) { return faseLaser(o); }
 function lvOrdiniVista() {
   const l = laserViewMode === 'smistare' ? ordiniDaSmistare()
-    : laserViewMode === 'fatti' ? ordiniTagliatiOggi() : ordiniDaTagliare();
+    : laserViewMode === 'fatti' ? ordiniTagliatiOggi() : ordiniFase(laserViewMode);
   return l.filter(passaFiltro).sort(perConsegna);
 }
 function lvGruppoDi(o) {
@@ -940,8 +970,21 @@ function renderCalendar() {
   const head = document.getElementById('lv-tabs');
   if (!head) return;
   const nS = ordiniDaSmistare().length, nC = ordiniDaTagliare().length, nF = ordiniTagliatiOggi().length;
-  head.innerHTML = [['smistare', nS], ['scadenza', nC], ['fatti', nF]].map(([k, n]) =>
-    `<button type="button" id="vt-${k}" role="tab" aria-selected="${laserViewMode === k}" class="${laserViewMode === k ? 'on active' : ''}${k === 'smistare' && n ? ' urg' : ''}" onclick="switchLaserView('${k}')">${LV_VISTE[k]} <b id="conta-${k}">${n}</b></button>`).join('');
+  // quattro riquadri: quanti ordini, quante ore di laser, quanti in ritardo
+  const liste = { smistare: ordiniDaSmistare(), importare: ordiniFase('importare'), importati: ordiniFase('importati'), fatti: ordiniTagliatiOggi() };
+  head.innerHTML = Object.keys(LV_VISTE).map(k => {
+    const l = liste[k];
+    let m = 0, ign = 0;
+    for (const o of l) { const d = durataOrdine(o); if (d.min == null) ign++; else m += d.min; }
+    const rit = k === 'fatti' ? 0 : l.filter(o => (giorniAllaConsegna(o) ?? 1) < 0).length;
+    const sub = !l.length ? LV_PROSSIMO[k] : [k !== 'fatti' && m ? `${fmtOre(m)} di laser` + (ign ? ` +${ign}?` : '') : '',
+      rit ? `<span class="err">${rit} in ritardo</span>` : ''].filter(Boolean).join(' · ') || LV_PROSSIMO[k];
+    return `<button type="button" class="lv-fase${laserViewMode === k ? ' on active' : ''}${l.length ? '' : ' zero'}" data-k="${k}" id="vt-${k}"
+        role="tab" aria-selected="${laserViewMode === k}" onclick="switchLaserView('${k}')">
+      <span class="lv-f-tit">${LV_VISTE[k]}</span>
+      <span class="lv-f-num"><b id="conta-${k}">${l.length}</b><span>${l.length === 1 ? 'ordine' : 'ordini'}</span></span>
+      <span class="lv-f-sub">${sub}</span></button>`;
+  }).join('');
   document.querySelectorAll('#lv-gruppi button').forEach(b => b.classList.toggle('on', b.dataset.g === lvGruppo));
   const lista = lvOrdiniVista();
   // riassunto della vista
@@ -973,13 +1016,14 @@ function renderCalendar() {
   // nessuno schermo vuoto: si apre il primo (non dopo una chiusura a mano)
   if (!selectedOrderId && !_chiusoAMano && currentTab === 'lavoro') {
     if (lista.length) setTimeout(() => { if (!selectedOrderId) selectOrder(lista[0].id); }, 0);
-    else if (laserViewMode === 'smistare' && nC && !_saltatoSmistare) { _saltatoSmistare = true; setTimeout(() => switchLaserView('scadenza'), 0); }
+    else if (laserViewMode === 'smistare' && nC && !_saltatoSmistare) { _saltatoSmistare = true; setTimeout(() => switchLaserView(ordiniFase('importare').length ? 'importare' : 'importati'), 0); }
     else renderWorkEmpty();
   }
 }
 function lvVuoto() {
   const t = { smistare: ['inbox', 'Niente da smistare', 'Tutto quello che è arrivato ha già una destinazione.'],
-              scadenza: ['scissors', 'Coda vuota', 'Non c’è niente da tagliare.'],
+              importare: ['file-input', 'Niente da importare', 'Tutto quello che va tagliato è già in Lantek.'],
+              importati: ['scissors', 'Niente in Lantek da tagliare', 'Quando segni “Importato” l’ordine compare qui.'],
               fatti: ['circle-check', 'Nessun taglio oggi', 'Quando segni “Taglio fatto” l’ordine compare qui.'] }[laserViewMode];
   return `<div class="ft-empty" style="padding:48px 20px;"><div class="ft-empty-icon"><i data-lucide="${t[0]}"></i></div><b>${t[1]}</b>${filtroTesto ? '<p>Nessun ordine corrisponde alla ricerca.</p>' : `<p>${t[2]}</p>`}</div>`;
 }
@@ -998,6 +1042,7 @@ function lvRiga(o) {
   let az = '';
   if (st === 'smistare') az = `<button class="ft-btn sm btn-no" onclick="event.stopPropagation(); smista('${o.id}', false)" title="Non passa dal laser: subito lavorabile in officina">No</button>
       <button class="ft-btn sm primary btn-si" onclick="event.stopPropagation(); smista('${o.id}', true)" title="Va tagliato"><i data-lucide="scissors"></i><span class="lv-bt"> Va tagliato</span></button>`;
+  else if (st === 'coda' && !o.importato_lantek_il) az = `<button class="ft-btn sm primary btn-importato" onclick="event.stopPropagation(); segnaImportato('${o.id}')" title="I disegni sono in Lantek"><i data-lucide="file-input"></i><span class="lv-bt"> Importato</span></button>`;
   else if (st === 'coda') az = `<button class="ft-btn sm btn-taglio" onclick="event.stopPropagation(); markLaserDone('${o.id}')" title="Taglio fatto"><i data-lucide="check"></i><span class="lv-bt"> Taglio fatto</span></button>`;
   else if (st === 'tagliato') az = `<button class="ft-btn sm ghost" onclick="event.stopPropagation(); undoLaserDone('${o.id}')" title="Annulla il taglio"><i data-lucide="undo-2"></i><span class="lv-bt"> Annulla</span></button>`;
   return `<tr class="lv-r${st === 'smistare' ? ' riga-smista' : ''}${selectedOrderId === o.id ? ' sel' : ''}${late ? ' late' : ''}" data-id="${o.id}" onclick="selectOrder('${o.id}')" tabindex="0"
@@ -1067,7 +1112,9 @@ function renderWorkHead(o) {
   let az = '';
   if (st === 'smistare') az = `<button class="ft-btn lg" onclick="smista('${o.id}', false)" title="Salta il laser: subito lavorabile in officina">Non passa da qui</button>
       <button class="ft-btn lg primary" onclick="smista('${o.id}', true)"><i data-lucide="scissors"></i> Va tagliato</button>`;
-  else if (st === 'coda') az = `<button class="ft-btn lg" onclick="annullaSmistamento('${o.id}')" title="Rimettilo fra quelli da smistare">Rimetti da smistare</button>
+  else if (st === 'coda' && !o.importato_lantek_il) az = `<button class="ft-btn lg" onclick="annullaSmistamento('${o.id}')" title="Rimettilo fra quelli da smistare">Rimetti da smistare</button>
+      <button class="ft-btn lg primary" onclick="segnaImportato('${o.id}')" title="I disegni sono in Lantek"><i data-lucide="file-input"></i> Importato in Lantek</button>`;
+  else if (st === 'coda') az = `<button class="ft-btn lg" onclick="segnaImportato('${o.id}', true)" title="Torna fra quelli da importare">Non ancora importato</button>
       <button class="ft-btn lg primary" onclick="markLaserDone('${o.id}')"><i data-lucide="check"></i> Taglio fatto</button>`;
   else if (st === 'tagliato') az = `<button class="ft-btn lg" onclick="undoLaserDone('${o.id}')"><i data-lucide="undo-2"></i> Annulla taglio</button>`;
   else if (st === 'escluso') az = `<button class="ft-btn lg" onclick="annullaSmistamento('${o.id}')"><i data-lucide="undo-2"></i> Rimetti da smistare</button>`;
@@ -1075,7 +1122,7 @@ function renderWorkHead(o) {
   const mobile = st === 'coda' || st === 'smistare';
   h.innerHTML = `<div class="lv-dh-top">
       <div class="lv-dh-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2>
-        <div><span class="ft-mono">#${esc(numeroOrdine(o))}</span>${numeroInterno(o) ? `<span class="ft-mono" style="font-size:12px;color:var(--ft-ink-4)" title="Numero del preventivo">${esc(numeroInterno(o))}</span>` : ''}<span class="ft-chip">${esc(origine)}</span><span class="ft-status ${STATI[st].cls}">${STATI[st].testo}</span></div></div>
+        <div><span class="ft-mono">#${esc(numeroOrdine(o))}</span>${numeroInterno(o) ? `<span class="ft-mono" style="font-size:12px;color:var(--ft-ink-4)" title="Numero del preventivo">${esc(numeroInterno(o))}</span>` : ''}<span class="ft-chip">${esc(origine)}</span><span class="ft-status ${STATI[st].cls}">${st === 'coda' ? LV_VISTE[faseLaser(o)] : STATI[st].testo}</span></div></div>
       <div class="lv-dh-act">${az}<button class="ft-icon-btn" onclick="deselectOrder()" title="Chiudi" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
     </div>
     <div class="lv-facts">
@@ -1271,6 +1318,19 @@ document.addEventListener('keydown', e => {
     if (dis[j]) lvMostra('disegno', dis[j].nome);
   }
 });
+
+/** I disegni dell'ordine sono in Lantek (o, annulla, non ancora). */
+async function segnaImportato(id, annulla) {
+  const dopo = annulla ? null : lvProssimo(id);
+  let d;
+  try { d = await _post(`${API_URL}/api/orders/${id}/importato`, { user_id: utente().id, annulla: !!annulla }); }
+  catch (e) { FT.toast('Server non raggiungibile', 'err'); return; }
+  if (!d.success) { FT.toast('Non riuscito: ' + (d.error || 'errore del server'), 'err'); return; }
+  FT.toast(annulla ? 'Di nuovo da importare' : 'In Lantek: ora è fra quelli da tagliare', 'ok',
+    annulla ? null : { testo: 'Annulla', fn: () => segnaImportato(id, true) });
+  await loadOrders(true);
+  if (!annulla) lvAvanti(id, dopo);
+}
 
 /** Dopo "Taglio fatto" o uno smistamento si passa da solo al prossimo della lista. */
 function lvProssimo(id) {

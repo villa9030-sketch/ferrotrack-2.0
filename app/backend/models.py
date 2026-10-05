@@ -128,6 +128,10 @@ class Order(Base):
     # giorno di consegna) e durata stimata a mano per gli ordini senza disegni.
     data_taglio_pianificata = Column(Date, nullable=True)
     durata_laser_manuale_min = Column(Float, nullable=True)
+    # Il laserista ha importato i disegni in Lantek (nesting fatto): tra
+    # "da importare" e "tagliato". Vuoto = ancora da importare.
+    importato_lantek_il = Column(DateTime, nullable=True)
+    importato_lantek_da = Column(String, nullable=True)
 
     taglio_completato = Column(Boolean, default=False)
     data_taglio_completato = Column(DateTime, nullable=True)

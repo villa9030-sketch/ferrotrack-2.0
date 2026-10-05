@@ -670,6 +670,22 @@ def smista_ordine(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/orders/<order_id>/importato', methods=['POST'])
+def segna_importato_lantek(order_id):
+    """Il laser segna che i disegni dell'ordine sono in Lantek.
+    Corpo: {user_id, annulla?: true}."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user = UserManager.get_user((data.get('user_id') or '').strip()) if data.get('user_id') else None
+        if not user or not user.get('is_active', True) or not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
+            return jsonify({'success': False, 'error': 'Solo la postazione laser o un capo'}), 403
+        r = OrderManager.segna_importato(order_id, user_id=user['id'], annulla=bool(data.get('annulla')))
+        return jsonify(r), (200 if r.get('success') else (404 if r.get('codice') == 'non_trovato' else 400))
+    except Exception as e:
+        logger.exception('importato endpoint fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/pianifica-taglio', methods=['POST'])
 def pianifica_taglio(order_id):
     """Calendario del laser. Corpo: {user_id, data?: 'AAAA-MM-GG' | null,
