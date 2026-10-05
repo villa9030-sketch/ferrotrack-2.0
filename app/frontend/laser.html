@@ -97,6 +97,13 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lv-date { height: 32px; border: 1px solid var(--ft-line); border-radius: 8px; padding: 0 8px; font: 600 15px var(--ft-font); color: var(--ft-ink); }
 .lv-mano { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: var(--ft-warn-bg); font-size: 14px; }
 .lv-mano .ft-input.sm { width: 90px; height: 32px; }
+.lz-work.pdf .lv-prev { flex: 1 1 auto; border-bottom: 0; }
+.lz-work.pdf .lv-pezzi { display: none; }
+.lv.largo { grid-template-columns: clamp(380px, 27vw, 560px) minmax(0, 1fr); }
+.lv.largo .lv-col-lam, .lv.largo .lv-col-pz, .lv.largo .lv-col-day, .lv.largo .lv-bt, .lv.largo .lv-oggi, .lv.largo .lv-gruppi { display: none; }
+.lv.largo .lv-bar .ft-search { width: 100%; margin-left: 0; }
+.lv.largo .lv-cli { max-width: 180px; }
+.lv-prev-nav .ft-btn.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
 .lv-prev { flex: 0 0 47%; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--ft-line); }
 .lv-prev-bar { display: flex; align-items: center; gap: 10px; padding: 7px 14px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line-2); }
 .lv-prev-bar .ft-seg { flex-wrap: nowrap; }
@@ -467,7 +474,7 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
   .lv-facts { gap: 6px 20px; }
   .lv-facts b { font-size: 16px; }
 }
-@media (max-height: 820px) { .lv-prev { flex-basis: 40%; } tr.lv-r td { height: 48px; } }
+@media (max-height: 820px) { .lz-work:not(.pdf) .lv-prev { flex-basis: 40%; } tr.lv-r td { height: 48px; } }
 @media (max-width: 1280px) { .lv-col-pz { display: none; } .lv-bar .ft-search { width: 200px; } }
 .lz-fs-btn.on { background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
 </style>
@@ -544,7 +551,7 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
       <div class="lv-sum"><span id="lv-sum" style="display:contents"></span><div class="lv-oggi" id="lv-oggi"></div></div>
       <div class="lv-table">
         <table>
-          <thead><tr><th>Consegna</th><th>Cliente</th><th>Lamiere</th><th class="r lv-col-pz">Pezzi</th><th class="r">Laser</th>
+          <thead><tr><th>Consegna</th><th>Cliente</th><th class="lv-col-lam">Lamiere</th><th class="r lv-col-pz">Pezzi</th><th class="r">Laser</th>
             <th class="lv-col-day">Taglio</th><th></th></tr></thead>
           <tbody id="lv-rows"></tbody>
         </table>
@@ -854,6 +861,19 @@ async function loadOrders(forzato) {
 // un'azione: smistare, segnare il taglio, guardare il disegno.
 let lvGruppo = (() => { try { return localStorage.getItem('lv_gruppo') || 'consegna'; } catch (_) { return 'consegna'; } })();
 let lvPrev = null;          // {tipo: 'disegno'|'pdf', nome}
+const lvPref = (k, v) => { try { return localStorage.getItem(k) ?? v; } catch (_) { return v; } };
+let lvTipoPref = lvPref('lv_prev', 'pdf');     // il PDF dell'ordine e' cio' che serve per Lantek
+let lvLargo = lvPref('lv_largo', '1') === '1';
+function lvScegli(tipo) {
+  lvTipoPref = tipo;
+  try { localStorage.setItem('lv_prev', tipo); } catch (_) {}
+  lvMostra(tipo, tipo === 'disegno' && lvPrev ? lvPrev.nome : null);
+}
+function lvAllarga() {
+  lvLargo = !lvLargo;
+  try { localStorage.setItem('lv_largo', lvLargo ? '1' : '0'); } catch (_) {}
+  lvMostra('pdf');
+}
 let _lvTok = 0;
 let _chiusoAMano = false;
 let _saltatoSmistare = false;
@@ -981,7 +1001,7 @@ function lvRiga(o) {
       onkeydown="if (event.key === 'Enter') selectOrder('${o.id}')">
     <td><div class="lv-due${late ? ' late' : g != null && g <= 2 ? ' soon' : ''}">${cons ? FT.fmtDataBreve(cons) : '—'}<small>${due}</small></div></td>
     <td class="lv-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><span class="ft-mono">#${esc(numeroOrdine(o))}</span></td>
-    <td><div class="lv-chips">${lam}</div></td>
+    <td class="lv-col-lam"><div class="lv-chips">${lam}</div></td>
     <td class="r lv-n lv-col-pz">${d.pezzi ?? '—'}</td>
     <td class="r lv-n${d.min == null ? ' ign' : ''}" title="${esc(d.nota || '')}">${st === 'escluso' ? '' : fmtOre(d.min)}</td>
     <td class="lv-day lv-col-day">${taglio}</td>
@@ -1011,6 +1031,8 @@ function deselectOrder() {
   selectedOrderId = null;
   _lvTok++;
   document.querySelectorAll('.lv-r.sel').forEach(r => r.classList.remove('sel'));
+  document.querySelector('.lv').classList.remove('largo');
+  document.getElementById('lz-work').classList.remove('pdf');
   renderWorkEmpty();
 }
 function clearDetails() { deselectOrder(); }
@@ -1102,7 +1124,7 @@ async function lvCaricaDettaglio(o) {
         }).join('');
     }).join('');
   }
-  lvMostra(lvPrev ? lvPrev.tipo : (haPdf(o) && (!righe.length || !daPreventivo(o)) ? 'pdf' : 'disegno'), lvPrev && lvPrev.nome);
+  lvMostra(lvPrev ? lvPrev.tipo : (haPdf(o) && (lvTipoPref === 'pdf' || !righe.length) ? 'pdf' : 'disegno'), lvPrev && lvPrev.nome);
 }
 
 /** Disegno (della riga cliccata) o PDF dell'ordine, in grande. */
@@ -1120,16 +1142,29 @@ function lvMostra(tipo, nome) {
   lvPrev = { tipo, nome: d ? d.nome : null };
   const seg = document.getElementById('lv-prev-seg');
   if (!seg) return;
-  seg.innerHTML = `<button type="button" class="${tipo === 'disegno' ? 'on' : ''}" ${dis.length ? '' : 'disabled'} onclick="lvMostra('disegno', lvPrev && lvPrev.nome)"><i data-lucide="drafting-compass"></i> Disegno${dis.length ? ` <b>${dis.length}</b>` : ''}</button>
-    <button type="button" class="${tipo === 'pdf' ? 'on' : ''}" ${haPdf(o) ? '' : 'disabled'} onclick="lvMostra('pdf')"><i data-lucide="file-text"></i> PDF ordine</button>`;
+  seg.innerHTML = `<button type="button" class="${tipo === 'disegno' ? 'on' : ''}" ${dis.length ? '' : 'disabled'} onclick="lvScegli('disegno')"><i data-lucide="drafting-compass"></i> Disegno${dis.length ? ` <b>${dis.length}</b>` : ''}</button>
+    <button type="button" class="${tipo === 'pdf' ? 'on' : ''}" ${haPdf(o) ? '' : 'disabled'} onclick="lvScegli('pdf')"><i data-lucide="file-text"></i> PDF ordine</button>`;
+  // PDF: tutta l'altezza (e, se allargato, quasi tutto lo schermo)
+  const pdf = tipo === 'pdf';
+  document.getElementById('lz-work').classList.toggle('pdf', pdf);
+  const lv = document.querySelector('.lv');
+  const largo = pdf && lvLargo;
+  if (lv.classList.contains('largo') !== largo) {
+    lv.classList.toggle('largo', largo);
+    const r = document.querySelector('.lv-r.sel');
+    if (r) r.scrollIntoView({ block: 'nearest' });
+  }
   const body = document.getElementById('lv-prev-body');
   const nome_ = document.getElementById('lv-prev-name');
   const nav = document.getElementById('lv-prev-nav');
   document.querySelectorAll('.lv-pz').forEach(p => p.classList.toggle('sel', !!d && p.dataset.dis === normaNome(d.nome)));
   if (tipo === 'pdf') {
-    body.innerHTML = `<iframe id="pdf-frame" title="PDF dell'ordine" src="${API_URL}/api/orders/${o.id}/pdf#toolbar=0&navpanes=0&view=FitH"></iframe>`;
+    // con la barra del lettore: zoom e pagine servono per leggere le quantita'
+    body.innerHTML = `<iframe id="pdf-frame" title="PDF dell'ordine" src="${API_URL}/api/orders/${o.id}/pdf#navpanes=0&view=FitH"></iframe>`;
     nome_.textContent = 'PDF dell’ordine';
-    nav.innerHTML = `<button class="ft-btn sm" onclick="stampaOrdine()"><i data-lucide="printer"></i> Stampa</button>
+    nav.innerHTML = `<button class="ft-btn sm${lvLargo ? ' on' : ''}" id="lv-allarga" onclick="lvAllarga()" title="${lvLargo ? 'Torna alla lista larga' : 'PDF su quasi tutto lo schermo'}">
+        <i data-lucide="${lvLargo ? 'minimize-2' : 'maximize-2'}"></i> ${lvLargo ? 'Restringi' : 'Allarga'}</button>
+      <button class="ft-btn sm" onclick="stampaOrdine()"><i data-lucide="printer"></i> Stampa</button>
       <button class="ft-icon-btn outlined" onclick="apriPdfScheda()" title="Apri in una scheda"><i data-lucide="external-link"></i></button>`;
   } else if (d) {
     const i = dis.indexOf(d);
