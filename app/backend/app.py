@@ -6702,9 +6702,15 @@ def api_laser_cartella_disegni():
         percorso = str(data.get('percorso') or '').strip().strip('"')
         if request.method == 'PUT':
             user = UserManager.get_user(data.get('user_id') or '') if data.get('user_id') else None
-            if not user or not user.get('is_active', True) or not (
-                    user.get('role') in RUOLI_LASER or user.get('is_capo') or user.get('role') in _PREV_WRITE_ROLES):
-                return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+            # tutti tranne gli operai d'officina (prima: solo laser/capo/commerciale,
+            # e l'utente personale di Stefano veniva rifiutato)
+            from .models import RUOLI_OPERAI
+            if not user:
+                return jsonify({'success': False, 'error': 'Utente non riconosciuto: esci e rientra, poi riprova'}), 403
+            if not user.get('is_active', True) or not (
+                    user.get('is_capo') or user.get('role') in RUOLI_LASER
+                    or user.get('role') not in RUOLI_OPERAI):
+                return jsonify({'success': False, 'error': 'Permesso negato: l'utente con cui sei entrato non puo' cambiare le impostazioni'}), 403
         if percorso and not (os.path.isabs(percorso) or percorso.startswith('\\\\')):
             return jsonify({'success': False, 'error': 'Serve un percorso completo, es. C:\\Commesse'}), 400
         if request.method == 'POST' or percorso:
