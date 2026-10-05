@@ -754,6 +754,16 @@ class OrderManager:
             for ps in all_sessions:
                 step_sessions.setdefault(ps.step_id, []).append(ps)
 
+            # Numero dell'ordine del CLIENTE (es. 1252) per gli ordini nati da
+            # un preventivo: il loro numero_ordine e' quello interno (PREV-...)
+            prev_ids = {o.preventivo_id_origine for o in orders if o.preventivo_id_origine}
+            numero_cliente_di = {}
+            if prev_ids:
+                for pid_, num_ in session.query(Preventivo.id, Preventivo.numero_ordine_cliente).filter(
+                        Preventivo.id.in_(prev_ids)).all():
+                    if (num_ or '').strip():
+                        numero_cliente_di[pid_] = num_.strip()
+
             # Pre-carica tutti gli utenti (evita N+1 queries)
             all_users = session.query(User).all()
             name_to_id = {u.name: u.id for u in all_users}
@@ -875,6 +885,7 @@ class OrderManager:
                     'prezzo_quotato': order.prezzo_quotato,
                     'origine': order.origine or 'PDF',
                     'preventivo_id_origine': order.preventivo_id_origine,
+                    'numero_ordine_cliente': numero_cliente_di.get(order.preventivo_id_origine),
                     'pdf_file': pdf_file,
                     'dxf_files': dxf_files,
                     'note': order.note,

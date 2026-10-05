@@ -725,7 +725,10 @@ const STATI = {
   tagliato: { testo: 'Tagliato', cls: 'ok' },
   escluso: { testo: 'Non passa dal laser', cls: '' },
 };
-function numeroOrdine(o) { return o.numero_ordine || o.id.substring(0, 8); }
+// Il numero che conosce l'officina e' quello dell'ordine del CLIENTE (1252);
+// quello interno del preventivo (PREV-2026-0005) resta in piccolo nella scheda.
+function numeroOrdine(o) { return o.numero_ordine_cliente || o.numero_ordine || o.id.substring(0, 8); }
+function numeroInterno(o) { return o.numero_ordine_cliente && o.numero_ordine && o.numero_ordine !== o.numero_ordine_cliente ? o.numero_ordine : ''; }
 function nDisegni(o) { return (o.dxf_files || []).length; }
 function haPdf(o) { return !!o.pdf_file; }
 function daPreventivo(o) { return o.origine === 'PREVENTIVO' || !!o.preventivo_id_origine; }
@@ -746,7 +749,7 @@ function perConsegna(a, b) {
 }
 function passaFiltro(o) {
   if (!filtroTesto) return true;
-  return ((o.cliente || '') + ' ' + (o.numero_ordine || '')).toLowerCase().includes(filtroTesto);
+  return ((o.cliente || '') + ' ' + (o.numero_ordine || '') + ' ' + (o.numero_ordine_cliente || '')).toLowerCase().includes(filtroTesto);
 }
 
 // ═══ Sessione ═══════════════════════════════════════════════════════
@@ -808,7 +811,7 @@ function updateConnBadge(ok) {
 let _lastOrdersFingerprint = '';
 function _ordersFingerprint(orders) {
   // Nell'impronta va TUTTO cio' che cambia quello che si vede.
-  return orders.map(o => [o.id, o.status, o.cliente, o.numero_ordine, o.data_consegna,
+  return orders.map(o => [o.id, o.status, o.cliente, o.numero_ordine, o.numero_ordine_cliente, o.data_consegna,
     o.taglio_completato ? 1 : 0, o.data_taglio_completato || '',
     o.taglio_richiesto == null ? '-' : (o.taglio_richiesto ? 1 : 0),
     nDisegni(o), o.pdf_file ? 1 : 0, o.cartella_etichetta || '',
@@ -1072,7 +1075,7 @@ function renderWorkHead(o) {
   const mobile = st === 'coda' || st === 'smistare';
   h.innerHTML = `<div class="lv-dh-top">
       <div class="lv-dh-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2>
-        <div><span class="ft-mono">#${esc(numeroOrdine(o))}</span><span class="ft-chip">${esc(origine)}</span><span class="ft-status ${STATI[st].cls}">${STATI[st].testo}</span></div></div>
+        <div><span class="ft-mono">#${esc(numeroOrdine(o))}</span>${numeroInterno(o) ? `<span class="ft-mono" style="font-size:12px;color:var(--ft-ink-4)" title="Numero del preventivo">${esc(numeroInterno(o))}</span>` : ''}<span class="ft-chip">${esc(origine)}</span><span class="ft-status ${STATI[st].cls}">${STATI[st].testo}</span></div></div>
       <div class="lv-dh-act">${az}<button class="ft-icon-btn" onclick="deselectOrder()" title="Chiudi" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
     </div>
     <div class="lv-facts">

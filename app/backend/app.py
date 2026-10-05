@@ -1571,10 +1571,12 @@ def api_laser_banco():
                     Order.data_taglio_completato >= dal).all()
             gruppi, senza = {}, []
             for o in ordini:
-                info = {'ordine_id': o.id, 'numero_ordine': o.numero_ordine or '',
+                righe, origine, _prev = _distinta_ordine(o)
+                # il numero che conosce l'officina: quello dell'ordine del cliente
+                num_cli = ((_prev or {}).get('numero_ordine_cliente') or '').strip()
+                info = {'ordine_id': o.id, 'numero_ordine': num_cli or o.numero_ordine or '',
                         'cliente': o.cliente or '', 'stato_taglio': stato_taglio(o),
                         'data_consegna': iso_data(o.data_consegna)}
-                righe, origine, _prev = _distinta_ordine(o)
                 lamiere = [r for r in righe if r.get('tipo') in ('lamiera', 'piastra')]
                 if not lamiere:
                     senza.append({**info, 'motivo': 'solo PDF, nessuna distinta'
