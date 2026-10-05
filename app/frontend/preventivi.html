@@ -7913,8 +7913,8 @@ async function wbChiediOrdine(aMano) {
   const ov = document.createElement('div');
   ov.className = 'modal-overlay active'; ov.style.zIndex = 3000;
   ov.innerHTML = `<div class="modal app-confirm-box">
-    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="file-text"></i></div><h3>C'è l'ordine del cliente?</h3></div>
-    <div class="app-confirm-msg">Allega il PDF dell'ordine: leggo codici e quantità (sul server, senza AI), metto i pezzi nell'ordine delle righe e lo passo all'ordine del laser quando il preventivo è accettato.</div>
+    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="file-text"></i></div><h3>ORDINE DEL CLIENTE · c'è il PDF?</h3></div>
+    <div class="app-confirm-msg">È il foglio d'<b>ordine</b> che ti ha mandato il cliente (non i disegni). Leggo codici e quantità (sul server, senza AI), metto i pezzi nell'ordine delle righe e lo passo all'ordine del laser quando il preventivo è accettato.</div>
     <div class="wb-ord-cand">${cand.map((p, i) => `<button class="btn-secondary" data-i="${i}"><i data-lucide="file-check"></i> È questo: ${escapeHtml(p.originale)}</button>`).join('')}</div>
     <div class="app-confirm-actions">
       <button class="btn-secondary" data-no>Non ora</button>
@@ -7975,6 +7975,7 @@ async function wbLeggiOrdine(src) {
     return;
   }
   const msg = [
+    `Letto dal tuo ORDINE ${d.file || ''}: quanti pezzi ordina il cliente.\n`,
     `Trovati nell'ordine: ${nOk} ${nOk === 1 ? 'pezzo' : 'pezzi'} su ${currentArticoli.length}`
       + (nAss ? ` e ${nAss} ${nAss === 1 ? 'assieme' : 'assiemi'}` : '') + (d.numero_ordine ? ` (ordine ${d.numero_ordine}${d.data_ordine ? ' del ' + d.data_ordine : ''})` : '') + '.',
     cambi.length ? `\nQuantità da cambiare (${cambi.length}):\n` + cambi.slice(0, 10).map(p => `• ${nome(p)}: ${p.a.quantita || 1} → ${p.q}`).join('\n') + (cambi.length > 10 ? `\n• … e altri ${cambi.length - 10}` : '') : '\nLe quantità coincidono già.',
@@ -7985,7 +7986,7 @@ async function wbLeggiOrdine(src) {
     comp.length ? `\nComponenti di assiemi dell'ordine (quantità dalla distinta): ${comp.length}` : '',
     fuori.length ? `\nNon presenti nell'ordine: ${elenco(fuori)}` : '',
   ].filter(Boolean).join('\n');
-  if (!await appConfirm(msg, { title: 'Ordine del cliente', okLabel: 'Applica', cancelLabel: 'Solo allega' })) {
+  if (!await appConfirm(msg, { title: 'ORDINE DEL CLIENTE · quantità ordinate', okLabel: 'Applica le quantità', cancelLabel: 'Solo allega' })) {
     wbSnack(`Ordine allegato (${d.file}): passerà all'ordine del laser`);
     return;
   }
@@ -8121,13 +8122,14 @@ async function wbApplicaDistinte(codici, opts) {
   const kgTubi = tubi.reduce((s, t) => s + t.peso_kg, 0);
   const eurTubi = tubi.reduce((s, t) => s + t.costo_materiale + t.costo_taglio_totale, 0);
   const msg = [
+    'Letto dai DISEGNI D\'ASSIEME (non dal tuo ordine): quanti pezzi servono per fare UN assieme.\n',
     ...cambiQty.map(([a, q]) => `• ${a.codice || a.dxf_filename}: ${a.quantita || 1} → ${q} per assieme`),
     ...righe,
     tubi.length ? `\nTubi: ${kgTubi.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kg × ${_eur(T.kg)}/kg + tagli (${_eur(T.dritto)} dritto, ${_eur(T.obliquo)} obliquo) = ${_eur(eurTubi)}.`
       + `\nIl taglio laser tubo fatto fuori lo scrivi sulla riga ("lavorazione esterna").` : '',
     `\nSaldatura e montaggio restano da inserire a mano.`,
   ].filter(Boolean).join('\n');
-  if (!await appConfirm(msg, { title: 'Distinta dal PDF d\'assieme', okLabel: 'Applica', cancelLabel: 'Non ora' })) return false;
+  if (!await appConfirm(msg, { title: 'ASSIEMI · componenti per ogni assieme', okLabel: 'Applica agli assiemi', cancelLabel: 'Non ora' })) return false;
   for (const [a, q, c] of cambiQty) { a.quantita = q; a.codice_assieme = c; }
   // rilettura: le righe tubo della distinta si rifanno, la lavorazione esterna scritta resta
   const vecchi = currentTubolari.filter(t => t.origine === 'distinta' && tubi.some(n => n.codice_assieme === t.codice_assieme && n.distinta === t.distinta));
