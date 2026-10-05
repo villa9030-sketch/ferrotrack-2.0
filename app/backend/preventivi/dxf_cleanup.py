@@ -909,8 +909,10 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
             except Exception:
                 pass
         try:
-            c.dxf.color = 256
-            c.dxf.linetype = 'BYLAYER'
+            # colore SCRITTO sull'entita' (non "da layer"): Lantek non leggeva
+            # i layer, e molti CAM vedono BYLAYER come colore 0
+            c.dxf.color = dict(_LAYER_LANTEK).get(layer, 7)
+            c.dxf.linetype = 'Continuous'
             c.dxf.lineweight = -1
         except Exception:
             pass
