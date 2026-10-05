@@ -1174,7 +1174,9 @@ function lvMostra(tipo, nome) {
     nav.innerHTML = `${dis.length > 1 ? `<button class="ft-icon-btn outlined" ${i ? '' : 'disabled'} onclick="lvMostra('disegno', ${esc(JSON.stringify((dis[i - 1] || {}).nome || ''))})" title="Precedente"><i data-lucide="chevron-left"></i></button>
       <button class="ft-icon-btn outlined" ${i < dis.length - 1 ? '' : 'disabled'} onclick="lvMostra('disegno', ${esc(JSON.stringify((dis[i + 1] || {}).nome || ''))})" title="Successivo"><i data-lucide="chevron-right"></i></button>` : ''}
       <a class="ft-icon-btn outlined" href="${esc(d.url_dxf)}" download title="Scarica il DXF"><i data-lucide="download"></i></a>
-      ${g.dati.url_zip && dis.length > 1 ? `<a class="ft-btn sm" href="${esc(g.dati.url_zip)}" download><i data-lucide="archive"></i> Tutti (ZIP)</a>` : ''}`;
+      <button class="ft-btn sm primary" onclick="creaCartella('${o.id}')" title="Crea la cartella dell'ordine (divisa per lamiera) nella cartella dei disegni per Lantek"><i data-lucide="folder-output"></i> Crea cartella</button>
+      ${g.dati.url_zip ? `<a class="ft-btn sm" href="${esc(g.dati.url_zip)}" download title="Scarica tutto in un file zip"><i data-lucide="archive"></i> ZIP</a>` : ''}
+      <button class="ft-icon-btn outlined" onclick="apriCartellaDisegni()" title="Dove creare le cartelle dei disegni" aria-label="Dove creare le cartelle"><i data-lucide="settings-2"></i></button>`;
     const sel = document.querySelector('.lv-pz.sel');
     if (sel) sel.scrollIntoView({ block: 'nearest' });
   } else {
@@ -1185,6 +1187,73 @@ function lvMostra(tipo, nome) {
 }
 /** Dalla distinta (o da una notifica) al disegno. */
 async function apriDisegnoPerNome(nome) { lvMostra('disegno', nome); }
+
+// ── Cartella dei disegni per Lantek ─────────────────────────────────
+// <cartella>\<CLIENTE>\<numero ordine>\<lamiera>\... sul PC server.
+async function creaCartella(id) {
+  let d;
+  try { d = await _post(`${API_URL}/api/orders/${id}/crea-cartella`, { user_id: utente().id }); }
+  catch (e) { FT.toast('Server non raggiungibile', 'err'); return; }
+  if (d.codice === 'non_impostata') {
+    FT.toast('Prima scegli dove creare le cartelle', 'warn');
+    if (await apriCartellaDisegni()) creaCartella(id);
+    return;
+  }
+  if (!d.success) { FT.toast('Cartella non creata: ' + (d.error || 'errore'), 'err', null, 8000); return; }
+  FT.toast(`Cartella pronta: ${d.percorso} (${d.esportati} file)`, 'ok',
+    { testo: 'Copia percorso', fn: () => { try { navigator.clipboard.writeText(d.percorso); FT.toast('Percorso copiato: incollalo in Lantek', 'ok'); } catch (_) {} } }, 10000);
+}
+/** Impostazione: dove creare le cartelle. Risolve true se salvata. */
+async function apriCartellaDisegni() {
+  let attuale = '';
+  try { attuale = (await (await fetch(`${API_URL}/api/laser/cartella-disegni`)).json()).percorso || ''; } catch (_) {}
+  return new Promise(risolvi => {
+    const bg = document.createElement('div');
+    bg.className = 'ft-modal-bg open';
+    bg.innerHTML = `<div class="ft-modal" role="dialog" aria-modal="true" style="max-width:560px;">
+      <div class="ft-modal-head"><div><h3 class="ft-modal-title">Cartella dei disegni per Lantek</h3>
+        <p class="ft-modal-sub">Sul PC server. Dentro si crea una cartella per cliente e, dentro, una per ogni ordine, divisa per lamiera.</p></div></div>
+      <div style="padding:4px 22px 6px;display:grid;gap:10px;">
+        <label class="ft-field"><span>Percorso</span>
+          <input class="ft-input" id="cd-percorso" placeholder="es. C:\\Commesse" value="${esc(attuale)}" autocomplete="off"></label>
+        <div style="font:13px/1.5 var(--ft-mono);background:var(--ft-line-2);border-radius:8px;padding:10px 12px;color:var(--ft-ink-2);">
+          <span id="cd-esempio">${esc(attuale || 'C:\\Commesse')}</span>\\DECA\\1252\\<br>
+          &nbsp;&nbsp;INOX 304 - 2 mm\\ · S235 - 10 mm\\ · …<br>&nbsp;&nbsp;_DA PREPARARE\\ · _DISEGNI ORIGINALI\\</div>
+        <div id="cd-esito" style="font-size:13px;min-height:18px;"></div>
+      </div>
+      <div class="ft-modal-foot"><button class="ft-btn" data-v="prova"><i data-lucide="check-check"></i> Prova</button>
+        <span style="flex:1"></span><button class="ft-btn" data-v="0">Annulla</button><button class="ft-btn primary" data-v="1">Salva</button></div>
+    </div>`;
+    document.body.appendChild(bg);
+    FT.icone();
+    const inp = bg.querySelector('#cd-percorso');
+    const esito = bg.querySelector('#cd-esito');
+    inp.oninput = () => { bg.querySelector('#cd-esempio').textContent = inp.value.trim() || 'C:\\Commesse'; esito.textContent = ''; };
+    setTimeout(() => inp.focus(), 50);
+    const chiudi = v => { bg.remove(); risolvi(v); };
+    const invia = async metodo => {
+      const r = await fetch(`${API_URL}/api/laser/cartella-disegni`, { method: metodo, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: utente().id, percorso: inp.value.trim() }) });
+      return r.json();
+    };
+    bg.addEventListener('click', async e => {
+      if (e.target === bg) return chiudi(false);
+      const b = e.target.closest('button[data-v]');
+      if (!b) return;
+      if (b.dataset.v === '0') return chiudi(false);
+      if (!inp.value.trim() && b.dataset.v === 'prova') { esito.innerHTML = '<span style="color:var(--ft-warn)">Scrivi un percorso</span>'; return; }
+      b.disabled = true;
+      try {
+        const d = await invia(b.dataset.v === 'prova' ? 'POST' : 'PUT');
+        if (!d.success) { esito.innerHTML = `<span style="color:var(--ft-err)">${esc(d.error || 'errore')}</span>`; return; }
+        if (b.dataset.v === 'prova') { esito.innerHTML = `<span style="color:var(--ft-ok)">✓ Il server può scrivere in ${esc(d.percorso)}</span>`; return; }
+        FT.toast(d.percorso ? 'Cartella dei disegni: ' + d.percorso : 'Cartella dei disegni disattivata', 'ok');
+        chiudi(!!d.percorso);
+      } catch (_) { esito.innerHTML = '<span style="color:var(--ft-err)">Server non raggiungibile</span>'; }
+      finally { b.disabled = false; }
+    });
+  });
+}
 // tasti: frecce per i disegni, Invio/T per "Taglio fatto"
 document.addEventListener('keydown', e => {
   if (currentTab !== 'lavoro' || document.querySelector('.ft-modal-bg.open') || /INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) return;

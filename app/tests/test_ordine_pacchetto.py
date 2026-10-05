@@ -389,9 +389,13 @@ def main():
                    for b, _d, fs in os.walk(lan) for f in fs) if os.path.isdir(lan) else []
     check('cartella LANTEK: ogni pezzo una volta, dentro una cartella per lamiera',
           len(tutti) == 3 and all('/' in t for t in tutti), tutti)
-    check('copia nella cartella di rete', os.path.isfile(
-        os.path.join(_RETE, 'Officine Rossi S.r.l.', '4521', 'PZ-A100-00.dxf'))
-        or (d.get('export_disegni') or {}).get('esportati') == 3, d.get('export_disegni'))
+    # cartella master: <cliente>\<numero>\ divisa per lamiera + originali
+    ex = d.get('export_disegni') or {}
+    albero = [os.path.relpath(os.path.join(b, f), ex.get('percorso') or _RETE).replace(os.sep, '/')
+              for b, _d, fs in os.walk(ex.get('percorso') or _RETE) for f in fs]
+    check('copia nella cartella di rete, divisa per lamiera',
+          (ex.get('percorso') or '').endswith('4521') and len([x for x in albero if x.startswith('_DISEGNI ORIGINALI/')]) == 3
+          and len([x for x in albero if not x.startswith('_DISEGNI ORIGINALI/')]) == 3, (ex, albero))
     check('file temporanei puliti',
           not os.path.exists(os.path.join(A.UPLOAD_FOLDER, 'preventivi_tmp', pid)) and not d.get('avviso'))
     dis = c.get(f'/api/orders/{oid}/distinta').get_json()

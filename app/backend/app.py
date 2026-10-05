@@ -1108,8 +1108,7 @@ def _cartella_condivisa(order) -> dict:
             _sanitize_path_part(order.cliente or '', 'cliente_sconosciuto'),
             _sanitize_path_part(_numero_per_cartelle(order), 'ordine')))
         out['percorso'] = percorso
-        out['esportato'] = os.path.isdir(percorso) and any(
-            os.path.isfile(os.path.join(percorso, n)) for n in os.listdir(percorso))
+        out['esportato'] = os.path.isdir(percorso) and any(f for _b, _d, f in os.walk(percorso))
     except Exception:
         logger.exception('stato cartella condivisa non determinabile')
     return out
@@ -5580,7 +5579,9 @@ def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
         # Best-effort: se fallisce, non blocca la response ma include l'info nel payload.
         export_info = {'exported': False, 'path': None, 'error': None}
         try:
-            export_root = (app_cfg.get('disegni_export_root') or '').strip()
+            # Disattivata: la cartella master riceve solo gli ORDINI (accettazione o
+            # "Crea cartella"), non i pezzi dei preventivi mentre si puliscono.
+            export_root = ''
             if export_root:
                 prev = PreventivoManager.get(preventivo_id, include_children=False)
                 if prev:
@@ -6615,46 +6616,112 @@ def _cartella_disegni_ordine(order) -> str:
         return ''
 
 
-def _esporta_disegni_per_officina(order_id: str, cliente: str, numero_ordine: str) -> dict:
-    """Copia i disegni dell'ordine nella cartella di rete, con nome leggibile.
+def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordine: str = '') -> dict:
+    """Crea la cartella dell'ordine dentro la cartella "master" delle Impostazioni:
 
-    Serve perche' l'operatore apre quella cartella in Lantek: `uploads/drawings/
-    <uuid>` non e' un posto dove uno va a cercare.
-    """
+        <cartella>\<CLIENTE>\<numero ordine del cliente>\
+            <lamiera>\...          puliti pronti per Lantek (INOX 304 - 2 mm, ...)
+            _DA PREPARARE\<lamiera>\...   originali da sistemare a mano
+            _DISEGNI ORIGINALI\...        per confronto
+
+    La stessa struttura dello zip (stesso disegno una volta sola). Si rifa'
+    quando si vuole: i file si sovrascrivono, niente si cancella.
+    cliente/numero_ordine: ripiego se l'ordine non si trova."""
     esito = {'esportati': 0, 'percorso': None, 'error': None}
     root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
     if not root:
-        esito['error'] = 'cartella di rete non configurata'
+        esito['error'] = 'cartella dei disegni non impostata'
         return esito
     sorgente = os.path.join(DRAWINGS_FOLDER, order_id)
-    if not os.path.isdir(sorgente):
+    order = _ordine_esistente(order_id)
+    disegni = _disegni_ordine(order) if order else []
+    if not disegni:
         esito['error'] = 'nessun disegno da esportare'
         return esito
     try:
         import shutil
         from .preventivi.dxf_cleanup import _sanitize_path_part
+        cliente = (order.cliente if order else '') or cliente
+        numero = (_numero_per_cartelle(order) if order else '') or numero_ordine or order_id[:8]
         destinazione = os.path.join(root,
                                     _sanitize_path_part(cliente, 'cliente_sconosciuto'),
-                                    _sanitize_path_part(numero_ordine or order_id[:8], 'ordine'))
-        os.makedirs(destinazione, exist_ok=True)
+                                    _sanitize_path_part(numero, 'ordine'))
+        try:
+            righe = _distinta_ordine(order)[0] if order else []
+        except Exception:
+            righe = []
         n = 0
-        for nome in os.listdir(sorgente):
-            src = os.path.join(sorgente, nome)
-            if os.path.isdir(src) and nome == 'LANTEK':
-                # i puliti pronti per il nesting, divisi per lamiera
-                shutil.copytree(src, os.path.join(destinazione, nome), dirs_exist_ok=True)
-                continue
-            if not os.path.isfile(src):
-                continue
-            shutil.copy2(src, os.path.join(destinazione, nome))
+        for percorso, arc in _struttura_zip('X', sorgente, disegni, righe):
+            rel = arc.split('/', 1)[1]
+            dst = os.path.join(destinazione, *rel.split('/'))
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(percorso, dst)
             n += 1
         esito['esportati'] = n
-        esito['percorso'] = destinazione
+        esito['percorso'] = os.path.normpath(destinazione)
         logger.info('Disegni ordine %s esportati in %s (%d file)', order_id, destinazione, n)
     except Exception as e:
         esito['error'] = str(e)
         logger.exception('export disegni in cartella di rete fallito')
     return esito
+
+
+@app.route('/api/orders/<order_id>/crea-cartella', methods=['POST'])
+def api_ordine_crea_cartella(order_id):
+    """Bottone "Crea cartella" della pagina laser: la cartella dell'ordine nella
+    cartella master (anche per gli ordini accettati prima)."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user = UserManager.get_user(data.get('user_id') or '') if data.get('user_id') else None
+        if not user or not user.get('is_active', True):
+            return jsonify({'success': False, 'error': 'Utente non riconosciuto'}), 403
+        if not _ordine_esistente(order_id):
+            return _non_trovato_ordine()
+        e = _esporta_disegni_per_officina(order_id)
+        if e.get('error'):
+            codice = 'non_impostata' if 'non impostata' in e['error'] else 'errore'
+            return jsonify({'success': False, 'codice': codice, 'error': e['error']}), 400
+        return jsonify({'success': True, 'percorso': e['percorso'], 'esportati': e['esportati']}), 200
+    except Exception as e:
+        logger.exception('crea-cartella fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/laser/cartella-disegni', methods=['GET', 'PUT', 'POST'])
+def api_laser_cartella_disegni():
+    """Cartella "master" dei disegni per Lantek (sul PC server).
+    GET: {percorso}. PUT {user_id, percorso}: la salva (vuota = disattiva).
+    POST {percorso}: prova; la crea se manca e ci scrive un file di prova."""
+    try:
+        if request.method == 'GET':
+            return jsonify({'success': True, 'percorso':
+                            ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '')}), 200
+        data = request.get_json(silent=True) or {}
+        percorso = str(data.get('percorso') or '').strip().strip('"')
+        if request.method == 'PUT':
+            user = UserManager.get_user(data.get('user_id') or '') if data.get('user_id') else None
+            if not user or not user.get('is_active', True) or not (
+                    user.get('role') in RUOLI_LASER or user.get('is_capo') or user.get('role') in _PREV_WRITE_ROLES):
+                return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        if percorso and not (os.path.isabs(percorso) or percorso.startswith('\\\\')):
+            return jsonify({'success': False, 'error': 'Serve un percorso completo, es. C:\\Commesse'}), 400
+        if request.method == 'POST' or percorso:
+            # prova di scrittura (anche prima di salvare)
+            try:
+                os.makedirs(percorso, exist_ok=True)
+                prova = os.path.join(percorso, '.ferrotrack_prova')
+                with open(prova, 'w', encoding='utf-8') as fp:
+                    fp.write('ok')
+                os.remove(prova)
+            except OSError as oe:
+                return jsonify({'success': False, 'error': f'Il server non riesce a scrivere in {percorso}: {oe.strerror or oe}'}), 400
+            if request.method == 'POST':
+                return jsonify({'success': True, 'percorso': os.path.normpath(percorso)}), 200
+        BarcodeManager.save_config({'disegni_export_root': os.path.normpath(percorso) if percorso else ''})
+        return jsonify({'success': True, 'percorso': os.path.normpath(percorso) if percorso else ''}), 200
+    except Exception as e:
+        logger.exception('cartella-disegni fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 def _nome_disegno_libero(cartella: str, nome: str) -> str:

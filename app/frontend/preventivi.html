@@ -4051,10 +4051,10 @@ body { font-size: var(--fs-m); }
           <label>Cartella disegni per il laser</label>
           <input type="text" id="cfg-disegni-export-root" placeholder='es. C:\Disegni  oppure  \\server\condivisa\disegni'>
           <div style="font-size:11px;color:var(--text-3);margin-top:4px;">
-            Ogni volta che pulisci un pezzo (click "Modifica pezzo" → click sul pezzo), il DXF pulito viene copiato automaticamente in:
-            <br><code style="font-size:11px; color:var(--text-2);">&lt;cartella&gt;\&lt;nome-cliente&gt;\&lt;numero-ordine&gt;\&lt;codice-pezzo&gt;.dxf</code>
-            <br>Se il campo "Numero ordine cliente" è vuoto, viene usato <code>PREV-2026-XXXXXXXX</code> come fallback.
-            <br><b>Lascia vuoto per disabilitare l'export automatico.</b>
+            Cartella "master" sul PC server. Quando un preventivo viene accettato (o col bottone "Crea cartella" della pagina laser) vi si crea:
+            <br><code style="font-size:11px; color:var(--text-2);">&lt;cartella&gt;\&lt;CLIENTE&gt;\&lt;numero ordine del cliente&gt;\&lt;lamiera&gt;\&lt;codice&gt;.dxf</code>
+            <br>con le cartelle per lamiera (es. "INOX 304 - 2 mm"), <code>_DA PREPARARE</code> e <code>_DISEGNI ORIGINALI</code>.
+            <br><b>Lascia vuoto per non creare cartelle.</b>
           </div>
         </div>
       </div>
