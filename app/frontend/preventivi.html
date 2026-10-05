@@ -12298,7 +12298,11 @@ async function confermaAccetta() {
   })();
   const totalePezzo = T.totale_pezzo, conMargine = T.totale_pezzo_con_margine, totaleLotto = T.totale_lotto;
 
-  document.getElementById('btn-conferma-accetta').disabled = true;
+  const _btnAcc = document.getElementById('btn-conferma-accetta');
+  _btnAcc.disabled = true;
+  // creare l'ordine prepara anche i file per Lantek: qualche secondo
+  _btnAcc.dataset.testo = _btnAcc.textContent;
+  _btnAcc.innerHTML = '<span class="cad-spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:-2px;margin-right:6px;"></span>Creo l’ordine e preparo i file per Lantek…';
   try {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/accetta`, {
       method: 'POST',
@@ -12332,18 +12336,24 @@ async function confermaAccetta() {
     if (tr.copied_cleaned || tr.copied_original_fallback || tr.missing) {
       const parts = [];
       if (tr.copied_cleaned) parts.push(`${tr.copied_cleaned} pulito${tr.copied_cleaned===1?'':'i'}`);
-      if (tr.copied_original_fallback) parts.push(`${tr.copied_original_fallback} originale${tr.copied_original_fallback===1?'':'i'} (Mirko pulirà in Lantek)`);
+      if (tr.lantek_pronti != null) {
+        parts.push(`${tr.lantek_pronti} pronti per Lantek (cartella LANTEK)`);
+        const dg = tr.lantek_da_guardare || [];
+        if (dg.length) parts.push(`${dg.length} da preparare in Lantek: ${dg.slice(0, 6).map(x => x.codice).join(', ')}${dg.length > 6 ? '…' : ''}`);
+      } else if (tr.copied_original_fallback) parts.push(`${tr.copied_original_fallback} originale${tr.copied_original_fallback===1?'':'i'}`);
       if (tr.missing) parts.push(`⚠ ${tr.missing} mancanti`);
       dxfNote = ` · DXF officina: ${parts.join(', ')}`;
     }
     showMsg('msg-workflow',
       `✓ Ordine ${d.numero_ordine} creato. Cartellino aperto: STAMPALO per l'officina.${dxfNote}`,
-      tr.copied_original_fallback || tr.missing ? 'var(--orange)' : 'var(--green)');
+      (tr.lantek_da_guardare || []).length || tr.missing ? 'var(--orange)' : 'var(--green)');
   } catch (e) {
     if (cartWin) cartWin.close();
     showMsg('msg-accetta', 'Errore: ' + e.message, 'var(--red)');
   } finally {
     document.getElementById('btn-conferma-accetta').disabled = false;
+    const _b = document.getElementById('btn-conferma-accetta');
+    if (_b.dataset.testo) _b.textContent = _b.dataset.testo;
   }
 }
 

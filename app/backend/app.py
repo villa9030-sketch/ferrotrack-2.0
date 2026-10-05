@@ -5638,6 +5638,8 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
         'warnings': [],
         'articoli_da_pulire_manualmente': [],  # nomi articoli senza pulito
         'drawings_dir': None,
+        'lantek_pronti': 0,           # puliti messi in <ordine>/LANTEK
+        'lantek_da_guardare': [],     # [{codice, motivi}] da preparare in Lantek
         'file_hashes': [],  # {filename, sha256, cleaned} — impronte file produzione
     }
 
@@ -5689,6 +5691,26 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
             except Exception as e:
                 logger.warning('copy dxf %s -> %s failed: %s', src, dst, e)
                 stats['warnings'].append(f'{codice}: copy fallita ({e})')
+                continue
+            # Accanto all'originale, in LANTEK/, il pulito pronto per il nesting
+            # (TAGLIO/PIEGA/MARCATURA in mm) con lo stesso nome. Solo se passa la
+            # verifica: gli altri si preparano in Lantek come prima.
+            try:
+                from .preventivi import dxf_cleanup as _dxc
+                pulito = a.get('cleaned_dxf_filename')
+                pulito_path = os.path.join(src_dir, os.path.basename(pulito)) if pulito else None
+                cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+                v = _dxc.prepara_pulito_lantek(src, pulito_path, a, cfg_l)
+                if v.get('stato') == 'pronto':
+                    lantek_dir = os.path.join(dst_dir, 'LANTEK')
+                    os.makedirs(lantek_dir, exist_ok=True)
+                    shutil.copy2(v['path'], os.path.join(lantek_dir, dst_name))
+                    stats['lantek_pronti'] += 1
+                else:
+                    stats['lantek_da_guardare'].append({'codice': codice, 'motivi': v.get('motivi') or []})
+            except Exception as le:
+                logger.warning('pulito Lantek di %s non preparato: %s', codice, le)
+                stats['lantek_da_guardare'].append({'codice': codice, 'motivi': [str(le)]})
         return stats
     except Exception as e:
         logger.exception('_copy_cleaned_dxf_to_drawings failed')
@@ -6478,6 +6500,13 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str, numero_ordine: st
         n = 0
         for nome in os.listdir(sorgente):
             src = os.path.join(sorgente, nome)
+            if os.path.isdir(src) and nome == 'LANTEK':
+                # i puliti pronti per il nesting, nella stessa sottocartella
+                os.makedirs(os.path.join(destinazione, nome), exist_ok=True)
+                for f in os.listdir(src):
+                    if os.path.isfile(os.path.join(src, f)):
+                        shutil.copy2(os.path.join(src, f), os.path.join(destinazione, nome, f))
+                continue
             if not os.path.isfile(src):
                 continue
             shutil.copy2(src, os.path.join(destinazione, nome))

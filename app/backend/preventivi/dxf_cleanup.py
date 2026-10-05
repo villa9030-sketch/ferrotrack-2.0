@@ -1126,6 +1126,102 @@ def converti_pulito_in_lantek(source_path: str, cleaned_path: str,
     return r
 
 
+def verifica_lantek(cleaned_path: str, articolo: dict | None = None) -> dict:
+    """Il pulito puo' andare a Lantek cosi' com'e'?
+
+    'pronto' se: formato Lantek; sul TAGLIO un solo contorno esterno con i fori
+    dentro (niente altre viste); ingombro e area uguali a quelli del pezzo
+    preventivato (area saltata se e' uno sviluppo stimato a mano).
+    Altrimenti 'da_guardare' coi motivi: lo prepara Stefano in Lantek.
+
+    Returns: {'stato': 'pronto'|'da_guardare', 'motivi': [str]}"""
+    a = articolo or {}
+    motivi = []
+    info = leggi_dxf_pulito(cleaned_path)
+    if info.get('errore'):
+        return {'stato': 'da_guardare', 'motivi': [info['errore']]}
+    if not info.get('lantek'):
+        return {'stato': 'da_guardare', 'motivi': ['pulito nel vecchio formato']}
+    try:
+        from .dxf_polygon_detector_v3 import _poligoni_documento, _contiene, _prep_buf
+        doc = ezdxf.readfile(cleaned_path)
+        polys = sorted(_poligoni_documento(doc, {})['polys'], key=lambda p: -p.area)
+    except Exception as e:
+        return {'stato': 'da_guardare', 'motivi': [f'pulito non leggibile: {e}']}
+    if not polys:
+        return {'stato': 'da_guardare', 'motivi': ['nessun contorno chiuso sul taglio']}
+    outer = polys[0]
+    pp = _prep_buf(outer)
+    fuori = [p for p in polys[1:] if not _contiene(outer, p, pp)]
+    if fuori:
+        motivi.append(f'{len(fuori)} contorni fuori dal pezzo')
+    x1, y1, x2, y2 = outer.bounds
+    try:
+        rw, rh = float(a.get('bbox_w_mm') or 0), float(a.get('bbox_h_mm') or 0)
+    except (TypeError, ValueError):
+        rw = rh = 0.0
+    if rw > 0 and rh > 0 and not _misure_coincidono((x2 - x1, y2 - y1), (rw, rh), 1.0, 0.01, ruotato=True):
+        motivi.append(f'ingombro {x2 - x1:.0f}×{y2 - y1:.0f} mm diverso dal pezzo {rw:.0f}×{rh:.0f} mm')
+    try:
+        area = float(a.get('area_dm2') or 0)
+    except (TypeError, ValueError):
+        area = 0.0
+    if area > 0 and not a.get('area_stimata_piega'):
+        netta = (outer.area - sum(p.area for p in polys[1:] if p not in fuori)) / 1e4
+        if abs(netta / area - 1) > 0.03:
+            motivi.append(f'area {netta:.3f} dm² diversa dal preventivo {area:.3f} dm²')
+    return {'stato': 'da_guardare' if motivi else 'pronto', 'motivi': motivi}
+
+
+def prepara_pulito_lantek(original_path: str, cleaned_path: str | None, articolo: dict,
+                          config: dict | None = None) -> dict:
+    """All'accettazione: porta il pulito del pezzo nel formato Lantek se e'
+    ancora nel vecchio (automatico: rigenerato dall'originale; a mano:
+    convertito) e lo verifica. Non tocca l'originale.
+
+    Returns: {'stato', 'motivi', 'path'}"""
+    if (not cleaned_path or not os.path.exists(cleaned_path)) and original_path and os.path.exists(original_path):
+        # confermato a mano nel CAD prima del formato Lantek: il contorno e'
+        # nel "_canonico" (spezzate in mm), le entita' vere nell'originale
+        can = articolo.get('canonical_dxf_filename')
+        can_path = os.path.join(os.path.dirname(original_path), os.path.basename(can)) if can else None
+        if can_path and os.path.exists(can_path):
+            try:
+                cd = ezdxf.readfile(can_path)
+                outer = [[(p[0], p[1]) for p in e.get_points('xy')] for e in cd.modelspace()
+                         if e.dxftype() == 'LWPOLYLINE' and e.dxf.layer == 'PEZZO']
+                holes = [[(p[0], p[1]) for p in e.get_points('xy')] for e in cd.modelspace()
+                         if e.dxftype() == 'LWPOLYLINE' and e.dxf.layer == 'FORI']
+                if outer:
+                    base_p, ext_p = os.path.splitext(original_path)
+                    nuovo = base_p + '_cleaned' + ext_p
+                    if pulito_da_contorno(original_path, nuovo, outer[0], holes, config).get('success'):
+                        cleaned_path = nuovo
+            except Exception as e:
+                logger.info('pulito dal canonico non creato: %s', e)
+    if not cleaned_path or not os.path.exists(cleaned_path):
+        return {'stato': 'da_guardare', 'motivi': ['nessun pulito: pezzo da preparare in Lantek'], 'path': None}
+    if not leggi_dxf_pulito(cleaned_path).get('lantek') and original_path and os.path.exists(original_path):
+        stato = (articolo.get('cleaned_status') or '').lower()
+        fatto = False
+        if stato != 'manual':
+            tmp = cleaned_path + '.nuovo.dxf'
+            r = rigenera_pulito_auto(original_path, tmp, config)
+            if r.get('success'):
+                os.replace(tmp, cleaned_path)
+                _CACHE_VERIFICA.pop(cleaned_path, None)
+                fatto = True
+            elif os.path.exists(tmp):
+                os.remove(tmp)
+        if not fatto:
+            # a mano, o automatico che oggi il riconoscimento non rifa' da solo:
+            # la selezione e' quella del pulito vecchio
+            converti_pulito_in_lantek(original_path, cleaned_path, config)
+    v = verifica_lantek(cleaned_path, articolo)
+    v['path'] = cleaned_path
+    return v
+
+
 def save_cleaned_dxf_pezzo(
     source_path: str,
     cleaned_path: str,

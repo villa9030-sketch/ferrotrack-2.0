@@ -387,6 +387,26 @@ def main():
                                                     c9b['bbox_mm_mm'][3] - c9b['bbox_mm_mm'][1]), (30, 92), 0.1), c9b.get('bbox_mm_mm'))
     check('gia\' Lantek: non si riconverte', not C.converti_pulito_in_lantek(p8, out9, CFG).get('success'))
 
+    print('\nP10) Verifica finale per Lantek')
+    if cp8:
+        area8 = g8['area_dm2']
+        v = C.verifica_lantek(cp8, {'bbox_w_mm': 120, 'bbox_h_mm': 80, 'area_dm2': area8})
+        check('pezzo giusto → pronto', v['stato'] == 'pronto', v)
+        v = C.verifica_lantek(cp8, {'bbox_w_mm': 80, 'bbox_h_mm': 120, 'area_dm2': area8})
+        check('ruotato di 90° → pronto', v['stato'] == 'pronto', v)
+        v = C.verifica_lantek(cp8, {'bbox_w_mm': 150, 'bbox_h_mm': 80, 'area_dm2': area8})
+        check('ingombro diverso → da guardare', v['stato'] == 'da_guardare' and 'ingombro' in v['motivi'][0], v)
+        v = C.verifica_lantek(cp8, {'bbox_w_mm': 120, 'bbox_h_mm': 80, 'area_dm2': area8 * 1.2})
+        check('area diversa → da guardare', v['stato'] == 'da_guardare', v)
+        v = C.verifica_lantek(cp8, {'bbox_w_mm': 120, 'bbox_h_mm': 80, 'area_dm2': area8 * 1.2, 'area_stimata_piega': True})
+        check('sviluppo stimato a mano: area non confrontata', v['stato'] == 'pronto', v)
+    v = C.prepara_pulito_lantek(p8, None, {})
+    check('senza pulito → da preparare in Lantek', v['stato'] == 'da_guardare', v)
+    vecchio = os.path.join(TMP, 'p10_vecchio_cleaned.dxf')
+    C.save_cleaned_dxf(p8, vecchio, (55, 55, 185, 145))
+    v = C.prepara_pulito_lantek(p8, vecchio, {'cleaned_status': 'manual', 'bbox_w_mm': 120, 'bbox_h_mm': 80})
+    check('pulito vecchio a mano → convertito e pronto', v['stato'] == 'pronto' and C.leggi_dxf_pulito(vecchio).get('lantek'), v)
+
     print('\nP7) should_cleanup: rapporto area pezzo/foglio in pollici')
     ok, motivo = C.should_cleanup({'confidence': 0.9, 'area_dm2': 1.0,
                                    'dxf_bbox_mm': [0, 0, 11.7, 8.3], 'scala_unita_mm': 25.4})
