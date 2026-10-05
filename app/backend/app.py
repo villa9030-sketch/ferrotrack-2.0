@@ -6619,7 +6619,7 @@ def _cartella_disegni_ordine(order) -> str:
 
 
 def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordine: str = '') -> dict:
-    """Crea la cartella dell'ordine dentro la cartella "master" delle Impostazioni:
+    r"""Crea la cartella dell'ordine dentro la cartella "master" delle Impostazioni:
 
         <cartella>\<CLIENTE>\<numero ordine del cliente>\
             <lamiera>\...          puliti pronti per Lantek (INOX 304 - 2 mm, ...)
@@ -6710,7 +6710,7 @@ def api_laser_cartella_disegni():
             if not user.get('is_active', True) or not (
                     user.get('is_capo') or user.get('role') in RUOLI_LASER
                     or user.get('role') not in RUOLI_OPERAI):
-                return jsonify({'success': False, 'error': 'Permesso negato: l'utente con cui sei entrato non puo' cambiare le impostazioni'}), 403
+                return jsonify({'success': False, 'error': "Permesso negato: l'utente con cui sei entrato non puo' cambiare le impostazioni"}), 403
         if percorso and not (os.path.isabs(percorso) or percorso.startswith('\\\\')):
             return jsonify({'success': False, 'error': 'Serve un percorso completo, es. C:\\Commesse'}), 400
         if request.method == 'POST' or percorso:
