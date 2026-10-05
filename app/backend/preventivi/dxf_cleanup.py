@@ -871,7 +871,10 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     centri_fori = []
     for f in fori:
         c = f.centroid
-        centri_fori.append((c.x, c.y, max(0.05, 0.02 * (f.bounds[2] - f.bounds[0]))))
+        fw, fh = f.bounds[2] - f.bounds[0], f.bounds[3] - f.bounds[1]
+        # raggio solo per i fori tondi (le asole non hanno un centro unico)
+        r_eq = (f.area / 3.141592653589793) ** 0.5 if fh > 0 and abs(fw / fh - 1) < 0.02 else None
+        centri_fori.append((c.x, c.y, max(0.05, 0.02 * fw), r_eq))
     dist = FLATTEN_DISTANCE_MM / (scala or 1.0)
 
     dst = _nuovo_documento(src)
@@ -936,6 +939,16 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
             col = None
         piega_dichiarata = _layer_piega(layer) or col in colori_piega
         escluso = _layer_da_escludere(layer)
+        if et in ('ARC', 'CIRCLE'):
+            try:
+                ex, ey, er = e.dxf.center.x * scala, e.dxf.center.y * scala, e.dxf.radius * scala
+                for cx, cy, t, r_eq in centri_fori:
+                    if (r_eq and abs(ex - cx) <= t and abs(ey - cy) <= t
+                            and abs(er - r_eq) > max(0.05, 0.02 * r_eq)):
+                        result['n_simboli_tolti'] += 1   # concentrico ma non e' il foro: filetto, svasatura
+                        return
+            except Exception:
+                pass
         su_taglio = not piega_dichiarata and not escluso and sul_contorno.contains(ls)
         if not su_taglio and not parte and et in ('LWPOLYLINE', 'POLYLINE'):
             # polilinea che segue in parte il contorno e in parte una piega
@@ -961,7 +974,7 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
                 return                        # assi dei fori
             elif et in ('ARC', 'CIRCLE') and any(
                     abs(e.dxf.center.x * scala - cx) <= t and abs(e.dxf.center.y * scala - cy) <= t
-                    for cx, cy, t in centri_fori):
+                    for cx, cy, t, _r in centri_fori):
                 result['n_simboli_tolti'] += 1    # filettatura / svasatura attorno a un foro
                 return
             elif piega_dichiarata or (et == 'LINE' and ls.length > 2 * tol_bordo
@@ -1032,6 +1045,85 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     _CACHE_VERIFICA.pop(cleaned_path, None)
     result['success'] = True
     return result
+
+
+def pulito_da_contorno(source_path: str, cleaned_path: str, outer_xy: list,
+                       holes_xy: list, config: dict | None = None) -> dict:
+    """Pulito per Lantek dal contorno confermato a mano nel CAD (punti in mm,
+    come li da' pick_part). Prima la conferma lasciava solo un "_canonico" a
+    spezzate (fori a poligono, nome per posizione nell'elenco): qui si copiano
+    le entita' vere del disegno, come nel pulito automatico."""
+    try:
+        from shapely.geometry import Polygon
+        from .dxf_polygon_detector_v3 import scala_unita_mm
+        src = ezdxf.readfile(source_path)
+        outer = Polygon([(float(p[0]), float(p[1])) for p in outer_xy]).buffer(0)
+        fori = []
+        for h in holes_xy or []:
+            if h and len(h) >= 3:
+                fp = Polygon([(float(p[0]), float(p[1])) for p in h]).buffer(0)
+                if not fp.is_empty and fp.geom_type == 'Polygon':
+                    fori.append(fp)
+        if outer.is_empty or outer.geom_type != 'Polygon':
+            return {'success': False, 'error': 'contorno non valido'}
+        scala = float(scala_unita_mm(src)[0] or 1.0)
+    except Exception as e:
+        return {'success': False, 'error': f'DXF o contorno non leggibile: {e}'}
+    x1, y1, x2, y2 = outer.bounds
+    return scrivi_pulito_lantek(src, outer, fori, scala, cleaned_path, TIPO_PULIZIA_MANUALE,
+                                x2 - x1, y2 - y1, config or {})
+
+
+def converti_pulito_in_lantek(source_path: str, cleaned_path: str,
+                              config: dict | None = None) -> dict:
+    """Riscrive nel formato Lantek un pulito fatto col riquadro o col clic
+    (save_cleaned_dxf / save_cleaned_dxf_by_click): contorno = il piu' grande
+    contorno chiuso del pulito, fori = quelli dentro; le entita' si ricopiano
+    dall'ORIGINALE con la sua scala (quote DIMLFAC comprese: prima il pulito
+    di un disegno in scala veniva riletto con le misure del foglio).
+    Se non riesce il pulito di prima resta com'e' (success False).
+
+    Returns come scrivi_pulito_lantek, con 'bbox_mm_mm' = ingombro in mm."""
+    try:
+        from shapely import affinity
+        from .dxf_polygon_detector_v3 import (
+            _poligoni_documento, _riduci_fori_annidati, _contiene, _prep_buf, scala_unita_mm,
+        )
+        if leggi_dxf_pulito(cleaned_path).get('lantek'):
+            return {'success': False, 'error': 'gia\' nel formato Lantek'}
+        src = ezdxf.readfile(source_path)
+        cl = ezdxf.readfile(cleaned_path)
+        base = _poligoni_documento(cl, config or {})
+        polys = sorted(base['polys'], key=lambda p: -p.area)
+        if not polys:
+            return {'success': False, 'error': 'nessun contorno chiuso nel pulito'}
+        outer = polys[0]
+        pp = _prep_buf(outer)
+        fori, _n = _riduci_fori_annidati([p for p in polys[1:] if _contiene(outer, p, pp)])
+        s_src = float(scala_unita_mm(src)[0] or 1.0)
+        s_cl = float(base['scala'] or 1.0)
+        f = s_src / s_cl
+        if abs(f - 1.0) > 1e-9:
+            outer = affinity.scale(outer, f, f, origin=(0, 0))
+            fori = [affinity.scale(p, f, f, origin=(0, 0)) for p in fori]
+    except Exception as e:
+        return {'success': False, 'error': f'pulito non convertibile: {e}'}
+    x1, y1, x2, y2 = outer.bounds
+    tmp = cleaned_path + '.lantek.dxf'
+    r = scrivi_pulito_lantek(src, outer, fori, s_src, tmp, TIPO_PULIZIA_MANUALE,
+                             x2 - x1, y2 - y1, config or {})
+    if not r.get('success'):
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+        return r
+    os.replace(tmp, cleaned_path)
+    _CACHE_VERIFICA.pop(cleaned_path, None)
+    if r.get('bbox_mm'):
+        r['bbox_mm_mm'] = [v * s_src for v in r['bbox_mm']]
+    return r
 
 
 def save_cleaned_dxf_pezzo(

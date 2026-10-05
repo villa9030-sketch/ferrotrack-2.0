@@ -364,6 +364,29 @@ def main():
         check('pulito al vero: 30×92 mm', vicino2(est, (30, 92), 0.1), est)
         check('foro al vero: r 2,1', raggi_cerchi(cp8s) == [2.1], raggi_cerchi(cp8s))
 
+    print('\nP9) Riquadro a mano → pulito convertito nel formato Lantek')
+    out9 = os.path.join(TMP, 'p9_riquadro_cleaned.dxf')
+    r9 = C.save_cleaned_dxf(p8, out9, (55, 55, 185, 145))
+    check('riquadro: pulito scritto', r9.get('success'), r9)
+    c9 = C.converti_pulito_in_lantek(p8, out9, CFG)
+    check('convertito', c9.get('success'), c9)
+    if c9.get('success'):
+        d9 = ezdxf.readfile(out9)
+        lay = sorted({e.dxf.layer for e in d9.modelspace()})
+        check('layer TAGLIO/PIEGA/MARCATURA', lay == ['MARCATURA', 'PIEGA', 'TAGLIO'], lay)
+        check('filetto tolto anche qui', not any(e.dxftype() == 'ARC' for e in d9.modelspace()))
+        check('marcato manuale e Lantek', C.leggi_dxf_pulito(out9).get('tipo') == C.TIPO_PULIZIA_MANUALE
+              and C.leggi_dxf_pulito(out9).get('lantek'))
+    out9b = os.path.join(TMP, 'p9b_scala_cleaned.dxf')
+    r9b = C.save_cleaned_dxf(p8b, out9b, (55, 55, 125, 250))
+    c9b = C.converti_pulito_in_lantek(p8b, out9b, CFG)
+    check('disegno 2:1 col riquadro: convertito', r9b.get('success') and c9b.get('success'), (r9b.get('error'), c9b.get('error')))
+    if c9b.get('success'):
+        check('riquadro su disegno 2:1 → 30×92 mm', vicino2(estensione_mm(out9b), (30, 92), 0.1), estensione_mm(out9b))
+        check('bbox in mm per l\'articolo', vicino2((c9b['bbox_mm_mm'][2] - c9b['bbox_mm_mm'][0],
+                                                    c9b['bbox_mm_mm'][3] - c9b['bbox_mm_mm'][1]), (30, 92), 0.1), c9b.get('bbox_mm_mm'))
+    check('gia\' Lantek: non si riconverte', not C.converti_pulito_in_lantek(p8, out9, CFG).get('success'))
+
     print('\nP7) should_cleanup: rapporto area pezzo/foglio in pollici')
     ok, motivo = C.should_cleanup({'confidence': 0.9, 'area_dm2': 1.0,
                                    'dxf_bbox_mm': [0, 0, 11.7, 8.3], 'scala_unita_mm': 25.4})

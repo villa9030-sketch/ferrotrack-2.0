@@ -7149,6 +7149,11 @@ window.addEventListener('message', async (ev) => {
     a.canonical_dxf_filename = p.canonical_dxf_filename;
     a.canonical_dxf_sha256 = p.canonical_dxf_sha256;
   }
+  // pulito per Lantek fatto dal contorno appena confermato
+  if (p.cleaned_dxf_filename) {
+    a.cleaned_dxf_filename = p.cleaned_dxf_filename;
+    a.cleaned_status = 'manual';
+  }
   // Riconta le LAVORAZIONI dal DXF (pieghe/saldatura/… vengono dal disegno,
   // non dal contorno): senza questo, confermare il contorno lasciava pieghe=0.
   if (a.dxf_filename) {

@@ -787,7 +787,8 @@ async function confermaPezzo() {
                                codice: (ARTICOLO ? 'art' + ARTICOLO : FILE.replace(/\.(dxf|dwg)$/i, '')) }),
       }));
       const dc = await rc.json();
-      if (dc.success) canonical = { filename: dc.filename, sha256: dc.sha256 };
+      if (dc.success) canonical = { filename: dc.filename, sha256: dc.sha256,
+                                    pulito: (dc.pulito && dc.pulito.cleaned_dxf_filename) || null };
     } catch (e) { console.warn('generate-canonical fallita:', e); }
   }
 
@@ -808,6 +809,7 @@ async function confermaPezzo() {
     spessore_mm: sp,
     canonical_dxf_filename: canonical ? canonical.filename : null,
     canonical_dxf_sha256: canonical ? canonical.sha256 : null,
+    cleaned_dxf_filename: canonical ? canonical.pulito : null,   // pulito per Lantek
   };
   if (ARTICOLO && (window.opener || window.parent !== window)) {
     payload.preventivo_id = PREV;

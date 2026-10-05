@@ -4891,7 +4891,27 @@ def api_preventivi_dxf_generate_canonical(preventivo_id, filename):
         r = genera_dxf_canonico(outer, holes, out_path)
         if not r.get('success'):
             return jsonify({'success': False, 'error': r.get('error', 'generazione fallita')}), 500
-        return jsonify({'success': True, 'filename': out_name, 'sha256': r['sha256']}), 200
+        # Pulito per Lantek dalle entita' vere del disegno (archi veri, mm veri)
+        pulito = {'cleaned_dxf_filename': None, 'errore': None}
+        try:
+            src_name = os.path.basename(filename)
+            src_path = os.path.join(prev_dir, src_name)
+            if os.path.exists(src_path) and src_name.lower().endswith('.dxf'):
+                from .preventivi import dxf_cleanup as _dxc
+                base_p, ext_p = os.path.splitext(src_path)
+                cleaned_path = base_p + '_cleaned' + ext_p
+                cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+                rp = _dxc.pulito_da_contorno(src_path, cleaned_path, outer, holes, cfg)
+                if rp.get('success'):
+                    pulito['cleaned_dxf_filename'] = os.path.basename(cleaned_path)
+                    pulito.update({k: rp.get(k) for k in ('n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti')})
+                else:
+                    pulito['errore'] = rp.get('error')
+                    logger.info('pulito da CAD non scritto (%s): %s', src_name, rp.get('error'))
+        except Exception as pe:
+            logger.warning('pulito da CAD fallito: %s', pe)
+            pulito['errore'] = str(pe)
+        return jsonify({'success': True, 'filename': out_name, 'sha256': r['sha256'], 'pulito': pulito}), 200
     except Exception as e:
         logger.exception('generate-canonical failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -5212,6 +5232,17 @@ def api_preventivi_dxf_save_cleaned(preventivo_id, filename):
         if not cleanup_r.get('success'):
             return jsonify({'success': False, 'error': cleanup_r.get('error') or 'Cleanup fallito'}), 400
 
+        # Formato Lantek (TAGLIO/PIEGA/MARCATURA, mm veri): se non riesce resta il pulito di prima
+        try:
+            _cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+            _rl = dxf_cleanup.converti_pulito_in_lantek(dxf_path, cleaned_path, _cfg_l)
+            if _rl.get('success'):
+                cleanup_r['bbox_mm'] = _rl.get('bbox_mm_mm') or cleanup_r.get('bbox_mm')
+            else:
+                logger.info('pulito %s non convertito per Lantek: %s', os.path.basename(cleaned_path), _rl.get('error'))
+        except Exception as _le:
+            logger.warning('conversione pulito Lantek fallita: %s', _le)
+
         # 2. Ricalcola geometria (area/perim/n_forature) SUL FILE PULITO
         # Il pulito contiene SOLO le entità del pezzo → detector v3 dà valori
         # esatti se trova un poligono chiuso. Se invece il pezzo ha contorno
@@ -5365,6 +5396,17 @@ def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
         cleanup_r = dxf_cleanup.save_cleaned_dxf_by_click(dxf_path, cleaned_path, cx, cy)
         if not cleanup_r.get('success'):
             return jsonify({'success': False, 'error': cleanup_r.get('error') or 'Cleanup fallito'}), 400
+
+        # Formato Lantek (TAGLIO/PIEGA/MARCATURA, mm veri): se non riesce resta il pulito di prima
+        try:
+            _cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+            _rl = dxf_cleanup.converti_pulito_in_lantek(dxf_path, cleaned_path, _cfg_l)
+            if _rl.get('success'):
+                cleanup_r['bbox_mm'] = _rl.get('bbox_mm_mm') or cleanup_r.get('bbox_mm')
+            else:
+                logger.info('pulito %s non convertito per Lantek: %s', os.path.basename(cleaned_path), _rl.get('error'))
+        except Exception as _le:
+            logger.warning('conversione pulito Lantek fallita: %s', _le)
 
         # Ricalcola geometria sul cleaned
         geom = {}
