@@ -208,7 +208,7 @@ def scala_unita_mm(doc) -> tuple[float, str | None]:
             res = (f, f'Disegno in {nome}: misure convertite in mm (×{f:g})')
     # Scala del DISEGNO (foglio esportato in scala, es. 1:8): le misure nel
     # file sono ridotte, le quote le riportano al vero con DIMLFAC.
-    k, avviso_scala = _scala_disegno(doc)
+    k, avviso_scala = _scala_disegno(doc, res[0])
     if k != 1.0:
         f0, w0 = res
         res = (f0 * k, '; '.join(w for w in (w0, avviso_scala) if w))
@@ -224,7 +224,77 @@ def scala_unita_mm(doc) -> tuple[float, str | None]:
 _RE_SCALA_TESTO = re.compile(r'SCALA\s*:?\s*(\d+(?:[.,]\d+)?)\s*:\s*(\d+(?:[.,]\d+)?)', re.I)
 
 
-def _scala_disegno(doc) -> tuple[float, str | None]:
+def _punti_quota(d) -> list:
+    """Punti con cui la quota tocca il disegno (unita' disegno): origini delle
+    linee di richiamo per le lineari, centro e punto sul cerchio per le radiali."""
+    t = d.dimtype & 7
+    nomi = ('defpoint2', 'defpoint3') if t in (0, 1) else ('defpoint', 'defpoint4')
+    out = []
+    for n in nomi:
+        try:
+            if d.dxf.hasattr(n):
+                p = d.dxf.get(n)
+                out.append((float(p[0]), float(p[1])))
+        except Exception:
+            pass
+    return out
+
+
+def _scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float, str | None]:
+    """Foglio con viste in scale diverse: il fattore delle quote che stanno sul
+    contorno del pezzo.
+
+    Esempio 191700612-00 (DECA, SolidWorks): lo sviluppo 30x92 e' disegnato
+    2:1 (60x184, le sue quote hanno DIMLFAC=0,5) mentre le viste piegate sono
+    1:1. Prima si rinunciava a scalare: area 4 volte, perimetro 2 volte.
+
+    Il contorno si cerca con la stessa pipeline del detector a scala 1 (la
+    scelta del pezzo non dipende dalla scala). Si corregge solo se le quote
+    che cadono sul pezzo (almeno una: in 191700615-00 le altre misurano la
+    vista di fianco, appena fuori) hanno tutte lo stesso fattore; altrimenti
+    le misure restano quelle disegnate, con l'avviso."""
+    dubbio = (1.0, 'Quote con fattori di scala diversi nello stesso foglio: '
+                   'misure lette cosi\' come sono, verificare')
+    if not _HAS_SHAPELY:
+        return dubbio
+    try:
+        doc._ft_scala_mm = (f_unita, None)      # provvisoria: solo unita'
+        base = _poligoni_documento(doc, {})
+        candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
+        if not candidati:
+            return dubbio
+        idx, _conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'])
+        if idx < 0:
+            return dubbio
+        x1, y1, x2, y2 = candidati[idx].bounds
+        m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
+        sul_pezzo = []
+        for v, d in quote:
+            pts = _punti_quota(d)
+            if pts and all(x1 - m <= px * f_unita <= x2 + m and y1 - m <= py * f_unita <= y2 + m
+                           for px, py in pts):
+                sul_pezzo.append(v)
+        if not sul_pezzo or any(abs(v - sul_pezzo[0]) > 1e-4 * sul_pezzo[0] for v in sul_pezzo):
+            return dubbio
+        k = sul_pezzo[0]
+        if abs(k - 1.0) < 1e-6:
+            return 1.0, None                    # pezzo 1:1, ingranditi solo i dettagli
+        if not (0.05 <= k <= 200):
+            return dubbio
+        rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
+        return k, (f'Vista del pezzo in scala {rapporto} (le altre viste no): '
+                   f'misure riportate al vero (x{k:g})')
+    except Exception as e:
+        logger.debug('scala della vista del pezzo non letta: %s', e)
+        return dubbio
+    finally:
+        try:
+            del doc._ft_scala_mm
+        except Exception:
+            pass
+
+
+def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
     """Fattore che riporta al vero un disegno esportato in scala.
 
     Esempio 25NSIPA0015-00: foglio A3 "SCALA:1:8", il pezzo 142x1675 e'
@@ -236,22 +306,23 @@ def _scala_disegno(doc) -> tuple[float, str | None]:
     in scale diverse → nessuna correzione) e, se c'e' la scritta "SCALA a:b"
     del cartiglio, questa concorda."""
     try:
-        valori = []
+        quote = []
         for d in doc.modelspace().query('DIMENSION'):
             try:
                 v = float(d.override().get('dimlfac', 1.0) or 1.0)
             except Exception:
                 continue
             if v > 0:
-                valori.append(round(v, 4))
+                quote.append((round(v, 4), d))
+        valori = [v for v, _d in quote]
         if not valori:
             return 1.0, None
         k = valori[0]
+        if any(abs(v - k) > 1e-4 * k for v in valori):
+            # Viste in scale diverse: conta la scala della vista del pezzo
+            return _scala_vista_pezzo(doc, quote, f_unita)
         if abs(k - 1.0) < 1e-6:
             return 1.0, None
-        if any(abs(v - k) > 1e-4 * k for v in valori):
-            return 1.0, ('Quote con fattori di scala diversi nello stesso foglio: '
-                         'misure lette cosi\' come sono, verificare')
         if not (0.05 <= k <= 200):
             return 1.0, None
         # la scritta del cartiglio, se c'e', deve dire la stessa cosa

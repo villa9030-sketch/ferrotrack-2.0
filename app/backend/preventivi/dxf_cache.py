@@ -83,7 +83,9 @@ _INITIALIZED = False
 #                  confermato se ha le misure del cartiglio.
 # v13 (2026-09-25): disegni esportati in scala (quote con DIMLFAC, es. 1:8)
 #                  riportati al vero: prima aree fino a 64 volte piu' piccole.
-PARSER_VERSION = 13
+# v14 (2026-10-05): fogli con viste in scale diverse: vale la scala delle
+#                  quote sul pezzo (191700612-00, sviluppo 2:1: area 4 volte).
+PARSER_VERSION = 14
 
 
 def _init_db() -> None:
