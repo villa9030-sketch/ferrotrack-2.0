@@ -324,6 +324,42 @@ class OrderManager:
         except Exception as exc:
             logger.warning('notifica lavoro finito fallita: %s', exc)
 
+    _NON_IMPOSTATO = object()
+
+    @staticmethod
+    def pianifica_taglio(order_id: str, user_id: str = '', giorno=_NON_IMPOSTATO,
+                         durata_min=_NON_IMPOSTATO) -> dict:
+        """Calendario del laser: giorno di taglio (date o None = torna sul
+        giorno di consegna) e/o durata stimata a mano in minuti (None = tolta).
+        Solo i campi passati cambiano. Con audit prima/dopo."""
+        session = get_session()
+        try:
+            order = session.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                return {'success': False, 'error': 'Ordine non trovato', 'codice': 'non_trovato'}
+            cambi = []
+            if giorno is not OrderManager._NON_IMPOSTATO:
+                cambi.append(f'giorno di taglio: {order.data_taglio_pianificata or "consegna"} -> {giorno or "consegna"}')
+                order.data_taglio_pianificata = giorno
+            if durata_min is not OrderManager._NON_IMPOSTATO:
+                cambi.append(f'durata a mano: {order.durata_laser_manuale_min or "-"} -> {durata_min or "-"} min')
+                order.durata_laser_manuale_min = durata_min
+            session.commit()
+            try:
+                AuditManager.log(user_id=user_id, action='ORDINE_PIANIFICA_TAGLIO', entity_type='order',
+                                 entity_id=order_id, detail='; '.join(cambi))
+            except Exception:
+                pass
+            return {'success': True, 'order_id': order_id,
+                    'data_taglio_pianificata': iso_data(order.data_taglio_pianificata),
+                    'durata_laser_manuale_min': order.durata_laser_manuale_min}
+        except Exception as e:
+            session.rollback()
+            logger.exception('pianifica_taglio: %s', e)
+            return {'success': False, 'error': str(e)}
+        finally:
+            session.close()
+
     @staticmethod
     def smista(order_id: str, va_tagliato: bool, user_id: str = '') -> dict:
         """Il laser decide se un ordine passa da lui.
@@ -854,6 +890,8 @@ class OrderManager:
                     'data_presa_visione': iso_utc(order.data_presa_visione),
                     'taglio_completato': bool(getattr(order, 'taglio_completato', False)),
                     'taglio_richiesto': getattr(order, 'taglio_richiesto', None),
+                    'data_taglio_pianificata': iso_data(getattr(order, 'data_taglio_pianificata', None)),
+                    'durata_laser_manuale_min': getattr(order, 'durata_laser_manuale_min', None),
                     'data_taglio_completato': iso_utc(getattr(order, 'data_taglio_completato', None)),
                     'taglio_completato_da': getattr(order, 'taglio_completato_da', None),
                     'fase': _fase_ordine(order),
@@ -2008,6 +2046,8 @@ class OrderManager:
                 "data_presa_visione": iso_utc(order.data_presa_visione),
                 "taglio_completato": bool(getattr(order, 'taglio_completato', False)),
                 "taglio_richiesto": getattr(order, 'taglio_richiesto', None),
+                "data_taglio_pianificata": iso_data(getattr(order, 'data_taglio_pianificata', None)),
+                "durata_laser_manuale_min": getattr(order, 'durata_laser_manuale_min', None),
                 "data_taglio_completato": iso_utc(getattr(order, 'data_taglio_completato', None)),
                 "taglio_completato_da": getattr(order, 'taglio_completato_da', None),
                 "fase": _fase_ordine(order),
@@ -4616,7 +4656,7 @@ class BarcodeManager:
         #   dxf_detection). Vengono sostituite in blocco.
         int_keys = {'sospetto_giorni_dal_taglio', 'sospetto_giorni_da_ultima_scan',
                     'sospetto_giorni_apertura', 'alert_taglio_ore'}
-        dict_keys = {'laser_config', 'preventivi_config', 'dxf_detection'}
+        dict_keys = {'laser_config', 'preventivi_config', 'dxf_detection', 'laser_calendario'}
         # Percorsi, orari e date. `fine_turno_hhmm` e `ore_attive_dal` erano
         # spediti dalla pagina Admin ma non elencati qui: venivano scartati in
         # silenzio, e l'utente credeva di averli salvati.

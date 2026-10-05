@@ -9,6 +9,7 @@ import re
 import uuid
 import logging
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -669,6 +670,96 @@ def smista_ordine(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/orders/<order_id>/pianifica-taglio', methods=['POST'])
+def pianifica_taglio(order_id):
+    """Calendario del laser. Corpo: {user_id, data?: 'AAAA-MM-GG' | null,
+    durata_min?: numero | null}. data null = torna sul giorno di consegna;
+    durata_min = durata stimata a mano (ordini senza disegni)."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user = UserManager.get_user((data.get('user_id') or '').strip()) if data.get('user_id') else None
+        if not user or not user.get('is_active', True) or not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
+            return jsonify({'success': False, 'error': 'Solo la postazione laser o un capo pianifica il taglio'}), 403
+        kw = {}
+        if 'data' in data:
+            g = data.get('data')
+            if g:
+                try:
+                    g = datetime.strptime(str(g)[:10], '%Y-%m-%d').date()
+                except ValueError:
+                    return jsonify({'success': False, 'error': 'Data non valida (serve AAAA-MM-GG)'}), 400
+                from .orario import oggi_locale as _oggi
+                if g < _oggi():
+                    return jsonify({'success': False, 'error': 'Non si pianifica un taglio nel passato'}), 400
+            kw['giorno'] = g or None
+        if 'durata_min' in data:
+            d = data.get('durata_min')
+            if d in (None, ''):
+                kw['durata_min'] = None
+            else:
+                try:
+                    d = float(d)
+                except (TypeError, ValueError):
+                    return jsonify({'success': False, 'error': 'Durata non valida'}), 400
+                if not (0 < d <= 24 * 60 * 10):
+                    return jsonify({'success': False, 'error': 'Durata fuori misura'}), 400
+                kw['durata_min'] = round(d, 1)
+        if not kw:
+            return jsonify({'success': False, 'error': 'Niente da cambiare (data o durata_min)'}), 400
+        r = OrderManager.pianifica_taglio(order_id, user_id=user['id'], **kw)
+        return jsonify(r), (200 if r.get('success') else (404 if r.get('codice') == 'non_trovato' else 400))
+    except Exception as e:
+        logger.exception('pianifica_taglio endpoint fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+_CAL_DEFAULT = {'ore_turno': 8, 'ore_riserva': 2, 'giorni': [1, 2, 3, 4, 5],
+                'carico_min_lamiera': 5, 'scarico_s_pezzo': 3, 'fattore_tempo': 1.18}
+_CAL_LIMITI = {'ore_turno': (1, 24), 'ore_riserva': (0, 23), 'carico_min_lamiera': (0, 120),
+               'scarico_s_pezzo': (0, 600), 'fattore_tempo': (0.5, 3)}
+
+
+def _cal_config() -> dict:
+    v = (BarcodeManager.load_config() or {}).get('laser_calendario') or {}
+    return {**_CAL_DEFAULT, **{k: v[k] for k in _CAL_DEFAULT if k in v}}
+
+
+@app.route('/api/laser/calendario-config', methods=['GET', 'PUT'])
+def api_laser_calendario_config():
+    """Impostazioni del calendario del laser: ore del turno, riserva, giorni
+    lavorativi, carico/scarico, correzione dei tempi verso Lantek. Stanno
+    fuori da laser_config: cambiarle non deve far ristimare i preventivi."""
+    try:
+        if request.method == 'GET':
+            return jsonify({'success': True, 'config': _cal_config()}), 200
+        data = request.get_json(silent=True) or {}
+        user = UserManager.get_user(data.get('user_id') or '') if data.get('user_id') else None
+        if not user or not user.get('is_active', True) or not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
+            return jsonify({'success': False, 'error': 'Solo la postazione laser o un capo'}), 403
+        cfg = _cal_config()
+        for k, (lo, hi) in _CAL_LIMITI.items():
+            if k in data:
+                try:
+                    v = float(data[k])
+                except (TypeError, ValueError):
+                    return jsonify({'success': False, 'error': f'{k}: non e\' un numero'}), 400
+                if not lo <= v <= hi:
+                    return jsonify({'success': False, 'error': f'{k}: fuori misura ({lo}-{hi})'}), 400
+                cfg[k] = v
+        if 'giorni' in data:
+            g = data.get('giorni')
+            if not isinstance(g, list) or not all(isinstance(x, int) and 1 <= x <= 7 for x in g):
+                return jsonify({'success': False, 'error': 'giorni: lista di numeri 1-7 (1 = lunedi)'}), 400
+            cfg['giorni'] = sorted(set(g))
+        if cfg['ore_riserva'] >= cfg['ore_turno']:
+            return jsonify({'success': False, 'error': 'La riserva deve essere minore del turno'}), 400
+        BarcodeManager.save_config({'laser_calendario': cfg})
+        return jsonify({'success': True, 'config': _cal_config()}), 200
+    except Exception as e:
+        logger.exception('calendario-config fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/mark-laser-undone', methods=['POST'])
 def mark_laser_undone(order_id):
     """Rollback marcatura taglio completato (errore, va re-tagliato)."""
@@ -1118,6 +1209,41 @@ def api_ordine_disegni_zip(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+_TEMPO_CACHE: dict = {}
+_CFG_TEMPO = {'t': 0.0, 'cfg': None}
+
+
+def _cfg_per_tempi() -> dict:
+    """Configurazione laser (velocita' delle ricette) riletta al massimo ogni 30 s."""
+    if time.time() - _CFG_TEMPO['t'] > 30 or _CFG_TEMPO['cfg'] is None:
+        _CFG_TEMPO['cfg'] = BarcodeManager.load_config() or {}
+        _CFG_TEMPO['t'] = time.time()
+    return _CFG_TEMPO['cfg']
+
+
+def _tempo_pezzo_laser(a: dict, tempo_preventivo) -> dict:
+    """Tempo di taglio di un pezzo per il calendario del laser.
+
+    'preventivo': stimato dal preventivatore; 'calcolato': ordini che non ci
+    passano (pacchetto PDF + DXF), stesso calcolo SENZA prezzo;
+    'da_verificare': calcolato ma col contorno incerto; 'mancante': non
+    calcolabile (niente perimetro, spessore o materiale)."""
+    incerto = _contorno_incerto(a, {})
+    if tempo_preventivo:
+        return {'tempo_min': tempo_preventivo, 'tempo_fonte': 'da_verificare' if incerto else 'preventivo'}
+    chiave = tuple(str(a.get(k)) for k in ('materiale', 'spessore_mm', 'perimetro_taglio_m', 'n_forature',
+                                             'area_dm2', 'bbox_w_mm', 'bbox_h_mm', 'lunghezza_vuoto_mm'))
+    if chiave not in _TEMPO_CACHE:
+        try:
+            _TEMPO_CACHE[chiave] = _laser_estimator.tempo_taglio_min(a, _cfg_per_tempi())
+        except Exception as e:
+            _TEMPO_CACHE[chiave] = (None, str(e))
+    t, motivo = _TEMPO_CACHE[chiave]
+    if t is None:
+        return {'tempo_min': None, 'tempo_fonte': 'mancante', 'tempo_motivo': motivo}
+    return {'tempo_min': t, 'tempo_fonte': 'da_verificare' if incerto else 'calcolato'}
+
+
 def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
     """Le righe della distinta di un ordine nato da un preventivo.
 
@@ -1203,13 +1329,15 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             lav.append(f"Svasatura ({int(a['svasatura_pz'])})")
         sp = a.get('spessore_mm')
         desc = 'Lamiera' + (f' sp. {sp:g} mm' if isinstance(sp, (int, float)) and sp else '')
+        geo = _geometria(a.get('area_dm2'), a.get('bbox_w_mm'), a.get('bbox_h_mm'),
+                         a.get('stima_dettaglio'))
+        geo.update(_tempo_pezzo_laser(a, geo.get('tempo_min')))
         righe.append({'codice': a.get('codice') or '', 'descrizione': desc,
                       'tipo': 'lamiera', 'quantita': _q(a.get('quantita')) * molt,
                       'materiale': a.get('materiale') or None, 'spessore_mm': sp,
                       'lavorazioni': lav, 'assieme': cod_ass,
                       'disegno': disegno_di(a.get('dxf_filename')),
-                      **_geometria(a.get('area_dm2'), a.get('bbox_w_mm'), a.get('bbox_h_mm'),
-                                   a.get('stima_dettaglio'))})
+                      **geo})
 
     for t in prev.get('tubolari') or []:
         cod_ass = t.get('codice_assieme') or None
@@ -1334,6 +1462,14 @@ def api_laser_banco():
         from .ordini_service import stato_taglio, STATI_ARCHIVIO
         con_smistare = request.args.get('da_smistare') in ('1', 'true', 'si')
         stati_ok = ('da_tagliare', 'da_smistare') if con_smistare else ('da_tagliare',)
+        # ?dal=AAAA-MM-GG (calendario): anche gli ordini tagliati da quel giorno,
+        # perche' il calendario mostri quanto e' stato fatto nei giorni passati.
+        dal = None
+        if request.args.get('dal'):
+            try:
+                dal = datetime.strptime(request.args['dal'][:10], '%Y-%m-%d')
+            except ValueError:
+                return jsonify({'success': False, 'error': 'dal: serve AAAA-MM-GG'}), 400
         session = get_session()
         try:
             ordini = session.query(Order).filter(
@@ -1342,6 +1478,11 @@ def api_laser_banco():
                 (Order.taglio_completato.is_(None)) | (Order.taglio_completato == False),  # noqa: E712
             ).order_by(Order.data_consegna.asc()).all()
             ordini = [o for o in ordini if stato_taglio(o) in stati_ok]
+            if dal is not None:
+                ordini += session.query(Order).filter(
+                    Order.is_deleted == False,  # noqa: E712
+                    Order.taglio_completato == True,  # noqa: E712
+                    Order.data_taglio_completato >= dal).all()
             gruppi, senza = {}, []
             for o in ordini:
                 info = {'ordine_id': o.id, 'numero_ordine': o.numero_ordine or '',
@@ -1371,6 +1512,7 @@ def api_laser_banco():
                         'w_mm': r.get('bbox_w_mm'), 'h_mm': r.get('bbox_h_mm'),
                         'area_dm2': r.get('area_dm2'), 'ingombro': r.get('ingombro') or 'mancante',
                         'tempo_min': r.get('tempo_min'),
+                        'tempo_fonte': r.get('tempo_fonte') or ('preventivo' if r.get('tempo_min') else 'mancante'),
                         'url_svg': ('/api/orders/%s/dxf/%s/svg' % (o.id, quote(disegno))
                                     if disegno and disegno.lower().endswith('.dxf') else None),
                     })

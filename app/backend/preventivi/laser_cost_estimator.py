@@ -374,3 +374,33 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
             'rid': ricetta.get('rid_riferimento') or ricetta.get('rid_riferimento_min'),
         },
     }
+
+
+def tempo_taglio_min(articolo: dict, config: dict | None = None) -> tuple[float | None, str]:
+    """Tempo di taglio laser di UN pezzo, in minuti, SENZA prezzare.
+
+    Serve al calendario del laser per gli ordini che non passano dal
+    preventivatore (pacchetto PDF + DXF caricato dall'ufficio): il tempo
+    dipende solo da perimetro, fori, materiale, spessore e velocita' delle
+    ricette. Usa lo stesso calcolo di stima_base (stesso risultato per
+    costruzione) e ne tiene solo il tempo.
+
+    Ritorna (minuti, '') oppure (None, motivo) se non e' calcolabile.
+    """
+    perim = float(articolo.get('perimetro_taglio_m') or 0)
+    if perim <= 0:
+        return None, 'perimetro mancante'
+    if not float(articolo.get('spessore_mm') or 0) > 0:
+        return None, 'spessore mancante'
+    if not (articolo.get('materiale') or '').strip():
+        return None, 'materiale mancante'
+    a = dict(articolo)
+    # il peso serve solo al costo: se manca l'area si passa un peso finto
+    if not float(a.get('area_dm2') or 0) > 0:
+        a['peso_kg'] = 1.0
+    r = stima_base(a, config)
+    t = float(r.get('tempo_totale_min') or 0)
+    if t > 0:
+        return round(t, 4), ''
+    w = '; '.join(r.get('warnings') or []) or 'tempo non calcolabile'
+    return None, w

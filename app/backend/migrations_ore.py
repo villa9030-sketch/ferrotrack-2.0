@@ -55,7 +55,12 @@ _NUOVE_TABELLE_COLS = {
     # Lo smistamento del laser: quali ordini passano da lui e quali no.
     'orders': {'taglio_richiesto': 'BOOLEAN',
                'smistato_il': 'DATETIME',
-               'smistato_da': 'VARCHAR'},
+               'smistato_da': 'VARCHAR',
+               # Calendario del laser: il giorno in cui il laserista vuole
+               # tagliarlo (vuoto = il giorno di consegna) e, per gli ordini
+               # senza disegni, la durata stimata a mano.
+               'data_taglio_pianificata': 'DATE',
+               'durata_laser_manuale_min': 'FLOAT'},
 }
 
 # Con che valore nasce una colonna nuova sulle righe che c'erano gia'.

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, DateTime, Integer, Float, Text, JSON, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, String, DateTime, Date, Integer, Float, Text, JSON, ForeignKey, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import enum
@@ -124,6 +124,10 @@ class Order(Base):
     taglio_richiesto = Column(Boolean, nullable=True, default=None)
     smistato_il = Column(DateTime, nullable=True)
     smistato_da = Column(String, nullable=True)
+    # Calendario del laser: giorno di taglio scelto dal laserista (vuoto = il
+    # giorno di consegna) e durata stimata a mano per gli ordini senza disegni.
+    data_taglio_pianificata = Column(Date, nullable=True)
+    durata_laser_manuale_min = Column(Float, nullable=True)
 
     taglio_completato = Column(Boolean, default=False)
     data_taglio_completato = Column(DateTime, nullable=True)
