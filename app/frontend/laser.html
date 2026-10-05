@@ -15,148 +15,112 @@
    Prefissi: "lz-" = solo laser; "ft-" = componenti nati qui che potrebbero
    passare nella base comune (ft-thumb, ft-thumbs). */
 
-/* ── Lavoro: coda a sinistra, ordine aperto a destra ─────────────── */
-.lz-split {
-  display: grid; grid-template-columns: 420px minmax(0, 1fr);
-  height: calc(100vh - var(--ft-topbar-h));
-}
-.lz-queue {
-  display: flex; flex-direction: column; min-height: 0;
-  background: var(--ft-panel); border-right: 1px solid var(--ft-line);
-}
-.lz-queue-head { display: grid; gap: 12px; padding: 18px 16px 14px; border-bottom: 1px solid var(--ft-line); }
-.lz-queue-head .ft-title { font-size: 20px; }
-.lz-queue-sub { margin: 2px 0 0; font-size: 12.5px; color: var(--ft-ink-3); }
-.lz-queue .ft-seg { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
-/* Quattro code, ciascuna col suo numero sotto: si legge da un passo di distanza. */
-body.ft .lz-queue .ft-seg button {
-  flex-direction: column; justify-content: center; gap: 0; height: auto; min-height: 50px;
-  padding: 5px 4px; font-size: 12.5px; white-space: normal; text-align: center; line-height: 1.2;
-}
-.lz-queue .ft-seg button b { font: 800 18px/1.15 var(--ft-display); color: var(--ft-ink-3); }
-.lz-queue .ft-seg button.on b { color: var(--ft-ink); }
-.lz-queue .ft-seg button b:empty::before { content: '·'; }
-.lz-queue .ft-search { width: 100%; }
-body.ft.ft-touch .lz-queue .ft-search { height: 42px; }
-body.ft.ft-touch .lz-queue .ft-search input { font-size: 14px; }
-.lz-queue-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 12px 28px; }
+/* ── Lavoro: lista dei lavori a sinistra, ordine aperto a destra ──
+   Come la lista lavori dei software di produzione: una riga densa per
+   ordine (consegna, lamiere, ore di laser, giorno di taglio, azione) e a
+   destra l'ordine con disegno o PDF grande e i pezzi per lamiera. */
+.lv { display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 41vw, 800px); height: calc(100vh - var(--ft-topbar-h)); }
+.lv-list { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.lv-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 18px 8px; }
+.lv-tabs { display: flex; padding: 3px; border-radius: 10px; background: var(--ft-line-2); }
+.lv-tabs button { display: flex; gap: 8px; align-items: baseline; border: 0; background: none; padding: 8px 14px; border-radius: 8px;
+  font: 600 14.5px/1.2 var(--ft-font); color: var(--ft-ink-2); cursor: pointer; white-space: nowrap; }
+.lv-tabs button b { font: 800 17px/1 var(--ft-display); color: var(--ft-ink-3); }
+.lv-tabs button.on { background: var(--ft-panel); color: var(--ft-ink); box-shadow: 0 1px 2px rgba(15, 23, 42, .1); }
+.lv-tabs button.on b { color: var(--ft-accent); }
+.lv-tabs button.urg b { color: var(--ft-err); }
+.lv-gruppi { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ft-ink-3); }
+.lv-gruppi button { border: 1px solid var(--ft-line); background: var(--ft-panel); border-radius: 8px; padding: 6px 10px;
+  font: 600 13px/1.2 var(--ft-font); color: var(--ft-ink-2); cursor: pointer; }
+.lv-gruppi button.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
+.lv-bar .ft-search { margin-left: auto; width: 290px; }
+.lv-sum { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; padding: 2px 18px 10px; font-size: 14px; color: var(--ft-ink-2); }
+.lv-sum b { font-size: 16px; color: var(--ft-ink); }
+.lv-sum em { font-style: normal; color: var(--ft-warn); font-size: 13px; }
+.lv-sum .err, .lv-sum .err b { color: var(--ft-err); }
+.lv-oggi { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ft-ink-3); }
+.lv-oggi .lz-sat { width: 190px; }
+.lv-table { flex: 1; min-height: 0; overflow: auto; margin: 0 18px 16px; background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 12px; }
+.lv-table table { width: 100%; border-collapse: collapse; }
+.lv-table thead th { position: sticky; top: 0; z-index: 2; background: #FAFBFC; text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--ft-line);
+  font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ft-ink-3); white-space: nowrap; }
+.lv-table th.r, .lv-table td.r { text-align: right; }
+tr.lv-g td { position: sticky; top: 35px; z-index: 1; padding: 6px 12px; background: #F3F4F6; border-bottom: 1px solid var(--ft-line);
+  font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ft-ink-2); }
+tr.lv-g td span { margin-left: 10px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ft-ink-3); }
+tr.lv-g.err td { color: var(--ft-err); background: var(--ft-err-bg); }
+tr.lv-g.warn td { color: var(--ft-warn); }
+tr.lv-r { cursor: pointer; }
+tr.lv-r td { height: 54px; padding: 0 12px; border-bottom: 1px solid var(--ft-line-2); white-space: nowrap; }
+tr.lv-r td:first-child { border-left: 4px solid transparent; padding-left: 10px; }
+tr.lv-r:hover td { background: var(--ft-hover); }
+tr.lv-r.sel td { background: var(--ft-accent-bg); }
+tr.lv-r.sel td:first-child { border-left-color: var(--ft-accent); }
+tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
+.lv-due { font-weight: 700; font-size: 14.5px; }
+.lv-due small { display: block; font-size: 12px; font-weight: 600; color: var(--ft-ink-3); }
+.lv-due.late small { color: var(--ft-err); }
+.lv-due.soon small { color: var(--ft-warn); }
+.lv-cli { max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
+.lv-cli b { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
+.lv-cli span { font-size: 12.5px; color: var(--ft-ink-3); }
+.lv-chips { display: flex; gap: 4px; }
+.lv-chip { padding: 2px 8px; border-radius: 6px; background: var(--ft-line-2); font-size: 12.5px; font-weight: 600; color: var(--ft-ink-2); }
+.lv-chip.fe { background: #E7EEF9; color: #1E40AF; }
+.lv-chip.inox { background: #EEE9F8; color: #5B21B6; }
+.lv-chip.alu { background: #E6F4F1; color: #0F766E; }
+.lv-chip.zn { background: #F1F3E4; color: #4D5B12; }
+.lv-n { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 15px; }
+.lv-n.ign { color: var(--ft-warn); }
+.lv-day { font-size: 14px; color: var(--ft-ink-2); }
+.lv-sp { font-style: normal; color: var(--ft-accent); font-weight: 800; }
+.lv-ok { color: var(--ft-ok); font-weight: 700; }
+.lv-az { width: 1%; }
+.lv-az .ft-btn + .ft-btn { margin-left: 6px; }
 
-.lz-sec {
-  display: flex; align-items: center; gap: 8px; margin: 16px 4px 8px;
-  font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ft-ink-3);
-}
-.lz-sec b { margin-left: auto; font-weight: 700; }
-.lz-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ft-ink-4); flex-shrink: 0; }
-.lz-dot.err { background: var(--ft-err-dot); } .lz-dot.warn { background: var(--ft-warn-dot); }
-.lz-dot.ok { background: var(--ft-ok-dot); } .lz-dot.accent { background: var(--ft-accent); }
-.lz-hint { margin: 12px 4px 4px; font-size: 12.5px; color: var(--ft-ink-3); }
-
-/* Una riga della coda: chi, quando, cosa c'e' da guardare, e il gesto. */
-.lz-ord {
-  display: grid; gap: 8px; padding: 12px 14px; margin-bottom: 8px;
-  border: 1px solid var(--ft-line); border-radius: var(--ft-r-l); background: var(--ft-panel);
-  cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s;
-}
-.lz-ord:hover { border-color: #CBD2DC; box-shadow: var(--ft-elev-1); }
-.lz-ord.late { box-shadow: inset 3px 0 0 var(--ft-err-dot); }
-.lz-ord.sel { border-color: var(--ft-accent); background: #FAFAFF; box-shadow: 0 0 0 3px var(--ft-accent-glow); }
-.lz-ord.sel.late { box-shadow: inset 3px 0 0 var(--ft-err-dot), 0 0 0 3px var(--ft-accent-glow); }
-.lz-ord-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.lz-ord-cli { font-size: 15px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lz-ord .ft-due { text-align: right; font-weight: 600; }
-.lz-ord-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.lz-ord-meta .ft-code { margin-right: 4px; font-size: 12px; }
-.riga-smista { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.lz-ord .btn-taglio { width: 100%; }
-.btn-taglio.fatto { background: var(--ft-ok-bg); border-color: var(--ft-ok-line); color: var(--ft-ok); }
-.btn-taglio.fatto:hover { background: #DCFAE6; border-color: var(--ft-ok-line); }
-
-/* Gruppi per cliente */
-.lz-cg { border: 1px solid var(--ft-line); border-radius: var(--ft-r-l); margin-bottom: 8px; background: var(--ft-panel); overflow: hidden; }
-.lz-cg-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; }
-.lz-cg-head:hover { background: var(--ft-hover); }
-.lz-cg-name { font-size: 15px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lz-cg-head .lz-chev { margin-left: auto; color: var(--ft-ink-4); transition: transform .2s var(--ft-ease); flex-shrink: 0; }
-.lz-cg.open .lz-chev { transform: rotate(90deg); }
-.lz-cg-body { display: none; padding: 0 8px 4px; }
-.lz-cg.open .lz-cg-body { display: block; }
-
-/* ── Ordine aperto ───────────────────────────────────────────────── */
-.lz-work { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--ft-canvas); }
+/* ordine aperto */
+.lz-work { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--ft-panel); border-left: 1px solid var(--ft-line); }
 .lz-work > .ft-empty { margin: auto; }
-.lz-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
-  padding: 18px 24px 16px; background: var(--ft-panel); border-bottom: 1px solid var(--ft-line);
-}
-.lz-head-main { flex: 1 1 auto; min-width: 0; }
-.lz-eyebrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-.lz-name { font: 800 26px/1.15 var(--ft-display); letter-spacing: -.6px; margin: 0; overflow-wrap: anywhere; }
-.lz-facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 12px; }
-.lz-fact { display: grid; gap: 2px; }
-.lz-fact > span { font-size: 11.5px; font-weight: 600; color: var(--ft-ink-3); }
-.lz-fact > b { font-size: 14.5px; font-weight: 700; }
-.lz-fact .ft-due { font-size: 14.5px; font-weight: 700; color: var(--ft-ink); }
-.lz-fact .ft-due small { display: inline; margin-left: 6px; font-size: 12px; }
-.lz-head-act { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.lz-skel { height: 40px; margin-bottom: 8px; border-radius: 8px; }
+.lv-dh { padding: 16px 20px 14px; border-bottom: 1px solid var(--ft-line); }
+.lv-dh-top { display: flex; align-items: flex-start; gap: 14px; }
+.lv-dh-tit { min-width: 0; }
+.lv-dh-tit h2 { margin: 0; font: 800 26px/1.15 var(--ft-display); letter-spacing: -.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-dh-tit > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; font-size: 14px; color: var(--ft-ink-3); }
+.lv-dh-act { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.lv-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 14px; }
+.lv-facts > div { display: grid; align-content: start; }
+.lv-facts span { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ft-ink-3); }
+.lv-facts b { font-size: 18px; }
+.lv-facts b.late { color: var(--ft-err); }
+.lv-facts small { font-size: 12px; color: var(--ft-ink-3); }
+.lv-date { height: 32px; border: 1px solid var(--ft-line); border-radius: 8px; padding: 0 8px; font: 600 15px var(--ft-font); color: var(--ft-ink); }
+.lv-mano { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: var(--ft-warn-bg); font-size: 14px; }
+.lv-mano .ft-input.sm { width: 90px; height: 32px; }
+.lv-prev { flex: 0 0 47%; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--ft-line); }
+.lv-prev-bar { display: flex; align-items: center; gap: 10px; padding: 7px 14px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line-2); }
+.lv-prev-bar .ft-seg { flex-wrap: nowrap; }
+.lv-prev-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ft-mono); font-size: 13px; color: var(--ft-ink-2); }
+.lv-prev-nav { margin-left: auto; display: flex; gap: 6px; }
+.lv-prev-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
+.lv-prev-body img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 14px; cursor: zoom-in; }
+.lv-prev-body iframe { width: 100%; height: 100%; border: 0; }
+.lv-pezzi { flex: 1; min-height: 0; overflow: auto; }
+.lv-pz-g { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 10px; padding: 8px 20px; background: #F3F4F6; border-bottom: 1px solid var(--ft-line); }
+.lv-pz-g b { font-size: 15px; }
+.lv-pz-g em { font-style: normal; color: var(--ft-accent-ink); }
+.lv-pz-g span { margin-left: auto; font-size: 13px; color: var(--ft-ink-3); }
+.lv-pz { display: grid; grid-template-columns: minmax(150px, 34%) minmax(0, 1fr) 72px; gap: 10px; align-items: center; padding: 7px 20px;
+  border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
+.lv-pz:hover { background: var(--ft-hover); }
+.lv-pz.sel { background: var(--ft-accent-bg); }
+.lv-pz.nodis { cursor: default; }
+.lv-pz-cod { font-family: var(--ft-mono); font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lv-pz-lav { display: flex; gap: 4px; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 13px; }
+.lv-pz-q { text-align: right; font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
+.lv-pz-q small { font-size: 12px; font-weight: 600; color: var(--ft-ink-4); }
+.lv-pz-vuoto { padding: 24px 20px; color: var(--ft-ink-3); font-size: 14px; }
 
-.lz-viewbar {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 24px; background: var(--ft-panel); border-bottom: 1px solid var(--ft-line);
-}
-.lz-viewbar-end { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.lz-viewbar .ft-search { width: 240px; }
-body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
-.lz-body { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px 36px; }
-.lz-body.flush { padding: 0; overflow: hidden; display: flex; }
-.lz-pdf { flex: 1; width: 100%; height: 100%; border: 0; background: #fff; }
-.lz-body .ft-empty { padding: 64px 20px; }
-.ft-empty p strong { color: var(--ft-ink-2); }
-.lz-dist .ft-btn.sm { height: 32px; }
-.lz-empty-acts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.lz-skel { height: 44px; margin-bottom: 8px; }
-
-/* Distinta: raggruppata per materiale e spessore, come si fa il nesting. */
-.lz-sum { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13.5px; color: var(--ft-ink-2); }
-.lz-sum b { color: var(--ft-ink); }
-.lz-dist { overflow: hidden; }
-.lz-dist .ft-table tbody tr.lz-grp td {
-  padding: 11px 14px; background: var(--ft-well);
-  border-top: 1px solid var(--ft-line); border-bottom: 1px solid var(--ft-line);
-}
-.lz-dist .ft-table tbody tr.lz-grp:first-child td { border-top: 0; }
-.lz-grp-in { display: flex; align-items: baseline; gap: 10px; }
-.lz-grp-mat { font: 800 15.5px var(--ft-display); letter-spacing: -.2px; }
-.lz-grp-sp { font: 800 15.5px var(--ft-display); color: var(--ft-accent-ink); }
-.lz-grp-n { margin-left: auto; font-size: 12.5px; color: var(--ft-ink-3); }
-.lz-grp-n b { color: var(--ft-ink); }
-.lz-cod { font-family: var(--ft-mono); font-size: 13px; font-weight: 600; white-space: nowrap; }
-.lz-desc { color: var(--ft-ink-2); max-width: 360px; }
-.lz-qty { font: 800 18px var(--ft-display); white-space: nowrap; }
-.lz-qty small { font: 600 12px var(--ft-font); color: var(--ft-ink-4); margin-right: 2px; }
-.lz-lav { display: flex; gap: 4px; flex-wrap: wrap; }
-.lz-dist td.lz-go { width: 1%; white-space: nowrap; text-align: right; }
-
-/* Disegni: miniature del DXF, anteprima grande al clic. */
-.ft-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
-.ft-thumb {
-  display: flex; flex-direction: column; min-width: 0; overflow: hidden; cursor: pointer;
-  border: 1px solid var(--ft-line); border-radius: var(--ft-r-l); background: var(--ft-panel);
-  transition: border-color .15s, box-shadow .15s, transform .15s;
-}
-.ft-thumb:hover { border-color: #CBD2DC; box-shadow: var(--ft-elev-2); transform: translateY(-1px); }
-.ft-thumb.hit { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
-.ft-thumb-img {
-  aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
-  padding: 12px; background: #fff; border-bottom: 1px solid var(--ft-line-2);
-}
-.ft-thumb-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.ft-thumb-img.err img { display: none; }
-.ft-thumb-img.err::after { content: 'Anteprima non disponibile'; font-size: 12px; color: var(--ft-ink-4); }
-.ft-thumb-foot { display: flex; align-items: center; gap: 6px; padding: 8px 6px 8px 12px; min-width: 0; }
-.ft-thumb-txt { display: grid; min-width: 0; flex: 1; }
-.ft-thumb-name { font-family: var(--ft-mono); font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ft-thumb-sub { font-size: 11.5px; color: var(--ft-ink-3); }
-.lz-names { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 16px; }
 .ft-alert code { font-family: var(--ft-mono); font-size: 12px; background: rgba(255,255,255,.7); padding: 1px 6px; border-radius: 5px; }
 
 /* Anteprima di un disegno a tutto schermo */
@@ -285,24 +249,21 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
 .lz-notif .ft-icon-btn { width: 28px; height: 28px; flex-shrink: 0; }
 
 /* ── Schermi piu' stretti ────────────────────────────────────────── */
-@media (max-width: 1440px) { .lz-split { grid-template-columns: 390px minmax(0, 1fr); } }
 @media (max-width: 1100px) {
-  .lz-split { grid-template-columns: 340px minmax(0, 1fr); }
+  .lv { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 45vh) minmax(0, 1fr); }
+  .lz-work { border-left: 0; border-top: 1px solid var(--ft-line); }
   .lz-cal { grid-template-columns: minmax(0, 1fr); }
   .lz-cal-side { position: static; }
   .lz-head { flex-wrap: wrap; }
 }
 @media (max-width: 860px) {
-  .lz-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 42vh) minmax(0, 1fr); }
-  .lz-queue { border-right: 0; border-bottom: 1px solid var(--ft-line); }
   .ft-brand-area { display: none; }
 }
 
 @media print {
-  .lz-queue, .lz-viewbar, .lz-head-act, .ft-toasts { display: none !important; }
-  .lz-split { display: block; height: auto; }
-  .lz-body { overflow: visible; padding: 12px 0; }
-  .lz-head { border: 0; padding: 0 0 8px; }
+  .lv-list, .lv-prev, .lv-dh-act, .ft-toasts { display: none !important; }
+  .lv { display: block; height: auto; }
+  .lv-pezzi { overflow: visible; }
 }
 
 /* ── Banco lamiere ────────────────────────────────────────────────── */
@@ -479,36 +440,7 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
 /* ── Schermo intero su monitor da PC (1920 x 1080) ────────────────────
    Pensata per il secondo monitor accanto a Lantek: tutto lo schermo in
    uso, testo leggibile da un passo di distanza, nessuna zona vuota. */
-.lz-side { display: none; }
 @media (min-width: 1600px) {
-  .lz-split { grid-template-columns: 400px minmax(0, 1fr); }
-  .lz-work.con-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 46%); }
-  .lz-work.con-side > .lz-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--ft-line); }
-  .lz-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--ft-panel); }
-  .lz-side-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--ft-line); }
-  .lz-side-bar .ft-seg { flex: 0 1 auto; }
-  .lz-side-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ft-mono); font-size: 13px; color: var(--ft-ink-2); }
-  .lz-side-bar .ft-actions { margin-left: auto; display: flex; gap: 6px; }
-  .lz-side-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
-  .lz-side-body iframe { width: 100%; height: 100%; border: 0; }
-  .lz-side-body img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 18px; cursor: zoom-in; }
-  .lz-side-body .ft-empty { padding: 40px 24px; }
-  /* testo e righe piu' grandi */
-  .lz-ord-cli, .lz-cg-name { font-size: 16.5px; }
-  .lz-ord { padding: 14px 16px; }
-  .lz-ord-meta .ft-code { font-size: 13px; }
-  .lz-name { font-size: 30px; }
-  .lz-fact > b, .lz-fact .ft-due { font-size: 16px; }
-  .lz-fact > span { font-size: 12.5px; }
-  .lz-dist .ft-table { font-size: 14.5px; }
-  .lz-dist .ft-table th { font-size: 12.5px; }
-  .lz-cod { font-size: 14.5px; }
-  .lz-qty { font-size: 20px; }
-  .lz-grp-mat, .lz-grp-sp { font-size: 17px; }
-  .lz-sum { font-size: 14.5px; }
-  .lz-body { padding: 18px 20px 28px; }
-  .lz-head { padding: 16px 20px 14px; }
-  .lz-viewbar { padding: 8px 20px; }
   /* calendario: le celle riempiono l'altezza dello schermo, niente scorrimento */
   #panel-calendario .ft-page.wide { padding-top: 16px !important; padding-bottom: 16px; }
   #panel-calendario .ft-head { margin-bottom: 10px; }
@@ -524,6 +456,19 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
   .lz-day-n { font-size: 14px; }
   .lz-cal-side { max-height: calc(100vh - 300px); overflow: auto; }
 }
+@media (max-width: 1500px) {
+  .lv-col-day, .lv-bt { display: none; }
+  .lv-oggi .lz-sat { width: 140px; }
+  .lv-dh-top { flex-wrap: wrap; }
+  .lv-dh-tit { flex: 1 1 60%; }
+  .lv-dh-tit h2 { font-size: 22px; }
+  .lv-dh-act { order: 3; flex: 1 1 100%; margin-left: 0; }
+  .lv-dh-act .ft-icon-btn { margin-left: auto; }
+  .lv-facts { gap: 6px 20px; }
+  .lv-facts b { font-size: 16px; }
+}
+@media (max-height: 820px) { .lv-prev { flex-basis: 40%; } tr.lv-r td { height: 48px; } }
+@media (max-width: 1280px) { .lv-col-pz { display: none; } .lv-bar .ft-search { width: 200px; } }
 .lz-fs-btn.on { background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
 </style>
 </head>
@@ -580,19 +525,15 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
 <!-- ═══ LAVORO ═══ -->
 <main class="ft-page flush">
 <section class="ft-view active" id="panel-lavoro">
-  <div class="lz-split">
-    <!-- Coda -->
-    <aside class="lz-queue">
-      <div class="lz-queue-head">
-        <div>
-          <h1 class="ft-title" id="calendar-view-title">Da smistare</h1>
-          <p class="lz-queue-sub" id="lz-queue-sub"></p>
-        </div>
-        <div class="ft-seg" role="tablist" aria-label="Code del laser">
-          <button type="button" class="on active" id="vt-smistare" onclick="switchLaserView('smistare')">Da smistare <b id="conta-smistare"></b></button>
-          <button type="button" id="vt-scadenza" onclick="switchLaserView('scadenza')">Da tagliare <b id="conta-coda"></b></button>
-          <button type="button" id="vt-fatti" onclick="switchLaserView('fatti')">Tagliati oggi <b id="conta-fatti"></b></button>
-          <button type="button" id="vt-cliente" onclick="switchLaserView('cliente')">Per cliente <b id="conta-clienti"></b></button>
+  <div class="lv">
+    <!-- Lista dei lavori -->
+    <section class="lv-list" aria-label="Lavori del laser">
+      <div class="lv-bar">
+        <div class="lv-tabs" id="lv-tabs" role="tablist" aria-label="Code del laser"></div>
+        <div class="lv-gruppi" id="lv-gruppi">Raggruppa
+          <button type="button" data-g="consegna" onclick="lvSetGruppo('consegna')">Consegna</button>
+          <button type="button" data-g="lamiera" onclick="lvSetGruppo('lamiera')">Lamiera</button>
+          <button type="button" data-g="cliente" onclick="lvSetGruppo('cliente')">Cliente</button>
         </div>
         <label class="ft-search">
           <i data-lucide="search"></i>
@@ -600,8 +541,15 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
                  oninput="filtroTesto = this.value.trim().toLowerCase(); renderCalendar();">
         </label>
       </div>
-      <div class="lz-queue-list" id="calendar-list"></div>
-    </aside>
+      <div class="lv-sum"><span id="lv-sum" style="display:contents"></span><div class="lv-oggi" id="lv-oggi"></div></div>
+      <div class="lv-table">
+        <table>
+          <thead><tr><th>Consegna</th><th>Cliente</th><th>Lamiere</th><th class="r lv-col-pz">Pezzi</th><th class="r">Laser</th>
+            <th class="lv-col-day">Taglio</th><th></th></tr></thead>
+          <tbody id="lv-rows"></tbody>
+        </table>
+      </div>
+    </section>
 
     <!-- Ordine aperto -->
     <section class="lz-work" id="lz-work" aria-live="polite"></section>
@@ -734,10 +682,6 @@ let laserViewMode = 'smistare';
 let actionInProgress = false;
 let currentTab = 'lavoro';
 let filtroTesto = '';
-let workView = 'distinta';       // distinta | disegni | pdf
-let workViewScelta = null;       // l'ultima scelta fatta a mano dall'operatore
-let filtroDisegni = '';
-let _vistaTok = 0;
 const CHIUSI = ['CHIUSO', 'SPEDITO', 'ARCHIVIATO'];
 const _cache = { distinta: {}, disegni: {} };   // per ordine: {stato, dati, t}
 const CACHE_MS = 60000;
@@ -902,197 +846,150 @@ async function loadOrders(forzato) {
   }
 }
 
-// ═══ Coda ═══════════════════════════════════════════════════════════
-const TITOLI = {
-  smistare: ['Da smistare', 'Decidi cosa passa dal laser. Quello che scarti diventa subito lavorabile in officina.'],
-  scadenza: ['Da tagliare', 'La coda di taglio, la consegna più vicina per prima.'],
-  fatti: ['Tagliati oggi', 'Quello che hai già segnato oggi. Puoi annullare uno sbaglio.'],
-  cliente: ['Per cliente', 'La coda di taglio raggruppata per cliente: utile per un nesting unico.'],
-};
-
-function _resetChiusura() { _chiusoAMano = false; }
-function switchLaserView(mode) {
-  laserViewMode = mode;
-  for (const m of ['smistare', 'scadenza', 'fatti', 'cliente']) {
-    const el = document.getElementById('vt-' + m);
-    if (el) { el.classList.toggle('on', m === mode); el.classList.toggle('active', m === mode); }
-  }
-  const [t, s] = TITOLI[mode] || TITOLI.scadenza;
-  document.getElementById('calendar-view-title').textContent = t;
-  document.getElementById('lz-queue-sub').textContent = s;
-  renderCalendar();
-}
-
-function aggiornaConteggi() {
-  const nS = ordiniDaSmistare().length, nC = ordiniDaTagliare().length, nF = ordiniTagliatiOggi().length;
-  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-  set('conta-smistare', nS); set('conta-coda', nC); set('conta-fatti', nF);
-  set('conta-clienti', new Set(ordiniDaTagliare().map(o => o.cliente || '')).size);
-  const tab = document.getElementById('conta-lavoro');
-  if (tab) { tab.textContent = (nS + nC) || ''; tab.classList.toggle('hot', nS > 0); }
-}
-
-/** Disegna la coda della vista scelta (il nome e' storico). */
-function renderCalendar() {
-  aggiornaConteggi();
-  const box = document.getElementById('calendar-list');
-  if (!box) return;
-  if (laserViewMode === 'smistare') box.innerHTML = htmlDaSmistare();
-  else if (laserViewMode === 'cliente') box.innerHTML = htmlPerCliente();
-  else if (laserViewMode === 'fatti') box.innerHTML = htmlTagliatiOggi();
-  else box.innerHTML = htmlDaTagliare();
-  FT.icone();
-  // Schermo largo: se non c'e' niente di aperto si apre il primo della coda,
-  // invece di lasciare mezzo schermo vuoto. Non dopo una chiusura a mano.
-  if (schermoLargo() && !selectedOrderId && !_chiusoAMano && currentTab === 'lavoro') {
-    const primo = box.querySelector('.lz-ord[data-id]');
-    if (primo) setTimeout(() => { if (!selectedOrderId) selectOrder(primo.dataset.id); }, 0);
-    // niente da smistare: si passa alla coda da tagliare (una volta sola)
-    else if (laserViewMode === 'smistare' && !_saltatoSmistare && ordiniDaTagliare().length) {
-      _saltatoSmistare = true;
-      setTimeout(() => switchLaserView('scadenza'), 0);
-    }
-  }
-}
+// ═══ Lavoro: lista dei lavori + pannello dell'ordine ═══════════════════
+// Impostazione da software di produzione (lista lavori del giorno con le
+// priorita', tipo TRUMPF Oseon/TruTops Fab) e schema "posta": a sinistra una
+// riga densa per ordine, leggibile da un passo; a destra l'ordine aperto con
+// disegno o PDF grande e i pezzi per lamiera. Ogni elemento porta a
+// un'azione: smistare, segnare il taglio, guardare il disegno.
+let lvGruppo = (() => { try { return localStorage.getItem('lv_gruppo') || 'consegna'; } catch (_) { return 'consegna'; } })();
+let lvPrev = null;          // {tipo: 'disegno'|'pdf', nome}
+let _lvTok = 0;
 let _chiusoAMano = false;
 let _saltatoSmistare = false;
 
-function vuotoCoda(icona, titolo, testo) {
-  if (filtroTesto) { icona = 'search-x'; titolo = 'Nessun ordine trovato'; testo = 'Nessun ordine di questa coda corrisponde alla ricerca.'; }
-  return `<div class="ft-empty"><div class="ft-empty-icon"><i data-lucide="${icona}"></i></div>
-    <b>${esc(titolo)}</b><p>${esc(testo)}</p></div>`;
+const LV_VISTE = { smistare: 'Da smistare', scadenza: 'Da tagliare', fatti: 'Tagliati oggi' };
+function switchLaserView(mode) {
+  if (mode === 'cliente') { lvGruppo = 'cliente'; mode = 'scadenza'; }
+  laserViewMode = LV_VISTE[mode] ? mode : 'scadenza';
+  _chiusoAMano = false;
+  renderCalendar();
 }
-function sezione(titolo, n, dot) {
-  return `<div class="lz-sec"><span class="lz-dot ${dot || ''}"></span>${esc(titolo)}<b>${n}</b></div>`;
+function lvSetGruppo(g) {
+  lvGruppo = g;
+  try { localStorage.setItem('lv_gruppo', g); } catch (_) {}
+  renderCalendar();
 }
-
-/** Una riga della coda: stato e gesto direttamente sulla riga. */
-function rigaOrdine(o, opz) {
-  opz = opz || {};
-  const st = statoLaser(o);
-  const g = giorniAllaConsegna(o);
-  const cls = ['lz-ord'];
-  if (selectedOrderId === o.id) cls.push('sel');
-  if ((st === 'coda' || st === 'smistare') && g != null && g < 0) cls.push('late');
-  const nd = nDisegni(o);
-  const chips = [];
-  if (opz.extra) chips.push(opz.extra);
-  if (nd) chips.push(`<span class="ft-chip"><i data-lucide="drafting-compass"></i>${nd} ${nd === 1 ? 'disegno' : 'disegni'}</span>`);
-  if (haPdf(o)) chips.push('<span class="ft-chip"><i data-lucide="file-text"></i>PDF</span>');
-  else if (o.origine === 'PACCHETTO') chips.push('<span class="ft-chip">PDF e disegni</span>');
-  else if (daPreventivo(o)) chips.push('<span class="ft-chip">Da preventivo</span>');
-  let azioni = '';
-  if (st === 'smistare') azioni = bottoniSmistamento(o);
-  else if (st === 'coda' || st === 'tagliato') azioni = bottoneTaglio(o);
-  const titolo = opz.titolo != null ? opz.titolo : (o.cliente || 'Cliente non indicato');
-  return `<div class="${cls.join(' ')}" data-id="${o.id}" role="button" tabindex="0"
-      onclick="selectOrder('${o.id}')" onkeydown="if (event.key === 'Enter' && event.target === this) selectOrder('${o.id}')">
-    <div class="lz-ord-top"><span class="lz-ord-cli">${esc(titolo)}</span>${dueHtml(o)}</div>
-    <div class="lz-ord-meta">${opz.titolo ? '' : `<code class="ft-code">#${esc(numeroOrdine(o))}</code>`}${chips.join('')}</div>
-    ${azioni}
-  </div>`;
+function aggiornaConteggi() {
+  const nS = ordiniDaSmistare().length, nC = ordiniDaTagliare().length;
+  const tab = document.getElementById('conta-lavoro');
+  if (tab) { tab.textContent = (nS + nC) || ''; tab.classList.toggle('hot', nS > 0); }
 }
-
-/** I due pulsanti dello smistamento, affiancati: la decisione e' fra due cose. */
-function bottoniSmistamento(o) {
-  return `<div class="riga-smista">
-    <button class="ft-btn sm primary btn-taglio btn-si" onclick="event.stopPropagation(); smista('${o.id}', true)"
-      title="Entra nella coda di taglio"><i data-lucide="scissors"></i> Va tagliato</button>
-    <button class="ft-btn sm btn-taglio btn-no" onclick="event.stopPropagation(); smista('${o.id}', false)"
-      title="Salta il laser: subito lavorabile in officina">Non passa da qui</button>
-  </div>`;
-}
-
-function bottoneTaglio(o) {
-  if (o.taglio_completato) {
-    const quando = o.data_taglio_completato ? FT.fmtRelativo(o.data_taglio_completato) : '';
-    return `<button class="ft-btn sm btn-taglio fatto" onclick="event.stopPropagation(); undoLaserDone('${o.id}')"
-      title="Tagliato ${esc(quando)}: clicca per annullare"><i data-lucide="check"></i> Tagliato</button>`;
-  }
-  return `<button class="ft-btn sm btn-taglio" onclick="event.stopPropagation(); markLaserDone('${o.id}')"
-    title="Segna questo ordine come tagliato"><i data-lucide="check"></i> Taglio fatto</button>`;
-}
-
-function htmlDaSmistare() {
-  const da = ordiniDaSmistare().filter(passaFiltro).sort(perConsegna);
-  if (!da.length) return vuotoCoda('inbox', 'Niente da smistare',
-    'Tutto quello che è arrivato ha già una destinazione.');
-  return da.map(o => rigaOrdine(o)).join('');
-}
-
-function htmlDaTagliare() {
-  const coda = ordiniDaTagliare().filter(passaFiltro).sort(perConsegna);
-  if (!coda.length) return vuotoCoda('scissors', 'Coda vuota',
-    'Non c’è niente da tagliare. Gli ordini nuovi arrivano in “Da smistare”.');
-  const gruppi = [['Scaduti', 'err', []], ['Oggi', 'err', []], ['Domani', 'warn', []],
-                  ['Entro una settimana', 'accent', []]];
-  const dopo = {};
-  for (const o of coda) {
-    const g = giorniAllaConsegna(o);
-    if (g == null) { (dopo['Senza data'] = dopo['Senza data'] || []).push(o); continue; }
-    if (g < 0) gruppi[0][2].push(o);
-    else if (g === 0) gruppi[1][2].push(o);
-    else if (g === 1) gruppi[2][2].push(o);
-    else if (g <= 6) gruppi[3][2].push(o);
-    else { const k = FT.fmtData(giornoConsegna(o)); (dopo[k] = dopo[k] || []).push(o); }
-  }
-  let html = '';
-  for (const [t, dot, arr] of gruppi) {
-    if (arr.length) html += sezione(t, arr.length, dot) + arr.map(o => rigaOrdine(o)).join('');
-  }
-  for (const [k, arr] of Object.entries(dopo)) {
-    html += sezione('Consegna ' + k, arr.length) + arr.map(o => rigaOrdine(o)).join('');
-  }
-  return html;
-}
-
-function htmlTagliatiOggi() {
-  const fatti = ordiniTagliatiOggi().filter(passaFiltro).sort((a, b) =>
-    (FT.data(b.data_taglio_completato) || 0) - (FT.data(a.data_taglio_completato) || 0));
-  if (!fatti.length) return vuotoCoda('circle-check', 'Nessun taglio oggi',
-    'Quando segni “Taglio fatto”, l’ordine compare qui.');
-  return sezione('Tagliati oggi', fatti.length, 'ok') + fatti.map(o => rigaOrdine(o, {
-    extra: `<span class="ft-chip ok"><i data-lucide="clock"></i>alle ${FT.fmtOra(o.data_taglio_completato)}</span>`,
-  })).join('');
-}
-
-function htmlPerCliente() {
-  const mappa = {};
-  ordiniDaTagliare().filter(passaFiltro).forEach(o => {
-    const k = o.cliente || 'Cliente non indicato';
-    (mappa[k] = mappa[k] || []).push(o);
-  });
-  const clienti = Object.entries(mappa);
-  if (!clienti.length) return vuotoCoda('users', 'Coda vuota', 'Non c’è niente da tagliare.');
-  clienti.forEach(([, arr]) => arr.sort(perConsegna));
-  clienti.sort((a, b) => perConsegna(a[1][0], b[1][0]));
-  return clienti.map(([nome, arr]) => {
-    const s = FT.scadenza(giornoConsegna(arr[0]));
-    const chip = s.classe === 'late' ? 'err' : (s.classe === 'soon' ? 'warn' : '');
-    const aperto = arr.some(o => o.id === selectedOrderId) || !!filtroTesto;
-    return `<div class="lz-cg${aperto ? ' open' : ''}">
-      <div class="lz-cg-head" role="button" tabindex="0" onclick="this.parentElement.classList.toggle('open')"
-           onkeydown="if (event.key === 'Enter') this.parentElement.classList.toggle('open')">
-        <span class="lz-cg-name">${esc(nome)}</span>
-        <span class="ft-chip">${arr.length} ${arr.length === 1 ? 'ordine' : 'ordini'}</span>
-        ${s.testo ? `<span class="ft-chip ${chip}">${esc(s.testo)}</span>` : ''}
-        <i data-lucide="chevron-right" class="lz-chev"></i>
-      </div>
-      <div class="lz-cg-body">${arr.map(o => rigaOrdine(o, { titolo: '#' + numeroOrdine(o) })).join('')}</div>
-    </div>`;
-  }).join('');
-}
-
-/** In quale coda sta un ordine: serve ad aprirlo dal calendario o da una notifica. */
 function vistaDi(o) {
   const st = statoLaser(o);
   if (st === 'smistare') return 'smistare';
-  if (st === 'coda') return laserViewMode === 'cliente' ? 'cliente' : 'scadenza';
+  if (st === 'coda') return 'scadenza';
   if (st === 'tagliato' && FT.giorniDa(o.data_taglio_completato) === 0) return 'fatti';
   return null;
 }
+function lvOrdiniVista() {
+  const l = laserViewMode === 'smistare' ? ordiniDaSmistare()
+    : laserViewMode === 'fatti' ? ordiniTagliatiOggi() : ordiniDaTagliare();
+  return l.filter(passaFiltro).sort(perConsegna);
+}
+function lvGruppoDi(o) {
+  if (lvGruppo === 'cliente') return { k: o.cliente || '—', t: o.cliente || 'Cliente non indicato' };
+  if (lvGruppo === 'lamiera') {
+    const d = durataOrdine(o);
+    const p = (d.per || []).slice().sort((a, b) => b.min - a.min)[0];
+    return p ? { k: p.chiave, t: `${(p.mat || '?').replace(/_/g, ' ')} ${p.sp != null ? String(p.sp).replace('.', ',') + ' mm' : ''}`, nota: 'lamiera principale' }
+             : { k: 'zz', t: 'Senza disegni' };
+  }
+  const g = giorniAllaConsegna(o);
+  if (g == null) return { k: '9', t: 'Senza data' };
+  if (g < 0) return { k: '0', t: 'In ritardo', cls: 'err' };
+  if (g === 0) return { k: '1', t: 'Consegna oggi', cls: 'err' };
+  if (g <= 2) return { k: '2', t: 'Entro 2 giorni', cls: 'warn' };
+  if (g <= 7) return { k: '3', t: 'Entro una settimana' };
+  if (g <= 14) return { k: '4', t: 'Entro due settimane' };
+  return { k: '5', t: 'Più avanti' };
+}
+function lvChip(r) {
+  const m = r.mat || '';
+  const cls = /INOX/.test(m) ? 'inox' : /ALU/.test(m) ? 'alu' : /ZINC|DX5|ZN/.test(m) ? 'zn' : 'fe';
+  return `<span class="lv-chip ${cls}" title="${esc(m.replace(/_/g, ' '))} ${r.sp ?? ''} mm · ${fmtOre(r.min)}">${esc(m.replace(/_?304|_?316|_/g, ' ').trim())} ${r.sp != null ? String(r.sp).replace('.', ',') : '?'}</span>`;
+}
+function lvGiornoTxt(ds) { return ds ? FT.data(ds).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' }) : '—'; }
 
-// ═══ Ordine aperto ══════════════════════════════════════════════════
+/** La lista (nome storico: renderCalendar, la chiamano polling e azioni). */
+function renderCalendar() {
+  aggiornaConteggi();
+  const head = document.getElementById('lv-tabs');
+  if (!head) return;
+  const nS = ordiniDaSmistare().length, nC = ordiniDaTagliare().length, nF = ordiniTagliatiOggi().length;
+  head.innerHTML = [['smistare', nS], ['scadenza', nC], ['fatti', nF]].map(([k, n]) =>
+    `<button type="button" id="vt-${k}" role="tab" aria-selected="${laserViewMode === k}" class="${laserViewMode === k ? 'on active' : ''}${k === 'smistare' && n ? ' urg' : ''}" onclick="switchLaserView('${k}')">${LV_VISTE[k]} <b id="conta-${k}">${n}</b></button>`).join('');
+  document.querySelectorAll('#lv-gruppi button').forEach(b => b.classList.toggle('on', b.dataset.g === lvGruppo));
+  const lista = lvOrdiniVista();
+  // riassunto della vista
+  let min = 0, lam = 0, ignoti = 0;
+  for (const o of lista) { const d = durataOrdine(o); if (d.min == null) ignoti++; else min += d.min; lam += d.lamiere || 0; }
+  const late = lista.filter(o => (giorniAllaConsegna(o) ?? 1) < 0 && statoLaser(o) !== 'tagliato').length;
+  document.getElementById('lv-sum').innerHTML = `<span><b>${lista.length}</b> ${lista.length === 1 ? 'ordine' : 'ordini'}</span>
+    ${laserViewMode !== 'fatti' ? `<span><b>${fmtOre(min)}</b> di laser${ignoti ? ` <em>+${ignoti} senza durata</em>` : ''}</span><span><b>${lam}</b> lamiere</span>` : ''}
+    ${late ? `<span class="err"><b>${late}</b> in ritardo</span>` : ''}`;
+  const k = caricoGiorno(FT.oggiISO());
+  document.getElementById('lv-oggi').innerHTML = k.cap || k.min ? `<span>Oggi al laser</span>${barraSat(FT.oggiISO(), k)}` : '';
+  // righe
+  const ord = lvGruppo === 'consegna' ? lista
+    : lista.slice().sort((a, b) => lvGruppoDi(a).k.localeCompare(lvGruppoDi(b).k, 'it', { numeric: true }) || perConsegna(a, b));
+  let html = '', prima = null;
+  for (const o of ord) {
+    const G = lvGruppoDi(o);
+    if (G.k !== prima) {
+      const n = ord.filter(x => lvGruppoDi(x).k === G.k);
+      const m = n.reduce((s, x) => s + (durataOrdine(x).min || 0), 0);
+      html += `<tr class="lv-g ${G.cls || ''}"><td colspan="7">${esc(G.t)}<span>${n.length} · ${fmtOre(m)}</span></td></tr>`;
+      prima = G.k;
+    }
+    html += lvRiga(o);
+  }
+  const box = document.getElementById('lv-rows');
+  box.innerHTML = html || `<tr><td colspan="7">${lvVuoto()}</td></tr>`;
+  FT.icone();
+  // nessuno schermo vuoto: si apre il primo (non dopo una chiusura a mano)
+  if (!selectedOrderId && !_chiusoAMano && currentTab === 'lavoro') {
+    if (lista.length) setTimeout(() => { if (!selectedOrderId) selectOrder(lista[0].id); }, 0);
+    else if (laserViewMode === 'smistare' && nC && !_saltatoSmistare) { _saltatoSmistare = true; setTimeout(() => switchLaserView('scadenza'), 0); }
+    else renderWorkEmpty();
+  }
+}
+function lvVuoto() {
+  const t = { smistare: ['inbox', 'Niente da smistare', 'Tutto quello che è arrivato ha già una destinazione.'],
+              scadenza: ['scissors', 'Coda vuota', 'Non c’è niente da tagliare.'],
+              fatti: ['circle-check', 'Nessun taglio oggi', 'Quando segni “Taglio fatto” l’ordine compare qui.'] }[laserViewMode];
+  return `<div class="ft-empty" style="padding:48px 20px;"><div class="ft-empty-icon"><i data-lucide="${t[0]}"></i></div><b>${t[1]}</b>${filtroTesto ? '<p>Nessun ordine corrisponde alla ricerca.</p>' : `<p>${t[2]}</p>`}</div>`;
+}
+function lvRiga(o) {
+  const st = statoLaser(o);
+  const d = durataOrdine(o);
+  const g = giorniAllaConsegna(o);
+  const cons = giornoConsegna(o);
+  const late = g != null && g < 0 && st !== 'tagliato';
+  const due = g == null ? '' : g < 0 ? `scaduta da ${-g} gg` : g === 0 ? 'oggi' : g === 1 ? 'domani' : `tra ${g} gg`;
+  const per = (d.per || []).slice().sort((a, b) => b.min - a.min);
+  const lam = per.length ? per.slice(0, 3).map(lvChip).join('') + (per.length > 3 ? `<span class="lv-chip">+${per.length - 3}</span>` : '')
+    : `<span class="lv-chip">${haPdf(o) ? 'solo PDF' : 'senza disegni'}</span>`;
+  const taglio = st === 'tagliato' ? `<span class="lv-ok">${esc(FT.fmtOra(o.data_taglio_completato))}</span>`
+    : `${lvGiornoTxt(giornoCal(o))}${o.data_taglio_pianificata && o.data_taglio_pianificata !== cons ? ' <i class="lv-sp">↦</i>' : ''}`;
+  let az = '';
+  if (st === 'smistare') az = `<button class="ft-btn sm btn-no" onclick="event.stopPropagation(); smista('${o.id}', false)" title="Non passa dal laser: subito lavorabile in officina">No</button>
+      <button class="ft-btn sm primary btn-si" onclick="event.stopPropagation(); smista('${o.id}', true)" title="Va tagliato"><i data-lucide="scissors"></i><span class="lv-bt"> Va tagliato</span></button>`;
+  else if (st === 'coda') az = `<button class="ft-btn sm btn-taglio" onclick="event.stopPropagation(); markLaserDone('${o.id}')" title="Taglio fatto"><i data-lucide="check"></i><span class="lv-bt"> Taglio fatto</span></button>`;
+  else if (st === 'tagliato') az = `<button class="ft-btn sm ghost" onclick="event.stopPropagation(); undoLaserDone('${o.id}')" title="Annulla il taglio"><i data-lucide="undo-2"></i><span class="lv-bt"> Annulla</span></button>`;
+  return `<tr class="lv-r${st === 'smistare' ? ' riga-smista' : ''}${selectedOrderId === o.id ? ' sel' : ''}${late ? ' late' : ''}" data-id="${o.id}" onclick="selectOrder('${o.id}')" tabindex="0"
+      onkeydown="if (event.key === 'Enter') selectOrder('${o.id}')">
+    <td><div class="lv-due${late ? ' late' : g != null && g <= 2 ? ' soon' : ''}">${cons ? FT.fmtDataBreve(cons) : '—'}<small>${due}</small></div></td>
+    <td class="lv-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><span class="ft-mono">#${esc(numeroOrdine(o))}</span></td>
+    <td><div class="lv-chips">${lam}</div></td>
+    <td class="r lv-n lv-col-pz">${d.pezzi ?? '—'}</td>
+    <td class="r lv-n${d.min == null ? ' ign' : ''}" title="${esc(d.nota || '')}">${st === 'escluso' ? '' : fmtOre(d.min)}</td>
+    <td class="lv-day lv-col-day">${taglio}</td>
+    <td class="r lv-az">${az}</td>
+  </tr>`;
+}
+
+// ── Ordine aperto ─────────────────────────────────────────────────────
 function selectOrder(orderId) {
   const o = allOrders.find(x => x.id === orderId) || ordiniGrezzi.find(x => x.id === orderId);
   if (!o) { FT.toast('Questo ordine non è più nella coda del laser', 'warn'); return; }
@@ -1100,213 +997,184 @@ function selectOrder(orderId) {
   const cambia = selectedOrderId !== orderId;
   selectedOrderId = orderId;
   const vista = vistaDi(o);
-  if (vista && vista !== laserViewMode) switchLaserView(vista);
-  else renderCalendar();
+  if (vista && vista !== laserViewMode) { laserViewMode = vista; renderCalendar(); }
+  document.querySelectorAll('.lv-r').forEach(r => r.classList.toggle('sel', r.dataset.id === orderId));
   if (cambia) {
-    filtroDisegni = '';
-    workView = sceltaVista(o);
+    lvPrev = null;
     renderWork(o);
-    const riga = document.querySelector(`.lz-ord[data-id="${orderId}"]`);
+    const riga = document.querySelector(`.lv-r[data-id="${orderId}"]`);
     if (riga) riga.scrollIntoView({ block: 'nearest' });
   }
 }
-
-/** Da cosa si parte: per un ordine nato da preventivo la distinta, per uno
-    arrivato in PDF il PDF. Se l'operatore ha scelto a mano, si rispetta. */
-function sceltaVista(o) {
-  if (workViewScelta && !(workViewScelta === 'pdf' && !haPdf(o))) return workViewScelta;
-  return haPdf(o) && !daPreventivo(o) ? 'pdf' : 'distinta';
+function deselectOrder() {
+  _chiusoAMano = true;
+  selectedOrderId = null;
+  _lvTok++;
+  document.querySelectorAll('.lv-r.sel').forEach(r => r.classList.remove('sel'));
+  renderWorkEmpty();
 }
-
+function clearDetails() { deselectOrder(); }
+function ordineAperto() { return allOrders.find(x => x.id === selectedOrderId) || ordiniGrezzi.find(x => x.id === selectedOrderId); }
 function renderWorkEmpty() {
   const w = document.getElementById('lz-work');
-  if (!w) return;
-  w.innerHTML = `<div class="ft-empty">
-    <div class="ft-empty-icon"><i data-lucide="mouse-pointer-click"></i></div>
-    <b>Scegli un ordine dalla coda</b>
-    <p>Qui trovi la distinta dei pezzi divisa per materiale e spessore, i disegni DXF da guardare o scaricare e il PDF dell’ordine.</p>
-  </div>`;
+  if (w) w.innerHTML = `<div class="ft-empty" style="margin:auto;"><div class="ft-empty-icon"><i data-lucide="mouse-pointer-click"></i></div>
+    <b>Scegli un ordine</b><p>Qui vedi il disegno o il PDF e i pezzi divisi per lamiera.</p></div>`;
   FT.icone();
 }
 
-const schermoLargo = () => window.matchMedia('(min-width: 1600px)').matches;
-let _sideMostra = null;
-let _sideTok = 0;       // {tipo: 'pdf'|'disegno', nome?} scelto per l'ordine aperto
-
 function renderWork(o) {
   const w = document.getElementById('lz-work');
-  const largo = schermoLargo();
-  w.classList.toggle('con-side', largo);
-  _sideMostra = null;
-  w.innerHTML = `${largo ? '<div class="lz-main">' : ''}
-    <header class="lz-head" id="lz-head"></header>
-    <div class="lz-viewbar">
-      <div class="ft-seg" role="tablist" aria-label="Cosa guardare" id="lz-vista-seg">
-        <button type="button" data-v="distinta" onclick="setWorkView('distinta')"><i data-lucide="list-checks"></i> Distinta <b id="lz-n-distinta"></b></button>
-        <button type="button" data-v="disegni" onclick="setWorkView('disegni')"><i data-lucide="drafting-compass"></i> Disegni <b id="lz-n-disegni">${nDisegni(o) || ''}</b></button>
-        <button type="button" data-v="pdf" onclick="setWorkView('pdf')"><i data-lucide="file-text"></i> PDF ordine <b>${haPdf(o) ? '' : '—'}</b></button>
-      </div>
-      <div class="lz-viewbar-end" id="lz-view-actions"></div>
+  w.innerHTML = `<header class="lv-dh" id="lz-head"></header>
+    <div class="lv-prev">
+      <div class="lv-prev-bar"><div class="ft-seg" id="lv-prev-seg"></div><span class="lv-prev-name" id="lv-prev-name"></span><div class="lv-prev-nav" id="lv-prev-nav"></div></div>
+      <div class="lv-prev-body" id="lv-prev-body"><div class="ft-skel" style="width:60%;height:60%;"></div></div>
     </div>
-    <div class="lz-body" id="lz-body"></div>${largo ? '</div><aside class="lz-side" id="lz-side"></aside>' : ''}`;
-  if (largo) {
-    // a destra c'e' gia' il PDF: al centro si parte dalla distinta
-    if (workView === 'pdf') workView = 'distinta';
-    const bp = w.querySelector('#lz-vista-seg button[data-v="pdf"]');
-    if (bp) bp.style.display = 'none';
-  }
+    <div class="lv-pezzi" id="lv-pezzi"><div style="padding:16px 20px;"><div class="ft-skel lz-skel"></div><div class="ft-skel lz-skel"></div></div></div>`;
   renderWorkHead(o);
-  if (largo) renderSide(o);
-  caricaVista();
-  // I numeri sulle schede si caricano subito, anche di quella non aperta.
-  caricaDistinta(o.id).then(r => segnaConteggi(o.id));
-  caricaDisegni(o.id).then(r => segnaConteggi(o.id));
+  lvCaricaDettaglio(o);
 }
-
-function segnaConteggi(id) {
-  if (id !== selectedOrderId) return;
-  const d = _cache.distinta[id], g = _cache.disegni[id];
-  const eD = document.getElementById('lz-n-distinta'), eG = document.getElementById('lz-n-disegni');
-  if (eD && d && d.stato === 'ok') {
-    const tot = totalePezzi(d.dati);
-    eD.textContent = tot ? tot + ' pz' : '';
-  }
-  if (eG && g && g.stato === 'ok') eG.textContent = (g.dati.disegni || []).length || '';
-  const fp = document.getElementById('lz-fact-pezzi');
-  if (fp && d) fp.textContent = (d.stato === 'ok' && totalePezzi(d.dati)) || '—';
-  const fg = document.getElementById('lz-fact-disegni');
-  if (fg && g && g.stato === 'ok') fg.textContent = (g.dati.disegni || []).length || '—';
-}
-
 function renderWorkHead(o) {
   const h = document.getElementById('lz-head');
   if (!h) return;
   const st = statoLaser(o);
-  const S = STATI[st];
-  let stato = `<span class="ft-status ${S.cls}">${S.testo}</span>`;
-  if (st === 'tagliato' && o.data_taglio_completato) {
-    stato = `<span class="ft-status ok">Tagliato ${esc(FT.fmtRelativo(o.data_taglio_completato))}</span>`;
-  }
-  let azioni = '';
-  if (st === 'smistare') {
-    azioni = `<button class="ft-btn btn-no" onclick="smista('${o.id}', false)" title="Salta il laser: subito lavorabile in officina">Non passa da qui</button>
-      <button class="ft-btn primary btn-si" onclick="smista('${o.id}', true)"><i data-lucide="scissors"></i> Va tagliato</button>`;
-  } else if (st === 'coda') {
-    azioni = `<button class="ft-btn" onclick="annullaSmistamento('${o.id}')" title="Rimettilo fra quelli da smistare">Rimetti da smistare</button>
-      <button class="ft-btn primary" onclick="markLaserDone('${o.id}')"><i data-lucide="check"></i> Taglio fatto</button>`;
-  } else if (st === 'tagliato') {
-    azioni = `<button class="ft-btn" onclick="undoLaserDone('${o.id}')"><i data-lucide="undo-2"></i> Annulla taglio</button>`;
-  } else if (st === 'escluso') {
-    azioni = `<button class="ft-btn" onclick="annullaSmistamento('${o.id}')"><i data-lucide="undo-2"></i> Rimetti da smistare</button>`;
-  }
-  const d = _cache.distinta[o.id], g = _cache.disegni[o.id];
-  const pezzi = !d ? '…' : (d.stato === 'ok' ? (totalePezzi(d.dati) || '—') : '—');
-  // Ordine caricato dall'ufficio col pacchetto del cliente: ha distinta e
-  // disegni come quelli da preventivo, ma un preventivo non c'e' stato.
-  const origine = o.origine === 'PACCHETTO' ? 'PDF e disegni del cliente'
-    : daPreventivo(o) ? 'Da preventivo accettato' : (haPdf(o) ? 'Ordine in PDF' : 'Inserito a mano');
-  h.innerHTML = `
-    <div class="lz-head-main">
-      <div class="lz-eyebrow">${stato}<span class="ft-chip">${esc(origine)}</span></div>
-      <h2 class="lz-name">${esc(o.cliente || 'Cliente non indicato')}</h2>
-      <div class="lz-facts">
-        <div class="lz-fact"><span>Ordine</span><b class="ft-mono" style="font-size:13.5px;">#${esc(numeroOrdine(o))}</b></div>
-        <div class="lz-fact"><span>Consegna</span>${dueHtml(o)}</div>
-        <div class="lz-fact"><span>Pezzi</span><b id="lz-fact-pezzi">${pezzi}</b></div>
-        <div class="lz-fact"><span>Disegni</span><b id="lz-fact-disegni">${g && g.stato === 'ok' ? ((g.dati.disegni || []).length || '—') : (nDisegni(o) || '—')}</b></div>
-      </div>
+  const d = durataOrdine(o);
+  const g = giorniAllaConsegna(o), cons = giornoConsegna(o);
+  let az = '';
+  if (st === 'smistare') az = `<button class="ft-btn lg" onclick="smista('${o.id}', false)" title="Salta il laser: subito lavorabile in officina">Non passa da qui</button>
+      <button class="ft-btn lg primary" onclick="smista('${o.id}', true)"><i data-lucide="scissors"></i> Va tagliato</button>`;
+  else if (st === 'coda') az = `<button class="ft-btn lg" onclick="annullaSmistamento('${o.id}')" title="Rimettilo fra quelli da smistare">Rimetti da smistare</button>
+      <button class="ft-btn lg primary" onclick="markLaserDone('${o.id}')"><i data-lucide="check"></i> Taglio fatto</button>`;
+  else if (st === 'tagliato') az = `<button class="ft-btn lg" onclick="undoLaserDone('${o.id}')"><i data-lucide="undo-2"></i> Annulla taglio</button>`;
+  else if (st === 'escluso') az = `<button class="ft-btn lg" onclick="annullaSmistamento('${o.id}')"><i data-lucide="undo-2"></i> Rimetti da smistare</button>`;
+  const origine = o.origine === 'PACCHETTO' ? 'PDF e disegni del cliente' : daPreventivo(o) ? 'Da preventivo' : (haPdf(o) ? 'Ordine in PDF' : 'Inserito a mano');
+  const mobile = st === 'coda' || st === 'smistare';
+  h.innerHTML = `<div class="lv-dh-top">
+      <div class="lv-dh-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2>
+        <div><span class="ft-mono">#${esc(numeroOrdine(o))}</span><span class="ft-chip">${esc(origine)}</span><span class="ft-status ${STATI[st].cls}">${STATI[st].testo}</span></div></div>
+      <div class="lv-dh-act">${az}<button class="ft-icon-btn" onclick="deselectOrder()" title="Chiudi" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
     </div>
-    <div class="lz-head-act">
-      ${azioni}
-      <button class="ft-icon-btn" onclick="deselectOrder()" title="Chiudi" aria-label="Chiudi"><i data-lucide="x"></i></button>
-    </div>`;
+    <div class="lv-facts">
+      <div><span>Consegna</span><b class="${g != null && g < 0 && st !== 'tagliato' ? 'late' : ''}">${cons ? FT.fmtData(cons) : '—'}</b><small>${g == null ? '' : g < 0 ? `scaduta da ${-g} gg` : g === 0 ? 'oggi' : `tra ${g} gg`}</small></div>
+      <div><span>Taglio</span>${mobile ? `<input class="lv-date" type="date" min="${FT.oggiISO()}" value="${giornoCal(o) || ''}" onchange="pianificaTaglio(ordineAperto(), this.value)">`
+        : `<b>${st === 'tagliato' ? esc(FT.fmtRelativo(o.data_taglio_completato)) : lvGiornoTxt(giornoCal(o))}</b>`}
+        ${mobile && d.min != null ? `<small><a href="#" onclick="event.preventDefault(); proponiGiorno('${o.id}')">trova un giorno</a></small>` : ''}</div>
+      <div><span>Laser</span><b>${fmtOre(d.min)}</b><small>${d.fonte === 'stima' ? `taglio ${fmtOre(d.taglio)} + carico ${fmtOre(d.carico)}` : esc(d.nota || '')}</small></div>
+      <div><span>Lamiere</span><b>${d.lamiere ?? '—'}</b><small>${(d.per || []).length ? (d.per.length === 1 ? '1 spessore' : d.per.length + ' spessori') : ''}</small></div>
+      <div><span>Pezzi</span><b id="lz-fact-pezzi">${d.pezzi ?? '—'}</b><small id="lz-fact-codici"></small></div>
+    </div>
+    ${d.fonte === 'ignota' && mobile ? `<div class="lv-mano">Nessun disegno: quanto ci vuole? <input class="ft-input sm" type="number" min="0" step="0.25" placeholder="ore"
+        value="${o.durata_laser_manuale_min ? Math.round(o.durata_laser_manuale_min / 6) / 10 : ''}" onchange="durataAMano('${o.id}', this.value)"> ore</div>` : ''}`;
   FT.icone();
 }
 
-function setWorkView(v) {
-  // schermo largo: il PDF sta nella colonna di destra
-  if (v === 'pdf' && schermoLargo() && document.getElementById('lz-side')) { renderSide(ordineAperto(), { tipo: 'pdf' }); return; }
-  workView = v;
-  workViewScelta = v;
-  caricaVista();
+async function lvCaricaDettaglio(o) {
+  const tok = ++_lvTok;
+  const [rd, rg] = await Promise.all([caricaDistinta(o.id), caricaDisegni(o.id)]);
+  if (tok !== _lvTok || selectedOrderId !== o.id) return;
+  const righe = rd.stato === 'ok' && rd.dati.origine !== 'nessuna' ? (rd.dati.righe || []) : [];
+  const box = document.getElementById('lv-pezzi');
+  const fc = document.getElementById('lz-fact-codici');
+  if (fc && righe.length) fc.textContent = `${righe.length} codici`;
+  const fp = document.getElementById('lz-fact-pezzi');
+  if (fp && fp.textContent === '—' && righe.length) fp.textContent = FT.numero(totalePezzi(rd.dati));
+  if (!righe.length) {
+    box.innerHTML = `<div class="lv-pz-vuoto">${rd.stato === 'errore' ? 'Il server non ha risposto: riprova fra poco.'
+      : haPdf(o) ? 'Nessun elenco dei pezzi: le quantità sono sul <b>PDF dell’ordine</b> qui sopra.' : 'Nessun elenco dei pezzi per quest’ordine.'}</div>`;
+  } else {
+    // per lamiera (materiale + spessore), poi tubolari e assiemi
+    const gr = new Map();
+    for (const r of righe) {
+      const k = r.tipo === 'assieme' ? '3|Assiemi' : r.tipo === 'tubolare' ? '2|Tubolari' : `1|${r.materiale || '?'}|${r.spessore_mm ?? ''}`;
+      if (!gr.has(k)) gr.set(k, []);
+      gr.get(k).push(r);
+    }
+    const chiavi = [...gr.keys()].sort((a, b) => a.localeCompare(b, 'it', { numeric: true }));
+    box.innerHTML = chiavi.map(k => {
+      const rr = gr.get(k), [ord, a, b] = k.split('|');
+      const tit = ord === '1' ? `${esc(a.replace(/_/g, ' '))} <em>${esc(fmtSpessore(b === '' ? null : Number(b)))}</em>` : esc(a);
+      return `<div class="lv-pz-g"><b>${tit}</b><span>${rr.length} ${rr.length === 1 ? 'codice' : 'codici'} · ${FT.numero(rr.reduce((s, r) => s + (Number(r.quantita) || 0), 0))} pz</span></div>`
+        + rr.map(r => {
+          const lav = (r.lavorazioni || []).map(testoLavorazione).filter(l => l && !/^taglio( laser)?$/i.test(l));
+          return `<div class="lv-pz${r.disegno ? '' : ' nodis'}" data-dis="${esc(normaNome(r.disegno || ''))}" ${r.disegno ? `onclick="lvMostra('disegno', ${esc(JSON.stringify(r.disegno))})"` : ''}>
+            <span class="lv-pz-cod">${esc(r.codice || '—')}</span>
+            <span class="lv-pz-lav">${lav.length ? lav.map(l => `<span class="ft-chip">${esc(l)}</span>`).join('') : '<span class="ft-muted">solo taglio</span>'}${r.assieme ? `<span class="ft-muted">· ${esc(r.assieme)}</span>` : ''}</span>
+            <span class="lv-pz-q"><small>×</small>${FT.numero(r.quantita)}</span></div>`;
+        }).join('');
+    }).join('');
+  }
+  lvMostra(lvPrev ? lvPrev.tipo : (haPdf(o) && (!righe.length || !daPreventivo(o)) ? 'pdf' : 'disegno'), lvPrev && lvPrev.nome);
 }
 
-async function caricaVista() {
-  const o = allOrders.find(x => x.id === selectedOrderId) || ordiniGrezzi.find(x => x.id === selectedOrderId);
+/** Disegno (della riga cliccata) o PDF dell'ordine, in grande. */
+function lvMostra(tipo, nome) {
+  const o = ordineAperto();
   if (!o) return;
-  document.querySelectorAll('#lz-vista-seg button').forEach(b => b.classList.toggle('on', b.dataset.v === workView));
-  const body = document.getElementById('lz-body');
-  const act = document.getElementById('lz-view-actions');
-  const tok = ++_vistaTok;
-  body.className = 'lz-body';
-  act.innerHTML = '';
-  body.innerHTML = '<div class="ft-skel lz-skel"></div><div class="ft-skel lz-skel"></div><div class="ft-skel lz-skel" style="width:70%"></div>';
-  if (workView === 'pdf') {
-    await renderPdf(o, body, act, tok);
-  } else if (workView === 'disegni') {
-    const r = await caricaDisegni(o.id);
-    if (tok !== _vistaTok) return;
-    renderDisegni(o, r, body, act);
-  } else {
-    const r = await caricaDistinta(o.id);
-    if (tok !== _vistaTok) return;
-    renderDistinta(o, r, body, act);
-  }
-  FT.icone();
-}
-
-/** Colonna di destra (schermo largo): il PDF dell'ordine o il disegno scelto. */
-async function renderSide(o, scelta) {
-  const box = document.getElementById('lz-side');
-  if (!box || !o) return;
-  if (scelta) _sideMostra = scelta;
-  if (!_sideMostra) _sideMostra = haPdf(o) ? { tipo: 'pdf' } : { tipo: 'disegno' };
-  const tok = ++_sideTok;          // suo contatore: la distinta carica in parallelo
-  let disegni = [];
-  const r = await caricaDisegni(o.id);
-  if (r.stato === 'ok') disegni = elencoDisegni(o.id);
-  if (tok !== _sideTok || selectedOrderId !== o.id) return;
+  const g = _cache.disegni[o.id];
+  const dis = g && g.stato === 'ok' ? elencoDisegni(o.id) : [];
   let d = null;
-  if (_sideMostra.tipo === 'disegno') {
-    d = disegni.find(x => normaNome(x.nome) === normaNome(_sideMostra.nome || '')) || disegni[0] || null;
-    if (d) _sideMostra.nome = d.nome;
+  if (tipo === 'disegno') {
+    d = dis.find(x => normaNome(x.nome) === normaNome(nome || '')) || dis[0] || null;
+    if (!d) tipo = haPdf(o) ? 'pdf' : 'nulla';
   }
-  const iPdf = haPdf(o), iDis = disegni.length > 0;
-  const seg = `<div class="ft-seg" role="tablist">
-      <button type="button" class="${_sideMostra.tipo === 'pdf' ? 'on' : ''}" ${iPdf ? '' : 'disabled'} onclick="renderSide(ordineAperto(), {tipo: 'pdf'})"><i data-lucide="file-text"></i> PDF ordine</button>
-      <button type="button" class="${_sideMostra.tipo === 'disegno' ? 'on' : ''}" ${iDis ? '' : 'disabled'} onclick="renderSide(ordineAperto(), {tipo: 'disegno'})"><i data-lucide="drafting-compass"></i> Disegno</button>
-    </div>`;
-  let corpo, nome = '', azioni = '';
-  if (_sideMostra.tipo === 'pdf' && iPdf) {
-    const url = `${API_URL}/api/orders/${o.id}/pdf`;
-    corpo = `<iframe id="pdf-frame" title="PDF dell'ordine" src="${url}#toolbar=0&navpanes=0&view=FitH"></iframe>`;
-    azioni = `<button class="ft-btn sm" onclick="stampaOrdine()"><i data-lucide="printer"></i> Stampa</button>
-      <button class="ft-btn sm" onclick="apriPdfScheda()"><i data-lucide="external-link"></i></button>`;
+  if (tipo === 'pdf' && !haPdf(o)) tipo = d ? 'disegno' : 'nulla';
+  lvPrev = { tipo, nome: d ? d.nome : null };
+  const seg = document.getElementById('lv-prev-seg');
+  if (!seg) return;
+  seg.innerHTML = `<button type="button" class="${tipo === 'disegno' ? 'on' : ''}" ${dis.length ? '' : 'disabled'} onclick="lvMostra('disegno', lvPrev && lvPrev.nome)"><i data-lucide="drafting-compass"></i> Disegno${dis.length ? ` <b>${dis.length}</b>` : ''}</button>
+    <button type="button" class="${tipo === 'pdf' ? 'on' : ''}" ${haPdf(o) ? '' : 'disabled'} onclick="lvMostra('pdf')"><i data-lucide="file-text"></i> PDF ordine</button>`;
+  const body = document.getElementById('lv-prev-body');
+  const nome_ = document.getElementById('lv-prev-name');
+  const nav = document.getElementById('lv-prev-nav');
+  document.querySelectorAll('.lv-pz').forEach(p => p.classList.toggle('sel', !!d && p.dataset.dis === normaNome(d.nome)));
+  if (tipo === 'pdf') {
+    body.innerHTML = `<iframe id="pdf-frame" title="PDF dell'ordine" src="${API_URL}/api/orders/${o.id}/pdf#toolbar=0&navpanes=0&view=FitH"></iframe>`;
+    nome_.textContent = 'PDF dell’ordine';
+    nav.innerHTML = `<button class="ft-btn sm" onclick="stampaOrdine()"><i data-lucide="printer"></i> Stampa</button>
+      <button class="ft-icon-btn outlined" onclick="apriPdfScheda()" title="Apri in una scheda"><i data-lucide="external-link"></i></button>`;
   } else if (d) {
-    const i = disegni.indexOf(d);
-    nome = d.nome;
-    corpo = d.url_svg ? `<img src="${esc(d.url_svg)}" alt="Disegno ${esc(d.nome)}" onclick="apriDisegno(${i})" title="Clic per aprire grande">`
-                      : vuotoVista('image-off', 'Anteprima non disponibile', 'Scarica il DXF per guardarlo.');
-    azioni = `${disegni.length > 1 ? `<button class="ft-icon-btn outlined" ${i <= 0 ? 'disabled' : ''} onclick="renderSide(ordineAperto(), {tipo: 'disegno', nome: ${esc(JSON.stringify((disegni[i - 1] || {}).nome || ''))}})" title="Disegno precedente"><i data-lucide="chevron-left"></i></button>
-      <button class="ft-icon-btn outlined" ${i >= disegni.length - 1 ? 'disabled' : ''} onclick="renderSide(ordineAperto(), {tipo: 'disegno', nome: ${esc(JSON.stringify((disegni[i + 1] || {}).nome || ''))}})" title="Disegno successivo"><i data-lucide="chevron-right"></i></button>` : ''}
-      <a class="ft-btn sm" href="${esc(d.url_dxf)}" download title="Scarica il DXF"><i data-lucide="download"></i></a>`;
+    const i = dis.indexOf(d);
+    body.innerHTML = d.url_svg ? `<img src="${esc(d.url_svg)}" alt="Disegno ${esc(d.nome)}" onclick="apriDisegno(${i})" title="Clic per aprirlo a tutto schermo">`
+      : `<div class="ft-muted">Anteprima non disponibile: scarica il DXF.</div>`;
+    nome_.textContent = d.nome + (dis.length > 1 ? `  ·  ${i + 1} di ${dis.length}` : '');
+    nav.innerHTML = `${dis.length > 1 ? `<button class="ft-icon-btn outlined" ${i ? '' : 'disabled'} onclick="lvMostra('disegno', ${esc(JSON.stringify((dis[i - 1] || {}).nome || ''))})" title="Precedente"><i data-lucide="chevron-left"></i></button>
+      <button class="ft-icon-btn outlined" ${i < dis.length - 1 ? '' : 'disabled'} onclick="lvMostra('disegno', ${esc(JSON.stringify((dis[i + 1] || {}).nome || ''))})" title="Successivo"><i data-lucide="chevron-right"></i></button>` : ''}
+      <a class="ft-icon-btn outlined" href="${esc(d.url_dxf)}" download title="Scarica il DXF"><i data-lucide="download"></i></a>
+      ${g.dati.url_zip && dis.length > 1 ? `<a class="ft-btn sm" href="${esc(g.dati.url_zip)}" download><i data-lucide="archive"></i> Tutti (ZIP)</a>` : ''}`;
+    const sel = document.querySelector('.lv-pz.sel');
+    if (sel) sel.scrollIntoView({ block: 'nearest' });
   } else {
-    corpo = vuotoVista('file-x', 'Niente da mostrare', 'Quest’ordine non ha né PDF né disegni.');
+    body.innerHTML = `<div class="ft-muted">Quest’ordine non ha né disegni né PDF.</div>`;
+    nome_.textContent = ''; nav.innerHTML = '';
   }
-  box.innerHTML = `<div class="lz-side-bar">${seg}<span class="lz-side-name">${esc(nome)}</span><div class="ft-actions">${azioni}</div></div>
-    <div class="lz-side-body">${corpo}</div>`;
   FT.icone();
 }
-function ordineAperto() { return allOrders.find(x => x.id === selectedOrderId) || ordiniGrezzi.find(x => x.id === selectedOrderId); }
+/** Dalla distinta (o da una notifica) al disegno. */
+async function apriDisegnoPerNome(nome) { lvMostra('disegno', nome); }
+// tasti: frecce per i disegni, Invio/T per "Taglio fatto"
+document.addEventListener('keydown', e => {
+  if (currentTab !== 'lavoro' || document.querySelector('.ft-modal-bg.open') || /INPUT|TEXTAREA|SELECT/.test((e.target || {}).tagName || '')) return;
+  if (document.getElementById('lz-viewer').classList.contains('open')) return;
+  const lista = lvOrdiniVista();
+  const i = lista.findIndex(o => o.id === selectedOrderId);
+  if (e.key === 'ArrowDown' && i < lista.length - 1) { e.preventDefault(); selectOrder(lista[i + 1].id); }
+  else if (e.key === 'ArrowUp' && i > 0) { e.preventDefault(); selectOrder(lista[i - 1].id); }
+  else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && lvPrev && lvPrev.tipo === 'disegno') {
+    const o = ordineAperto(); const dis = o ? elencoDisegni(o.id) : [];
+    const j = dis.findIndex(x => x.nome === lvPrev.nome) + (e.key === 'ArrowRight' ? 1 : -1);
+    if (dis[j]) lvMostra('disegno', dis[j].nome);
+  }
+});
 
-function deselectOrder() {
-  _chiusoAMano = true;
-  selectedOrderId = null;
-  _vistaTok++;
-  renderCalendar();
-  renderWorkEmpty();
+/** Dopo "Taglio fatto" o uno smistamento si passa da solo al prossimo della lista. */
+function lvProssimo(id) {
+  const l = lvOrdiniVista();
+  const i = l.findIndex(o => o.id === id);
+  return i < 0 ? null : ((l[i + 1] || l[i - 1] || {}).id || null);
 }
-function clearDetails() { deselectOrder(); }
+function lvAvanti(id, dopo) {
+  if (selectedOrderId !== id || currentTab !== 'lavoro') return;
+  if (dopo && lvOrdiniVista().some(o => o.id === dopo)) { selectedOrderId = null; selectOrder(dopo); }
+}
 
 // ═══ Dati dal server (difensivo: un endpoint che manca e' uno stato vuoto) ═
 async function _getJson(url) {
@@ -1353,84 +1221,6 @@ function testoLavorazione(l) {
   return nome + (n != null && n !== '' && Number(n) !== 1 ? ' ×' + n : '');
 }
 
-function vuotoVista(icona, titolo, testo, azioni, dopo) {
-  return `<div class="ft-empty"><div class="ft-empty-icon"><i data-lucide="${icona}"></i></div>
-    <b>${esc(titolo)}</b><p>${testo}</p>${azioni ? `<div class="lz-empty-acts">${azioni}</div>` : ''}${dopo || ''}</div>`;
-}
-function linkVista(v, testo, icona) {
-  return `<button class="ft-btn sm" onclick="setWorkView('${v}')"><i data-lucide="${icona}"></i> ${testo}</button>`;
-}
-
-function renderDistinta(o, res, body, act) {
-  const righe = res.stato === 'ok' ? (res.dati.righe || []) : [];
-  if (res.stato !== 'ok' || !righe.length || res.dati.origine === 'nessuna') {
-    const alt = [haPdf(o) ? linkVista('pdf', 'Guarda il PDF', 'file-text') : '',
-                 nDisegni(o) ? linkVista('disegni', 'Guarda i disegni', 'drafting-compass') : ''].join('');
-    const testo = res.stato === 'errore'
-      ? 'Il server non ha risposto come doveva. Riprova fra poco; se continua, avvisa l’ufficio.'
-      : (haPdf(o) ? 'Per quest’ordine l’elenco dei pezzi non è stato ricavato: le quantità sono sul PDF dell’ordine.'
-                  : 'Per quest’ordine l’elenco dei pezzi non c’è ancora. Chiedi in ufficio.');
-    body.innerHTML = vuotoVista('list-x', 'Distinta non disponibile', esc(testo), alt);
-    return;
-  }
-  // Raggruppata per materiale + spessore: e' cosi' che si prepara una lamiera.
-  // Tubolari e assiemi non vanno sulla lamiera: stanno in fondo, a parte.
-  const gruppi = {};
-  for (const r of righe) {
-    let k, g;
-    if (r.tipo === 'assieme') { k = '3|'; g = { ord: 3, titolo: 'Assiemi', nota: 'da montare dopo il taglio' }; }
-    else if (r.tipo === 'tubolare') { k = '2|' + (r.materiale || ''); g = { ord: 2, titolo: 'Tubolari', nota: r.materiale || '' }; }
-    else {
-      k = '1|' + (r.materiale || '') + '|' + (r.spessore_mm == null ? '' : Number(r.spessore_mm));
-      g = { ord: 1, mat: r.materiale, sp: r.spessore_mm };
-    }
-    (gruppi[k] = gruppi[k] || Object.assign(g, { righe: [] })).righe.push(r);
-  }
-  const elenco = Object.values(gruppi).sort((a, b) => a.ord - b.ord
-    || (a.mat || a.nota || 'zzz').localeCompare(b.mat || b.nota || 'zzz') || (Number(a.sp) || 0) - (Number(b.sp) || 0));
-  const lamiere = elenco.filter(g => g.ord === 1).length;
-  const tot = totalePezzi(res.dati);
-  const origine = { preventivo: 'Dal preventivo accettato', ordine: 'Dall’ordine del cliente' }[res.dati.origine] || '';
-  const conDisegno = righe.some(r => r.disegno);
-  const colonne = 5 + (conDisegno ? 1 : 0);
-  let html = `<div class="lz-sum">
-      ${origine ? `<span class="ft-chip">${esc(origine)}</span>` : ''}
-      <span><b>${righe.length}</b> ${righe.length === 1 ? 'codice' : 'codici'}</span>
-      <span><b>${FT.numero(tot)}</b> pezzi in tutto</span>
-      ${lamiere ? `<span><b>${lamiere}</b> ${lamiere === 1 ? 'lamiera' : 'lamiere diverse'} (materiale + spessore)</span>` : ''}
-    </div>
-    <div class="ft-card lz-dist"><div class="ft-table-wrap"><table class="ft-table">
-      <thead><tr><th>Codice</th><th>Descrizione</th><th class="r">Q.tà</th><th>Lavorazioni</th><th>Assieme</th>${conDisegno ? '<th></th>' : ''}</tr></thead>
-      <tbody>`;
-  for (const g of elenco) {
-    const pz = g.righe.reduce((s, r) => s + (Number(r.quantita) || 0), 0);
-    const testa = g.ord === 1
-      ? `<span class="lz-grp-mat">${esc(g.mat || 'Materiale non indicato')}</span>
-         <span class="lz-grp-sp">${esc(fmtSpessore(g.sp))}</span>`
-      : `<span class="lz-grp-mat">${esc(g.titolo)}</span>${g.nota ? `<span class="ft-muted">${esc(g.nota)}</span>` : ''}`;
-    html += `<tr class="lz-grp"><td colspan="${colonne}"><div class="lz-grp-in">
-        ${testa}
-        <span class="lz-grp-n"><b>${g.righe.length}</b> ${g.righe.length === 1 ? 'codice' : 'codici'} · <b>${FT.numero(pz)}</b> pz</span>
-      </div></td></tr>`;
-    for (const r of g.righe) {
-      const lav = (Array.isArray(r.lavorazioni) ? r.lavorazioni : []).map(testoLavorazione)
-        .filter(l => l && !/^taglio( laser)?$/i.test(l));
-      html += `<tr>
-        <td><span class="lz-cod">${esc(r.codice || '—')}</span></td>
-        <td class="lz-desc">${esc(r.descrizione || '')}</td>
-        <td class="r"><span class="lz-qty"><small>×</small>${FT.numero(r.quantita)}</span></td>
-        <td><div class="lz-lav">${lav.length ? lav.map(l => `<span class="ft-chip">${esc(l)}</span>`).join('') : '<span class="ft-muted">solo taglio</span>'}</div></td>
-        <td class="ft-muted">${esc(r.assieme || '')}</td>
-        ${conDisegno ? `<td class="lz-go">${r.disegno ? `<button class="ft-btn sm ghost" onclick="apriDisegnoPerNome(${esc(JSON.stringify(r.disegno))})" title="Apri il disegno ${esc(r.disegno)}"><i data-lucide="eye"></i> Disegno</button>` : ''}</td>` : ''}
-      </tr>`;
-    }
-  }
-  html += '</tbody></table></div></div>';
-  body.innerHTML = html;
-  act.innerHTML = `<button class="ft-btn sm" onclick="window.print()" title="Stampa la distinta"><i data-lucide="printer"></i> Stampa</button>`;
-}
-
-// ═══ Disegni ════════════════════════════════════════════════════════
 function fmtDimensione(v) {
   if (v == null || v === '') return '';
   if (typeof v === 'number') {
@@ -1454,73 +1244,6 @@ function elencoDisegni(id) {
     url_dxf: d.url_dxf || urlDisegno(id, d.nome),
     url_svg: d.url_svg === undefined ? urlDisegno(id, d.nome) + '/svg' : d.url_svg,   // null = DWG, niente anteprima
   }));
-}
-
-function avvisoCartella(cc) {
-  cc = cc || {};
-  if (cc.configurata && cc.esportato) {
-    return `<div class="ft-alert ok"><i data-lucide="folder-check"></i><div><b>Già nella cartella condivisa.</b>
-      Puoi importarli in Lantek da lì${cc.percorso ? `: <code>${esc(cc.percorso)}</code>` : '.'}</div></div>`;
-  }
-  if (cc.configurata) {
-    return `<div class="ft-alert warn"><i data-lucide="folder-clock"></i><div><b>Non ancora nella cartella condivisa.</b>
-      Scaricali da qui, oppure chiedi in ufficio di copiarli${cc.percorso ? ` in <code>${esc(cc.percorso)}</code>` : ''}.</div></div>`;
-  }
-  return `<div class="ft-alert info"><i data-lucide="folder-x"></i><div><b>La cartella condivisa non è impostata.</b>
-    Scarica i disegni da qui: uno alla volta o tutti insieme nello ZIP.</div></div>`;
-}
-
-function renderDisegni(o, res, body, act) {
-  if (res.stato !== 'ok') {
-    const nomi = (o.dxf_files || []).map(f => typeof f === 'string' ? f : (f.filename || f.nome || '')).filter(Boolean);
-    const dove = o.cartella_etichetta ? ` Li trovi anche nella cartella <strong>${esc(o.cartella_etichetta)}</strong>.` : '';
-    body.innerHTML = nomi.length
-      ? vuotoVista('image-off', 'Anteprime non ancora disponibili',
-          `L’ordine ha ${nomi.length} ${nomi.length === 1 ? 'disegno' : 'disegni'}, ma qui non si possono ancora aprire.${dove}`,
-          '', `<div class="lz-names">${nomi.map(n => `<span class="ft-chip ft-mono">${esc(n)}</span>`).join('')}</div>`)
-      : vuotoVista('drafting-compass', 'Nessun disegno', 'Quest’ordine non ha disegni DXF allegati.');
-    return;
-  }
-  const tutti = elencoDisegni(o.id);
-  const dati = res.dati;
-  if (dati.url_zip && tutti.length) {
-    act.innerHTML = (tutti.length > 8 ? `<label class="ft-search"><i data-lucide="search"></i>
-        <input type="search" id="lz-cerca-disegni" placeholder="Cerca disegno" value="${esc(filtroDisegni)}"
-               oninput="filtroDisegni = this.value.trim().toLowerCase(); disegnaMiniature();"></label>` : '')
-      + `<a class="ft-btn sm primary" href="${esc(dati.url_zip)}" download><i data-lucide="download"></i> Scarica tutti (ZIP)</a>`;
-  }
-  if (!tutti.length) {
-    body.innerHTML = `<div style="margin-bottom:8px;">${avvisoCartella(dati.cartella_condivisa)}</div>`
-      + vuotoVista('drafting-compass', 'Nessun disegno', 'Quest’ordine non ha disegni DXF allegati.');
-    return;
-  }
-  body.innerHTML = `<div style="margin-bottom:16px;">${avvisoCartella(dati.cartella_condivisa)}</div>
-    <div class="ft-thumbs" id="lz-thumbs"></div>`;
-  disegnaMiniature();
-}
-
-function disegnaMiniature(evidenzia) {
-  const box = document.getElementById('lz-thumbs');
-  if (!box) return;
-  const tutti = elencoDisegni(selectedOrderId);
-  const vis = tutti.map((d, i) => [d, i]).filter(([d]) => !filtroDisegni || d.nome.toLowerCase().includes(filtroDisegni));
-  if (!vis.length) {
-    box.outerHTML = `<div id="lz-thumbs">${vuotoVista('search-x', 'Nessun disegno trovato', 'Nessun nome corrisponde alla ricerca.')}</div>`;
-    FT.icone();
-    return;
-  }
-  box.className = 'ft-thumbs';
-  box.innerHTML = vis.map(([d, i]) => `
-    <div class="ft-thumb${evidenzia === i ? ' hit' : ''}" role="button" tabindex="0" title="Apri ${esc(d.nome)}"
-         onclick="apriDisegno(${i})" onkeydown="if (event.key === 'Enter') apriDisegno(${i})">
-      <div class="ft-thumb-img${d.url_svg ? '' : ' err'}">${d.url_svg ? `<img src="${esc(d.url_svg)}" loading="lazy" alt="" onerror="this.parentNode.classList.add('err')">` : ''}</div>
-      <div class="ft-thumb-foot">
-        <div class="ft-thumb-txt"><span class="ft-thumb-name">${esc(d.nome)}</span>
-          ${fmtDimensione(d.dimensione) ? `<span class="ft-thumb-sub">${esc(fmtDimensione(d.dimensione))}</span>` : ''}</div>
-        <a class="ft-icon-btn" href="${esc(d.url_dxf)}" download onclick="event.stopPropagation()" title="Scarica il DXF" aria-label="Scarica ${esc(d.nome)}"><i data-lucide="download"></i></a>
-      </div>
-    </div>`).join('');
-  FT.icone();
 }
 
 // Anteprima grande
@@ -1565,53 +1288,6 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') viewerSposta(1);
 });
 
-/** Dalla distinta al suo disegno. */
-async function apriDisegnoPerNome(nome) {
-  const id = selectedOrderId;
-  if (schermoLargo() && document.getElementById('lz-side')) {
-    renderSide(ordineAperto(), { tipo: 'disegno', nome });
-    return;
-  }
-  const r = await caricaDisegni(id);
-  if (r.stato !== 'ok') {
-    FT.toast('Le anteprime dei disegni non sono ancora disponibili', 'warn');
-    return;
-  }
-  const lista = elencoDisegni(id);
-  const i = lista.findIndex(d => normaNome(d.nome) === normaNome(nome));
-  if (i >= 0) apriDisegno(i, lista);
-  else FT.toast('Il disegno ' + nome + ' non è fra quelli dell’ordine', 'warn');
-}
-
-// ═══ PDF ════════════════════════════════════════════════════════════
-async function renderPdf(o, body, act, tok) {
-  const url = `${API_URL}/api/orders/${o.id}/pdf`;
-  let presente = haPdf(o);
-  if (presente) {
-    // Si chiede prima se c'e': un PDF mancante non deve finire nell'iframe
-    // come testo di errore del server.
-    try { presente = (await fetch(url, { method: 'HEAD' })).ok; } catch (_) { presente = false; }
-  }
-  if (tok !== _vistaTok) return;
-  if (!presente) {
-    const alt = linkVista('distinta', 'Apri la distinta', 'list-checks')
-      + (nDisegni(o) ? linkVista('disegni', 'Vai ai disegni', 'drafting-compass') : '');
-    body.innerHTML = daPreventivo(o)
-      ? vuotoVista('file-x', 'Quest’ordine non ha un PDF',
-          'È nato da un preventivo accettato: non c’è un foglio d’ordine del cliente. I pezzi e le quantità sono nella <strong>Distinta</strong>, i disegni in <strong>Disegni</strong>.', alt)
-      : vuotoVista('file-x', 'Nessun PDF per quest’ordine',
-          haPdf(o) ? 'Il PDF risulta allegato ma il file non si trova. Avvisa l’ufficio.' : 'All’ordine non è allegato nessun PDF. Se ti serve, chiedilo in ufficio.', alt);
-    FT.icone();
-    return;
-  }
-  body.className = 'lz-body flush';
-  // toolbar=0: via la barra del browser, che rubava spazio in altezza.
-  // view=FitH: il foglio si adatta alla larghezza, cosi' si legge davvero.
-  body.innerHTML = `<iframe id="pdf-frame" class="lz-pdf" title="PDF dell'ordine" src="${url}#toolbar=0&navpanes=0&view=FitH"></iframe>`;
-  act.innerHTML = `<button class="ft-btn sm" id="btn-stampa-pdf" onclick="stampaOrdine()" title="Stampa il foglio d'ordine"><i data-lucide="printer"></i> Stampa</button>
-    <button class="ft-btn sm" id="btn-apri-pdf" onclick="apriPdfScheda()" title="Apri in una scheda: utile per ingrandire"><i data-lucide="external-link"></i> Apri in una scheda</button>`;
-}
-
 /** Stampa il foglio d'ordine: senza la barra del browser si perdeva il suo pulsante. */
 function stampaOrdine() {
   const f = document.getElementById('pdf-frame');
@@ -1633,11 +1309,6 @@ document.addEventListener('fullscreenchange', () => {
   const b = document.getElementById('btn-fullscreen');
   if (b) b.classList.toggle('on', !!document.fullscreenElement);
 });
-// lo schermo largo cambia (finestra spostata sull'altro monitor): si ridisegna
-window.addEventListener('resize', () => {
-  clearTimeout(window._lzRz);
-  window._lzRz = setTimeout(() => { const o = ordineAperto(); if (o && currentTab === 'lavoro') renderWork(o); }, 300);
-});
 
 // ═══ Azioni ═════════════════════════════════════════════════════════
 async function _post(url, corpo) {
@@ -1653,6 +1324,7 @@ async function _post(url, corpo) {
 /** Il laser decide se un ordine passa da lui. Nessuna conferma: si cambia in
     un attimo, e il toast offre "Annulla". */
 async function smista(orderId, vaTagliato) {
+  const dopo = lvProssimo(orderId);
   actionInProgress = true;
   try {
     const d = await _post(`${API_URL}/api/orders/${orderId}/smistamento`,
@@ -1661,6 +1333,7 @@ async function smista(orderId, vaTagliato) {
       FT.toast(vaTagliato ? 'In coda al laser' : 'Mandato in officina: non passa dal laser', 'ok',
         { testo: 'Annulla', fn: () => annullaSmistamento(orderId, true) });
       await loadOrders(true);
+      lvAvanti(orderId, dopo);
     } else {
       FT.toast('Non riuscito: ' + (d.error || 'errore del server'), 'err');
     }
@@ -1698,10 +1371,13 @@ async function markLaserDone(orderId) {
     ok: 'Sì, taglio fatto',
   });
   if (!ok) return;
+  const dopo = lvProssimo(orderId);
+  let fatto = false;
   actionInProgress = true;
   try {
     const d = await _post(`${API_URL}/api/orders/${orderId}/mark-laser-done`, { user_id: utente().id });
     if (d.success) {
+      fatto = true;
       FT.toast('Taglio segnato: ordine tolto dalla coda', 'ok',
         { testo: 'Annulla', fn: () => undoLaserDone(orderId, true) });
     } else {
@@ -1712,6 +1388,7 @@ async function markLaserDone(orderId) {
   }
   actionInProgress = false;
   await loadOrders(true);
+  if (fatto) lvAvanti(orderId, dopo);
 }
 
 /** Rimedio a uno sbaglio: l'ordine torna in coda. Dal toast non si richiede conferma. */
@@ -1960,6 +1637,7 @@ async function caricaSaturazione(forza) {
     sat.t = Date.now();
   } catch (e) { console.warn('saturazione non caricata', e); }
   if (currentTab === 'calendario') { renderCalendarView(); updateKPIs(); }
+  if (currentTab === 'lavoro') { renderCalendar(); const o = ordineAperto(); if (o) renderWorkHead(o); }
   controllaNuoviSuGiorniPieni();
   clearTimeout(sat.timer);
   sat.timer = setTimeout(() => caricaSaturazione(true), 60000);

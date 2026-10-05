@@ -104,8 +104,8 @@ with sync_playwright() as p:
     # --- si apre sulla vista "da smistare" ---
     check('si apre su "Da smistare"',
           pg.locator('#vt-smistare').get_attribute('class').find('active') >= 0)
-    titolo = pg.locator('#calendar-view-title').inner_text()
-    check('il titolo lo dice', 'smistare' in titolo.lower(), titolo)
+    titolo = pg.locator('#vt-smistare').inner_text()
+    check('la scheda lo dice', 'smistare' in titolo.lower(), titolo)
 
     scartati_prima = len([o for o in ordini() if o.get('taglio_richiesto') is False])
     prima = len(pg.locator('.riga-smista').all())
