@@ -389,6 +389,9 @@ def main():
                    for b, _d, fs in os.walk(lan) for f in fs) if os.path.isdir(lan) else []
     check('cartella LANTEK: ogni pezzo una volta, dentro una cartella per lamiera',
           len(tutti) == 3 and all('/' in t for t in tutti), tutti)
+    # il pulito dell'analisi va registrato sul pezzo: prima tutti "da preparare"
+    check('pezzi del pacchetto pronti per Lantek (non da preparare)',
+          tutti and not any(t.startswith('_DA PREPARARE/') for t in tutti), tutti)
     # cartella master: <cliente>\<numero>\ divisa per lamiera + originali
     ex = d.get('export_disegni') or {}
     albero = [os.path.relpath(os.path.join(b, f), ex.get('percorso') or _RETE).replace(os.sep, '/')

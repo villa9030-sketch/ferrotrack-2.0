@@ -3719,6 +3719,10 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             'bbox_w_mm': geom.get('bbox_width_mm'),
             'bbox_h_mm': geom.get('bbox_height_mm'),
             'lunghezza_vuoto_mm': geom.get('lunghezza_vuoto_mm'),
+            # DXF pulito per Lantek scritto dall'analisi: prima non si registrava
+            # e all'accettazione tutti i pezzi del pacchetto finivano "da preparare"
+            'cleaned_dxf_filename': ((dxf_info or {}).get('cleanup') or {}).get('cleaned_dxf_filename'),
+            'cleaned_status': ((dxf_info or {}).get('cleanup') or {}).get('cleaned_status'),
             # tavola PDF del pezzo (stesso nome del DXF o del codice)
             'pdf_filename': (pdf_per_chiave.get(_chiave_disegno(a.matched_dxf)) if a.matched_dxf else None)
                              or pdf_per_chiave.get(_chiave_disegno(a.codice)),
@@ -5845,6 +5849,11 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
                 from .preventivi import dxf_cleanup as _dxc
                 pulito = a.get('cleaned_dxf_filename')
                 pulito_path = os.path.join(src_dir, os.path.basename(pulito)) if pulito else None
+                if not pulito_path:
+                    # pulito scritto ma non registrato sul pezzo (pacchetti di prima)
+                    b_, e_ = os.path.splitext(src)
+                    if os.path.isfile(b_ + '_cleaned' + e_):
+                        pulito_path = b_ + '_cleaned' + e_
                 cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
                 v = _dxc.prepara_pulito_lantek(src, pulito_path, a, cfg_l)
                 # divisi per lamiera (materiale + spessore): in Lantek si apre

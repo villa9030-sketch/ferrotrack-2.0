@@ -1201,6 +1201,24 @@ def prepara_pulito_lantek(original_path: str, cleaned_path: str | None, articolo
                         cleaned_path = nuovo
             except Exception as e:
                 logger.info('pulito dal canonico non creato: %s', e)
+    if (not cleaned_path or not os.path.exists(cleaned_path)) and original_path and os.path.exists(original_path):
+        # disegno che contiene SOLO il pezzo (niente cornice ne' cartiglio): la
+        # regola "pezzo > 90% del foglio = cartiglio incluso" lo scartava. Senza
+        # scritte ne' quote non c'e' cartiglio da confondere col pezzo.
+        try:
+            from .dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
+            src = ezdxf.readfile(original_path)
+            annotazioni = any(True for _ in src.modelspace().query('TEXT MTEXT DIMENSION INSERT'))
+            if not annotazioni:
+                geo = detect_pezzo_geometry_v3(original_path, config or {})
+                ok, motivo = should_cleanup(geo)
+                if ok or motivo.startswith('area_ratio'):
+                    base_p, ext_p = os.path.splitext(original_path)
+                    nuovo = base_p + '_cleaned' + ext_p
+                    if save_cleaned_dxf_pezzo(original_path, nuovo, geo, config).get('success'):
+                        cleaned_path = nuovo
+        except Exception as e:
+            logger.info('pulito del disegno senza cartiglio non creato: %s', e)
     if not cleaned_path or not os.path.exists(cleaned_path):
         return {'stato': 'da_guardare', 'motivi': ['nessun pulito: pezzo da preparare in Lantek'], 'path': None}
     if not leggi_dxf_pulito(cleaned_path).get('lantek') and original_path and os.path.exists(original_path):
