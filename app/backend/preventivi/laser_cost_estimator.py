@@ -159,25 +159,6 @@ def _lunghezza_vuoto(articolo: dict, n_sfondamenti: int) -> tuple[float, str]:
     return 0.0, 'nessuno'
 
 
-# Sotto questa quota del rettangolo d'ingombro il pezzo e' "molto sfrido"
-SOGLIA_MOLTO_SFRIDO = 0.5
-
-
-def _sfrido_pezzo(articolo: dict, area_dm2: float, spessore_mm: float,
-                  densita: float, euro_kg: float):
-    """(quota del rettangolo occupata dal pezzo, costo del materiale del
-    rettangolo intero) o (None, None) se l'ingombro non e' noto."""
-    try:
-        w = float(articolo.get('bbox_w_mm') or 0)
-        h = float(articolo.get('bbox_h_mm') or 0)
-    except (TypeError, ValueError):
-        return None, None
-    rett_dm2 = w * h / 10000.0
-    if rett_dm2 <= 0 or area_dm2 <= 0 or articolo.get('area_stimata_piega'):
-        return None, None
-    return min(1.0, area_dm2 / rett_dm2), rett_dm2 * (spessore_mm / 100.0) * densita * euro_kg
-
-
 def _resa_nesting(cfg: dict, warnings: list) -> float:
     """Resa del nesting valida in (0, 1]. Valori impossibili → 1 con avviso."""
     try:
@@ -349,22 +330,6 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
             f'Gas {ricetta.get("gas_richiesto")} non disponibile per {materiale} — usato {ricetta["gas"]}.'
         )
 
-    # Molto sfrido (archi, anelli, telai): il materiale resta contato sul netto,
-    # ma si avvisa coi due importi a confronto. Decide il commerciale (prezzo
-    # manuale): 47PA02031-00, mezzo anello Ø1180 da 1,69 kg, materiale 7,72 €
-    # sul netto contro ~35 € del rettangolo 1180×590 da comprare.
-    resa_pezzo, costo_rettangolo = _sfrido_pezzo(articolo, area_dm2, spessore_mm, densita, euro_kg)
-    if resa_pezzo is not None and resa_pezzo < SOGLIA_MOLTO_SFRIDO:
-        w = float(articolo.get('bbox_w_mm') or 0)
-        h = float(articolo.get('bbox_h_mm') or 0)
-        def eur(v):
-            return f'{v:.2f}'.replace('.', ',')
-        warnings.append(
-            f'Molto sfrido: il pezzo occupa il {resa_pezzo * 100:.0f}% del suo rettangolo '
-            f'{max(w, h):.0f}×{min(w, h):.0f} mm. Materiale contato sul netto: '
-            f'{eur(costo_materiale)} €; sul rettangolo intero sarebbe {eur(costo_rettangolo)} €. '
-            'Se dentro non ci annidi altro, metti un prezzo manuale.')
-
     # Sanity check: area sospettamente grande rispetto al perimetro (cartiglio nel DXF?)
     if perimetro_m > 0 and area_dm2 > 0:
         perim_mm_local = perimetro_m * 1000.0
@@ -383,8 +348,6 @@ def stima_base(articolo: dict, config: dict | None = None) -> dict:
         'materiale_sconosciuto': False,
         'spessore_fuori_tabella': fuori_tabella,
         'costo_materiale': round(costo_materiale, 4),
-        'resa_pezzo': round(resa_pezzo, 3) if resa_pezzo is not None else None,
-        'costo_materiale_rettangolo': round(costo_rettangolo, 2) if costo_rettangolo is not None else None,
         'costo_lavoro': round(costo_lavoro, 4),
         'tempo_taglio_s': round(tempo_taglio_s, 2),
         'tempo_pierce_s': round(tempo_pierce_s, 2),

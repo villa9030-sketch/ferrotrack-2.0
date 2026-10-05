@@ -6250,38 +6250,12 @@ def api_preventivi_stima_base(preventivo_id, articolo_id):
             if not articolo:
                 return jsonify({'success': False, 'error': 'Articolo non trovato'}), 404
         cfg = BarcodeManager.load_config()
-        stima = _laser_estimator.stima_base(_con_ingombro(articolo, preventivo_id), cfg)
+        stima = _laser_estimator.stima_base(articolo, cfg)
         stima['firma_tariffe'] = _firma_tariffe(cfg)
         return jsonify({'success': True, 'stima': stima}), 200
     except Exception as e:
         logger.exception('preventivi stima-base failed')
         return jsonify({'success': False, 'error': str(e)}), 500
-
-
-def _con_ingombro(articolo: dict, preventivo_id: str) -> dict:
-    """Articolo con l'ingombro, per l'avviso "molto sfrido" della stima. Molti
-    pezzi importati in automatico non l'hanno salvato: lo si legge dal loro
-    DXF pulito (misura in cache, nessun riconoscimento). Copia: il pezzo
-    salvato non cambia."""
-    try:
-        if float(articolo.get('bbox_w_mm') or 0) > 0 and float(articolo.get('bbox_h_mm') or 0) > 0:
-            return articolo
-        nome = os.path.basename(articolo.get('cleaned_dxf_filename') or '')
-        if not nome:
-            return articolo
-        path = os.path.join(_cartella_preventivo(preventivo_id), nome)
-        if not os.path.isfile(path):
-            return articolo
-        from .preventivi import dxf_cleanup as _dxc
-        info = _dxc.leggi_dxf_pulito(path)
-        if info.get('w_mm') and info.get('h_mm') and not info.get('errore'):
-            return dict(articolo, bbox_w_mm=info['w_mm'], bbox_h_mm=info['h_mm'])
-    except Exception:
-        logger.debug('ingombro dal pulito non letto', exc_info=True)
-    return articolo
-
-
-VERSIONE_STIMA = 2   # 2026-10-05: avviso "molto sfrido"
 
 
 def _firma_tariffe(cfg: dict) -> str:
@@ -6291,9 +6265,7 @@ def _firma_tariffe(cfg: dict) -> str:
     firma vecchia si ristimano (prima restavano coi prezzi vecchi)."""
     import hashlib
     laser = cfg.get('laser_config') or _laser_estimator.DEFAULT_LASER_CONFIG
-    # + versione del calcolo: quando cambia (es. avviso "molto sfrido") le bozze
-    # si ristimano una volta anche a tariffe invariate
-    testo = _json_mod.dumps({'t': laser, 'v': VERSIONE_STIMA}, sort_keys=True, ensure_ascii=True, default=str)
+    testo = _json_mod.dumps(laser, sort_keys=True, ensure_ascii=True, default=str)
     return hashlib.sha1(testo.encode('utf-8')).hexdigest()[:12]
 
 
@@ -6316,7 +6288,7 @@ def api_preventivi_stima_batch(preventivo_id):
         stime = []
         for a in articoli:
             try:
-                st = _laser_estimator.stima_base(_con_ingombro(a if isinstance(a, dict) else {}, preventivo_id), cfg)
+                st = _laser_estimator.stima_base(a if isinstance(a, dict) else {}, cfg)
                 st['firma_tariffe'] = firma
                 stime.append(st)
             except Exception:
