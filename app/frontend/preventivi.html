@@ -7897,6 +7897,9 @@ async function wbChiediOrdine(aMano) {
   if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
   if (!aMano) {
     if (_wbOrdineChiesto === currentPreventivo.id) return;
+    // segnato PRIMA della domanda al server: due import che finiscono insieme
+    // passavano entrambi il controllo e la finestra compariva due volte
+    _wbOrdineChiesto = currentPreventivo.id;
     try {
       const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/ordine-cliente`);
       const d = await r.json();
@@ -7904,6 +7907,7 @@ async function wbChiediOrdine(aMano) {
     } catch (_) {}
   }
   _wbOrdineChiesto = currentPreventivo.id;
+  if (document.querySelector('.wb-ord-cand')) return;   // gia' aperta
   // i PDF non abbinati ai pezzi sono i candidati (di solito l'ordine e' li')
   const cand = _wbPdfLiberi.slice(0, 4);
   const ov = document.createElement('div');
