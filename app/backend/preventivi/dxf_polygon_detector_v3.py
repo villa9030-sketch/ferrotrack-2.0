@@ -66,6 +66,7 @@ LAYER_DA_ESCLUDERE_PATTERNS = (
     'hatch', 'tratteggio', 'cartiglio', 'frame', 'border',
     'cornice', 'logo', 'symb', 'mark', 'note', 'tit', 'format',
     'pieg', 'bend', 'fold', 'bieg',
+    'marcatur',   # layer MARCATURA del DXF pulito per Lantek (incisioni, loghi)
 )
 
 # Layer delle linee di piega (sottoinsieme dei precedenti, usato dallo scanner)

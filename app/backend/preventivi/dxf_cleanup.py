@@ -674,6 +674,10 @@ def _copia_unita(src, dst) -> None:
 # tutte le versioni DXF): distingue i file generati dalla pulizia corretta
 # da quelli "legacy" (possibilmente errati) rimasti sul disco.
 MARCA_PULIZIA_VERSIONE = 2
+# $USERI3: formato del pulito per Lantek (tre layer, mm veri). I puliti v2 senza
+# questo segno NON si rigenerano all'apertura del preventivo (decine di secondi
+# sui preventivi grandi): si rifanno quando vanno al laser.
+FORMATO_LANTEK = 1
 TIPO_PULIZIA_AUTO = 1
 TIPO_PULIZIA_MANUALE = 2
 # Scarto massimo ammesso fra estensione del pulito e misure del detector
@@ -797,6 +801,239 @@ def _contorni_pezzo(doc, geo: dict, cfg: dict):
     return outer, inners, scala
 
 
+# ═══════════════════════════════════════════════════════════════════
+# DXF pulito per Lantek: tre layer, sempre in millimetri veri
+#
+#   TAGLIO     contorno esterno e fori del pezzo, e nient'altro
+#   PIEGA      linee di piega (per tracciarle quando serve: pieghe a gradi)
+#   MARCATURA  il resto della geometria DENTRO il pezzo (codici incisi,
+#              loghi): Stefano decide in Lantek se marcarla o no
+#
+# Fuori dal file: tutto cio' che sta fuori dal pezzo (altre viste, cartiglio,
+# quote), assi dei fori e simboli di filettatura/svasatura (l'arco di 3/4
+# attorno al foro: prima finiva nel pulito perche' a 0,4 mm dal foro, e
+# Lantek l'avrebbe tagliato).
+# ═══════════════════════════════════════════════════════════════════
+LAYER_TAGLIO = 'TAGLIO'
+LAYER_PIEGA = 'PIEGA'
+LAYER_MARCATURA = 'MARCATURA'
+_LAYER_LANTEK = ((LAYER_TAGLIO, 7), (LAYER_PIEGA, 2), (LAYER_MARCATURA, 3))
+_LINEE_ASSI = ('center', 'centr', 'dashdot', 'axis', 'asse', 'phantom', 'divide')
+
+
+def _tipo_linea(entity, doc) -> str:
+    """Tipo di linea effettivo (anche BYLAYER), minuscolo."""
+    try:
+        lt = entity.dxf.get('linetype', 'BYLAYER') or 'BYLAYER'
+        if lt.upper() == 'BYLAYER':
+            lt = doc.layers.get(entity.dxf.layer).dxf.get('linetype', '') or ''
+        return lt.lower()
+    except Exception:
+        return ''
+
+
+def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str,
+                         tipo: int, w_att: float, h_att: float, cfg: dict | None = None) -> dict:
+    """Scrive il DXF pulito del pezzo `outer` (con i fori `fori`, poligoni in mm)
+    copiando le entita' VERE del disegno `src` (archi e cerchi restano archi e
+    cerchi) sui tre layer, scalate in mm. Verifica prima di scrivere: ingombro
+    del TAGLIO = pezzo e contorno coperto per almeno il 90%.
+
+    Returns: {'success', 'error', 'entities_copied', 'entities_source',
+              'n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti',
+              'copertura', 'w_mm', 'h_mm', 'bbox_mm' (unita' disegno),
+              'tolerance_mm', 'warnings'}"""
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    from ezdxf.math import Matrix44
+    from .dxf_polygon_detector_v3 import (
+        TIPI_ANNOTAZIONE, _layer_da_escludere, _layer_piega, _flatten_entity,
+        FLATTEN_DISTANCE_MM, colore_effettivo,
+    )
+    cfg = cfg or {}
+    result = {'success': False, 'error': None, 'entities_copied': 0, 'entities_source': 0,
+              'entities_skipped_meta': 0, 'n_taglio': 0, 'n_piega': 0, 'n_marcatura': 0,
+              'n_simboli_tolti': 0, 'copertura': 0.0, 'w_mm': None, 'h_mm': None,
+              'bbox_mm': None, 'tolerance_mm': 0.0, 'warnings': []}
+    colori_piega = set(cfg.get('dxf_colori_piega', [2]))
+    anelli = [outer.exterior] + list(outer.interiors) + [f.exterior for f in fori]
+    bordi = unary_union(anelli)
+    lato = max(w_att, h_att, 1.0)
+    # sul contorno: stretta (l'entita' e' quella da cui nasce il contorno);
+    # "tocca il bordo" per le pieghe: piu' larga
+    tol_taglio = max(0.1, min(0.25, 0.0005 * lato))
+    tol_bordo = max(0.5, min(2.0, 0.003 * lato))
+    result['tolerance_mm'] = round(tol_taglio, 3)
+    sul_contorno = prep(bordi.buffer(tol_taglio))
+    vicino_bordo = prep(bordi.buffer(tol_bordo))
+    dentro = prep(Polygon(outer.exterior).buffer(tol_bordo))
+    centri_fori = []
+    for f in fori:
+        c = f.centroid
+        centri_fori.append((c.x, c.y, max(0.05, 0.02 * (f.bounds[2] - f.bounds[0]))))
+    dist = FLATTEN_DISTANCE_MM / (scala or 1.0)
+
+    dst = _nuovo_documento(src)
+    for nome, col in _LAYER_LANTEK:
+        try:
+            if nome in dst.layers:
+                dst.layers.get(nome).dxf.color = col
+            else:
+                dst.layers.add(nome, color=col)
+        except Exception:
+            pass
+    try:
+        dst.header['$INSUNITS'] = 4          # sempre millimetri veri
+        dst.header['$MEASUREMENT'] = 1
+    except Exception:
+        pass
+    dst_ms = dst.modelspace()
+    scala_m = Matrix44.scale(scala, scala, scala) if abs(scala - 1.0) > 1e-9 else None
+    firme: set = set()
+    lung_taglio = 0.0
+
+    def _copia(e, layer):
+        c = e.copy()
+        if scala_m is not None:
+            c.transform(scala_m)
+        c.dxf.layer = layer
+        # colore e tratto dal layer: il colore "fisso" (true color) esportato da
+        # SolidWorks scavalcava quello del layer e confondeva TAGLIO e MARCATURA
+        for att in ('true_color', 'color_name', 'transparency'):
+            try:
+                c.dxf.discard(att)
+            except Exception:
+                pass
+        try:
+            c.dxf.color = 256
+            c.dxf.linetype = 'BYLAYER'
+            c.dxf.lineweight = -1
+        except Exception:
+            pass
+        dst_ms.add_entity(c)
+
+    def _classifica(e, parte=False):
+        nonlocal lung_taglio
+        et = e.dxftype()
+        if et in _SKIP_TYPES or et in TIPI_ANNOTAZIONE or et in ('SOLID', 'TRACE', 'POINT'):
+            result['entities_skipped_meta'] += 1     # SOLID/TRACE: frecce delle quote
+            return
+        verts = _flatten_entity(e, dist)
+        if not verts or len(verts) < 2:
+            return
+        pts = [(x * scala, y * scala) for x, y in verts]
+        try:
+            ls = LineString(pts)
+            if ls.length <= 0 or not dentro.contains(ls):
+                return                        # fuori dal pezzo: altre viste, cartiglio
+        except Exception:
+            return
+        layer = getattr(e.dxf, 'layer', '') or ''
+        try:
+            col = colore_effettivo(e)
+        except Exception:
+            col = None
+        piega_dichiarata = _layer_piega(layer) or col in colori_piega
+        escluso = _layer_da_escludere(layer)
+        su_taglio = not piega_dichiarata and not escluso and sul_contorno.contains(ls)
+        if not su_taglio and not parte and et in ('LWPOLYLINE', 'POLYLINE'):
+            # polilinea che segue in parte il contorno e in parte una piega
+            # (sviluppi a falde unite, 191700606-00): si divide nei suoi tratti
+            try:
+                parti = list(e.virtual_entities())
+            except Exception:
+                parti = []
+            if len(parti) > 1:
+                for v in parti:
+                    _classifica(v, True)
+                return
+        firma = (et, tuple(sorted((round(x, 2), round(y, 2)) for x, y in (pts[0], pts[-1], pts[len(pts) // 2]))),
+                 round(ls.length, 2))
+        if firma in firme:
+            return                            # stesso tratto due volte: Lantek lo taglierebbe due volte
+        try:
+            if su_taglio:
+                _copia(e, LAYER_TAGLIO)
+                result['n_taglio'] += 1
+                lung_taglio += ls.length
+            elif any(a in _tipo_linea(e, src) for a in _LINEE_ASSI):
+                return                        # assi dei fori
+            elif et in ('ARC', 'CIRCLE') and any(
+                    abs(e.dxf.center.x * scala - cx) <= t and abs(e.dxf.center.y * scala - cy) <= t
+                    for cx, cy, t in centri_fori):
+                result['n_simboli_tolti'] += 1    # filettatura / svasatura attorno a un foro
+                return
+            elif piega_dichiarata or (et == 'LINE' and ls.length > 2 * tol_bordo
+                                      and vicino_bordo.contains(Point(pts[0]))
+                                      and vicino_bordo.contains(Point(pts[-1]))):
+                _copia(e, LAYER_PIEGA)
+                result['n_piega'] += 1
+            elif escluso:
+                result['entities_skipped_meta'] += 1
+                return
+            else:
+                _copia(e, LAYER_MARCATURA)
+                result['n_marcatura'] += 1
+        except Exception as ex:
+            logger.debug('copia entita %s fallita: %s', et, ex)
+            return
+        firme.add(firma)
+        result['entities_copied'] += 1
+
+    for e in _entita_sorgente(src.modelspace()):
+        result['entities_source'] += 1
+        _classifica(e)
+
+    if result['n_taglio'] == 0:
+        result['error'] = 'nessuna entità del DXF giace sul contorno del pezzo'
+        return result
+    try:
+        from ezdxf import bbox as _bbox
+        bb = _bbox.extents(dst_ms.query(f'*[layer=="{LAYER_TAGLIO}"]'))
+        est = (bb.extmax.x - bb.extmin.x, bb.extmax.y - bb.extmin.y)
+        s = scala or 1.0
+        result['bbox_mm'] = [bb.extmin.x / s, bb.extmin.y / s, bb.extmax.x / s, bb.extmax.y / s]
+    except Exception:
+        result['error'] = 'estensione del DXF pulito non calcolabile'
+        return result
+    result['w_mm'], result['h_mm'] = round(est[0], 2), round(est[1], 2)
+    if not _misure_coincidono(est, (w_att, h_att)):
+        result['error'] = (f'verifica fallita: pulito {est[0]:.1f}×{est[1]:.1f} mm '
+                           f'≠ pezzo {w_att:.1f}×{h_att:.1f} mm')
+        return result
+    perim_atteso = sum(a.length for a in anelli)
+    result['copertura'] = round(lung_taglio / perim_atteso, 4) if perim_atteso > 0 else 0.0
+    if perim_atteso > 0 and lung_taglio < 0.9 * perim_atteso:
+        result['error'] = (f'verifica fallita: contorno copiato {lung_taglio:.0f} mm '
+                           f'su {perim_atteso:.0f} mm attesi')
+        return result
+    if lung_taglio > 1.02 * perim_atteso:
+        result['warnings'].append(f'sul taglio {lung_taglio:.0f} mm di linee su {perim_atteso:.0f} mm di contorno')
+
+    _marca_pulito(dst, tipo, w_att, h_att)
+    try:
+        dst.header['$USERI3'] = FORMATO_LANTEK
+    except Exception:
+        pass
+    tmp_path = cleaned_path + '.tmp'
+    try:
+        os.makedirs(os.path.dirname(cleaned_path) or '.', exist_ok=True)
+        dst.saveas(tmp_path)
+        os.replace(tmp_path, cleaned_path)
+    except Exception as e:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        result['error'] = f'Scrittura fallita: {e}'
+        return result
+    _CACHE_VERIFICA.pop(cleaned_path, None)
+    result['success'] = True
+    return result
+
+
 def save_cleaned_dxf_pezzo(
     source_path: str,
     cleaned_path: str,
@@ -852,96 +1089,8 @@ def save_cleaned_dxf_pezzo(
     outer, fori, scala = contorni
     w_att = float(geo.get('bbox_width_mm') or 0) or (outer.bounds[2] - outer.bounds[0])
     h_att = float(geo.get('bbox_height_mm') or 0) or (outer.bounds[3] - outer.bounds[1])
-
-    anelli = [outer.exterior] + list(outer.interiors) + [f.exterior for f in fori]
-    bordi = unary_union(anelli)
-    tol = max(0.5, min(2.0, 0.003 * max(w_att, h_att)))
-    result['tolerance_mm'] = round(tol, 3)
-    zona = prep(bordi.buffer(tol))
-    dist = FLATTEN_DISTANCE_MM / scala
-
-    dst = _nuovo_documento(src)
-    dst_ms = dst.modelspace()
-    firme: set = set()
-    lung_copiata = 0.0
-    for e in _entita_sorgente(src.modelspace()):
-        result['entities_source'] += 1
-        et = e.dxftype()
-        if et in _SKIP_TYPES or et in TIPI_ANNOTAZIONE:
-            result['entities_skipped_meta'] += 1
-            continue
-        try:
-            if _layer_da_escludere(e.dxf.layer):
-                result['entities_skipped_meta'] += 1
-                continue
-        except AttributeError:
-            pass
-        verts = _flatten_entity(e, dist)
-        if not verts or len(verts) < 2:
-            continue
-        pts = [(x * scala, y * scala) for x, y in verts]
-        try:
-            ls = LineString(pts)
-            if ls.length <= 0 or not zona.contains(ls):
-                continue
-        except Exception:
-            continue
-        # Stessa entità disegnata due volte (o stesso tratto in un blocco e fuori):
-        # una sola copia, altrimenti Lantek taglia due volte lo stesso bordo.
-        firma = (et, tuple(sorted((round(x, 2), round(y, 2)) for x, y in (pts[0], pts[-1], pts[len(pts) // 2]))),
-                 round(ls.length, 2))
-        if firma in firme:
-            continue
-        firme.add(firma)
-        try:
-            dst_ms.add_entity(e.copy())
-            result['entities_copied'] += 1
-            lung_copiata += ls.length
-        except Exception as ex:
-            logger.debug('copia entità %s fallita: %s', et, ex)
-
-    if result['entities_copied'] == 0:
-        result['error'] = 'nessuna entità del DXF giace sul contorno del pezzo'
-        return result
-
-    # ---- Verifica: estensione e perimetro del pulito = pezzo del detector
-    est = _estensione_mm(dst, scala)
-    if not est:
-        result['error'] = 'estensione del DXF pulito non calcolabile'
-        return result
-    result['w_mm'], result['h_mm'] = round(est[0], 2), round(est[1], 2)
-    if not _misure_coincidono(est, (w_att, h_att)):
-        result['error'] = (f'verifica fallita: pulito {est[0]:.1f}×{est[1]:.1f} mm '
-                           f'≠ pezzo {w_att:.1f}×{h_att:.1f} mm')
-        return result
-    perim_atteso = sum(a.length for a in anelli)
-    if perim_atteso > 0 and lung_copiata < 0.9 * perim_atteso:
-        result['error'] = (f'verifica fallita: contorno copiato {lung_copiata:.0f} mm '
-                           f'su {perim_atteso:.0f} mm attesi')
-        return result
-
-    _marca_pulito(dst, TIPO_PULIZIA_AUTO, w_att, h_att)
-    tmp_path = cleaned_path + '.tmp'
-    try:
-        os.makedirs(os.path.dirname(cleaned_path) or '.', exist_ok=True)
-        dst.saveas(tmp_path)
-        os.replace(tmp_path, cleaned_path)
-    except Exception as e:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
-        result['error'] = f'Scrittura fallita: {e}'
-        return result
-    try:
-        from ezdxf import bbox as _bbox
-        bb = _bbox.extents(dst_ms)
-        result['bbox_mm'] = [bb.extmin.x, bb.extmin.y, bb.extmax.x, bb.extmax.y]
-    except Exception:
-        pass
-    _CACHE_VERIFICA.pop(cleaned_path, None)
-    result['success'] = True
+    r = scrivi_pulito_lantek(src, outer, fori, scala, cleaned_path, TIPO_PULIZIA_AUTO, w_att, h_att, cfg)
+    result.update({k: v for k, v in r.items() if k in result or k.startswith('n_') or k == 'copertura'})
     return result
 
 
@@ -963,7 +1112,7 @@ def leggi_dxf_pulito(cleaned_path: str) -> dict:
     if hit and hit[0] == mtime:
         return hit[1]
     info = {'w_mm': None, 'h_mm': None, 'marcato': False, 'tipo': None,
-            'w_att': None, 'h_att': None, 'errore': None}
+            'w_att': None, 'h_att': None, 'errore': None, 'lantek': False}
     try:
         doc = ezdxf.readfile(cleaned_path)
         est = _estensione_mm(doc)
@@ -972,6 +1121,7 @@ def leggi_dxf_pulito(cleaned_path: str) -> dict:
         else:
             info['errore'] = 'DXF pulito vuoto'
         h = doc.header
+        info['lantek'] = int(h.get('$USERI3', 0) or 0) >= FORMATO_LANTEK
         if int(h.get('$USERI1', 0) or 0) >= MARCA_PULIZIA_VERSIONE:
             info['marcato'] = True
             info['tipo'] = int(h.get('$USERI2', 0) or 0)

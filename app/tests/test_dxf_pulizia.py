@@ -10,7 +10,7 @@ Casi (DXF sintetici generati con ezdxf):
  P1 piastra 170×100 con fori + svasature dentro cornice A4 con cartiglio,
     quote e testi → pulito 170×100, fori passanti sì, smussi/cornice no
  P2 pezzo definito dentro un BLOCCO (INSERT traslato) → pulito 200×80
- P3 DXF in POLLICI ($INSUNITS=1) → misure convertite, unità conservate
+ P3 DXF in POLLICI ($INSUNITS=1) → pulito convertito in millimetri ($INSUNITS=4)
  P4 detector non sicuro (due pezzi confrontabili) → pulizia saltata col motivo
  P5 pulito "legacy" errato: rigenerato una volta dall'originale; misure
     salvate sull'articolo mai sovrascritte; pulito diverso dalle misure → non
@@ -233,11 +233,12 @@ def main():
     check('pulito creato', cp3 is not None, info3)
     if cp3:
         d3 = ezdxf.readfile(cp3)
-        check('pulito conserva $INSUNITS=1', d3.header.get('$INSUNITS') == 1, d3.header.get('$INSUNITS'))
+        # Lantek legge millimetri: il pulito e' sempre convertito
+        check('pulito in millimetri ($INSUNITS=4)', d3.header.get('$INSUNITS') == 4, d3.header.get('$INSUNITS'))
         est = estensione_mm(cp3)
         check('pulito = 170×100 mm', vicino2(est, (170, 100)), est)
         rr = raggi_cerchi(cp3)
-        check('pulito pollici: 6 fori passanti', len(rr) == 6 and max(rr) < 0.2, rr)
+        check('pulito pollici: 6 fori passanti in mm', rr == [3.0, 3.0, 4.5, 4.5, 4.5, 4.5], rr)
 
     # =====================================================================
     print('\nP4) Detector non sicuro → pulizia saltata con motivo')
@@ -312,6 +313,57 @@ def main():
         check('drag: marcato manuale', C.leggi_dxf_pulito(out6).get('tipo') == C.TIPO_PULIZIA_MANUALE)
 
     # =====================================================================
+    print('\nP8) Pulito per Lantek: TAGLIO / PIEGA / MARCATURA, in mm veri')
+
+    def _p8(doc, m, s=1.0):
+        cornice_a4(m)
+        x0, y0 = 60.0, 60.0
+        rett_linee(m, x0, y0, 120, 80)
+        m.add_circle((x0 + 30, y0 + 40), 2.1)                     # foro M5
+        m.add_arc((x0 + 30, y0 + 40), 2.5, 0, 270)                # simbolo filettatura 3/4
+        m.add_line((x0 + 80, y0), (x0 + 80, y0 + 80))             # piega da bordo a bordo
+        m.add_line((x0 + 90, y0 + 30), (x0 + 100, y0 + 30))       # incisione dentro il pezzo
+        m.add_line((x0 + 90, y0 + 30), (x0 + 95, y0 + 40))
+        m.add_line((x0 + 20, y0 + 120), (x0 + 60, y0 + 120))      # fuori dal pezzo
+    p8 = dxf('p8_lantek.dxf', _p8)
+    g8, info8, cp8 = pulisci(p8)
+    check('pulito creato', cp8 is not None, info8)
+    check('segnato come formato Lantek', cp8 is not None and C.leggi_dxf_pulito(cp8).get('lantek'))
+    if cp8:
+        d8 = ezdxf.readfile(cp8)
+        per = {}
+        for e in d8.modelspace():
+            per.setdefault(e.dxf.layer, []).append(e.dxftype())
+        check('TAGLIO: 4 lati + foro', sorted(per.get('TAGLIO', [])) == ['CIRCLE', 'LINE', 'LINE', 'LINE', 'LINE'], per)
+        check('PIEGA: la linea da bordo a bordo', per.get('PIEGA') == ['LINE'], per)
+        check('MARCATURA: i due tratti incisi', per.get('MARCATURA') == ['LINE', 'LINE'], per)
+        check('simbolo di filettatura tolto', 'ARC' not in sum(per.values(), []), per)
+        check('niente fuori dal pezzo', sum(len(v) for v in per.values()) == 8, per)
+        g8b = detect_pezzo_geometry_v3(cp8, CFG)
+        check('il pulito riletto ha le stesse misure (piega e marcatura ignorate)',
+              vicino2((g8b['bbox_width_mm'], g8b['bbox_height_mm']), (120, 80), 0.1)
+              and abs(g8b['area_dm2'] - g8['area_dm2']) < 1e-3, (g8b.get('area_dm2'), g8.get('area_dm2')))
+
+    # disegno in scala 2:1 con viste 1:1 (191700612-00): pulito al vero
+    def _p8b(doc, m):
+        x0, y0 = 60.0, 60.0
+        rett_linee(m, x0, y0, 60, 184)                            # sviluppo disegnato 2:1
+        m.add_circle((x0 + 30, y0 + 20), 4.2)
+        for p1, p2 in (((x0, y0 - 10), (x0 + 60, y0 - 10)), ((x0 - 10, y0), (x0 - 10, y0 + 184))):
+            dm = m.add_linear_dim(base=p1, p1=(x0, y0) if p1[1] < y0 else (x0, y0), p2=(x0 + 60, y0) if p1[1] < y0 else (x0, y0 + 184),
+                                  angle=0 if p1[1] < y0 else 90, dimstyle='Standard', override={'dimlfac': 0.5})
+            dm.render()
+        rett_linee(m, 200, 60, 30, 48)                            # vista piegata 1:1
+        dm = m.add_linear_dim(base=(200, 50), p1=(200, 60), p2=(230, 60), dimstyle='Standard')
+        dm.render()
+    p8b = dxf('p8b_scala.dxf', _p8b)
+    g8s, info8s, cp8s = pulisci(p8b)
+    check('pulito in scala creato', cp8s is not None, info8s)
+    if cp8s:
+        est = estensione_mm(cp8s)
+        check('pulito al vero: 30×92 mm', vicino2(est, (30, 92), 0.1), est)
+        check('foro al vero: r 2,1', raggi_cerchi(cp8s) == [2.1], raggi_cerchi(cp8s))
+
     print('\nP7) should_cleanup: rapporto area pezzo/foglio in pollici')
     ok, motivo = C.should_cleanup({'confidence': 0.9, 'area_dm2': 1.0,
                                    'dxf_bbox_mm': [0, 0, 11.7, 8.3], 'scala_unita_mm': 25.4})
