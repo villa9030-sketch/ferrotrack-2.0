@@ -74,6 +74,23 @@ try:
     check('ordine nuovo: puliti per lamiera, da preparare, originali',
           nomi == ['DECA - 1184/INOX 304 - 2 mm/A1.dxf', 'DECA - 1184/_DA PREPARARE/S235 - 5 mm/B2.dxf',
                    'DECA - 1184/_DISEGNI ORIGINALI/A1.dxf', 'DECA - 1184/_DISEGNI ORIGINALI/B2.dxf'], nomi)
+    # stesso disegno in piu' assiemi (DECA 1252: 25CCPA0041-00 x4): un file solo
+    d3 = os.path.join(T, 'doppi')
+    for n in ('25CCPA0041-00.dxf', '25CCPA0041-00 (2).dxf', '25CCPA0041-00 (3).dxf'):
+        open(f('doppi', n), 'w').write('stesso disegno')
+    open(f('doppi', 'X1-00.dxf'), 'w').write('rev A')
+    open(f('doppi', 'X1-00 (2).dxf'), 'w').write('rev B diversa')
+    for n in ('25CCPA0041-00.dxf', '25CCPA0041-00 (2).dxf', '25CCPA0041-00 (3).dxf'):
+        open(f('doppi', 'LANTEK', 'S235 - 15 mm', n), 'w').write('pulito ' + n)   # puliti mai identici
+    dis3 = [{'nome': n, 'percorso': os.path.join(d3, n)} for n in sorted(os.listdir(d3)) if n.endswith('.dxf')]
+    nomi = sorted(n for _p, n in A._struttura_zip('DECA - 1252', d3, dis3, []))
+    check('stesso disegno 3 volte: un file solo, nome senza (2)',
+          [n for n in nomi if '15 mm' in n] == ['DECA - 1252/S235 - 15 mm/25CCPA0041-00.dxf'], nomi)
+    check('stesso codice ma disegni diversi: restano tutti e due',
+          len([n for n in nomi if 'ORIGINALI/X1-00' in n]) == 2, nomi)
+    check('originali senza doppioni', len([n for n in nomi if 'ORIGINALI/25CCPA0041' in n]) == 1, nomi)
+    check('nome base', A._nome_base_disegno('25CCPA0041-00 (3).dxf') == '25CCPA0041-00.dxf')
+    check('numero per cartelle senza preventivo', A._numero_per_cartelle({'numero_ordine': '4521', 'id': 'x'}) == '4521')
 finally:
     shutil.rmtree(T, ignore_errors=True)
 print(f'\nRisultato: {N - len(KO)} ok, {len(KO)} ko')

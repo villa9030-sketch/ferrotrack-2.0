@@ -1106,7 +1106,7 @@ def _cartella_condivisa(order) -> dict:
         percorso = os.path.normpath(os.path.join(
             root,
             _sanitize_path_part(order.cliente or '', 'cliente_sconosciuto'),
-            _sanitize_path_part(order.numero_ordine or order.id[:8], 'ordine')))
+            _sanitize_path_part(_numero_per_cartelle(order), 'ordine')))
         out['percorso'] = percorso
         out['esportato'] = os.path.isdir(percorso) and any(
             os.path.isfile(os.path.join(percorso, n)) for n in os.listdir(percorso))
@@ -1216,7 +1216,7 @@ def api_ordine_disegni_zip(order_id):
                             'error': 'Quest\'ordine non ha disegni'}), 404
         from .preventivi.dxf_cleanup import _sanitize_path_part
         radice = _sanitize_path_part(
-            ' - '.join(x for x in (order.cliente or '', order.numero_ordine or order.id[:8]) if x), 'disegni')
+            ' - '.join(x for x in (order.cliente or '', _numero_per_cartelle(order)) if x), 'disegni')
         try:
             righe = _distinta_ordine(order)[0]
         except Exception:
@@ -1252,16 +1252,48 @@ def _struttura_zip(radice: str, cartella_ordine: str, disegni: list, righe: list
                 voci.append((p, f'{radice}/{rel}'))
         for d in disegni:
             voci.append((d['percorso'], f"{radice}/{CARTELLA_ORIGINALI}/{d['nome']}"))
-        return voci
+        return _senza_doppioni(voci, cartella_ordine)
     lamiera_di = {}
     for r in righe or []:
         nome = (r.get('disegno') or '').lower()
         if nome and r.get('materiale'):
             lamiera_di.setdefault(nome, _nome_lamiera(r.get('materiale'), r.get('spessore_mm')))
     for d in disegni:
-        cartella = lamiera_di.get(d['nome'].lower(), '_SENZA MATERIALE')
+        cartella = lamiera_di.get(_nome_base_disegno(d['nome']).lower(),
+                                  lamiera_di.get(d['nome'].lower(), '_SENZA MATERIALE'))
         voci.append((d['percorso'], f"{radice}/{cartella}/{d['nome']}"))
-    return voci
+    return _senza_doppioni(voci, cartella_ordine)
+
+
+def _senza_doppioni(voci: list, cartella_ordine: str) -> list:
+    """Nella stessa cartella dello zip, lo stesso disegno una volta sola e
+    col nome senza "(2)". Uguale = stesso nome base e stesso ORIGINALE (i
+    puliti si confrontano col loro originale: due puliti dello stesso disegno
+    non sono identici byte per byte). Codice uguale ma disegno diverso: restano
+    tutti e due."""
+    gruppi = {}
+    for percorso, arc in voci:
+        cartella, nome = arc.rsplit('/', 1)
+        gruppi.setdefault((cartella, _nome_base_disegno(nome).lower()), []).append((percorso, arc, nome))
+    out = []
+    for (cartella, _b), membri in gruppi.items():
+        tenuti, impronte = [], set()
+        for percorso, arc, nome in membri:
+            orig = os.path.join(cartella_ordine, nome)
+            try:
+                imp = _impronta_file(orig if os.path.isfile(orig) else percorso)
+            except OSError:
+                imp = percorso
+            if imp in impronte:
+                continue
+            impronte.add(imp)
+            tenuti.append((percorso, arc, nome))
+        if len(tenuti) == 1:
+            p_, _a, nome = tenuti[0]
+            out.append((p_, f'{cartella}/{_nome_base_disegno(nome)}'))
+        else:
+            out.extend((p_, a_) for p_, a_, _n in tenuti)
+    return out
 
 
 _TEMPO_CACHE: dict = {}
@@ -5653,6 +5685,46 @@ def _cleanup_preventivo_files(preventivo_id):
         logger.warning('cleanup preventivo files failed for %s: %s', preventivo_id, exc)
 
 
+def _numero_per_cartelle(order) -> str:
+    """Numero con cui si chiamano cartelle e zip dei disegni: quello
+    dell'ORDINE DEL CLIENTE (es. 1252) se l'ordine nasce da un preventivo che
+    lo riporta, altrimenti il numero dell'ordine (PREV-2026-0005 diceva poco)."""
+    get = (lambda k: order.get(k)) if isinstance(order, dict) else (lambda k: getattr(order, k, None))
+    pid = get('preventivo_id_origine')
+    if pid:
+        try:
+            from .models import Preventivo
+            s = get_session()
+            try:
+                p = s.query(Preventivo).filter(Preventivo.id == pid).first()
+                n = ((p.numero_ordine_cliente if p else '') or '').strip()
+            finally:
+                s.close()
+            if n:
+                return n
+        except Exception:
+            logger.warning('numero ordine cliente non letto', exc_info=True)
+    return get('numero_ordine') or (get('id') or '')[:8]
+
+
+_RE_COPIA = re.compile(r'\s*\(\d+\)(?=\.[^.]+$)')
+
+
+def _nome_base_disegno(nome: str) -> str:
+    """'25CCPA0041-00 (3).dxf' -> '25CCPA0041-00.dxf' (copie fatte all'import
+    quando lo stesso disegno sta in piu' assiemi)."""
+    return _RE_COPIA.sub('', nome or '')
+
+
+def _impronta_file(path: str) -> str:
+    import hashlib
+    h = hashlib.md5()
+    with open(path, 'rb') as fp:
+        for blocco in iter(lambda: fp.read(65536), b''):
+            h.update(blocco)
+    return h.hexdigest()
+
+
 CARTELLA_DA_PREPARARE = '_DA PREPARARE'
 CARTELLA_ORIGINALI = '_DISEGNI ORIGINALI'
 
@@ -5711,6 +5783,10 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
         stats['drawings_dir'] = dst_dir
 
         articoli = p.get('articoli') or []
+        # in LANTEK lo stesso disegno una volta sola (lo stesso codice in piu'
+        # assiemi: 25CCPA0041-00 in 4 assiemi del DECA 1252 dava 4 file)
+        lantek_visti = {}
+        stats['lantek_doppioni'] = 0
         for a in articoli:
             codice = a.get('codice') or '?'
             original = a.get('dxf_filename')
@@ -5755,16 +5831,24 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
                 # divisi per lamiera (materiale + spessore): in Lantek si apre
                 # una cartella e si annida, niente smistamento a mano
                 lamiera = _nome_lamiera(a.get('materiale'), a.get('spessore_mm'))
+                chiave = (lamiera, _nome_base_disegno(dst_name).lower())
+                impronta = _impronta_file(src)
+                gia = lantek_visti.get(chiave)
+                if gia == impronta:
+                    stats['lantek_doppioni'] += 1
+                    continue
+                nome_l = _nome_base_disegno(dst_name) if gia is None else dst_name
+                lantek_visti.setdefault(chiave, impronta)
                 if v.get('stato') == 'pronto':
                     lantek_dir = os.path.join(dst_dir, 'LANTEK', lamiera)
                     os.makedirs(lantek_dir, exist_ok=True)
-                    shutil.copy2(v['path'], os.path.join(lantek_dir, dst_name))
+                    shutil.copy2(v['path'], os.path.join(lantek_dir, nome_l))
                     stats['lantek_pronti'] += 1
                 else:
                     # l'originale, nella stessa divisione, da preparare come prima
                     da_prep = os.path.join(dst_dir, 'LANTEK', CARTELLA_DA_PREPARARE, lamiera)
                     os.makedirs(da_prep, exist_ok=True)
-                    shutil.copy2(src, os.path.join(da_prep, dst_name))
+                    shutil.copy2(src, os.path.join(da_prep, nome_l))
                     stats['lantek_da_guardare'].append({'codice': codice, 'motivi': v.get('motivi') or []})
             except Exception as le:
                 logger.warning('pulito Lantek di %s non preparato: %s', codice, le)
@@ -6483,8 +6567,7 @@ def _etichetta_cartella_disegni(order) -> str:
     un posto dove qualcuno vada a guardare.
     """
     try:
-        numero = (order.get('numero_ordine') if isinstance(order, dict)
-                  else getattr(order, 'numero_ordine', None)) or ''
+        numero = _numero_per_cartelle(order) or ''
         cliente = (order.get('cliente') if isinstance(order, dict)
                    else getattr(order, 'cliente', None)) or ''
         root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
@@ -6510,8 +6593,7 @@ def _cartella_disegni_ordine(order) -> str:
     niente da aprire.
     """
     try:
-        numero = (order.get('numero_ordine') if isinstance(order, dict)
-                  else getattr(order, 'numero_ordine', None)) or ''
+        numero = _numero_per_cartelle(order) or ''
         cliente = (order.get('cliente') if isinstance(order, dict)
                    else getattr(order, 'cliente', None)) or ''
         oid = (order.get('id') if isinstance(order, dict)
@@ -7466,7 +7548,8 @@ def api_preventivi_accetta(preventivo_id):
                 result['export_disegni'] = _esporta_disegni_per_officina(
                     order_id,
                     (result.get('preventivo') or {}).get('cliente') or '',
-                    result.get('numero_ordine') or '')
+                    ((result.get('preventivo') or {}).get('numero_ordine_cliente') or '').strip()
+                    or result.get('numero_ordine') or '')
             except Exception as _e:
                 logger.warning('export disegni in cartella di rete: %s', _e)
 
