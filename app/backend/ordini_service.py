@@ -39,7 +39,7 @@ import logging
 from datetime import datetime
 
 from .database import get_session, AuditManager
-from .models import Order, User
+from .models import Order, User, Preventivo
 from .orario import iso_utc, iso_data, data_calendario
 
 logger = logging.getLogger(__name__)
@@ -181,7 +181,35 @@ def filtro_consegnati(query):
     )
 
 
-def _riga(order, nomi: dict) -> dict:
+def fase_laser(order) -> str:
+    """Fase al laser, come i riquadri della pagina laser:
+    da_smistare | da_importare | in_lantek | tagliato | non_serve."""
+    st = stato_taglio(order)
+    if st == 'da_tagliare':
+        return 'in_lantek' if getattr(order, 'importato_lantek_il', None) else 'da_importare'
+    return st
+
+
+def _numero_cliente(order, cache: dict | None = None) -> str | None:
+    """Numero dell'ordine del CLIENTE (es. 1252) per gli ordini da preventivo."""
+    pid = getattr(order, 'preventivo_id_origine', None)
+    if not pid:
+        return None
+    if cache is not None and pid in cache:
+        return cache[pid]
+    try:
+        from sqlalchemy.orm import object_session
+        sess = object_session(order)
+        p = sess.query(Preventivo.numero_ordine_cliente).filter(Preventivo.id == pid).first() if sess else None
+        n = ((p[0] if p else '') or '').strip() or None
+    except Exception:
+        n = None
+    if cache is not None:
+        cache[pid] = n
+    return n
+
+
+def _riga(order, nomi: dict, numcli: dict | None = None) -> dict:
     """Dati che servono all'ufficio per decidere, senza fasi produttive.
 
     Gli istanti (completamento, consegna, taglio, chiusura) escono in UTC con
@@ -200,6 +228,7 @@ def _riga(order, nomi: dict) -> dict:
     return {
         'id': order.id,
         'numero_ordine': order.numero_ordine or order.id[:8],
+        'numero_ordine_cliente': _numero_cliente(order, numcli),
         'cliente': order.cliente or '',
         'fase': f,
         'fase_etichetta': ETICHETTE[f],
@@ -222,6 +251,14 @@ def _riga(order, nomi: dict) -> dict:
         'taglio_richiesto': getattr(order, 'taglio_richiesto', None),
         'taglio_stato': stato_taglio(order),
         'taglio_il': iso_utc(getattr(order, 'data_taglio_completato', None)),
+        # Laser in dettaglio (riquadri e storia dell'ordine per l'ufficio)
+        'laser_fase': fase_laser(order),
+        'smistato_il': iso_utc(getattr(order, 'smistato_il', None)),
+        'importato_lantek_il': iso_utc(getattr(order, 'importato_lantek_il', None)),
+        'data_taglio_pianificata': iso_data(getattr(order, 'data_taglio_pianificata', None)),
+        'durata_laser_manuale_min': getattr(order, 'durata_laser_manuale_min', None),
+        'taglio_completato': bool(getattr(order, 'taglio_completato', False)),
+        'data_taglio_completato': iso_utc(getattr(order, 'data_taglio_completato', None)),
         # I fatti, distinti
         'completamento': iso_utc(getattr(order, 'data_completamento_operativo', None)),
         'completato_da_id': completato_da,
@@ -267,7 +304,12 @@ def elenco(fase_richiesta: str = None, cliente: str = None, limite: int = 500) -
         q = session.query(Order).filter(Order.is_deleted == False)  # noqa: E712
         if cliente:
             q = q.filter(Order.cliente == cliente)
-        righe = [_riga(o, nomi) for o in q.order_by(Order.data_consegna.asc()).all()]
+        ordini = q.order_by(Order.data_consegna.asc()).all()
+        # numeri dei clienti in una richiesta sola
+        pids = {o.preventivo_id_origine for o in ordini if getattr(o, 'preventivo_id_origine', None)}
+        numcli = {pid: (n or '').strip() or None for pid, n in session.query(
+            Preventivo.id, Preventivo.numero_ordine_cliente).filter(Preventivo.id.in_(pids)).all()} if pids else {}
+        righe = [_riga(o, nomi, numcli) for o in ordini]
 
         conteggi = {f: 0 for f in FASI}
         for r in righe:

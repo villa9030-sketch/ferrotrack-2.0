@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="/ft-ui.css">
 <script src="/ft-ui.js"></script>
+<script src="/carico-laser.js"></script>
 <style>
 /* Ufficio — solo quello che la base comune (ft-ui.css) non ha ancora.
    Le classi "ft-" qui sotto sono candidate a salire in ft-ui.css;
@@ -351,6 +352,100 @@ body.ft [hidden] { display: none !important; }
 @media (max-width: 720px) {
   .ft-dl, .imp-money { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ═══ Schermo intero (1920x1080): niente colonna stretta al centro ═══ */
+.imp-full { padding-left: 28px; padding-right: 28px; }
+@media (min-width: 1500px) { .imp-narrow { max-width: none; } }
+
+/* Ricerca di un ordine da qualunque scheda (Ctrl+K) */
+.imp-cerca { position: relative; margin-left: 16px; }
+.imp-cerca input { width: 320px; height: 36px; border: 1px solid var(--ft-line); border-radius: 9px; padding: 0 44px 0 34px;
+  font: inherit; font-size: 13.5px; background: var(--ft-bg); color: var(--ft-ink); }
+.imp-cerca input:focus { outline: none; border-color: var(--ft-accent); background: var(--ft-panel); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
+.imp-cerca > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--ft-ink-3); pointer-events: none; }
+.imp-cerca kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font: 600 11px var(--ft-font); color: var(--ft-ink-3);
+  border: 1px solid var(--ft-line); border-radius: 5px; padding: 1px 5px; background: var(--ft-panel); pointer-events: none; }
+.imp-cerca-res { position: absolute; top: 42px; left: 0; width: 520px; max-height: 460px; overflow: auto; z-index: 80; display: none;
+  background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 12px; box-shadow: 0 16px 40px rgba(15, 23, 42, .16); }
+.imp-cerca-res.open { display: block; }
+.imp-cerca-res button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 14px; width: 100%; text-align: left;
+  border: 0; border-bottom: 1px solid var(--ft-line-2); background: none; padding: 10px 14px; cursor: pointer; font: inherit; color: var(--ft-ink); }
+.imp-cerca-res button:hover, .imp-cerca-res button.on { background: var(--ft-hover); }
+.imp-cerca-res b { font-size: 14px; }
+.imp-cerca-res small { font-size: 12.5px; color: var(--ft-ink-3); }
+.imp-cerca-res .st { grid-row: span 2; align-self: center; }
+.imp-cerca-res .vuoto { padding: 16px; color: var(--ft-ink-3); font-size: 13px; }
+
+/* ═══ Oggi ═══ */
+.og-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px; }
+.og-head h1 { margin: 0; font: 800 28px/1.15 var(--ft-display); letter-spacing: -.6px; }
+.og-head p { margin: 4px 0 0; color: var(--ft-ink-3); font-size: 14px; }
+.og-head .ft-actions { margin-left: auto; }
+.og-kpi { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.og-k { --c: var(--ft-ink-3); display: grid; gap: 2px; text-align: left; cursor: pointer; padding: 12px 16px 13px;
+  border: 1px solid var(--ft-line); border-left: 5px solid var(--c); border-radius: 12px; background: var(--ft-panel); font: inherit; color: var(--ft-ink); }
+.og-k:hover { background: var(--ft-hover); }
+.og-k .t { font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--c); }
+.og-k b { font: 800 32px/1.05 var(--ft-display); }
+.og-k small { font-size: 12.5px; color: var(--ft-ink-3); }
+.og-k.zero { opacity: .58; }
+.og-k.err { --c: #B42318; } .og-k.warn { --c: #B54708; } .og-k.info { --c: #1D4ED8; } .og-k.vio { --c: #6D28D9; } .og-k.ok { --c: #067647; } .og-k.acc { --c: var(--ft-accent); }
+.og-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(420px, 32vw, 600px); gap: 16px; align-items: start; }
+.og-col { display: grid; gap: 16px; }
+.og-card { background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 14px; overflow: hidden; }
+.og-card-h { display: flex; align-items: center; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--ft-line); }
+.og-card-h h2 { margin: 0; font: 800 17px/1.2 var(--ft-display); }
+.og-card-h svg { width: 18px; height: 18px; color: var(--ft-ink-3); }
+.og-card-h > span { margin-left: auto; font-size: 13px; color: var(--ft-ink-3); }
+.og-sez { --gc: #344054; --gb: #EEF0F3; display: flex; align-items: center; gap: 8px; padding: 9px 18px;
+  background: var(--gb); color: var(--gc); border-bottom: 2px solid var(--gc); font-size: 13px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.og-sez svg { width: 16px; height: 16px; }
+.og-sez em { margin-left: 4px; padding: 1px 9px; border-radius: 999px; background: rgba(255, 255, 255, .75); font-style: normal; font-size: 12px; letter-spacing: 0; text-transform: none; }
+.og-sez.err { --gc: #B42318; --gb: #FEE4E2; } .og-sez.warn { --gc: #B54708; --gb: #FEF0C7; } .og-sez.info { --gc: #1D4ED8; --gb: #DBEAFE; }
+.og-sez.vio { --gc: #6D28D9; --gb: #EDE9FE; } .og-sez.ok { --gc: #067647; --gb: #DCFAE6; }
+.og-sp { height: 12px; background: var(--ft-bg); border-top: 1px solid var(--ft-line); }
+.og-r { display: grid; grid-template-columns: 150px minmax(0, 1.1fr) minmax(0, 1fr) auto; gap: 16px; align-items: center;
+  padding: 10px 18px; border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
+.og-r:hover { background: var(--ft-hover); }
+.og-r .c b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.og-r .c small { font: 500 12.5px var(--ft-mono); color: var(--ft-ink-3); }
+.og-r .s { font-size: 13px; color: var(--ft-ink-2); }
+.og-r .s small { display: block; color: var(--ft-ink-3); font-size: 12px; }
+.og-r .a { display: flex; gap: 6px; justify-content: flex-end; }
+.og-vuoto { padding: 26px 18px; text-align: center; color: var(--ft-ink-3); font-size: 14px; }
+.og-vuoto b { display: block; color: var(--ft-ok); font-size: 15px; margin-bottom: 2px; }
+.og-giorni { display: grid; gap: 7px; padding: 14px 18px 8px; }
+.og-g { display: grid; grid-template-columns: 96px minmax(0, 1fr) 96px; gap: 10px; align-items: center; font-size: 13px; }
+.og-g .d { color: var(--ft-ink-2); }
+.og-g.oggi .d { font-weight: 800; color: var(--ft-ink); }
+.og-g .bar { position: relative; height: 14px; border-radius: 7px; background: var(--ft-line-2); overflow: hidden; }
+.og-g .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; background: #12B76A; }
+.og-g.warn .bar i { background: #F79009; } .og-g.over .bar i { background: #F04438; }
+.og-g .bar b { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(15, 23, 42, .35); }
+.og-g .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.og-g .v em { font-style: normal; color: var(--ft-warn); font-weight: 600; }
+.og-nota { padding: 4px 18px 14px; font-size: 13px; color: var(--ft-ink-2); }
+.og-nota b { color: var(--ft-ink); }
+.og-motivi { display: flex; flex-wrap: wrap; gap: 4px; }
+/* consiglio sulla data di consegna (carico del laser) */
+.imp-laser-hint { margin-top: 6px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; background: var(--ft-line-2); color: var(--ft-ink-2); }
+.imp-laser-hint.ok { background: #DCFAE6; color: #085D3A; }
+.imp-laser-hint.warn { background: #FEF0C7; color: #93370D; }
+.imp-laser-hint.over { background: #FEE4E2; color: #912018; }
+.imp-laser-hint a { color: inherit; font-weight: 700; }
+/* storia dell'ordine nella scheda */
+.imp-storia { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.imp-storia li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 6px 0; position: relative; }
+.imp-storia li::before { content: ''; position: absolute; left: 10px; top: 22px; bottom: -6px; width: 2px; background: var(--ft-line); }
+.imp-storia li:last-child::before { display: none; }
+.imp-storia .pt { width: 12px; height: 12px; margin: 4px 0 0 5px; border-radius: 50%; border: 2px solid var(--ft-line); background: var(--ft-panel); position: relative; z-index: 1; }
+.imp-storia li.fatto .pt { background: var(--ft-ok); border-color: var(--ft-ok); }
+.imp-storia li.ora .pt { border-color: var(--ft-accent); box-shadow: 0 0 0 4px var(--ft-accent-glow); }
+.imp-storia li.salta { opacity: .5; }
+.imp-storia b { font-size: 13.5px; }
+.imp-storia small { display: block; font-size: 12px; color: var(--ft-ink-3); }
+.imp-storia .q { font-size: 13px; color: var(--ft-ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 1400px) { .og-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .og-grid { grid-template-columns: minmax(0, 1fr); } .imp-cerca input { width: 220px; } }
 </style>
 </head>
 <body class="ft">
@@ -365,7 +460,8 @@ body.ft [hidden] { display: none !important; }
     </div>
   </a>
   <nav class="ft-tabs" role="tablist" aria-label="Sezioni dell'ufficio">
-    <button class="ft-tab active" role="tab" data-tab="carica" onclick="switchTab('carica')">Carica ordine</button>
+    <button class="ft-tab active" role="tab" data-tab="oggi" onclick="switchTab('oggi')">Oggi <span class="ft-count hot" id="oggi-badge"></span></button>
+    <button class="ft-tab" role="tab" data-tab="carica" onclick="switchTab('carica')">Carica ordine</button>
     <button class="ft-tab" role="tab" data-tab="richiesta" onclick="switchTab('richiesta')">Richiesta preventivo</button>
     <button class="ft-tab" role="tab" data-tab="conferme" onclick="switchTab('conferme')">Da confermare <span class="ft-count hot" id="conferme-badge"></span></button>
     <button class="ft-tab" role="tab" data-tab="calendario" onclick="switchTab('calendario')">Calendario</button>
@@ -375,6 +471,13 @@ body.ft [hidden] { display: none !important; }
     <a class="ft-tab" href="/ufficio-ore.html" title="Ore dichiarate e riepilogo">Ore <span class="ft-count hot" id="ore-badge"></span></a>
     <button class="ft-tab" role="tab" data-tab="backup" onclick="switchTab('backup')">Backup</button>
   </nav>
+  <div class="imp-cerca" id="imp-cerca">
+    <i data-lucide="search"></i>
+    <input type="search" id="cerca-globale" placeholder="Trova un ordine: numero o cliente" autocomplete="off"
+           oninput="cercaGlobale()" onfocus="cercaGlobale()" onkeydown="cercaTasti(event)">
+    <kbd>Ctrl K</kbd>
+    <div class="imp-cerca-res" id="cerca-res" role="listbox"></div>
+  </div>
   <div class="ft-topbar-end">
     <span class="ft-live off imp-conn" id="conn-badge" title="Il server non risponde: i dati mostrati potrebbero essere vecchi">Offline</span>
     <div class="imp-notif">
@@ -400,10 +503,32 @@ body.ft [hidden] { display: none !important; }
   </div>
 </header>
 
-<main class="ft-page">
+<main class="ft-page wide imp-full">
+
+<!-- ═══════════════ OGGI ═══════════════ -->
+<section class="ft-view active" id="panel-oggi">
+  <div class="og-head">
+    <div><h1 id="og-titolo">Oggi</h1><p id="og-sotto">Quello che c'è da fare, e cosa rischia di arrivare in ritardo.</p></div>
+    <div class="ft-actions">
+      <button class="ft-btn" onclick="caricaOggi(true)" title="Aggiorna"><i data-lucide="refresh-cw"></i> Aggiorna</button>
+      <button class="ft-btn primary" onclick="switchTab('carica')"><i data-lucide="plus"></i> Carica ordine</button>
+    </div>
+  </div>
+  <div class="og-kpi" id="og-kpi"></div>
+  <div class="og-grid">
+    <div class="og-card"><div class="og-card-h"><i data-lucide="list-checks"></i><h2>Da fare</h2><span id="og-dafare-n"></span></div>
+      <div id="og-dafare"><div style="padding:18px"><div class="ft-skel" style="height:40px;margin-bottom:8px"></div><div class="ft-skel" style="height:40px"></div></div></div></div>
+    <div class="og-col">
+      <div class="og-card"><div class="og-card-h"><i data-lucide="gauge"></i><h2>Laser · prossimi giorni</h2><span id="og-laser-n"></span></div>
+        <div id="og-laser"></div></div>
+      <div class="og-card"><div class="og-card-h"><i data-lucide="triangle-alert"></i><h2>A rischio</h2><span id="og-rischio-n"></span></div>
+        <div id="og-rischio"></div></div>
+    </div>
+  </div>
+</section>
 
 <!-- ═══════════════ CARICA ORDINE ═══════════════ -->
-<section class="ft-view active" id="panel-carica">
+<section class="ft-view" id="panel-carica">
   <div class="ft-head imp-narrow">
     <div>
       <h1 class="ft-title">Carica ordine</h1>
@@ -446,6 +571,7 @@ body.ft [hidden] { display: none !important; }
             <span>Data di consegna <span class="req">*</span></span>
             <input type="date" id="mod-data" class="ft-input">
             <div class="ft-hint" id="hint-data"></div>
+            <div id="hint-laser"></div>
             <div class="ft-err-msg" id="err-data"></div>
           </label>
           <div></div>
@@ -580,6 +706,7 @@ body.ft [hidden] { display: none !important; }
       </label>
       <span class="imp-kpi-hint" id="vista-hint"></span>
       <span class="ft-toolbar-meta" id="vista-count">—</span>
+      <button class="ft-btn sm" onclick="esportaVista()" title="Scarica l'elenco di questa vista per Excel (es. da confrontare col gestionale a fine mese)"><i data-lucide="file-spreadsheet"></i> Esporta per Excel</button>
       <button class="ft-icon-btn" onclick="caricaViste()" title="Aggiorna"><i data-lucide="refresh-cw"></i></button>
     </div>
     <div class="ft-table-wrap">
@@ -840,7 +967,7 @@ body.ft [hidden] { display: none !important; }
 // ═══════════════════════════════════════════════════════════════
 const API_URL = '';
 let currentUser = null;
-let TAB = 'carica';
+let TAB = 'oggi';
 let pdfData = {};
 let allOrders = [];
 let calDate = new Date();
@@ -983,12 +1110,12 @@ async function logout() {
 // ═══════════════════════════════════════════════════════════════
 //  SCHEDE
 // ═══════════════════════════════════════════════════════════════
-const TABS = ['carica', 'richiesta', 'conferme', 'calendario', 'ordini', 'archivio', 'backup'];
+const TABS = ['oggi', 'carica', 'richiesta', 'conferme', 'calendario', 'ordini', 'archivio', 'backup'];
 
 function switchTab(tabId, vista) {
   // La vecchia scheda "Ordini da fatturare" ora e' una vista degli Ordini.
   if (tabId === 'fatturare') { tabId = 'ordini'; vista = 'consegnato'; }
-  if (!TABS.includes(tabId)) tabId = 'carica';
+  if (!TABS.includes(tabId)) tabId = 'oggi';
   if (vista) VISTA = vista;
   TAB = tabId;
   document.querySelectorAll('.ft-tab[data-tab]').forEach(t => {
@@ -999,6 +1126,7 @@ function switchTab(tabId, vista) {
   document.querySelectorAll('.ft-view').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tabId));
   scriviIndirizzo();
   window.scrollTo(0, 0);
+  if (tabId === 'oggi') caricaOggi();
   if (tabId === 'calendario') loadCalendar();
   if (tabId === 'conferme') loadConferme();
   if (tabId === 'ordini') { renderVista(); caricaViste(); }
@@ -1090,6 +1218,7 @@ function aggiornaHintData() {
   const s = v ? FT.scadenza(v) : null;
   $('hint-data').textContent = s && s.testo ? (s.classe === 'late' ? 'Attenzione: ' + s.testo : 'Consegna ' + s.testo) : '';
   $('hint-data').style.color = s && s.classe === 'late' ? 'var(--ft-err)' : '';
+  $('hint-laser').innerHTML = hintCaricoLaser(v);
 }
 
 async function submitOrder() {
@@ -1333,6 +1462,7 @@ function pkgRender() {
             <div class="ft-err-msg" id="pkg-err-cliente"></div></label>
           <label class="ft-field"><span>Data di consegna <span class="req">*</span></span>
             <input type="date" id="pkg-data" class="ft-input" value="${esc(t.data)}" oninput="pkgTesta('data', this.value)">
+            <div id="pkg-hint-laser">${hintCaricoLaser(t.data)}</div>
             <div class="ft-hint" id="pkg-hint-data"></div><div class="ft-err-msg" id="pkg-err-data"></div></label>
           <label class="ft-field span-2"><span>Note per l’officina</span>
             <textarea id="pkg-note" class="ft-textarea" rows="2" placeholder="Es. materiale fornito dal cliente, urgenza, imballo…" oninput="pkgTesta('note', this.value)">${esc(t.note)}</textarea></label>
@@ -1413,6 +1543,7 @@ function pkgRigaHtml(i) {
 // ── Modifiche: si aggiorna solo quello che cambia, senza ridisegnare (il cursore resta dov'e') ──
 function pkgTesta(campo, valore) {
   PKG.testa[campo] = valore;
+  if (campo === 'data' && $('pkg-hint-laser')) $('pkg-hint-laser').innerHTML = hintCaricoLaser(valore);
   const el = $('pkg-' + campo);
   if (el) el.classList.remove('invalid');
   const err = $('pkg-err-' + campo);
@@ -1939,6 +2070,8 @@ function stepsHtml(o, compatto) {
   return `<div class="imp-prog"><div class="ft-steps compact" aria-label="${lbl}">${passi}</div><span>${lbl}</span></div>`;
 }
 function laserHtml(o) {
+  if (o.laser_fase === 'da_importare') return `<span class="ft-chip info" title="Va tagliato: il laser deve ancora metterlo in Lantek${o.data_taglio_pianificata ? ' · taglio previsto il ' + FT.fmtData(o.data_taglio_pianificata) : ''}"><i data-lucide="file-input"></i> Da importare</span>`;
+  if (o.laser_fase === 'in_lantek') return `<span class="ft-chip" style="background:#EDE9FE;color:#5B21B6" title="In Lantek dal ${o.importato_lantek_il ? FT.fmtDataOra(o.importato_lantek_il) : '—'}: pronto da tagliare"><i data-lucide="scissors"></i> In Lantek</span>`;
   if (o.taglio_stato === 'da_smistare') return '<span class="ft-chip" title="Il laser non ha ancora deciso se serve il taglio">Da smistare</span>';
   if (o.taglio_stato === 'non_serve') return '<span class="ft-chip">Senza laser</span>';
   if (o.taglio_fatto) return `<span class="ft-chip ok" title="${o.taglio_il ? 'Tagliato il ' + FT.fmtDataOra(o.taglio_il) : 'Taglio laser fatto'}"><i data-lucide="check"></i> Tagliato</span>`;
@@ -1967,6 +2100,264 @@ function ddtCellHtml(o) {
   return `<div class="ft-cell-main"><b class="ft-mono" style="font-size:12.5px;">${esc(d.num)}</b><span class="imp-sub">${d.data ? fmtGiorno(d.data) : ''}</span></div>`;
 }
 
+// ═══════════════ OGGI ═══════════════
+// La pagina che l'ufficio apre la mattina: cosa fare, cosa e' in ritardo,
+// cosa rischia di arrivarci, e quanto e' carico il laser nei prossimi giorni.
+let CL_PRONTO = false;
+let _oggiCaricato = 0;
+async function caricaOggi(forza) {
+  if (forza || Date.now() - _oggiCaricato > 9000) {
+    _oggiCaricato = Date.now();
+    await Promise.all([caricaViste(true), CaricoLaser.carica(!!forza).then(ok => { CL_PRONTO = ok; }), aggiornaBadgeConferme()]);
+  }
+  renderOggi();
+}
+/** Ordini che pesano sul laser (le pratiche chiuse no). */
+function ordiniPerLaser() { return (VISTE_DATI.ordini || []).filter(o => o.fase !== 'archivio'); }
+function etichettaLaser(o) {
+  return { da_smistare: 'Laser: da smistare', da_importare: 'Laser: da importare in Lantek', in_lantek: 'Laser: in Lantek, da tagliare',
+           tagliato: 'Tagliato', non_serve: 'Senza laser' }[o.laser_fase] || '';
+}
+function giornoBreve(ds) { return ds ? FT.data(ds).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'numeric' }) : '—'; }
+/** Perche' un ordine aperto rischia il ritardo (vuoto = nessun rischio). */
+function motiviRischio(o) {
+  if (o.fase !== 'aperto' || o.laser_fase === 'tagliato' || o.laser_fase === 'non_serve') return [];
+  const cons = giorno(o.data_consegna);
+  if (!cons) return [];
+  const g = FT.giorniDa(cons);
+  if (g < 0 || g > 7) return [];
+  const m = [];
+  if (g <= 3 && o.laser_fase === 'da_smistare') m.push('il laser non l’ha ancora smistato');
+  if (g <= 3 && o.laser_fase === 'da_importare') m.push('non ancora in Lantek');
+  if (o.data_taglio_pianificata && o.data_taglio_pianificata > cons) m.push(`taglio previsto il ${giornoBreve(o.data_taglio_pianificata)}, dopo la consegna`);
+  if (CL_PRONTO) {
+    const ds = CaricoLaser.giorno(o);
+    if (ds) {
+      const k = CaricoLaser.caricoGiorno(ds, ordiniPerLaser());
+      if (k.pct > 1) m.push(`laser pieno il ${giornoBreve(ds)} (${CaricoLaser.fmtOre(k.min)} su ${CaricoLaser.fmtOre(k.cap)})`);
+    }
+  }
+  return m;
+}
+function rigaOggi(o, stato, azioni) {
+  const id = esc(o.id);
+  const cons = giorno(o.data_consegna);
+  const g = cons ? FT.giorniDa(cons) : null;
+  const quando = cons ? `<div class="ft-due ${g < 0 ? 'late' : g <= 1 ? 'soon' : ''}">${FT.fmtData(cons)}<small>${g == null ? '' : g < 0 ? `scaduta da ${-g} gg` : g === 0 ? 'oggi' : g === 1 ? 'domani' : `tra ${g} gg`}</small></div>` : '<span class="ft-muted">senza data</span>';
+  return `<div class="og-r" onclick="apriOrdine('${id}')" role="button" tabindex="0" onkeydown="if (event.key === 'Enter') apriOrdine('${id}')">
+    ${quando}
+    <div class="c"><b>${esc(o.cliente || '—')}</b><small>#${esc(numOrd(o))}</small></div>
+    <div class="s">${stato}</div>
+    <div class="a" onclick="event.stopPropagation()">${azioni || ''}</div></div>`;
+}
+function azioneDi(o) {
+  const id = esc(o.id);
+  if (o.fase === 'aperto') return btn('Lavorazione finita', `azCompletamento('${id}')`, '', 'check');
+  if (o.passo === 'attesa_ddt') return btn('Registra DDT', `azDdt('${id}')`, 'primary', 'file-text');
+  if (o.passo === 'ddt_registrato' || o.passo === 'consegna_parziale') return btn('Registra consegna', `apriModalConsegna('${id}')`, 'primary', 'truck');
+  if (o.fase === 'consegnato') return btn('Chiudi pratica', `azChiudi('${id}')`, 'primary', 'receipt');
+  return '';
+}
+function statoOggi(o) {
+  const p = (PASSI[o.passo] || {}).lbl || o.passo_etichetta || '';
+  return o.fase === 'aperto' ? `${esc(etichettaLaser(o) || 'In lavorazione')}<small>${o.data_taglio_pianificata ? 'taglio previsto ' + giornoBreve(o.data_taglio_pianificata) : 'in lavorazione'}</small>`
+    : `${esc(p)}${ddtDi(o).num ? `<small>DDT ${esc(ddtDi(o).num)}</small>` : ''}`;
+}
+function renderOggi() {
+  if (!$('og-kpi')) return;
+  const oggi = FT.oggiISO();
+  $('og-titolo').textContent = 'Oggi · ' + FT.data(oggi).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  const tutti = VISTE_DATI.ordini || [];
+  const aperti = tutti.filter(o => o.fase !== 'archivio');
+  const consG = o => { const c = giorno(o.data_consegna); return c ? FT.giorniDa(c) : null; };
+  const nonConsegnato = o => o.fase === 'aperto' || o.fase === 'pronto_ddt';
+  const ritardo = aperti.filter(o => nonConsegnato(o) && consG(o) != null && consG(o) < 0).sort((a, b) => consG(a) - consG(b));
+  const visti = new Set(ritardo.map(o => o.id));
+  const prossime = aperti.filter(o => nonConsegnato(o) && !visti.has(o.id) && [0, 1].includes(consG(o)));
+  prossime.forEach(o => visti.add(o.id));
+  const ddt = aperti.filter(o => o.passo === 'attesa_ddt' && !visti.has(o.id));
+  const daCons = aperti.filter(o => (o.passo === 'ddt_registrato' || o.passo === 'consegna_parziale') && !visti.has(o.id));
+  const daFatt = aperti.filter(o => o.fase === 'consegnato' && o.passo !== 'consegna_parziale');
+  const rischio = aperti.map(o => ({ o, m: motiviRischio(o) })).filter(x => x.m.length).sort((a, b) => consG(a.o) - consG(b.o));
+  const nConf = Number(($('conferme-badge') || {}).textContent) || 0;
+
+  const kpi = [
+    ['err', 'In ritardo', ritardo.length, 'consegna passata', "vaiA('og-s-ritardo')"],
+    ['warn', 'Consegne oggi e domani', prossime.length, 'da preparare', "vaiA('og-s-prossime')"],
+    ['vio', 'A rischio', rischio.length, 'prossimi 7 giorni', "vaiA('og-rischio')"],
+    ['info', 'DDT da fare', aperti.filter(o => o.passo === 'attesa_ddt').length, 'lavorazione finita', "switchTab('ordini', 'pronto_ddt')"],
+    ['acc', 'Da consegnare', aperti.filter(o => o.passo === 'ddt_registrato' || o.passo === 'consegna_parziale').length, 'DDT registrato', "vaiA('og-s-consegnare')"],
+    ['ok', 'Da fatturare', daFatt.length, 'consegnati', "switchTab('ordini', 'consegnato')"],
+  ];
+  $('og-kpi').innerHTML = kpi.map(([c, t, n, sub, fn]) =>
+    `<button type="button" class="og-k ${c}${n ? '' : ' zero'}" onclick="${fn}"><span class="t">${t}</span><b>${n}</b><small>${sub}</small></button>`).join('')
+    .replace('<small>da preparare</small>', `<small>${nConf ? `+ ${nConf} preventiv${nConf === 1 ? 'o' : 'i'} da confermare` : 'da preparare'}</small>`);
+  setCount('oggi-badge', ritardo.length + prossime.length || '');
+
+  // ── Da fare ──
+  const sez = (id, cls, ico, titolo, lista, stato, az) => !lista.length ? '' :
+    `<div class="og-sez ${cls}" id="${id}"><i data-lucide="${ico}"></i>${titolo}<em>${lista.length}</em></div>`
+    + lista.map(o => rigaOggi(o, stato(o), az(o))).join('');
+  let html = [
+    sez('og-s-ritardo', 'err', 'triangle-alert', 'In ritardo', ritardo, statoOggi, azioneDi),
+    sez('og-s-prossime', 'warn', 'alarm-clock', 'Consegna oggi e domani', prossime, statoOggi, azioneDi),
+    sez('og-s-ddt', 'info', 'file-text', 'DDT da fare', ddt, statoOggi, azioneDi),
+    sez('og-s-consegnare', 'vio', 'truck', 'Da consegnare', daCons, statoOggi, azioneDi),
+    sez('og-s-fatturare', 'ok', 'receipt', 'Da fatturare', daFatt, statoOggi, azioneDi),
+  ].filter(Boolean).join('<div class="og-sp"></div>');
+  if (nConf) html = `<div class="og-sez acc" style="--gc:var(--ft-accent);--gb:var(--ft-accent-bg)"><i data-lucide="mail-check"></i>Preventivi da confermare<em>${nConf}</em></div>
+    <div class="og-r" onclick="switchTab('conferme')" role="button"><span></span><div class="c"><b>${nConf} preventiv${nConf === 1 ? 'o inviato' : 'i inviati'} al cliente</b><small>aspettano la risposta</small></div><div class="s">Quando il cliente accetta, confermalo: diventa un ordine.</div><div class="a">${btn('Apri', "switchTab('conferme')", '', 'arrow-right')}</div></div>`
+    + (html ? '<div class="og-sp"></div>' + html : '');
+  $('og-dafare').innerHTML = html || `<div class="og-vuoto"><b>Tutto in ordine</b>Niente in ritardo, niente da registrare.</div>`;
+  const nFare = ritardo.length + prossime.length + ddt.length + daCons.length + daFatt.length;
+  $('og-dafare-n').textContent = nFare ? `${nFare} ${nFare === 1 ? 'ordine' : 'ordini'}` : '';
+
+  // ── Laser ──
+  if (!CL_PRONTO) {
+    $('og-laser').innerHTML = '<div class="og-vuoto">Carico del laser non disponibile.</div>';
+  } else {
+    const c = CaricoLaser.cfg();
+    const turno = c.ore_turno * 60, utili = (c.ore_turno - c.ore_riserva) * 60;
+    const giorni = CaricoLaser.giorniLavorativi(oggi, 10);
+    const ord = ordiniPerLaser();
+    let tot = 0, cap = 0;
+    const righe = giorni.map(ds => {
+      const k = CaricoLaser.caricoGiorno(ds, ord);
+      tot += k.min; cap += k.cap;
+      const liv = CaricoLaser.livello(k.pct);
+      return `<div class="og-g ${liv}${ds === oggi ? ' oggi' : ''}" title="${k.n} ordini${k.ignoti ? ', ' + k.ignoti + ' senza durata' : ''}">
+        <span class="d">${ds === oggi ? 'Oggi' : giornoBreve(ds)}</span>
+        <span class="bar"><i style="width:${Math.min(100, k.min / (turno || 1) * 100).toFixed(1)}%"></i><b style="left:${(utili / (turno || 1) * 100).toFixed(1)}%"></b></span>
+        <span class="v">${(k.min / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} / ${(k.cap / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} h${k.ignoti ? ` <em>+${k.ignoti}?</em>` : ''}</span></div>`;
+    }).join('');
+    const libero = CaricoLaser.primoGiornoLibero(ord);
+    $('og-laser').innerHTML = `<div class="og-giorni">${righe}</div>
+      <div class="og-nota">Primo giorno con spazio al laser: <b>${libero ? giornoBreve(libero) : 'oltre 2 mesi'}</b>. La tacca è il limite delle ore utili (turno meno riserva per le emergenze).</div>`;
+    $('og-laser-n').textContent = `${CaricoLaser.fmtOre(tot)} su ${CaricoLaser.fmtOre(cap)}`;
+  }
+  // ── A rischio ──
+  $('og-rischio').innerHTML = rischio.length ? rischio.map(({ o, m }) => rigaOggi(o,
+      `<div class="og-motivi">${m.map(x => `<span class="ft-chip warn">${esc(x)}</span>`).join('')}</div>`, '')).join('')
+    : `<div class="og-vuoto"><b>Nessun ordine a rischio</b>nei prossimi 7 giorni.</div>`;
+  $('og-rischio-n').textContent = rischio.length ? `${rischio.length} ${rischio.length === 1 ? 'ordine' : 'ordini'}` : '';
+  FT.icone();
+}
+function vaiA(id) {
+  const el = $(id);
+  if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.animate([{ filter: 'brightness(.9)' }, { filter: 'none' }], 900); }
+  else FT.toast('Niente in questa voce', 'ok');
+}
+
+/** Consiglio sulla data di consegna: quanto e' carico il laser nei 5 giorni
+    lavorativi prima della data scelta, e la prima consegna comoda. */
+function hintCaricoLaser(ds) {
+  if (!ds || !CL_PRONTO || !/^\d{4}-\d{2}-\d{2}$/.test(ds)) { if (!CL_PRONTO) CaricoLaser.carica().then(ok => { if (ok && !CL_PRONTO) { CL_PRONTO = true; aggiornaHintData && $('mod-data') && aggiornaHintData(); } }); return ''; }
+  const prima = FT.data(ds); prima.setDate(prima.getDate() - 1);
+  const giorni = CaricoLaser.giorniLavorativi(CaricoLaser.iso(prima), 5, true).filter(g => g >= FT.oggiISO());
+  if (!giorni.length) return `<div class="imp-laser-hint over">Consegna troppo vicina: non resta nessun giorno di laser prima del ${FT.fmtData(ds)}.</div>`;
+  const ord = ordiniPerLaser();
+  let min = 0, cap = 0;
+  for (const g of giorni) { const k = CaricoLaser.caricoGiorno(g, ord); min += k.min; cap += k.cap; }
+  const pct = cap ? min / cap : 9;
+  const liv = CaricoLaser.livello(pct);
+  const ore = `${CaricoLaser.fmtOre(min)} su ${CaricoLaser.fmtOre(cap)} nei ${giorni.length} giorni di laser prima della consegna`;
+  if (liv === 'ok') return `<div class="imp-laser-hint ok"><b>Il laser ha spazio</b>: ${ore}.</div>`;
+  const libero = CaricoLaser.primoGiornoLibero(ord);
+  let comoda = null;
+  if (libero) { const g2 = CaricoLaser.giorniLavorativi(libero, 3); comoda = g2[2] || g2[g2.length - 1]; }
+  return `<div class="imp-laser-hint ${liv}"><b>${liv === 'over' ? 'Il laser è pieno' : 'Il laser è quasi pieno'}</b>: ${ore}.`
+    + (comoda && comoda > ds ? ` Consegna comoda dal <a href="#" onclick="event.preventDefault(); usaDataComoda('${comoda}')">${FT.fmtData(comoda)}</a> (taglio + 2 giorni per l’officina).` : '') + '</div>';
+}
+function usaDataComoda(ds) {
+  const inp = TAB === 'carica' && $('pkg-data') && !$('pkg-card').hidden ? $('pkg-data') : $('mod-data');
+  inp.value = ds;
+  inp.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// ═══ Ricerca di un ordine (Ctrl+K) ═══
+let _cercaSel = 0;
+function cercaGlobale() {
+  const q = ($('cerca-globale').value || '').trim().toLowerCase();
+  const box = $('cerca-res');
+  if (!q) { box.classList.remove('open'); return; }
+  if (!VISTE_CARICATE) caricaViste(true).then(() => cercaGlobale());
+  const tutti = VISTE_DATI.ordini || [];
+  const trovati = tutti.filter(o => [o.cliente, o.numero_ordine, o.numero_ordine_cliente, o.ddt_numero, o.numero_fattura]
+    .some(v => (v || '').toString().toLowerCase().includes(q)))
+    .sort((a, b) => (a.fase === 'archivio') - (b.fase === 'archivio') || String(b.data_consegna || '').localeCompare(String(a.data_consegna || '')))
+    .slice(0, 12);
+  _cercaSel = 0;
+  box.innerHTML = trovati.length ? trovati.map((o, i) => `<button type="button" class="${i === 0 ? 'on' : ''}" data-id="${esc(o.id)}" onclick="apriDaRicerca('${esc(o.id)}')">
+      <b>${esc(o.cliente || '—')} · #${esc(numOrd(o))}</b><span class="st">${stepsHtml(o, true)}</span>
+      <small>consegna ${o.data_consegna ? fmtGiorno(o.data_consegna) : '—'}${o.fase === 'aperto' && etichettaLaser(o) ? ' · ' + esc(etichettaLaser(o)) : ''}</small></button>`).join('')
+    : `<div class="vuoto">Nessun ordine con «${esc(q)}»</div>`;
+  box.classList.add('open');
+  FT.icone();
+}
+function cercaTasti(e) {
+  const voci = Array.from($('cerca-res').querySelectorAll('button'));
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!voci.length) return;
+    _cercaSel = (_cercaSel + (e.key === 'ArrowDown' ? 1 : -1) + voci.length) % voci.length;
+    voci.forEach((b, i) => b.classList.toggle('on', i === _cercaSel));
+  } else if (e.key === 'Enter' && voci[_cercaSel]) { e.preventDefault(); apriDaRicerca(voci[_cercaSel].dataset.id); }
+  else if (e.key === 'Escape') { $('cerca-res').classList.remove('open'); e.target.blur(); }
+}
+function apriDaRicerca(id) {
+  $('cerca-res').classList.remove('open');
+  $('cerca-globale').value = '';
+  apriOrdine(id);
+}
+
+/** Storia dell'ordine con le date: dove si trova e da quando. */
+function storiaHtml(o, d, complet, dd, f) {
+  const lf = o.laser_fase;
+  const senzaLaser = lf === 'non_serve';
+  const passi = [
+    ['Ricevuto', d.data_ricezione, 'ordine caricato'],
+    ['Smistato al laser', o.smistato_il, senzaLaser ? 'non passa dal laser' : 'va tagliato', senzaLaser],
+    ['In Lantek', o.importato_lantek_il, 'disegni importati, pronto da tagliare', senzaLaser],
+    ['Tagliato', o.taglio_il || o.data_taglio_completato, o.data_taglio_pianificata && !o.taglio_il ? 'previsto il ' + FT.fmtData(o.data_taglio_pianificata) : 'taglio laser fatto', senzaLaser],
+    ['Lavorazione finita', complet, o.completato_da ? esc(o.completato_da) : 'officina'],
+    ['DDT', dd.num ? (dd.data || true) : null, dd.num ? 'DDT ' + esc(dd.num) : 'da fare'],
+    ['Consegnato', o.consegna, o.consegna_parziale ? 'consegna parziale' : ''],
+    ['Fatturato', f.num ? (f.data || true) : null, f.num ? 'fattura ' + esc(f.num) : ''],
+  ];
+  const ultimo = passi.reduce((u, p, i) => (p[1] && !p[3] ? i : u), -1);
+  return `<ol class="imp-storia">${passi.map(([t, quando, nota, salta], i) => {
+    const cls = salta ? 'salta' : quando ? 'fatto' : i === ultimo + 1 ? 'ora' : '';
+    const q = quando && quando !== true ? (String(quando).length > 10 ? FT.fmtDataOra(quando) : FT.fmtData(quando)) : (quando ? '✓' : (salta ? '—' : ''));
+    return `<li class="${cls}"><span class="pt"></span><div><b>${t}</b><small>${nota || ''}</small></div><span class="q">${q}</span></li>`;
+  }).join('')}</ol>`;
+}
+
+/** Cartella dell'ordine per Lantek (stessa del bottone della pagina laser). */
+async function creaCartellaLantek(id) {
+  const res = await api(`/api/orders/${id}/crea-cartella`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: utenteId() }) });
+  const d = res.data || {};
+  if (d.codice === 'non_impostata') { FT.toast('Prima va scelta la cartella dei disegni: dalla pagina laser (⚙) o dalle Impostazioni del preventivatore', 'warn', null, 9000); return; }
+  if (!riuscita(res)) { FT.toast('Cartella non creata: ' + msgErrore(res), 'err', null, 8000); return; }
+  FT.toast(`Cartella pronta: ${d.percorso} (${d.esportati} file)`, 'ok', null, 9000);
+}
+
+/** Elenco della vista in un file per Excel (per il confronto col gestionale). */
+function esportaVista() {
+  const righe = (VISTE_DATI.ordini || []).filter(o => o.fase === VISTA);
+  if (!righe.length) { FT.toast('Niente da esportare in questa vista', 'warn'); return; }
+  const testa = ['Cliente', 'Ordine cliente', 'Ordine interno', 'Consegna prevista', 'DDT', 'Data DDT', 'Consegnato il', 'Fattura', 'Data fattura', 'Stato', 'Note'];
+  const cella = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const data = v => v ? FT.fmtData(String(v).slice(0, 10)) : '';
+  const corpo = righe.map(o => [o.cliente, o.numero_ordine_cliente || '', o.numero_ordine, data(o.data_consegna), ddtDi(o).num, data(ddtDi(o).data),
+    data(o.consegna), fatturaDi(o).num, data(fatturaDi(o).data), (PASSI[o.passo] || {}).lbl || o.passo_etichetta || '', o.note].map(cella).join(';'));
+  const blob = new Blob(['\ufeff' + [testa.map(cella).join(';'), ...corpo].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Ordini - ${(FASI_INFO[VISTA] || {}).lbl || VISTA} - ${FT.oggiISO()}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
 async function caricaViste(silenzioso) {
   const res = await api('/api/ordini/viste');
   updateConnBadge(!res.rete);
@@ -1981,6 +2372,7 @@ async function caricaViste(silenzioso) {
   VISTE_DATI = res.data;
   VISTE_CARICATE = true;
   if (TAB === 'ordini') { renderKpiViste(); renderVista(); }
+  if (TAB === 'oggi') renderOggi();
   return true;
 }
 
@@ -2062,7 +2454,8 @@ function renderVista() {
   const q = ($('vista-cerca').value || '').trim().toLowerCase();
   const righe = (VISTE_DATI.ordini || [])
     .filter(o => o.fase === VISTA)
-    .filter(o => !q || (o.numero_ordine || '').toLowerCase().includes(q) || (o.cliente || '').toLowerCase().includes(q));
+    .filter(o => !q || (o.numero_ordine || '').toLowerCase().includes(q) || (o.numero_ordine_cliente || '').toLowerCase().includes(q)
+      || (o.cliente || '').toLowerCase().includes(q));
   const col = COLONNE[VISTA] || COLONNE._;
   $('vista-thead').innerHTML = '<tr>' + col.map((c, i) => `<th${i === col.length - 1 ? ' class="r"' : ''}>${c}</th>`).join('') + '</tr>';
   $('vista-hint').textContent = (FASI_INFO[VISTA] || {}).hint || '';
@@ -2083,7 +2476,7 @@ function btn(testo, fn, cls, icona, titolo) {
 
 function rigaVista(o) {
   const id = esc(o.id);
-  const ordine = `<div class="ft-cell-main"><b>${esc(o.cliente || '—')}</b><code>${esc(o.numero_ordine)}</code></div>`;
+  const ordine = `<div class="ft-cell-main"><b>${esc(o.cliente || '—')}</b><code>${esc(numOrd(o))}</code></div>`;
   const sel = drawerId === o.id ? ' sel' : '';
   const tr = celle => `<tr class="click${sel}" onclick="apriOrdine('${id}')">${celle}</tr>`;
   const d = ddtDi(o);
@@ -2134,7 +2527,9 @@ async function chiamaAzione(url, metodo, corpo, riuscito, annulla) {
   if (drawerId) renderDrawer();
   return { ok: true, data: res.data };
 }
-function nomeOrdine(o) { return o ? `${o.numero_ordine || ''} — ${o.cliente || ''}` : ''; }
+function nomeOrdine(o) { return o ? `${numOrd(o)} — ${o.cliente || ''}` : ''; }
+/** Il numero che conosce il cliente (1252); quello interno (PREV-...) se manca. */
+function numOrd(o) { return (o && (o.numero_ordine_cliente || o.numero_ordine)) || ''; }
 
 async function azCompletamento(id) {
   const o = rigaDi(id) || {};
@@ -2341,7 +2736,7 @@ async function renderDrawer() {
   $('ord-drawer').innerHTML = `
     <div class="ft-drawer-head">
       <div class="imp-dr-top">
-        <div class="ft-cell-main"><code>${esc(o.numero_ordine || d.numero_ordine || '')}${d.origine === 'PREVENTIVO' ? ' · da preventivo' : d.origine === 'PACCHETTO' ? ' · con disegni' : ''}</code><h2>${esc(o.cliente || d.cliente || '—')}</h2></div>
+        <div class="ft-cell-main"><code>${esc(numOrd(o) || d.numero_ordine || '')}${o.numero_ordine_cliente && o.numero_ordine !== o.numero_ordine_cliente ? ' · ' + esc(o.numero_ordine) : ''}${d.origine === 'PREVENTIVO' ? ' · da preventivo' : d.origine === 'PACCHETTO' ? ' · con disegni' : ''}</code><h2>${esc(o.cliente || d.cliente || '—')}</h2></div>
         <button class="ft-icon-btn" onclick="chiudiOrdine()" title="Chiudi (Esc)" aria-label="Chiudi"><i data-lucide="x"></i></button>
       </div>
       ${stepsHtml(o, false)}
@@ -2357,6 +2752,8 @@ async function renderDrawer() {
       <label class="ft-btn sm" title="Carica un PDF al posto di quello attuale"><i data-lucide="file-up"></i> ${d.pdf_file ? 'Sostituisci PDF' : 'Carica PDF'}
         <input type="file" accept=".pdf" hidden onchange="sostituisciPdf('${esc(id)}', this)"></label>
       <button class="ft-btn sm" onclick="openCartellinoModal('${esc(id)}', ${jsq((d.numero_ordine || '') + ' · ' + (d.cliente || ''))})"><i data-lucide="printer"></i> Cartellino</button>
+      ${(d.dxf_files || []).length || d.origine !== 'PDF' ? `<a class="ft-btn sm" href="/api/orders/${esc(id)}/disegni.zip" download title="Disegni divisi per lamiera, col nome del cliente e del numero"><i data-lucide="archive"></i> Disegni (ZIP)</a>
+      <button class="ft-btn sm" onclick="creaCartellaLantek('${esc(id)}')" title="Crea la cartella dell'ordine (divisa per lamiera) nella cartella dei disegni per Lantek"><i data-lucide="folder-output"></i> Cartella Lantek</button>` : ''}
       <span class="spacer"></span>
       <button class="ft-btn sm danger" onclick="chiediEliminaOrdine('${esc(id)}')"><i data-lucide="trash-2"></i> Elimina</button>
     </div>`;
@@ -2421,6 +2818,8 @@ function riepilogoHtml() {
     consegnaEff = `${FT.fmtData(o.consegna)}${o.consegna_parziale ? ' <span class="ft-chip warn">Parziale</span>' : ''}<small>${sub}</small>`;
   }
   return `
+    <div class="imp-sec"><div class="imp-sec-head"><h3 class="ft-section-title">Storia dell'ordine</h3>
+      <span class="ft-hint">dove si trova, con le date</span></div>${storiaHtml(o, d, complet, dd, f)}</div>
     <div class="imp-sec">
       <div class="imp-sec-head"><h3 class="ft-section-title">Ordine</h3>
         <button class="ft-btn ghost sm" id="btn-edit-order" onclick="toggleEditOrder()"><i data-lucide="pencil"></i> Modifica</button></div>
@@ -2940,6 +3339,11 @@ function showBackupStatus(msg, tipo) {
   $('chiudi-numero').addEventListener('input', () => setErr('err-chiudi-numero', '', 'chiudi-numero'));
   $('chiudi-numero').addEventListener('keydown', e => { if (e.key === 'Enter') salvaChiusura(); });
 
+  // Ctrl+K: cerca un ordine da qualunque scheda
+  window.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); $('cerca-globale').focus(); $('cerca-globale').select(); }
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('#imp-cerca')) $('cerca-res').classList.remove('open'); });
   // Esc chiude il pannello dell'ordine, ma solo se sopra non c'e' una finestra.
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape' && drawerId && !document.querySelector('.ft-modal-bg.open')) chiudiOrdine();
@@ -2949,7 +3353,7 @@ function showBackupStatus(msg, tipo) {
   }, true);
 
   const [tab, vista] = (location.hash || '').replace('#', '').split('/');
-  switchTab(TABS.includes(tab) || tab === 'fatturare' ? tab : 'carica', vista || null);
+  switchTab(TABS.includes(tab) || tab === 'fatturare' ? tab : 'oggi', vista || null);
   if (TAB !== 'ordini') caricaViste(true);
   if (TAB !== 'calendario') loadCalendar();
   updateFattBadge();
@@ -2962,6 +3366,7 @@ function showBackupStatus(msg, tipo) {
     if (document.hidden) return;
     if (TAB === 'calendario') loadCalendar();
     else if (TAB === 'ordini') caricaViste(true);
+    else if (TAB === 'oggi') caricaOggi();
   }, 10000);
   setInterval(() => { if (!document.hidden) { updateFattBadge(); aggiornaBadgeConferme(); pollNotifCount(); } }, 30000);
   setInterval(_contaOreDaControllare, 120000);
