@@ -475,6 +475,56 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
   .lb-sheet-draw { border-right: 0; border-bottom: 1px solid var(--ft-line-2); }
   .lb-stat span.opt, .lb-stat.opt { display: none; }
 }
+
+/* ── Schermo intero su monitor da PC (1920 x 1080) ────────────────────
+   Pensata per il secondo monitor accanto a Lantek: tutto lo schermo in
+   uso, testo leggibile da un passo di distanza, nessuna zona vuota. */
+.lz-side { display: none; }
+@media (min-width: 1600px) {
+  .lz-split { grid-template-columns: 400px minmax(0, 1fr); }
+  .lz-work.con-side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 46%); }
+  .lz-work.con-side > .lz-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--ft-line); }
+  .lz-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--ft-panel); }
+  .lz-side-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--ft-line); }
+  .lz-side-bar .ft-seg { flex: 0 1 auto; }
+  .lz-side-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ft-mono); font-size: 13px; color: var(--ft-ink-2); }
+  .lz-side-bar .ft-actions { margin-left: auto; display: flex; gap: 6px; }
+  .lz-side-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
+  .lz-side-body iframe { width: 100%; height: 100%; border: 0; }
+  .lz-side-body img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 18px; cursor: zoom-in; }
+  .lz-side-body .ft-empty { padding: 40px 24px; }
+  /* testo e righe piu' grandi */
+  .lz-ord-cli, .lz-cg-name { font-size: 16.5px; }
+  .lz-ord { padding: 14px 16px; }
+  .lz-ord-meta .ft-code { font-size: 13px; }
+  .lz-name { font-size: 30px; }
+  .lz-fact > b, .lz-fact .ft-due { font-size: 16px; }
+  .lz-fact > span { font-size: 12.5px; }
+  .lz-dist .ft-table { font-size: 14.5px; }
+  .lz-dist .ft-table th { font-size: 12.5px; }
+  .lz-cod { font-size: 14.5px; }
+  .lz-qty { font-size: 20px; }
+  .lz-grp-mat, .lz-grp-sp { font-size: 17px; }
+  .lz-sum { font-size: 14.5px; }
+  .lz-body { padding: 18px 20px 28px; }
+  .lz-head { padding: 16px 20px 14px; }
+  .lz-viewbar { padding: 8px 20px; }
+  /* calendario: le celle riempiono l'altezza dello schermo, niente scorrimento */
+  #panel-calendario .ft-page.wide { padding-top: 16px !important; padding-bottom: 16px; }
+  #panel-calendario .ft-head { margin-bottom: 10px; }
+  #panel-calendario .ft-subtitle { display: none; }
+  #panel-calendario .ft-kpis { margin-bottom: 12px; }
+  #panel-calendario .ft-kpi { padding: 10px 14px; }
+  #panel-calendario .ft-kpi-val { font-size: 24px; }
+  .lz-cal-grid:not(.week) .lz-day { min-height: calc((100vh - 430px) / 6); }
+  .lz-cal-grid.week .lz-day { min-height: calc(100vh - 560px); }
+  .lz-ev { font-size: 12px; padding: 3px 7px; }
+  .lz-sat { font-size: 11.5px; }
+  .lz-sat-bar { height: 8px; }
+  .lz-day-n { font-size: 14px; }
+  .lz-cal-side { max-height: calc(100vh - 300px); overflow: auto; }
+}
+.lz-fs-btn.on { background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
 </style>
 </head>
 <body class="ft ft-touch">
@@ -502,6 +552,7 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
     <a class="ft-tab" id="nav-admin" href="/admin.html" style="display:none;">Impostazioni</a>
   </nav>
   <div class="ft-topbar-end">
+    <button class="ft-icon-btn lz-fs-btn" id="btn-fullscreen" onclick="schermoIntero()" title="Schermo intero (F11)" aria-label="Schermo intero"><i data-lucide="maximize"></i></button>
     <span class="ft-live" id="conn-badge" title="Aggiornamento automatico ogni 5 secondi">In linea</span>
     <div class="lz-bell">
       <button class="ft-icon-btn" onclick="toggleNotifPanel(event)" title="Notifiche" aria-label="Notifiche">
@@ -859,6 +910,7 @@ const TITOLI = {
   cliente: ['Per cliente', 'La coda di taglio raggruppata per cliente: utile per un nesting unico.'],
 };
 
+function _resetChiusura() { _chiusoAMano = false; }
 function switchLaserView(mode) {
   laserViewMode = mode;
   for (const m of ['smistare', 'scadenza', 'fatti', 'cliente']) {
@@ -890,7 +942,20 @@ function renderCalendar() {
   else if (laserViewMode === 'fatti') box.innerHTML = htmlTagliatiOggi();
   else box.innerHTML = htmlDaTagliare();
   FT.icone();
+  // Schermo largo: se non c'e' niente di aperto si apre il primo della coda,
+  // invece di lasciare mezzo schermo vuoto. Non dopo una chiusura a mano.
+  if (schermoLargo() && !selectedOrderId && !_chiusoAMano && currentTab === 'lavoro') {
+    const primo = box.querySelector('.lz-ord[data-id]');
+    if (primo) setTimeout(() => { if (!selectedOrderId) selectOrder(primo.dataset.id); }, 0);
+    // niente da smistare: si passa alla coda da tagliare (una volta sola)
+    else if (laserViewMode === 'smistare' && !_saltatoSmistare && ordiniDaTagliare().length) {
+      _saltatoSmistare = true;
+      setTimeout(() => switchLaserView('scadenza'), 0);
+    }
+  }
 }
+let _chiusoAMano = false;
+let _saltatoSmistare = false;
 
 function vuotoCoda(icona, titolo, testo) {
   if (filtroTesto) { icona = 'search-x'; titolo = 'Nessun ordine trovato'; testo = 'Nessun ordine di questa coda corrisponde alla ricerca.'; }
@@ -1064,9 +1129,16 @@ function renderWorkEmpty() {
   FT.icone();
 }
 
+const schermoLargo = () => window.matchMedia('(min-width: 1600px)').matches;
+let _sideMostra = null;
+let _sideTok = 0;       // {tipo: 'pdf'|'disegno', nome?} scelto per l'ordine aperto
+
 function renderWork(o) {
   const w = document.getElementById('lz-work');
-  w.innerHTML = `
+  const largo = schermoLargo();
+  w.classList.toggle('con-side', largo);
+  _sideMostra = null;
+  w.innerHTML = `${largo ? '<div class="lz-main">' : ''}
     <header class="lz-head" id="lz-head"></header>
     <div class="lz-viewbar">
       <div class="ft-seg" role="tablist" aria-label="Cosa guardare" id="lz-vista-seg">
@@ -1076,8 +1148,15 @@ function renderWork(o) {
       </div>
       <div class="lz-viewbar-end" id="lz-view-actions"></div>
     </div>
-    <div class="lz-body" id="lz-body"></div>`;
+    <div class="lz-body" id="lz-body"></div>${largo ? '</div><aside class="lz-side" id="lz-side"></aside>' : ''}`;
+  if (largo) {
+    // a destra c'e' gia' il PDF: al centro si parte dalla distinta
+    if (workView === 'pdf') workView = 'distinta';
+    const bp = w.querySelector('#lz-vista-seg button[data-v="pdf"]');
+    if (bp) bp.style.display = 'none';
+  }
   renderWorkHead(o);
+  if (largo) renderSide(o);
   caricaVista();
   // I numeri sulle schede si caricano subito, anche di quella non aperta.
   caricaDistinta(o.id).then(r => segnaConteggi(o.id));
@@ -1145,6 +1224,8 @@ function renderWorkHead(o) {
 }
 
 function setWorkView(v) {
+  // schermo largo: il PDF sta nella colonna di destra
+  if (v === 'pdf' && schermoLargo() && document.getElementById('lz-side')) { renderSide(ordineAperto(), { tipo: 'pdf' }); return; }
   workView = v;
   workViewScelta = v;
   caricaVista();
@@ -1174,7 +1255,52 @@ async function caricaVista() {
   FT.icone();
 }
 
+/** Colonna di destra (schermo largo): il PDF dell'ordine o il disegno scelto. */
+async function renderSide(o, scelta) {
+  const box = document.getElementById('lz-side');
+  if (!box || !o) return;
+  if (scelta) _sideMostra = scelta;
+  if (!_sideMostra) _sideMostra = haPdf(o) ? { tipo: 'pdf' } : { tipo: 'disegno' };
+  const tok = ++_sideTok;          // suo contatore: la distinta carica in parallelo
+  let disegni = [];
+  const r = await caricaDisegni(o.id);
+  if (r.stato === 'ok') disegni = elencoDisegni(o.id);
+  if (tok !== _sideTok || selectedOrderId !== o.id) return;
+  let d = null;
+  if (_sideMostra.tipo === 'disegno') {
+    d = disegni.find(x => normaNome(x.nome) === normaNome(_sideMostra.nome || '')) || disegni[0] || null;
+    if (d) _sideMostra.nome = d.nome;
+  }
+  const iPdf = haPdf(o), iDis = disegni.length > 0;
+  const seg = `<div class="ft-seg" role="tablist">
+      <button type="button" class="${_sideMostra.tipo === 'pdf' ? 'on' : ''}" ${iPdf ? '' : 'disabled'} onclick="renderSide(ordineAperto(), {tipo: 'pdf'})"><i data-lucide="file-text"></i> PDF ordine</button>
+      <button type="button" class="${_sideMostra.tipo === 'disegno' ? 'on' : ''}" ${iDis ? '' : 'disabled'} onclick="renderSide(ordineAperto(), {tipo: 'disegno'})"><i data-lucide="drafting-compass"></i> Disegno</button>
+    </div>`;
+  let corpo, nome = '', azioni = '';
+  if (_sideMostra.tipo === 'pdf' && iPdf) {
+    const url = `${API_URL}/api/orders/${o.id}/pdf`;
+    corpo = `<iframe id="pdf-frame" title="PDF dell'ordine" src="${url}#toolbar=0&navpanes=0&view=FitH"></iframe>`;
+    azioni = `<button class="ft-btn sm" onclick="stampaOrdine()"><i data-lucide="printer"></i> Stampa</button>
+      <button class="ft-btn sm" onclick="apriPdfScheda()"><i data-lucide="external-link"></i></button>`;
+  } else if (d) {
+    const i = disegni.indexOf(d);
+    nome = d.nome;
+    corpo = d.url_svg ? `<img src="${esc(d.url_svg)}" alt="Disegno ${esc(d.nome)}" onclick="apriDisegno(${i})" title="Clic per aprire grande">`
+                      : vuotoVista('image-off', 'Anteprima non disponibile', 'Scarica il DXF per guardarlo.');
+    azioni = `${disegni.length > 1 ? `<button class="ft-icon-btn outlined" ${i <= 0 ? 'disabled' : ''} onclick="renderSide(ordineAperto(), {tipo: 'disegno', nome: ${esc(JSON.stringify((disegni[i - 1] || {}).nome || ''))}})" title="Disegno precedente"><i data-lucide="chevron-left"></i></button>
+      <button class="ft-icon-btn outlined" ${i >= disegni.length - 1 ? 'disabled' : ''} onclick="renderSide(ordineAperto(), {tipo: 'disegno', nome: ${esc(JSON.stringify((disegni[i + 1] || {}).nome || ''))}})" title="Disegno successivo"><i data-lucide="chevron-right"></i></button>` : ''}
+      <a class="ft-btn sm" href="${esc(d.url_dxf)}" download title="Scarica il DXF"><i data-lucide="download"></i></a>`;
+  } else {
+    corpo = vuotoVista('file-x', 'Niente da mostrare', 'Quest’ordine non ha né PDF né disegni.');
+  }
+  box.innerHTML = `<div class="lz-side-bar">${seg}<span class="lz-side-name">${esc(nome)}</span><div class="ft-actions">${azioni}</div></div>
+    <div class="lz-side-body">${corpo}</div>`;
+  FT.icone();
+}
+function ordineAperto() { return allOrders.find(x => x.id === selectedOrderId) || ordiniGrezzi.find(x => x.id === selectedOrderId); }
+
 function deselectOrder() {
+  _chiusoAMano = true;
   selectedOrderId = null;
   _vistaTok++;
   renderCalendar();
@@ -1442,6 +1568,10 @@ document.addEventListener('keydown', e => {
 /** Dalla distinta al suo disegno. */
 async function apriDisegnoPerNome(nome) {
   const id = selectedOrderId;
+  if (schermoLargo() && document.getElementById('lz-side')) {
+    renderSide(ordineAperto(), { tipo: 'disegno', nome });
+    return;
+  }
   const r = await caricaDisegni(id);
   if (r.stato !== 'ok') {
     FT.toast('Le anteprime dei disegni non sono ancora disponibili', 'warn');
@@ -1493,6 +1623,21 @@ function apriPdfScheda() {
   const f = document.getElementById('pdf-frame');
   if (f && f.src) window.open(f.src.split('#')[0], '_blank', 'noopener');
 }
+
+// ═══ Schermo intero ═════════════════════════════════════════════════
+function schermoIntero() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => FT.toast('Il browser non permette lo schermo intero: premi F11', 'warn'));
+}
+document.addEventListener('fullscreenchange', () => {
+  const b = document.getElementById('btn-fullscreen');
+  if (b) b.classList.toggle('on', !!document.fullscreenElement);
+});
+// lo schermo largo cambia (finestra spostata sull'altro monitor): si ridisegna
+window.addEventListener('resize', () => {
+  clearTimeout(window._lzRz);
+  window._lzRz = setTimeout(() => { const o = ordineAperto(); if (o && currentTab === 'lavoro') renderWork(o); }, 300);
+});
 
 // ═══ Azioni ═════════════════════════════════════════════════════════
 async function _post(url, corpo) {
