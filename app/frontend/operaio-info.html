@@ -3,168 +3,189 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LS FerroTrack — Reparto</title>
+<meta name="theme-color" content="#14181A">
+<link rel="manifest" href="/manifest.json">
+<title>LS FerroTrack — Officina</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
-/* Le regole di classe qui sotto usano display:block/flex e batterebbero il
-   display:none implicito di [hidden]: senza questo, gli elementi nascosti
-   resterebbero visibili. */
+/* Tablet dei ragazzi in officina: trovare un ordine (cliente o numero), vedere
+   i pezzi da fare, i disegni e il foglio d'ordine. Sola consultazione.
+   Pensato per le dita, in piedi, con le mani sporche: bersagli di almeno
+   48 px, testo grande, niente cose piccole da centrare. */
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
-body {
-  font-family: 'Inter', sans-serif;
-  background: #f2f4f5;
-  color: #14181a;
-  min-height: 100vh;
-  font-variant-numeric: tabular-nums;
-  padding-bottom: 40px;
+:root {
+  --ink: #14181A; --ink2: #3D4549; --ink3: #6B7478; --ink4: #9AA3A7;
+  --bg: #EEF1F2; --panel: #fff; --line: #DDE2E4; --line2: #ECEFF0;
+  --acc: #1A7A48; --acc-bg: #E5F3EB; --acc-ink: #135C36;
+  --err: #C4320A; --err-bg: #FDECE6; --warn: #B54708; --warn-bg: #FEF3E2;
+  --info: #1D4ED8; --info-bg: #E7EEFD; --vio: #6D28D9; --vio-bg: #EFE9FC;
+  --mono: Consolas, 'JetBrains Mono', ui-monospace, monospace;
 }
+html, body { height: 100%; }
+body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--ink); font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
 
-/* ---- Testata ---- */
-header {
-  background: #fff; border-bottom: 1px solid #e3e6e8;
-  padding: 14px 18px;
-  position: sticky; top: 0; z-index: 20;
-}
-.riga { display:flex; align-items:center; gap:12px; }
-.logo {
-  width: 42px; height: 42px; flex:none;
-  background:#1a7a48; color:#fff; border-radius:11px;
-  display:flex; align-items:center; justify-content:center;
-  font-family:'Geist'; font-weight:900; font-size:15px;
-}
-.chi { flex:1; min-width:0; }
-.chi h1 { font-family:'Geist'; font-weight:800; font-size:17px; letter-spacing:-0.3px; }
-.chi .ruolo { font-size:12px; color:#6b7478; }
-.esci {
-  border:1px solid #e3e6e8; background:#fff; color:#991b1b;
-  border-radius:10px; padding:10px 14px; font-size:13px; font-weight:600;
-  cursor:pointer; min-height:44px;
-}
+/* ── testata ── */
+header { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: var(--ink); color: #fff; }
+.logo { width: 42px; height: 42px; flex: none; border-radius: 11px; background: var(--acc); display: grid; place-items: center;
+  font: 900 15px 'Geist', sans-serif; }
+.chi { min-width: 0; }
+.chi h1 { font: 800 19px/1.15 'Geist', sans-serif; letter-spacing: -.3px; }
+.chi .ruolo { font-size: 12.5px; color: #B9C1C4; }
+.testa-dx { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #B9C1C4; }
+.testa-dx .ora { font: 700 22px 'Geist', sans-serif; color: #fff; }
+.tbtn { min-height: 44px; padding: 0 16px; border-radius: 11px; border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.08); color: #fff; font-weight: 700; font-size: 14px; }
+.tbtn:active { background: rgba(255,255,255,.2); }
+.ore-cta { display: block; margin: 10px 18px 0; padding: 12px 16px; border-radius: 12px; background: var(--acc); color: #fff; text-decoration: none; }
+.ore-cta .t { font-weight: 800; } .ore-cta .s { font-size: 13px; opacity: .85; }
+.attiva { margin: 40px auto; max-width: 560px; padding: 28px; border-radius: 16px; background: var(--panel); text-align: center; }
+.attiva h2 { font: 800 22px 'Geist', sans-serif; margin-bottom: 10px; }
+.attiva p { color: var(--ink2); line-height: 1.5; }
 
-/* ---- Richiamo ore ---- */
-.ore-cta {
-  display:block; margin:16px 18px 0; text-decoration:none;
-  background:#1a7a48; color:#fff; border-radius:14px;
-  padding:18px 20px; min-height:72px;
-  box-shadow:0 6px 18px rgba(26,122,72,0.22);
-}
-.ore-cta .t { font-family:'Geist'; font-weight:800; font-size:18px; }
-.ore-cta .s { font-size:13px; opacity:0.88; margin-top:3px; }
+/* ── corpo: elenco + ordine aperto ── */
+.corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 440px) minmax(0, 1fr); }
+.lista { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
+.cerca-box { padding: 12px 14px 8px; display: grid; gap: 10px; }
+.cerca-w { position: relative; }
+.cerca { width: 100%; height: 56px; border: 2px solid var(--line); border-radius: 14px; padding: 0 52px 0 18px; font: 600 18px 'Inter', sans-serif;
+  background: var(--panel); color: var(--ink); }
+.cerca:focus { outline: none; border-color: var(--acc); }
+.cerca::-webkit-search-cancel-button { display: none; }
+.svuota { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; border: 0; border-radius: 10px; background: var(--line2); font-size: 22px; line-height: 1; color: var(--ink2); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { flex: none; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 2px solid var(--line); background: var(--panel); font-weight: 700; font-size: 14.5px; color: var(--ink2);
+  display: inline-flex; align-items: center; gap: 8px; }
+.chip b { font: 800 15px 'Geist', sans-serif; color: var(--ink3); }
+.chip.on { border-color: var(--ink); background: var(--ink); color: #fff; }
+.chip.on b { color: #fff; }
+.chip.cli.on { border-color: var(--acc); background: var(--acc); }
+.meta { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 6px; font-size: 13px; color: var(--ink3); }
+.avviso { margin: 0 14px 8px; padding: 10px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 13.5px; font-weight: 600; }
+.elenco { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 20px; display: grid; gap: 10px; align-content: start; -webkit-overflow-scrolling: touch; }
+.vuoto { padding: 40px 20px; text-align: center; color: var(--ink3); font-size: 15px; }
 
-/* ---- Barra strumenti ---- */
-.strumenti { padding: 16px 18px 6px; }
-.cerca {
-  width:100%; padding:14px 16px; font-size:16px;
-  border:1px solid #d9dee0; border-radius:12px; background:#fff;
-  min-height:50px;
-}
-.cerca:focus { outline:2px solid #1a7a48; outline-offset:-1px; border-color:#1a7a48; }
-.meta {
-  display:flex; justify-content:space-between; align-items:center;
-  gap:10px; margin-top:10px; font-size:12px; color:#6b7478; flex-wrap:wrap;
-}
-.aggiorna {
-  border:1px solid #d9dee0; background:#fff; border-radius:9px;
-  padding:8px 12px; font-size:12px; font-weight:600; cursor:pointer; min-height:38px;
-}
+/* card ordine */
+.ordine { position: relative; display: grid; gap: 8px; padding: 14px 16px 14px 20px; border-radius: 14px; background: var(--panel);
+  border: 2px solid transparent; box-shadow: 0 1px 2px rgba(20,24,26,.06); cursor: pointer; }
+.ordine::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 6px; border-radius: 0 6px 6px 0; background: var(--line); }
+.ordine.scaduto::before, .ordine.oggi::before { background: var(--err); }
+.ordine.presto::before { background: #F79009; }
+.ordine.futuro::before { background: #84ADFF; }
+.ordine.sel { border-color: var(--acc); background: #FAFDFB; }
+.ordine:active { transform: scale(.995); }
+.o-top { display: flex; gap: 12px; align-items: flex-start; }
+.o-cli { min-width: 0; flex: 1; }
+.o-cli .cli { font: 800 19px/1.2 'Geist', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o-cli .num { font: 600 14px var(--mono); color: var(--ink3); margin-top: 2px; }
+.consegna { text-align: right; flex: none; }
+.consegna .d { font: 800 19px 'Geist', sans-serif; }
+.consegna .e { font-size: 13px; font-weight: 700; color: var(--ink3); }
+.scaduto .consegna .e, .oggi .consegna .e { color: var(--err); }
+.presto .consegna .e { color: var(--warn); }
+.o-bot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tag { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 8px; font-size: 13px; font-weight: 700; background: var(--line2); color: var(--ink2); }
+.tag.lavorabile { background: var(--acc-bg); color: var(--acc-ink); }
+.tag.in-taglio { background: var(--info-bg); color: var(--info); }
+.tag.da-smistare { background: var(--warn-bg); color: var(--warn); }
+.conta { margin-left: auto; font-size: 13px; color: var(--ink3); font-weight: 600; }
 
-/* ---- Avvisi ---- */
-.avviso {
-  margin:12px 18px 0; padding:12px 14px; border-radius:11px;
-  font-size:13px; line-height:1.45;
-}
-.avviso.rete { background:#fef3c7; border:1px solid #fcd34d; color:#78350f; }
-.avviso.info { background:#eef2f4; border:1px solid #dde3e6; color:#41494d; }
+/* ── ordine aperto ── */
+.ordine-aperto { display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+.oa-vuoto { margin: auto; text-align: center; color: var(--ink3); padding: 40px; }
+.oa-vuoto b { display: block; font: 800 22px 'Geist', sans-serif; color: var(--ink2); margin-bottom: 6px; }
+.oa-testa { padding: 16px 22px 12px; border-bottom: 1px solid var(--line); }
+.oa-r1 { display: flex; align-items: flex-start; gap: 14px; }
+.indietro { display: none; min-height: 48px; padding: 0 16px; border-radius: 12px; border: 2px solid var(--line); background: var(--panel); font-weight: 800; font-size: 15px; }
+.oa-tit { min-width: 0; flex: 1; }
+.oa-tit h2 { font: 800 28px/1.15 'Geist', sans-serif; letter-spacing: -.5px; }
+.oa-tit .num { font: 600 16px var(--mono); color: var(--ink3); margin-top: 3px; }
+.oa-cons { text-align: right; }
+.oa-cons small { display: block; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink3); }
+.oa-cons b { font: 800 24px 'Geist', sans-serif; }
+.oa-cons em { display: block; font-style: normal; font-weight: 700; font-size: 14px; color: var(--ink3); }
+.oa-cons.scaduto em, .oa-cons.oggi em { color: var(--err); } .oa-cons.presto em { color: var(--warn); }
+.oa-r2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.nota { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: #FFF8E1; border: 1px solid #F5D98B; font-size: 15px; line-height: 1.4; white-space: pre-wrap; }
+.nota b { display: block; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: #8A6100; margin-bottom: 2px; }
+.schede { display: flex; gap: 8px; padding: 12px 22px; border-bottom: 1px solid var(--line); }
+.scheda { min-height: 52px; padding: 0 20px; border-radius: 13px; border: 2px solid var(--line); background: var(--panel); font-weight: 800; font-size: 16px; color: var(--ink2);
+  display: inline-flex; align-items: center; gap: 9px; }
+.scheda b { font: 800 16px 'Geist', sans-serif; color: var(--ink3); }
+.scheda.on { border-color: var(--ink); background: var(--ink); color: #fff; } .scheda.on b { color: #fff; }
+.scheda:disabled { opacity: .4; }
+.apri-pdf { margin-left: auto; }
+.oa-corpo { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.caric { padding: 30px; text-align: center; color: var(--ink3); }
 
-/* ---- Elenco ordini ---- */
-.elenco { padding: 10px 18px 0; display:flex; flex-direction:column; gap:10px; }
-.ordine {
-  background:#fff; border:1px solid #e3e6e8; border-radius:13px;
-  padding:14px 16px; cursor:pointer;
-}
-.ordine:active { background:#fafbfb; }
-.ordine .top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-.ordine .num { font-family:'Geist'; font-weight:800; font-size:16px; letter-spacing:-0.2px; }
-.ordine .cli { font-size:14px; color:#41494d; margin-top:2px; }
-.consegna { text-align:right; flex:none; }
-.consegna .d { font-weight:700; font-size:14px; }
-.consegna .e { font-size:11px; margin-top:2px; font-weight:600; }
-.scaduto .d, .scaduto .e { color:#b91c1c; }
-.oggi .d, .oggi .e { color:#b45309; }
-.futuro .e { color:#6b7478; }
-.tag {
-  display:inline-block; margin-top:8px; margin-right:6px;
-  padding:4px 9px; border-radius:7px; font-size:11px; font-weight:600;
-  background:#eef2f4; color:#41494d;
-}
-/* Le tre situazioni, distinguibili da lontano: verde = si puo' fare,
-   giallo = sta arrivando, grigio = non e' ancora roba tua. */
-.tag.lavorabile  { background:#e7f5ee; color:#186c42; font-weight:700; }
-.tag.in-taglio   { background:#fff4d6; color:#8a5a0b; font-weight:700; }
-.tag.da-smistare { background:#eef2f4; color:#5b6558; }
-.tag.tagliato    { background:#e7f5ee; color:#186c42; }
-.dettaglio { margin-top:12px; border-top:1px solid #eef1f2; padding-top:12px; font-size:13px; }
-.dettaglio .nota { color:#41494d; line-height:1.5; white-space:pre-wrap; }
-.dettaglio h4 { font-size:12px; text-transform:uppercase; letter-spacing:0.4px; color:#6b7478; margin-bottom:6px; }
-.pezzi { list-style:none; display:flex; flex-direction:column; gap:5px; }
-/* Il foglio d'ordine e' la cosa piu' utile di questa schermata: si guarda
-   per sapere cosa fare. Il pulsante e' grande perche' lo si preme in piedi,
-   con le mani sporche, senza fermarsi a mirare. */
-.apri-pdf {
-  display:block; width:100%; margin-top:14px; text-align:center;
-  text-decoration:none; border:none; border-radius:12px; padding:16px;
-  font-size:16px; font-weight:700; color:#fff; background:#1a7a48;
-  min-height:56px; cursor:pointer;
-}
-.apri-pdf:active { background:#166139; }
+/* pezzi */
+.gr { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 10px; padding: 10px 22px; background: #F3F5F6; border-bottom: 1px solid var(--line);
+  font: 800 16px 'Geist', sans-serif; }
+.gr span { margin-left: auto; font: 600 13px 'Inter', sans-serif; color: var(--ink3); }
+.pz { display: grid; grid-template-columns: 124px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 22px; border-bottom: 1px solid var(--line2); }
+.pz.con-dis { cursor: pointer; }
+.pz.con-dis:active { background: var(--acc-bg); }
+.pz-img { width: 124px; height: 86px; border-radius: 10px; border: 1px solid var(--line); background: #fff; display: grid; place-items: center; overflow: hidden; }
+.pz-img img { max-width: 92%; max-height: 92%; object-fit: contain; }
+.pz-img.no { font-size: 11px; color: var(--ink4); text-align: center; }
+.pz-cod { font: 700 17px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pz-lav { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.pz-lav span { padding: 3px 9px; border-radius: 7px; background: var(--vio-bg); color: var(--vio); font-size: 13px; font-weight: 700; }
+.pz-lav .solo { background: none; color: var(--ink4); font-weight: 600; padding-left: 0; }
+.pz-q { text-align: right; font: 900 30px 'Geist', sans-serif; }
+.pz-q small { font: 700 14px 'Inter', sans-serif; color: var(--ink4); margin-right: 2px; }
+/* disegni */
+.griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 16px 22px 24px; }
+.dis { display: grid; border-radius: 14px; border: 2px solid var(--line); background: #fff; overflow: hidden; text-align: left; padding: 0; }
+.dis:active { border-color: var(--acc); }
+.dis .im { height: 170px; display: grid; place-items: center; padding: 10px; border-bottom: 1px solid var(--line2); }
+.dis .im img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.dis .n { padding: 10px 12px; font: 700 14px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Il foglio a schermo pieno, dentro la pagina: aprire una scheda nuova su un
-   tablet fisso vuol dire perdersi in un visore di sistema senza via di
-   ritorno. */
-.foglio-pieno {
-  position:fixed; inset:0; background:#fff; z-index:200;
-  display:flex; flex-direction:column;
-}
-.foglio-pieno .testa {
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
-  padding:12px 16px; border-bottom:1px solid #e6eaec; background:#f7f8f9;
-}
-.foglio-pieno .titolo { font-weight:800; font-size:17px; }
-.foglio-pieno .chiudi {
-  border:none; border-radius:12px; padding:14px 26px; font-size:16px;
-  font-weight:800; color:#fff; background:#14181a; min-height:52px; cursor:pointer;
-}
-.foglio-pieno iframe { flex:1; width:100%; border:0; }
-.riga-info { font-size:12px; color:#6b7478; margin-bottom:8px; }
-.disegno { color:#1a7a48; text-decoration:none; font-weight:600; }
-.pezzi li { border-bottom:1px dashed #eef1f2; padding-bottom:5px; }
-.vuoto { padding:40px 18px; text-align:center; color:#6b7478; font-size:14px; }
-.attiva {
-  margin:18px; padding:22px 24px; border-radius:14px;
-  background:#fff; border:2px solid #f0b429;
-}
-.attiva h2 { font-family:'Geist'; font-weight:800; font-size:18px; margin-bottom:8px; }
-.attiva p { font-size:14px; color:#41494d; line-height:1.6; }
-.solalettura {
-  margin:18px; padding:12px 14px; border-radius:11px;
-  background:#eef2f4; border:1px solid #dde3e6;
-  font-size:12px; color:#5a6367; line-height:1.5;
+/* ── visore a schermo pieno: disegno e foglio d'ordine ── */
+.pieno { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: #fff; }
+.pieno .testa { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--ink); color: #fff; }
+.pieno .titolo { flex: 1; min-width: 0; font: 800 18px 'Geist', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pieno .titolo small { font: 600 14px 'Inter', sans-serif; color: #B9C1C4; margin-left: 8px; }
+.chiudi { min-height: 52px; min-width: 120px; padding: 0 20px; border-radius: 13px; border: 0; background: #fff; color: var(--ink); font-weight: 800; font-size: 17px; }
+.pieno iframe { flex: 1; width: 100%; border: 0; }
+.vis-area { flex: 1; min-height: 0; position: relative; overflow: auto; display: grid; place-items: center; background: #fff; touch-action: pan-x pan-y; }
+.vis-area img { max-width: 96%; max-height: 96%; object-fit: contain; transition: none; }
+.vis-area.zoom { display: block; }
+.vis-area.zoom img { max-width: none; max-height: none; width: 260%; }
+.freccia { position: absolute; top: 50%; transform: translateY(-50%); width: 64px; height: 96px; border-radius: 16px; border: 0; background: rgba(20,24,26,.75);
+  color: #fff; font-size: 34px; z-index: 2; }
+.freccia.sx { left: 12px; } .freccia.dx { right: 12px; }
+.freccia:disabled { opacity: .15; }
+.zoom-btn { min-height: 52px; padding: 0 18px; border-radius: 13px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: #fff; font-weight: 800; font-size: 15px; }
+.solalettura { flex: none; padding: 6px 18px; font-size: 12px; color: var(--ink3); background: var(--panel); border-top: 1px solid var(--line); }
+
+/* tablet in verticale o stretto: elenco e ordine uno alla volta */
+@media (max-width: 899px) {
+  .corpo { grid-template-columns: minmax(0, 1fr); }
+  .corpo.dettaglio .lista { display: none; }
+  .corpo:not(.dettaglio) .ordine-aperto { display: none; }
+  .indietro { display: inline-flex; align-items: center; }
+  .oa-tit h2 { font-size: 23px; }
 }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="riga">
-    <div class="logo">LS</div>
-    <div class="chi">
-      <h1 id="hello">Ordini in corso</h1>
-      <div class="ruolo" id="role">Reparto</div>
-    </div>
-    <button class="esci" id="btn-esci" onclick="logout()" hidden>Esci</button>
+  <div class="logo">LS</div>
+  <div class="chi">
+    <h1 id="hello">Ordini in officina</h1>
+    <div class="ruolo" id="role">Reparto</div>
+  </div>
+  <div class="testa-dx">
+    <span id="aggiornato">—</span>
+    <button class="tbtn" onclick="carica(true)">Aggiorna</button>
+    <span class="ora" id="ora"></span>
+    <button class="tbtn" id="btn-esci" onclick="logout()" hidden>Esci</button>
   </div>
 </header>
 
@@ -182,9 +203,30 @@ header {
      scegliere <b>Sola consultazione ordini</b> e inquadrare il QR con questo tablet.</p>
 </div>
 
-<!-- Il foglio d'ordine a schermo pieno. Sta fuori dall'elenco cosi' resta
-     sopra a tutto e non si porta dietro lo scorrimento della pagina. -->
-<div class="foglio-pieno" id="foglio" hidden>
+<main class="corpo" id="corpo">
+  <section class="lista" aria-label="Ordini">
+    <div class="cerca-box">
+      <div class="cerca-w">
+        <input class="cerca" id="cerca" type="search" inputmode="search" placeholder="Cerca cliente o numero d'ordine" autocomplete="off">
+        <button class="svuota" id="svuota" onclick="svuotaCerca()" aria-label="Svuota la ricerca" hidden>×</button>
+      </div>
+      <div class="chips" id="filtri"></div>
+      <div class="chips" id="clienti"></div>
+    </div>
+    <div class="meta"><span id="conteggio">—</span></div>
+    <div id="avvisi"></div>
+    <div class="elenco" id="elenco"></div>
+  </section>
+  <section class="ordine-aperto" id="aperto" aria-live="polite">
+    <div class="oa-vuoto"><b>Tocca un ordine</b>Vedi i pezzi da fare, i disegni e il foglio d'ordine.</div>
+  </section>
+</main>
+
+<div class="solalettura">Sola consultazione: qui non si registra niente. Le ore si segnano alla timbratrice.</div>
+
+<!-- Il foglio d'ordine a schermo pieno, dentro la pagina: una scheda nuova
+     porterebbe in un visore di sistema da cui non si torna agli ordini. -->
+<div class="pieno foglio-pieno" id="foglio" hidden>
   <div class="testa">
     <div class="titolo" id="foglio-titolo"></div>
     <button class="chiudi" onclick="chiudiFoglio()">Chiudi</button>
@@ -192,38 +234,35 @@ header {
   <iframe id="foglio-pdf" title="Foglio d'ordine"></iframe>
 </div>
 
-<div class="strumenti">
-  <input class="cerca" id="cerca" type="search" inputmode="search"
-         placeholder="Cerca ordine o cliente" autocomplete="off">
-  <div class="meta">
-    <span id="conteggio">—</span>
-    <span>
-      <span id="aggiornato">—</span>
-      <button class="aggiorna" onclick="carica(true)">Aggiorna</button>
-    </span>
+<!-- Un disegno a schermo pieno: tocca per ingrandire, frecce o scorri per il prossimo -->
+<div class="pieno" id="visore" hidden>
+  <div class="testa">
+    <div class="titolo" id="vis-titolo"></div>
+    <button class="zoom-btn" id="vis-zoom" onclick="zoomDisegno()">Ingrandisci</button>
+    <button class="chiudi" onclick="chiudiVisore()">Chiudi</button>
   </div>
-</div>
-
-<div id="avvisi"></div>
-<div class="elenco" id="elenco"></div>
-<div class="vuoto" id="vuoto" hidden>Nessun ordine da mostrare.</div>
-
-<div class="solalettura">
-  Questa pagina è di <b>sola consultazione</b>: serve a vedere cosa c'è da fare e per quando.
-  Non registra lavorazioni. Le ore si registrano una volta al giorno sul tablet della timbratrice.
+  <div class="vis-area" id="vis-area" onclick="zoomDisegno()">
+    <img id="vis-img" alt="">
+  </div>
+  <button class="freccia sx" id="vis-prec" onclick="event.stopPropagation(); spostaDisegno(-1)" aria-label="Disegno precedente">‹</button>
+  <button class="freccia dx" id="vis-succ" onclick="event.stopPropagation(); spostaDisegno(1)" aria-label="Disegno successivo">›</button>
 </div>
 
 <script>
 const API = window.location.origin;
 let ORDINI = [];
-let APERTO = null;          // id ordine espanso: va preservato fra un refresh e l'altro
-let ULTIMO_OK = null;       // ultimo aggiornamento andato a buon fine
+let APERTO = null;          // id dell'ordine aperto: resta fra un aggiornamento e l'altro
+let SCHEDA = null;          // 'pezzi' | 'disegni'
+let FILTRO = 'tutti';       // tutti | lavorabili | taglio | smistare
+let CLIENTE = '';           // filtro per cliente ('' = tutti)
+let ULTIMO_OK = null;
 let ERRORE_RETE = false;
+const CACHE = {};           // per ordine: {distinta, disegni}
 
 /* ---------- avvio ----------
    Due modi di aprire questa pagina:
    - TABLET DI REPARTO: abilitato una volta con ?token=..., nessun login, nessuna
-     azione, solo gli ordini. E' il caso dei due tablet appesi in reparto.
+     azione, solo gli ordini. E' il caso dei tablet appesi in officina.
    - OPERAIO DA PC: e' entrato col suo nome, quindi vede anche il richiamo alle
      ore e il pulsante Esci. */
 let TOKEN = null;
@@ -239,6 +278,7 @@ function avvio() {
   }
   try { TOKEN = localStorage.getItem('reparto_device_token'); } catch (_) { TOKEN = null; }
   try { UTENTE = JSON.parse(localStorage.getItem('currentUser') || '{}'); } catch (_) { UTENTE = {}; }
+  try { FILTRO = sessionStorage.getItem('off_filtro') || 'tutti'; } catch (_) {}
 
   if (TOKEN) { avvioTablet(); return; }
   if (UTENTE.id) { avvioPersona(); return; }
@@ -253,40 +293,56 @@ async function avvioTablet() {
       TOKEN = null;
       if (UTENTE.id) { avvioPersona(); return; }
       document.getElementById('attiva').hidden = false;
+      document.getElementById('corpo').hidden = true;
       return;
     }
     const d = await r.json();
     document.getElementById('role').textContent = d.dispositivo || 'Reparto';
   } catch (_) {
-    // Server irraggiungibile: si mostrano comunque gli ordini in cache.
-    document.getElementById('role').textContent = 'Reparto';
+    document.getElementById('role').textContent = 'Reparto';   // server giu': si mostrano i dati in cache
   }
   partiElenco();
 }
 
 function avvioPersona() {
-  // Una POSTAZIONE non e' una persona: non si saluta, e soprattutto non le si
-  // chiede di dichiarare ore. I due tablet in officina guardano e basta; le
-  // ore si dichiarano alla timbratrice, altrimenti si contano due volte.
-  const eUnaPostazione = UTENTE.role === 'Visione'
-                      || UTENTE.role === 'Timbratrice'
-                      || UTENTE.e_postazione === true;
-
-  document.getElementById('hello').textContent =
-    eUnaPostazione ? 'Ordini in corso'
-                   : 'Ciao ' + (UTENTE.name || '').split(' ')[0];
-  document.getElementById('role').textContent =
-    eUnaPostazione ? (UTENTE.name || 'Reparto') : (UTENTE.role || 'Operaio');
+  // Una POSTAZIONE non e' una persona: non si saluta e non le si chiedono le ore
+  // (si contano gia' alla timbratrice, altrimenti si contano due volte).
+  const eUnaPostazione = UTENTE.role === 'Visione' || UTENTE.role === 'Timbratrice' || UTENTE.e_postazione === true;
+  document.getElementById('hello').textContent = eUnaPostazione ? 'Ordini in officina' : 'Ciao ' + (UTENTE.name || '').split(' ')[0];
+  document.getElementById('role').textContent = eUnaPostazione ? (UTENTE.name || 'Reparto') : (UTENTE.role || 'Operaio');
   document.getElementById('ore-cta').hidden = eUnaPostazione;
   document.getElementById('btn-esci').hidden = false;
   partiElenco();
 }
 
 function partiElenco() {
-  document.getElementById('cerca').addEventListener('input', disegna);
+  const cerca = document.getElementById('cerca');
+  cerca.addEventListener('input', () => { document.getElementById('svuota').hidden = !cerca.value; disegna(); });
   carica(false);
   setInterval(() => carica(false), 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) carica(false); });
+  orologio(); setInterval(orologio, 20000);
+  // tasti fisici / tastiera: frecce nel visore, Esc chiude
+  document.addEventListener('keydown', e => {
+    if (!document.getElementById('visore').hidden) {
+      if (e.key === 'ArrowLeft') spostaDisegno(-1);
+      if (e.key === 'ArrowRight') spostaDisegno(1);
+      if (e.key === 'Escape') chiudiVisore();
+    } else if (!document.getElementById('foglio').hidden && e.key === 'Escape') chiudiFoglio();
+  });
+  // scorrimento col dito nel visore: a sinistra il prossimo, a destra il precedente
+  let x0 = null;
+  const area = document.getElementById('vis-area');
+  area.addEventListener('touchstart', e => { x0 = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+  area.addEventListener('touchend', e => {
+    if (x0 == null || area.classList.contains('zoom')) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 70) spostaDisegno(dx < 0 ? 1 : -1);
+    x0 = null;
+  }, { passive: true });
+}
+function orologio() {
+  document.getElementById('ora').textContent = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 }
 
 /* ---------- dati ---------- */
@@ -298,170 +354,242 @@ async function carica(manuale) {
     // Solo gli ordini ancora APERTI: quelli che l'ufficio ha gia' dichiarato
     // completati non devono restare in bacheca come se fossero da fare.
     ORDINI = (Array.isArray(dati) ? dati : (dati.orders || []))
-      .filter(o => (o.fase ? o.fase === 'aperto'
-                           : !['CHIUSO', 'SPEDITO', 'ARCHIVIATO', 'DA_FATTURARE'].includes(o.status)));
+      .filter(o => (o.fase ? o.fase === 'aperto' : !['CHIUSO', 'SPEDITO', 'ARCHIVIATO', 'DA_FATTURARE'].includes(o.status)));
     ERRORE_RETE = false;
     ULTIMO_OK = new Date();
-    disegna();
+    if (manuale) Object.keys(CACHE).forEach(k => delete CACHE[k]);
   } catch (e) {
-    // Non svuota la lista: meglio dati di 5 minuti fa che una pagina bianca.
-    ERRORE_RETE = true;
-    disegna();
-    if (manuale) console.warn('Aggiornamento fallito', e);
+    ERRORE_RETE = true;   // non si svuota la lista: meglio i dati di poco fa che una pagina bianca
   }
+  disegna();
+  const o = ORDINI.find(x => x.id === APERTO);
+  if (o && manuale) mostraOrdine(o);
+}
+async function leggi(url) {
+  try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? await r.json() : null; } catch (_) { return null; }
 }
 
-/* ---------- resa ---------- */
+/* ---------- aiuti ---------- */
+function esc(t) {
+  return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function numero(o) { return o.numero_ordine_cliente || o.numero_ordine || o.id.slice(0, 8); }
 function giorniA(iso) {
   if (!iso) return null;
-  const d = new Date(iso); d.setHours(0,0,0,0);
-  const oggi = new Date(); oggi.setHours(0,0,0,0);
+  const [a, m, g] = String(iso).slice(0, 10).split('-').map(Number);
+  const d = new Date(a, m - 1, g);
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
   return Math.round((d - oggi) / 86400000);
 }
-
-/** A che punto e' l'ordine rispetto al laser.
-    `taglio_richiesto` ha tre stati: vuoto = il laser non l'ha ancora guardato,
-    vero = va tagliato, falso = non passa dal laser (tubolari, assiemi di tubo). */
-function statoLaser(o) {
-  if (o.taglio_completato) {
-    return '<span class="tag lavorabile">Lavorabile &middot; tagliato</span>';
-  }
-  if (o.taglio_richiesto === true) {
-    return '<span class="tag in-taglio">In taglio</span>';
-  }
-  if (o.taglio_richiesto === false) {
-    // Non passa dal laser: e' gia' roba da officina, e va detto chiaro,
-    // altrimenti resta li' che nessuno lo prende in mano.
-    return '<span class="tag lavorabile">Lavorabile &middot; non passa dal laser</span>';
-  }
-  return '<span class="tag da-smistare">Da smistare</span>';
-}
-
-function etichettaConsegna(g) {
-  if (g === null) return { cls: 'futuro', txt: '' };
-  if (g < 0)  return { cls: 'scaduto', txt: g === -1 ? 'ieri' : `${-g} gg fa` };
+function urgenza(g) {
+  if (g === null) return { cls: '', txt: '' };
+  if (g < 0) return { cls: 'scaduto', txt: g === -1 ? 'scaduto ieri' : `scaduto da ${-g} gg` };
   if (g === 0) return { cls: 'oggi', txt: 'oggi' };
-  if (g === 1) return { cls: 'oggi', txt: 'domani' };
+  if (g === 1) return { cls: 'presto', txt: 'domani' };
+  if (g <= 3) return { cls: 'presto', txt: `fra ${g} gg` };
   return { cls: 'futuro', txt: `fra ${g} gg` };
 }
-
-function esc(t) {
-  return String(t == null ? '' : t)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function dataBreve(iso, anno) {
+  if (!iso) return '—';
+  const [a, m, g] = String(iso).slice(0, 10).split('-');
+  return anno ? `${g}/${m}/${a}` : `${g}/${m}`;
 }
+/** A che punto e' l'ordine rispetto al laser (quello che serve all'officina:
+    si puo' gia' lavorare o no). */
+function statoLaser(o) {
+  if (o.taglio_completato) return { k: 'lavorabili', html: '<span class="tag lavorabile">Lavorabile · tagliato</span>' };
+  if (o.taglio_richiesto === false) return { k: 'lavorabili', html: '<span class="tag lavorabile">Lavorabile · non passa dal laser</span>' };
+  if (o.taglio_richiesto === true) return { k: 'taglio', html: `<span class="tag in-taglio">In taglio${o.importato_lantek_il ? ' · in Lantek' : ''}</span>` };
+  return { k: 'smistare', html: '<span class="tag da-smistare">Da smistare</span>' };
+}
+function testoLavorazione(l) {
+  if (l == null) return '';
+  if (typeof l !== 'object') return String(l);
+  const nome = l.nome || l.tipo || l.descrizione || l.label || '';
+  const n = l.quantita != null ? l.quantita : (l.n != null ? l.n : l.numero);
+  return nome + (n != null && n !== '' && Number(n) !== 1 ? ' ×' + n : '');
+}
+const normaNome = n => String(n || '').toLowerCase().replace(/\.(dxf|dwg)$/, '');
+
+/* ---------- elenco ---------- */
+function filtrati() {
+  const q = (document.getElementById('cerca').value || '').trim().toLowerCase();
+  return ORDINI.filter(o => !q || [o.numero_ordine, o.numero_ordine_cliente, o.cliente].some(v => (v || '').toLowerCase().includes(q)));
+}
+function setFiltro(f) { FILTRO = f; try { sessionStorage.setItem('off_filtro', f); } catch (_) {} disegna(); }
+function setCliente(c) { CLIENTE = CLIENTE === c ? '' : c; disegna(); }
+function svuotaCerca() { const c = document.getElementById('cerca'); c.value = ''; document.getElementById('svuota').hidden = true; disegna(); c.focus(); }
 
 function disegna() {
-  const q = (document.getElementById('cerca').value || '').trim().toLowerCase();
-  const lista = ORDINI
-    .filter(o => !q
-      || (o.numero_ordine || '').toLowerCase().includes(q)
-      || (o.cliente || '').toLowerCase().includes(q))
-    .sort((a, b) => new Date(a.data_consegna || '2999-01-01') - new Date(b.data_consegna || '2999-01-01'));
+  const base = filtrati();
+  const perStato = k => base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && (k === 'tutti' || statoLaser(o).k === k)).length;
+  document.getElementById('filtri').innerHTML = [['tutti', 'Tutti'], ['lavorabili', 'Lavorabili'], ['taglio', 'In taglio'], ['smistare', 'Da smistare']]
+    .map(([k, t]) => `<button class="chip${FILTRO === k ? ' on' : ''}" onclick="setFiltro('${k}')">${t} <b>${perStato(k)}</b></button>`).join('');
+  // clienti con piu' ordini aperti, per filtrare con un tocco
+  const perCli = new Map();
+  base.forEach(o => { const c = o.cliente || '—'; perCli.set(c, (perCli.get(c) || 0) + 1); });
+  const clienti = [...perCli].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
+  document.getElementById('clienti').innerHTML = clienti.length > 1 || CLIENTE
+    ? clienti.map(([c, n]) => `<button class="chip cli${CLIENTE === c ? ' on' : ''}" onclick="setCliente(${esc(JSON.stringify(c))})">${esc(c)} <b>${n}</b></button>`).join('')
+    : '';
 
-  // Avvisi di stato
-  const av = [];
-  if (ERRORE_RETE) {
-    av.push(`<div class="avviso rete">Aggiornamento non riuscito — stai vedendo i dati
-      ${ULTIMO_OK ? 'delle ' + ULTIMO_OK.toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'}) : 'in cache'}.
-      Riprovo da solo fra poco.</div>`);
-  }
-  document.getElementById('avvisi').innerHTML = av.join('');
+  const lista = base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && (FILTRO === 'tutti' || statoLaser(o).k === FILTRO))
+    .sort((a, b) => String(a.data_consegna || '9999').localeCompare(String(b.data_consegna || '9999')));
+  document.getElementById('avvisi').innerHTML = ERRORE_RETE
+    ? `<div class="avviso">Aggiornamento non riuscito: stai vedendo i dati ${ULTIMO_OK ? 'delle ' + ULTIMO_OK.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : 'in memoria'}. Riprovo da solo.</div>` : '';
+  document.getElementById('conteggio').textContent = lista.length + (lista.length === 1 ? ' ordine' : ' ordini') + (lista.length !== ORDINI.length ? ` su ${ORDINI.length}` : '');
+  document.getElementById('aggiornato').textContent = ULTIMO_OK ? 'aggiornato alle ' + ULTIMO_OK.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
 
-  document.getElementById('conteggio').textContent =
-    lista.length + (lista.length === 1 ? ' ordine aperto' : ' ordini aperti');
-  document.getElementById('aggiornato').textContent = ULTIMO_OK
-    ? 'agg. ' + ULTIMO_OK.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
-    : 'mai aggiornato';
-
-  document.getElementById('vuoto').hidden = lista.length > 0;
-
-  document.getElementById('elenco').innerHTML = lista.map(o => {
+  document.getElementById('elenco').innerHTML = lista.length ? lista.map(o => {
     const g = giorniA(o.data_consegna);
-    const et = etichettaConsegna(g);
-    const data = o.data_consegna
-      ? new Date(o.data_consegna).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })
-      : '—';
-    const tags = [];
-    if (o.lotto_numero) tags.push(`<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>`);
-    tags.push(statoLaser(o));
-    if (o.origine && o.origine !== 'PDF') tags.push(`<span class="tag">${esc(o.origine)}</span>`);
-
-    return `
-      <div class="ordine ${et.cls}" onclick="apri('${o.id}')">
-        <div class="top">
-          <div>
-            <div class="num">${esc(o.numero_ordine || o.id.slice(0, 8))}</div>
-            <div class="cli">${esc(o.cliente || '')}</div>
-          </div>
-          <div class="consegna">
-            <div class="d">${data}</div>
-            <div class="e">${et.txt}</div>
-          </div>
-        </div>
-        ${tags.join('')}
-        ${APERTO === o.id ? dettaglio(o) : ''}
-      </div>`;
-  }).join('');
-}
-
-function dettaglio(o) {
-  // Solo cio' che il backend espone davvero per un ordine: note, PDF e disegni.
-  // Niente sezioni che restano sempre vuote.
-  const dxf = Array.isArray(o.dxf_files) ? o.dxf_files : [];
-  // I disegni si CONTANO, non si aprono: un tablet non sa mostrare un DXF, e
-  // toccarne uno scaricava un file che poi non si vedeva. Il numero invece
-  // dice quanti pezzi comprende l'ordine, che e' l'informazione utile qui.
-  const quantiDisegni = dxf.length;
-  const ric = o.data_ricezione
-    ? new Date(o.data_ricezione).toLocaleDateString('it-IT', { day:'2-digit', month:'2-digit', year:'numeric' })
-    : null;
-
-  return `
-    <div class="dettaglio" onclick="event.stopPropagation()">
-      ${ric ? `<div class="riga-info">Arrivato il ${ric}</div>` : ''}
-      ${o.note ? `<h4>Note</h4><div class="nota">${esc(o.note)}</div>` : ''}
-      ${quantiDisegni ? `<div class="riga-info">${quantiDisegni} disegni in questo ordine</div>` : ''}
-      ${o.pdf_file
-        ? `<button class="apri-pdf"
-             onclick="event.stopPropagation(); vediFoglio('${o.id}', '${escAttr(o.numero_ordine || '')}')">
-             Vedi il foglio d'ordine</button>`
-        : '<div class="riga-info">Per questo ordine non c\'e\' un foglio da vedere.</div>'}
-      <div style="margin-top:10px;font-size:11px;color:#98a1a5">Solo consultazione</div>
+    const u = urgenza(g);
+    const nd = (o.dxf_files || []).length;
+    const conta = [nd ? `${nd} disegni` : '', o.pdf_file ? 'foglio' : ''].filter(Boolean).join(' · ');
+    return `<div class="ordine ${u.cls}${APERTO === o.id ? ' sel' : ''}" onclick="apri('${o.id}')" role="button" tabindex="0">
+      <div class="o-top">
+        <div class="o-cli"><div class="cli">${esc(o.cliente || 'Cliente non indicato')}</div><div class="num">#${esc(numero(o))}</div></div>
+        <div class="consegna"><div class="d">${dataBreve(o.data_consegna)}</div><div class="e">${u.txt}</div></div>
+      </div>
+      <div class="o-bot">${statoLaser(o).html}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}</span>` : ''}${o.note ? '<span class="tag">Note</span>' : ''}<span class="conta">${conta}</span></div>
     </div>`;
+  }).join('') : `<div class="vuoto">${ORDINI.length ? 'Nessun ordine con questi filtri.' : 'Nessun ordine aperto.'}</div>`;
 }
 
-/** Apre il foglio d'ordine a schermo pieno, dentro la pagina.
-    Non in una scheda nuova: su un tablet fisso si finirebbe in un visore di
-    sistema, senza un modo evidente di tornare agli ordini. */
-function vediFoglio(id, numero) {
-  const box = document.getElementById('foglio');
-  document.getElementById('foglio-titolo').textContent =
-    numero ? ('Ordine ' + numero) : 'Foglio d\'ordine';
+/* ---------- ordine aperto ---------- */
+function apri(id) {
+  const o = ORDINI.find(x => x.id === id);
+  if (!o) return;
+  if (APERTO !== id) SCHEDA = null;
+  APERTO = id;
+  document.getElementById('corpo').classList.add('dettaglio');
+  disegna();
+  mostraOrdine(o);
+}
+function indietro() {
+  document.getElementById('corpo').classList.remove('dettaglio');
+}
+async function mostraOrdine(o) {
+  const g = giorniA(o.data_consegna), u = urgenza(g);
+  const box = document.getElementById('aperto');
+  box.innerHTML = `
+    <div class="oa-testa">
+      <div class="oa-r1">
+        <button class="indietro" onclick="indietro()">‹ Ordini</button>
+        <div class="oa-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2><div class="num">Ordine #${esc(numero(o))}</div></div>
+        <div class="oa-cons ${u.cls}"><small>Consegna</small><b>${dataBreve(o.data_consegna, true)}</b><em>${u.txt}</em></div>
+      </div>
+      <div class="oa-r2">${statoLaser(o).html}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>` : ''}</div>
+      ${o.note ? `<div class="nota"><b>Note dell'ufficio</b>${esc(o.note)}</div>` : ''}
+    </div>
+    <div class="schede" id="schede"></div>
+    <div class="oa-corpo" id="oa-corpo"><div class="caric">Carico i pezzi…</div></div>`;
+  const id = o.id;
+  if (!CACHE[id]) {
+    const [dist, dis] = await Promise.all([leggi(`${API}/api/orders/${id}/distinta`), leggi(`${API}/api/orders/${id}/disegni`)]);
+    CACHE[id] = { distinta: dist, disegni: dis };
+  }
+  if (APERTO !== id) return;
+  mostraSchede(o);
+}
+function disegniDi(id) {
+  const d = (CACHE[id] || {}).disegni;
+  return (d && d.disegni ? d.disegni : []).map(x => ({
+    nome: x.nome, svg: x.url_svg === undefined ? `${API}/api/orders/${id}/dxf/${encodeURIComponent(x.nome)}/svg` : x.url_svg,
+  }));
+}
+function pezziDi(id) {
+  const d = (CACHE[id] || {}).distinta;
+  return d && d.origine !== 'nessuna' ? (d.righe || []) : [];
+}
+function mostraSchede(o) {
+  const pezzi = pezziDi(o.id), dis = disegniDi(o.id);
+  if (!SCHEDA) SCHEDA = pezzi.length ? 'pezzi' : dis.length ? 'disegni' : 'pezzi';
+  document.getElementById('schede').innerHTML = `
+    <button class="scheda${SCHEDA === 'pezzi' ? ' on' : ''}" onclick="vaiScheda('pezzi')" ${pezzi.length ? '' : 'disabled'}>Pezzi <b>${pezzi.length}</b></button>
+    <button class="scheda${SCHEDA === 'disegni' ? ' on' : ''}" onclick="vaiScheda('disegni')" ${dis.length ? '' : 'disabled'}>Disegni <b>${dis.length}</b></button>
+    ${o.pdf_file ? `<button class="scheda apri-pdf" onclick="vediFoglio('${o.id}', ${esc(JSON.stringify(numero(o)))})">Foglio d'ordine</button>` : ''}`;
+  const c = document.getElementById('oa-corpo');
+  if (SCHEDA === 'disegni' && dis.length) {
+    c.innerHTML = `<div class="griglia">${dis.map((d, i) => `<button class="dis" onclick="apriDisegno(${i})">
+      <div class="im">${d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'anteprima non disponibile'}</div><div class="n">${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}</div></button>`).join('')}</div>`;
+  } else if (pezzi.length) {
+    // per lamiera (materiale + spessore), poi tubi e assiemi: come si lavorano
+    const gr = new Map();
+    for (const r of pezzi) {
+      const k = r.tipo === 'assieme' ? '3|Assiemi' : r.tipo === 'tubolare' ? '2|Tubi' : `1|${(r.materiale || 'Materiale ?').replace(/_/g, ' ')}${r.spessore_mm ? ' · ' + String(r.spessore_mm).replace('.', ',') + ' mm' : ''}`;
+      if (!gr.has(k)) gr.set(k, []);
+      gr.get(k).push(r);
+    }
+    const idx = new Map(dis.map((d, i) => [normaNome(d.nome), i]));
+    c.innerHTML = [...gr.keys()].sort((a, b) => a.localeCompare(b, 'it', { numeric: true })).map(k => {
+      const rr = gr.get(k);
+      const tot = rr.reduce((s, r) => s + (Number(r.quantita) || 0), 0);
+      return `<div class="gr">${esc(k.split('|')[1])}<span>${rr.length} ${rr.length === 1 ? 'codice' : 'codici'} · ${tot} pz</span></div>` + rr.map(r => {
+        const i = r.disegno != null ? idx.get(normaNome(r.disegno)) : undefined;
+        const d = i != null ? dis[i] : null;
+        const lav = (r.lavorazioni || []).map(testoLavorazione).filter(l => l && !/^taglio( laser)?$/i.test(l));
+        return `<div class="pz${d ? ' con-dis' : ''}" ${d ? `onclick="apriDisegno(${i})"` : ''}>
+          <div class="pz-img${d && d.svg ? '' : ' no'}">${d && d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'senza<br>disegno'}</div>
+          <div style="min-width:0"><div class="pz-cod">${esc(r.codice || '—')}</div>
+            <div class="pz-lav">${lav.length ? lav.map(l => `<span>${esc(l)}</span>`).join('') : '<span class="solo">solo taglio</span>'}${r.assieme ? `<span class="solo">· ${esc(r.assieme)}</span>` : ''}</div></div>
+          <div class="pz-q"><small>×</small>${esc(r.quantita ?? '?')}</div></div>`;
+      }).join('');
+    }).join('');
+  } else {
+    c.innerHTML = `<div class="caric">${o.pdf_file ? 'Per questo ordine non c’è l’elenco dei pezzi: le quantità sono sul <b>foglio d’ordine</b>.' : 'Per questo ordine non ci sono pezzi, disegni né foglio d’ordine.'}</div>`;
+  }
+}
+function vaiScheda(k) { SCHEDA = k; const o = ORDINI.find(x => x.id === APERTO); if (o) mostraSchede(o); }
+
+/* ---------- visore dei disegni ---------- */
+let VIS = { lista: [], i: 0 };
+function apriDisegno(i) {
+  VIS = { lista: disegniDi(APERTO), i };
+  if (!VIS.lista.length) return;
+  document.getElementById('visore').hidden = false;
+  mostraDisegno();
+}
+function mostraDisegno() {
+  const d = VIS.lista[VIS.i];
+  const area = document.getElementById('vis-area');
+  area.classList.remove('zoom');
+  document.getElementById('vis-zoom').textContent = 'Ingrandisci';
+  const img = document.getElementById('vis-img');
+  if (d.svg) img.src = d.svg; else img.removeAttribute('src');
+  img.alt = 'Disegno ' + d.nome;
+  document.getElementById('vis-titolo').innerHTML = `${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}<small>${VIS.i + 1} di ${VIS.lista.length}</small>`;
+  document.getElementById('vis-prec').disabled = VIS.i <= 0;
+  document.getElementById('vis-succ').disabled = VIS.i >= VIS.lista.length - 1;
+}
+function spostaDisegno(d) {
+  const n = VIS.i + d;
+  if (n < 0 || n >= VIS.lista.length) return;
+  VIS.i = n; mostraDisegno();
+}
+function zoomDisegno() {
+  const area = document.getElementById('vis-area');
+  const on = area.classList.toggle('zoom');
+  document.getElementById('vis-zoom').textContent = on ? 'Adatta' : 'Ingrandisci';
+  if (on) { area.scrollLeft = (area.scrollWidth - area.clientWidth) / 2; area.scrollTop = (area.scrollHeight - area.clientHeight) / 2; }
+}
+function chiudiVisore() {
+  document.getElementById('visore').hidden = true;
+  document.getElementById('vis-img').removeAttribute('src');   // il tablet resta acceso tutto il giorno
+}
+
+/* ---------- foglio d'ordine ---------- */
+function vediFoglio(id, num) {
+  document.getElementById('foglio-titolo').textContent = num ? 'Ordine ' + num : 'Foglio d’ordine';
   // toolbar=0: via la barra del visore, che su un tablet ruba mezza altezza.
   // view=FitH: il foglio si adatta alla larghezza, cosi' si legge davvero.
-  document.getElementById('foglio-pdf').src =
-    `${API}/api/orders/${id}/pdf#toolbar=0&navpanes=0&view=FitH`;
-  box.hidden = false;
+  document.getElementById('foglio-pdf').src = `${API}/api/orders/${id}/pdf#toolbar=0&navpanes=0&view=FitH`;
+  document.getElementById('foglio').hidden = false;
 }
-
 function chiudiFoglio() {
-  const box = document.getElementById('foglio');
-  // Si svuota l'indirizzo: un PDF lasciato caricato tiene memoria occupata su
-  // un tablet che resta acceso tutto il giorno.
+  // Si svuota l'indirizzo: un PDF lasciato caricato occupa memoria su un
+  // tablet che resta acceso tutto il giorno.
   document.getElementById('foglio-pdf').src = '';
-  box.hidden = true;
-}
-
-/** Un numero d'ordine dentro un attributo va protetto: basta un apostrofo per
-    rompere il pulsante. */
-function escAttr(s) {
-  return String(s == null ? '' : s).replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
-
-function apri(id) {
-  APERTO = (APERTO === id) ? null : id;
-  disegna();
+  document.getElementById('foglio').hidden = true;
 }
 
 function logout() {
@@ -469,8 +597,6 @@ function logout() {
   window.location.href = '/login.html';
 }
 
-/* L'aggiornamento periodico parte da partiElenco(): non tocca il testo cercato,
-   la card aperta o la posizione di scorrimento. */
 avvio();
 </script>
 </body>
