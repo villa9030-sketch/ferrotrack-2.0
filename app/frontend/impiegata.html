@@ -354,6 +354,8 @@ body.ft [hidden] { display: none !important; }
 }
 
 /* ═══ Schermo intero (1920x1080): niente colonna stretta al centro ═══ */
+@media (min-width: 1500px) and (min-height: 900px) { .imp-cal-day { min-height: calc((100vh - 330px) / 6); } }
+.imp-cal-pill b { font-weight: 600; opacity: .75; }
 .imp-full { padding-left: 28px; padding-right: 28px; }
 @media (min-width: 1500px) { .imp-narrow { max-width: none; } }
 
@@ -1971,8 +1973,10 @@ function renderCalendar() {
       const ds = isoLocale(d);
       const ord = ordiniDelGiorno(ds);
       const cls = ['imp-cal-day', d.getMonth() !== month ? 'other' : '', ds === oggi ? 'today' : '', ds === calSelectedDate ? 'sel' : ''].join(' ');
-      const pills = ord.slice(0, 3).map(o => `<span class="imp-cal-pill ${classeConsegna(o)}" title="${esc(o.numero_ordine || '')} · ${esc(o.cliente || '')}">${esc(o.cliente || o.numero_ordine || '—')}</span>`).join('');
-      const altri = ord.length > 3 ? `<span class="imp-cal-more">+${ord.length - 3} altri</span>` : '';
+      // a schermo intero ci stanno piu' ordini per giorno; col numero, perche' "DECA" da solo non dice quale
+      const max = window.innerHeight >= 900 && window.innerWidth >= 1500 ? 4 : 3;
+      const pills = ord.slice(0, max).map(o => `<span class="imp-cal-pill ${classeConsegna(o)}" title="${esc(numOrd(o))} · ${esc(o.cliente || '')}">${esc(o.cliente || '—')}${numOrd(o) ? ` <b>#${esc(numOrd(o))}</b>` : ''}</span>`).join('');
+      const altri = ord.length > max ? `<span class="imp-cal-more">+${ord.length - max} altri</span>` : '';
       return `<div class="${cls}" role="button" tabindex="0" aria-label="${d.getDate()} ${MESI[d.getMonth()]}: ${ord.length} ordini"
         onclick="selectCalDay('${ds}')" onkeydown="if(event.key==='Enter')selectCalDay('${ds}')">
         <span class="imp-cal-num">${d.getDate()}</span>${pills}${altri}</div>`;
