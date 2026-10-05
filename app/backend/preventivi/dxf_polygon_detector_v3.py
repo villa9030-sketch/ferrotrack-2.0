@@ -43,6 +43,8 @@ try:
     from shapely.geometry.polygon import orient
     from shapely.prepared import prep
     from shapely.validation import make_valid
+    import numpy as _np
+    import shapely as _shp
     _HAS_SHAPELY = True
 except ImportError:
     _HAS_SHAPELY = False
@@ -240,7 +242,32 @@ def _punti_quota(d) -> list:
     return out
 
 
+_SCALA_VISTA_CACHE: dict = {}
+
+
 def _scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float, str | None]:
+    """Come _calcola_scala_vista_pezzo, ma una volta sola per file: rifa' la
+    scelta del contorno (secondi sui fogli grandi, es. 26T30SA0328-00 6 s) e
+    lo stesso file viene riletto da CAD, anteprima, lavorazioni..."""
+    chiave = None
+    try:
+        fn = getattr(doc, 'filename', None)
+        if fn and os.path.exists(fn):
+            st = os.stat(fn)
+            chiave = (os.path.abspath(fn), st.st_mtime_ns, st.st_size, round(f_unita, 9))
+    except Exception:
+        chiave = None
+    if chiave is not None and chiave in _SCALA_VISTA_CACHE:
+        return _SCALA_VISTA_CACHE[chiave]
+    res = _calcola_scala_vista_pezzo(doc, quote, f_unita)
+    if chiave is not None:
+        if len(_SCALA_VISTA_CACHE) > 500:
+            _SCALA_VISTA_CACHE.clear()
+        _SCALA_VISTA_CACHE[chiave] = res
+    return res
+
+
+def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float, str | None]:
     """Foglio con viste in scale diverse: il fattore delle quote che stanno sul
     contorno del pezzo.
 
@@ -788,6 +815,68 @@ def _prep_buf(poly):
     return prep(poly.buffer(TOL_CONTENIMENTO_MM))
 
 
+class _Indice:
+    """Area e ingombro di un elenco di contorni, letti una volta sola.
+
+    Sui fogli grandi (26T30SA0328-00: ~700 contorni) i confronti a coppie
+    rileggevano area e bounds da GEOS centinaia di migliaia di volte: 4-8 s
+    per aprire il disegno nel CAD. Qui il filtro su area e ingombro e' fatto
+    su vettori; il contenimento vero resta quello di _contiene."""
+
+    def __init__(self, polys: list):
+        self.polys = list(polys)
+        arr = _np.array(self.polys, dtype=object) if self.polys else _np.empty(0, dtype=object)
+        self.aree = _shp.area(arr) if len(arr) else _np.empty(0)
+        self.bb = _shp.bounds(arr) if len(arr) else _np.empty((0, 4))
+
+    def contenuti(self, outer, pp=None) -> list:
+        """I contorni dell'indice contenuti in `outer` (come _contiene)."""
+        if not self.polys:
+            return []
+        t = TOL_CONTENIMENTO_MM
+        ob = outer.bounds
+        b = self.bb
+        m = ((self.aree < outer.area * 0.999)
+             & (b[:, 0] >= ob[0] - t) & (b[:, 1] >= ob[1] - t)
+             & (b[:, 2] <= ob[2] + t) & (b[:, 3] <= ob[3] + t))
+        idx = _np.nonzero(m)[0]
+        if not len(idx):
+            return []
+        pp = pp if pp is not None else _prep_buf(outer)
+        out = []
+        for i in idx:
+            o = self.polys[i]
+            if o is outer:
+                continue
+            try:
+                if pp.contains(o):
+                    out.append(o)
+            except Exception:
+                pass
+        return out
+
+    def contenitori(self, inner, preps: list) -> bool:
+        """True se `inner` e' contenuto in almeno un contorno dell'indice
+        (preps[i] = _prep_buf dell'i-esimo)."""
+        if not self.polys:
+            return False
+        t = TOL_CONTENIMENTO_MM
+        ib = inner.bounds
+        b = self.bb
+        m = ((inner.area < self.aree * 0.999)
+             & (ib[0] >= b[:, 0] - t) & (ib[1] >= b[:, 1] - t)
+             & (ib[2] <= b[:, 2] + t) & (ib[3] <= b[:, 3] + t))
+        for i in _np.nonzero(m)[0]:
+            if self.polys[i] is inner:
+                continue
+            try:
+                if preps[i].contains(inner):
+                    return True
+            except Exception:
+                pass
+        return False
+
+
 def _is_iso_format(poly) -> bool:
     """True se bbox del poligono coincide con formato foglio ISO."""
     minx, miny, maxx, maxy = poly.bounds
@@ -1014,11 +1103,17 @@ def _punti_testo_mm(msp, scala: float) -> list:
 def _n_testi_dentro(poly, punti_testo: list) -> int:
     if not punti_testo:
         return 0
+    # prima l'ingombro (aritmetica), poi il contenimento vero solo per i
+    # testi che ci cadono: sui fogli grandi erano migliaia di Point per contorno
+    x1, y1, x2, y2 = poly.bounds
+    vicini = [(x, y) for x, y in punti_testo if x1 <= x <= x2 and y1 <= y <= y2]
+    if not vicini:
+        return 0
     pp = prep(poly)
-    return sum(1 for x, y in punti_testo if pp.contains(Point(x, y)))
+    return sum(1 for x, y in vicini if pp.contains(Point(x, y)))
 
 
-def _score_candidate(poly, all_polys: list, circles_centri: list) -> dict:
+def _score_candidate(poly, all_polys: list, circles_centri: list, indice: '_Indice | None' = None) -> dict:
     """Calcola score/features di un candidato pezzo.
 
     Score composto da:
@@ -1030,7 +1125,10 @@ def _score_candidate(poly, all_polys: list, circles_centri: list) -> dict:
     prep_poly = prep(poly)
     pp = _prep_buf(poly)
     n_circles = sum(1 for cx, cy in circles_centri if prep_poly.contains(Point(cx, cy)))
-    n_inner = sum(1 for other in all_polys if _contiene(poly, other, pp))
+    if indice is not None:
+        n_inner = len(indice.contenuti(poly, pp))
+    else:
+        n_inner = sum(1 for other in all_polys if _contiene(poly, other, pp))
     return {
         'n_circles': n_circles,
         'n_inner': n_inner,
@@ -1078,8 +1176,9 @@ def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centr
 
     max_area = max(c.area for c in candidates)
     scored = []
+    indice = _Indice(all_polys)
     for i, poly in enumerate(candidates):
-        f = _score_candidate(poly, all_polys, circles_centri)
+        f = _score_candidate(poly, all_polys, circles_centri, indice)
         # Score composito (higher = più probabile pezzo). L'AREA pesa di più dei
         # cerchi contenuti: prima (cerchi ×10, area ×5) un simbolo di proiezione
         # 12×12 con un cerchio batteva la lamiera liscia 49×326 (CPPBPA0044).
@@ -1102,9 +1201,9 @@ def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centr
     outer = best['poly']
 
     # Contorni di primo livello: non contenuti in nessun altro candidato
-    preps = [(_prep_buf(c), c) for c in candidates]
-    top_level = [c for c in candidates
-                 if not any(o is not c and _contiene(o, c, pp) for pp, o in preps)]
+    ind_cand = _Indice(candidates)
+    preps = [_prep_buf(c) for c in candidates]
+    top_level = [c for c in candidates if not ind_cand.contenitori(c, preps)]
     if not any(c is outer for c in top_level):
         # il migliore è DENTRO un altro contorno: scelta dubbia
         confidence = 0.4

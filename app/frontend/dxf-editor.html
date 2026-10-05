@@ -54,6 +54,29 @@
   .status { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; display: none; }
   .status.ok { background: rgba(34,197,94,.12); color: var(--accent); display: block; }
   .status.err { background: rgba(239,68,68,.12); color: var(--red); display: block; }
+  .status.info { background: #EEF2FF; color: #3538CD; display: block; }
+  /* Lavoro in corso: barra che scorre in cima al disegno + avviso col tempo.
+     Si vede solo se l'attesa supera un attimo (niente lampeggi sui file piccoli). */
+  .canvas-wrap.busy { cursor: progress; }
+  .busy-bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; overflow: hidden; z-index: 5;
+              opacity: 0; transition: opacity .15s; pointer-events: none; }
+  .busy-bar::before { content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent-2);
+              border-radius: 3px; animation: busy-scorri 1.1s ease-in-out infinite; }
+  @keyframes busy-scorri { from { left: -35%; } to { left: 100%; } }
+  .busy-tip { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5;
+              display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px;
+              background: rgba(17,24,39,.88); color: #fff; font-size: 13px; font-weight: 600;
+              box-shadow: 0 6px 20px rgba(0,0,0,.18); opacity: 0; transition: opacity .15s; pointer-events: none;
+              white-space: nowrap; }
+  .busy-tip small { font-weight: 500; opacity: .7; font-variant-numeric: tabular-nums; }
+  .busy-spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3);
+               border-top-color: #fff; animation: busy-giro .7s linear infinite; }
+  @keyframes busy-giro { to { transform: rotate(360deg); } }
+  .canvas-wrap.busy-on .busy-bar, .canvas-wrap.busy-on .busy-tip { opacity: 1; }
+  /* prima apertura: il disegno non c'e' ancora, l'avviso sta al centro */
+  .canvas-wrap.vuoto .busy-tip { top: 50%; transform: translate(-50%, -50%); padding: 14px 22px; font-size: 14px;
+              background: #fff; color: var(--text); border: 1px solid var(--border); }
+  .canvas-wrap.vuoto .busy-spin { border-color: #E2E5EA; border-top-color: var(--accent-2); }
   .xcheck { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
   .xcheck.ok { background: rgba(34,197,94,.10); color: var(--accent); border: 1px solid rgba(34,197,94,.3); }
   .xcheck.warn { background: rgba(245,158,11,.12); color: #fbbf24; border: 1px solid rgba(245,158,11,.4); }
@@ -105,7 +128,9 @@
   4. <b>Conferma pezzo</b> per salvare.
 </div>
 <main>
-  <div class="canvas-wrap" id="wrap">
+  <div class="canvas-wrap vuoto" id="wrap">
+    <div class="busy-bar" aria-hidden="true"></div>
+    <div class="busy-tip" id="busy-tip" role="status" aria-live="polite"><span class="busy-spin"></span><span id="busy-txt"></span><small id="busy-sec"></small></div>
     <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
     <div class="zoominfo" id="zoominfo">—</div>
   </div>
@@ -225,9 +250,15 @@ function _geoBBox(polylines) {
 
 async function load() {
   if (!PREV || !FILE) { setStatus('err', 'Parametri mancanti: ?prev=<id>&file=<nome.dxf>'); return; }
-  const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/geometry-json`);
-  const d = await r.json();
+  let d;
+  try {
+    d = await inLavoro('Leggo il disegno…', async () => {
+      const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/geometry-json`);
+      return r.json();
+    }, 0);
+  } catch (e) { setStatus('err', 'Il disegno non si apre: ' + e.message); return; }
   if (d.error || !d.extents) { setStatus('err', 'Errore geometria: ' + (d.error || 'vuota')); return; }
+  document.getElementById('wrap').classList.remove('vuoto');
   EXT = d.extents;
   pesoCartiglio = (d.peso_cartiglio_kg && d.peso_cartiglio_conf >= 0.5) ? d.peso_cartiglio_kg : null;
   TEXTS = d.texts || [];
@@ -494,13 +525,16 @@ async function onPick(cx, cy) {
   const p = clientToMm(cx, cy);
   const xmm = p.x, ymm = -p.y;   // riporta y in coord DXF (de-flip)
   if (mode === 'wp') { addWaypoint(xmm, ymm); return; }
-  setStatus('', 'Cerco il contorno…');
+  if (_lavori) { setStatus('info', 'Un attimo: sto ancora cercando il contorno del clic di prima.'); return; }
+  setStatus('info', 'Cerco il contorno…');
   try {
-    const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/pick-candidates`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ x: xmm, y: ymm }),
+    const d = await inLavoro('Cerco il contorno…', async () => {
+      const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/pick-candidates`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: xmm, y: ymm }),
+      });
+      return r.json();
     });
-    const d = await r.json();
     if (!d.success || !d.candidates || !d.candidates.length) {
       setStatus('err', (d.error || 'Nessun contorno chiuso') + ' — riprova sul bordo, o passa a "Guidato".');
       return;
@@ -585,12 +619,15 @@ async function closeWaypoints() {
   await runWaypoints(true);
 }
 async function runWaypoints(finalize) {
+  if (_lavori) return;
   try {
-    const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/trace-waypoints`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ points: waypoints }),
+    const d = await inLavoro(finalize ? 'Chiudo il contorno…' : 'Seguo il contorno…', async () => {
+      const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/trace-waypoints`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points: waypoints }),
+      });
+      return r.json();
     });
-    const d = await r.json();
     if (!d.success) { setStatus('err', d.error || 'Contorno non valido'); return; }
     lastResult = d;
     drawOverlay(d);        // ridisegna outer/holes
@@ -681,12 +718,35 @@ function resetTrace() {
 
 function setStatus(kind, msg) {
   const el = document.getElementById('status');
-  el.className = 'status' + (kind ? ' ' + kind : '');
+  el.className = 'status ' + (kind || 'info');
   el.textContent = msg;
   if (!msg) el.style.display = 'none';
 }
 
 // Abilita "Conferma" solo se: contorno tracciato + materiale + spessore (+ area override se piegato)
+/* Lavoro in corso: barra e avviso sul disegno se l'attesa supera `ritardo` ms,
+   coi secondi che passano (si capisce che non e' bloccato). */
+let _lavori = 0;
+async function inLavoro(testo, fn, ritardo = 250) {
+  const wrap = document.getElementById('wrap');
+  const sec = document.getElementById('busy-sec');
+  document.getElementById('busy-txt').textContent = testo;
+  sec.textContent = '';
+  _lavori++;
+  wrap.classList.add('busy');
+  const t0 = Date.now();
+  const mostra = setTimeout(() => wrap.classList.add('busy-on'), ritardo);
+  const tic = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    sec.textContent = s >= 2 ? `${s} s${s >= 5 ? ' · disegno grande, ancora un attimo' : ''}` : '';
+  }, 500);
+  try { return await fn(); }
+  finally {
+    clearTimeout(mostra); clearInterval(tic);
+    if (--_lavori <= 0) { _lavori = 0; wrap.classList.remove('busy', 'busy-on'); }
+  }
+}
+
 function onDatiChange() {
   const mat = document.getElementById('f-materiale').value;
   const sp = parseFloat(document.getElementById('f-spessore').value);
@@ -721,11 +781,11 @@ async function confermaPezzo() {
   let canonical = null;
   if (lastResult.outer_xy) {
     try {
-      const rc = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/generate-canonical`, {
+      const rc = await inLavoro('Salvo il pezzo…', () => fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/generate-canonical`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ outer_xy: lastResult.outer_xy, holes_xy: lastResult.holes_xy || [],
                                codice: (ARTICOLO ? 'art' + ARTICOLO : FILE.replace(/\.(dxf|dwg)$/i, '')) }),
-      });
+      }));
       const dc = await rc.json();
       if (dc.success) canonical = { filename: dc.filename, sha256: dc.sha256 };
     } catch (e) { console.warn('generate-canonical fallita:', e); }
