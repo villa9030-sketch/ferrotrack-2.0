@@ -714,7 +714,10 @@ def pianifica_taglio(order_id):
 
 
 _CAL_DEFAULT = {'ore_turno': 8, 'ore_riserva': 2, 'giorni': [1, 2, 3, 4, 5],
-                'carico_min_lamiera': 5, 'scarico_s_pezzo': 3, 'fattore_tempo': 1.18}
+                'carico_min_lamiera': 5, 'scarico_s_pezzo': 3, 'fattore_tempo': 1.18,
+                # giorni speciali: {'2026-10-20': {'ore': 0, 'nota': 'manutenzione'}}
+                # (ore UTILI di quel giorno: 0 = laser fermo)
+                'eccezioni': {}}
 _CAL_LIMITI = {'ore_turno': (1, 24), 'ore_riserva': (0, 23), 'carico_min_lamiera': (0, 120),
                'scarico_s_pezzo': (0, 600), 'fattore_tempo': (0.5, 3)}
 
@@ -751,6 +754,23 @@ def api_laser_calendario_config():
             if not isinstance(g, list) or not all(isinstance(x, int) and 1 <= x <= 7 for x in g):
                 return jsonify({'success': False, 'error': 'giorni: lista di numeri 1-7 (1 = lunedi)'}), 400
             cfg['giorni'] = sorted(set(g))
+        if 'eccezioni' in data:
+            ecc = data.get('eccezioni')
+            if not isinstance(ecc, dict) or len(ecc) > 400:
+                return jsonify({'success': False, 'error': 'eccezioni: elenco di giorni non valido'}), 400
+            pulite = {}
+            limite = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+            for g, v in ecc.items():
+                try:
+                    g = datetime.strptime(str(g)[:10], '%Y-%m-%d').strftime('%Y-%m-%d')
+                    ore = float((v or {}).get('ore'))
+                except (TypeError, ValueError, AttributeError):
+                    return jsonify({'success': False, 'error': f'eccezione {g}: serve data e ore'}), 400
+                if not 0 <= ore <= 24:
+                    return jsonify({'success': False, 'error': f'eccezione {g}: ore fuori misura'}), 400
+                if g >= limite:            # le vecchie si buttano
+                    pulite[g] = {'ore': ore, 'nota': str((v or {}).get('nota') or '')[:60]}
+            cfg['eccezioni'] = pulite
         if cfg['ore_riserva'] >= cfg['ore_turno']:
             return jsonify({'success': False, 'error': 'La riserva deve essere minore del turno'}), 400
         BarcodeManager.save_config({'laser_calendario': cfg})

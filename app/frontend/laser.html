@@ -235,6 +235,32 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
 .lz-legend-sat { flex-basis: 100%; }
 .lz-cfg { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 4px 20px 8px; }
 .lz-cfg-giorni { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.lz-day-ecc { margin-left: 4px; font: 600 10px var(--ft-font); font-style: normal; color: var(--ft-warn); }
+.lz-ecc { margin: 0 16px 12px; font-size: 12.5px; color: var(--ft-ink-2); }
+.lz-ecc label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lz-ecc .ft-select.sm, .lz-ecc .ft-input.sm { height: 30px; font-size: 12.5px; padding: 2px 8px; width: auto; }
+.lz-ecc .ft-input.sm { width: 70px; }
+.lz-avvisi { display: flex; align-items: center; gap: 10px; margin: 12px 16px 0; padding: 10px 12px; border-radius: 10px;
+  background: var(--ft-warn-bg); border: 1px solid var(--ft-warn-line); font-size: 13px; color: var(--ft-ink); }
+.lz-avvisi[hidden] { display: none; }
+.lz-avvisi > i { width: 18px; height: 18px; color: var(--ft-warn); flex: none; }
+.lz-avvisi span { flex: 1; } .lz-avvisi a { color: var(--ft-accent-ink); }
+.lz-oggi { padding: 14px 16px 16px; display: grid; gap: 12px; }
+.lz-oggi-head { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px; border-radius: 12px; background: var(--ft-ok-bg); }
+.lz-oggi-head.warn { background: var(--ft-warn-bg); } .lz-oggi-head.over { background: var(--ft-err-bg); } .lz-oggi-head.off { background: var(--ft-line-2); }
+.lz-oggi-head div { display: grid; gap: 2px; }
+.lz-oggi-head span { font-size: 12px; font-weight: 600; color: var(--ft-ink-3); text-transform: uppercase; letter-spacing: .04em; }
+.lz-oggi-head b { font: 800 30px/1.1 var(--ft-display); }
+.lz-oggi-head small { font-size: 13px; color: var(--ft-ink-2); }
+.lz-oggi-lam { border: 1px solid var(--ft-line); border-radius: 12px; overflow: hidden; }
+.lz-oggi-lam.fatta { opacity: .55; }
+.lz-oggi-lam-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--ft-well); cursor: pointer; font-size: 15px; }
+.lz-oggi-lam-head input { width: 20px; height: 20px; }
+.lz-oggi-lam-head b { font: 800 18px var(--ft-display); }
+.lz-oggi-lam-head span { margin-left: auto; color: var(--ft-ink-2); font-weight: 600; }
+.lz-oggi-ord { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--ft-line-2); font-size: 14px; }
+.lz-oggi-ord small { margin-left: 6px; color: var(--ft-ink-3); }
+.lz-oggi-ord.ok { background: var(--ft-ok-bg); }
 .lz-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0 16px 14px; font-size: 12px; color: var(--ft-ink-3); }
 .lz-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .lz-legend i { width: 10px; height: 10px; border-radius: 3px; }
@@ -596,6 +622,7 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
               <button type="button" class="on active" id="btn-month" onclick="setCalView('month')">Mese</button>
               <button type="button" id="btn-week" onclick="setCalView('week')">Settimana</button>
               <button type="button" id="btn-day" onclick="setCalView('day')">Giorno</button>
+              <button type="button" id="btn-oggi" onclick="setCalView('oggi')" title="Cosa tagliare nel giorno, raggruppato per lamiera">Lamiere del giorno</button>
             </div>
             <button class="ft-icon-btn outlined" onclick="calNavigate(-1)" title="Indietro" aria-label="Indietro"><i data-lucide="chevron-left"></i></button>
             <button class="ft-btn sm" onclick="calGoToday()">Oggi</button>
@@ -603,6 +630,7 @@ body.ft.ft-touch .lz-viewbar .ft-search { height: 38px; }
             <button class="ft-icon-btn outlined" onclick="apriImpostazioniCal()" title="Capacità del laser: turno, riserva, carico/scarico" aria-label="Capacità del laser"><i data-lucide="settings-2"></i></button>
           </div>
         </div>
+        <div class="lz-avvisi" id="cal-avvisi" hidden></div>
         <div id="cal-grid-dashboard"></div>
         <div class="lz-legend">
           <span><i style="background:var(--ft-warn-bg); border:1px solid var(--ft-warn-line)"></i>Da smistare</span>
@@ -815,6 +843,8 @@ async function loadOrders(forzato) {
     }
     sat.cache = {};
     if (currentTab === 'calendario') { renderCalendarView(); updateKPIs(); }
+    // ordini nuovi: il banco li conosce solo dopo il prossimo giro
+    if (sat.banco) caricaSaturazione(true);
   } catch (err) {
     console.warn('Ordini non caricati:', err);
     updateConnBadge(false);
@@ -1594,16 +1624,18 @@ function classeEvento(o) {
 function renderCalendarView() {
   if (calView === 'month') renderMonthView();
   else if (calView === 'week') renderWeekView();
+  else if (calView === 'oggi') renderOggiView();
   else renderDayView();
+  renderAvvisiPieni();
   FT.icone();
 }
 function setCalView(view) {
   calView = view;
-  for (const v of ['month', 'week', 'day']) {
+  for (const v of ['month', 'week', 'day', 'oggi']) {
     const b = document.getElementById('btn-' + v);
     if (b) { b.classList.toggle('on', v === view); b.classList.toggle('active', v === view); }
   }
-  if (view === 'day' && calSelectedDate) calDate = FT.data(calSelectedDate);
+  if ((view === 'day' || view === 'oggi') && calSelectedDate) calDate = FT.data(calSelectedDate);
   renderCalendarView();
   updateKPIs();
 }
@@ -1634,7 +1666,7 @@ function cellaGiorno(d, altroMese, maxEv) {
   return `<div class="${cls.join(' ')}" role="button" tabindex="0" onclick="selectCalDay('${ds}')"
       onkeydown="if (event.key === 'Enter') selectCalDay('${ds}')"
       ondragover="satDragOver(event)" ondragleave="satDragLeave(event)" ondrop="satDrop(event, '${ds}')">
-    <span class="lz-day-n">${d.getDate()}</span>
+    <span class="lz-day-n">${d.getDate()}${eccezione(ds) ? `<em class="lz-day-ecc">${esc(eccezione(ds).nota)}</em>` : ''}</span>
     ${barraSat(ds, k)}
     ${vis.map(evento).join('')}
     ${resto > 0 ? `<span class="lz-ev more">+${resto} altri</span>` : ''}
@@ -1734,6 +1766,7 @@ function pianificazioneHtml(o) {
     ${mobile ? `<label class="lz-plan-giorno">Taglio il
         <input class="ft-input sm" type="date" min="${FT.oggiISO()}" value="${giornoCal(o) || ''}"
           onchange="pianificaTaglio(ordiniGrezzi.find(x => x.id === '${o.id}'), this.value)"></label>
+      ${d.min != null ? `<button class="ft-btn sm" onclick="proponiGiorno('${o.id}')" title="Il primo giorno con spazio prima della consegna, meglio se ha gia' la stessa lamiera"><i data-lucide="wand-sparkles"></i> Trova un giorno</button>` : ''}
       ${o.data_taglio_pianificata ? `<button class="ft-btn sm ghost" onclick="pianificaTaglio(ordiniGrezzi.find(x => x.id === '${o.id}'), '${cons || ''}')">Riporta alla consegna${cons ? ' (' + FT.fmtDataBreve(cons) + ')' : ''}</button>` : ''}` : ''}
   </div>`;
 }
@@ -1754,7 +1787,7 @@ function showDayDetailPanel(ds) {
   p.innerHTML = `<div class="ft-card-head"><div>
       <h3 class="ft-card-title" style="text-transform:capitalize;">${esc(titolo)}</h3>
       <p class="ft-card-sub">${ordini.length ? `${ordini.length} ${ordini.length === 1 ? 'ordine' : 'ordini'} da tagliare o in consegna` : 'Nessun ordine'}</p>
-    </div></div>${satHtml}
+    </div></div>${satHtml}${eccezioneHtml(ds)}
     ${ordini.length ? `<div class="lz-daylist">${ordini.map(schedaCalendario).join('')}</div>`
       : '<div class="ft-empty"><div class="ft-empty-icon"><i data-lucide="calendar"></i></div><p>In questo giorno non c&rsquo;è niente da tagliare.</p></div>'}`;
   FT.icone();
@@ -1782,8 +1815,9 @@ async function caricaSaturazione(forza) {
     sat.t = Date.now();
   } catch (e) { console.warn('saturazione non caricata', e); }
   if (currentTab === 'calendario') { renderCalendarView(); updateKPIs(); }
+  controllaNuoviSuGiorniPieni();
   clearTimeout(sat.timer);
-  if (currentTab === 'calendario') sat.timer = setTimeout(() => caricaSaturazione(true), 60000);
+  sat.timer = setTimeout(() => caricaSaturazione(true), 60000);
 }
 
 function satCfg() {
@@ -1792,6 +1826,8 @@ function satCfg() {
 /** Minuti utili di un giorno (turno meno riserva); 0 nei giorni non lavorativi. */
 function capacitaMin(ds) {
   const c = satCfg();
+  const e = (c.eccezioni || {})[ds];
+  if (e) return Math.max(0, e.ore) * 60;               // laser fermo, mezza giornata...
   const g = ((FT.data(ds).getDay() + 6) % 7) + 1;      // 1 = lunedi'
   return (c.giorni || []).includes(g) ? Math.max(0, c.ore_turno - c.ore_riserva) * 60 : 0;
 }
@@ -2019,6 +2055,197 @@ function apriImpostazioniCal() {
   });
 }
 
+
+// ── Giorni speciali (laser fermo, mezza giornata) ───────────────────
+function eccezione(ds) { return ((satCfg().eccezioni || {})[ds]) || null; }
+async function salvaEccezione(ds, valore) {
+  const c = satCfg();
+  const ecc = Object.assign({}, c.eccezioni || {});
+  const pieno = Math.max(0, c.ore_turno - c.ore_riserva);
+  if (valore === 'normale') delete ecc[ds];
+  else if (valore === 'fermo') ecc[ds] = { ore: 0, nota: 'laser fermo' };
+  else if (valore === 'mezza') ecc[ds] = { ore: Math.round(pieno / 2 * 10) / 10, nota: 'mezza giornata' };
+  else {
+    const h = parseFloat(String(valore).replace(',', '.'));
+    if (!(h >= 0 && h <= 24)) { FT.toast('Ore non valide', 'warn'); return; }
+    ecc[ds] = { ore: h, nota: 'ore a mano' };
+  }
+  const r = await fetch(`${API_URL}/api/laser/calendario-config`, { method: 'PUT',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: utente().id, eccezioni: ecc }) });
+  const d = await r.json().catch(() => ({}));
+  if (!d.success) { FT.toast(d.error || 'Non salvato', 'err'); return; }
+  sat.cfg = d.config;
+  renderCalendarView(); updateKPIs(); controllaNuoviSuGiorniPieni();
+  const e = eccezione(ds);
+  FT.toast(e ? `${FT.fmtData(ds)}: ${e.nota} (${fmtOre(e.ore * 60)} utili)` : `${FT.fmtData(ds)}: giornata normale`, 'ok');
+}
+function eccezioneHtml(ds) {
+  const e = eccezione(ds);
+  const val = !e ? 'normale' : e.ore === 0 ? 'fermo' : e.nota === 'mezza giornata' ? 'mezza' : 'ore';
+  return `<div class="lz-ecc"><label>Giornata
+    <select class="ft-select sm" onchange="this.value === 'ore' ? (this.nextElementSibling.hidden = false) : salvaEccezione('${ds}', this.value)">
+      <option value="normale" ${val === 'normale' ? 'selected' : ''}>normale</option>
+      <option value="mezza" ${val === 'mezza' ? 'selected' : ''}>mezza giornata</option>
+      <option value="fermo" ${val === 'fermo' ? 'selected' : ''}>laser fermo (manutenzione, ferie)</option>
+      <option value="ore" ${val === 'ore' ? 'selected' : ''}>ore utili a mano…</option>
+    </select>
+    <input class="ft-input sm" type="number" min="0" max="24" step="0.5" placeholder="ore" ${val === 'ore' ? '' : 'hidden'}
+      value="${val === 'ore' ? e.ore : ''}" onchange="salvaEccezione('${ds}', this.value)"></label></div>`;
+}
+
+// ── Trova un giorno ──────────────────────────────────────────────────
+/** Il primo giorno, da oggi alla consegna, con spazio per l'ordine; a parita'
+    meglio un giorno che ha gia' lo stesso spessore (stessa lamiera). */
+function trovaGiorno(o) {
+  const d = durataOrdine(o);
+  if (d.min == null) return { errore: 'L’ordine non ha una durata: scrivila prima a mano.' };
+  const attuale = giornoCal(o);
+  const cons = giornoConsegna(o);
+  const chiavi = new Set(d.per.map(r => r.chiave));
+  const oggi = FT.data(FT.oggiISO());
+  const cand = [];
+  for (let i = 0; i < 60; i++) {
+    const g = new Date(oggi); g.setDate(g.getDate() + i);
+    const ds = formatDateStr(g);
+    const k = caricoGiorno(ds);
+    if (!k.cap) continue;
+    const usato = k.min - (ds === attuale ? d.min : 0);
+    const libero = k.cap - usato;
+    if (libero < d.min) continue;
+    // stessa lamiera gia' presente (nel giorno attuale si toglie la parte dell'ordine stesso)
+    const stesso = k.per.some(r => chiavi.has(r.chiave)
+      && (ds !== attuale || r.min - ((d.per.find(x => x.chiave === r.chiave) || {}).min || 0) > 0.01));
+    cand.push({ ds, libero, stesso, prima: !cons || ds <= cons });
+    if (cand.filter(c => c.prima).length >= 8) break;
+  }
+  if (!cand.length) return { errore: 'Nessun giorno con abbastanza spazio nei prossimi 60 giorni.' };
+  const ok = cand.filter(c => c.prima);
+  const pool = ok.length ? ok : cand;
+  const migliore = pool.find(c => c.stesso) || pool[0];
+  return Object.assign(migliore, { dopo: !migliore.prima, durata: d.min });
+}
+async function proponiGiorno(id) {
+  const o = ordiniGrezzi.find(x => x.id === id);
+  if (!o) return;
+  const r = trovaGiorno(o);
+  if (r.errore) { FT.toast(r.errore, 'warn'); return; }
+  if (r.ds === giornoCal(o)) { FT.toast(`#${numeroOrdine(o)} è già nel giorno migliore (${FT.fmtData(r.ds)})`, 'ok'); return; }
+  const perche = [`${fmtOre(r.libero)} libere`];
+  if (r.stesso) perche.push('c’è già la stessa lamiera');
+  if (r.dopo) perche.push('ATTENZIONE: dopo la consegna, prima non c’è spazio');
+  const ok = await FT.conferma({ titolo: `Spostare #${numeroOrdine(o)} a ${FT.data(r.ds).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}?`,
+    testo: `Serve ${fmtOre(r.durata)} · quel giorno: ${perche.join(' · ')}.`, ok: 'Sposta' });
+  if (ok) await pianificaTaglio(o, r.ds);
+}
+
+// ── Ordini nuovi su giorni pieni ────────────────────────────────────
+// La pagina del laser resta aperta tutto il giorno: quando arriva un ordine
+// che finisce su un giorno gia' pieno lo dice subito, una volta sola.
+let _avvisiPieni = [];
+function controllaNuoviSuGiorniPieni() {
+  if (!sat.banco) return;
+  let visti;
+  try { visti = JSON.parse(localStorage.getItem('sat_visti') || 'null'); } catch (_) { visti = null; }
+  const vivi = ordiniGrezzi.filter(o => ['coda', 'smistare'].includes(statoLaser(o)));
+  if (!visti) {                              // primo giro: quelli che ci sono gia' non sono "nuovi"
+    try { localStorage.setItem('sat_visti', JSON.stringify(vivi.map(o => o.id))); } catch (_) {}
+    return;
+  }
+  const nuovi = vivi.filter(o => !visti.includes(o.id));
+  if (!nuovi.length) return;
+  for (const o of nuovi) {
+    const ds = giornoCal(o), k = ds ? caricoGiorno(ds) : null;
+    if (k && k.cap && k.pct > 1 && ds >= FT.oggiISO()) _avvisiPieni.push({ id: o.id, ds, pct: k.pct });
+    else if (k && !k.cap && ds >= FT.oggiISO() && statoLaser(o) !== 'escluso') _avvisiPieni.push({ id: o.id, ds, pct: null });
+  }
+  try { localStorage.setItem('sat_visti', JSON.stringify(visti.concat(nuovi.map(o => o.id)).slice(-500))); } catch (_) {}
+  if (_avvisiPieni.length) {
+    const a = _avvisiPieni[_avvisiPieni.length - 1], o = ordiniGrezzi.find(x => x.id === a.id);
+    FT.toast(`Nuovo ordine ${o ? o.cliente + ' #' + numeroOrdine(o) : ''} su ${FT.fmtData(a.ds)}: ` +
+      (a.pct ? `il giorno è al ${Math.round(a.pct * 100)}%` : 'il laser quel giorno è fermo'), 'warn',
+      { testo: 'Vedi', fn: () => { switchTab('calendario'); calDate = FT.data(a.ds); calSelectedDate = a.ds; renderCalendarView(); } }, 12000);
+    renderAvvisiPieni();
+  }
+}
+function renderAvvisiPieni() {
+  const box = document.getElementById('cal-avvisi');
+  if (!box) return;
+  // resta solo chi e' ancora da tagliare e sta ancora su un giorno troppo pieno (o fermo)
+  const vivi = _avvisiPieni.filter(a => {
+    const o = ordiniGrezzi.find(x => x.id === a.id);
+    if (!o || !['coda', 'smistare'].includes(statoLaser(o))) return false;
+    a.ds = giornoCal(o);
+    const k = caricoGiorno(a.ds);
+    return !k.cap || k.pct > 1;
+  });
+  _avvisiPieni = vivi;
+  box.hidden = !vivi.length;
+  box.innerHTML = vivi.length ? `<i data-lucide="alert-triangle"></i><span><b>${vivi.length} ${vivi.length === 1 ? 'ordine nuovo è finito' : 'ordini nuovi sono finiti'} su giorni pieni:</b>
+    ${vivi.map(a => { const o = ordiniGrezzi.find(x => x.id === a.id);
+      return `<a href="#" onclick="event.preventDefault(); calDate = FT.data('${a.ds}'); calSelectedDate = '${a.ds}'; renderCalendarView();">${esc((o.cliente || '') + ' #' + numeroOrdine(o))} (${FT.fmtDataBreve(a.ds)})</a>`; }).join(', ')}</span>
+    <button class="ft-btn sm ghost" onclick="_avvisiPieni = []; renderAvvisiPieni();">Ho visto</button>` : '';
+  FT.icone();
+}
+
+// ── Vista "Oggi": cosa tagliare, per lamiera ────────────────────────
+function lamiereFatte(ds) { try { return JSON.parse(localStorage.getItem('lam_fatte_' + ds) || '[]'); } catch (_) { return []; } }
+function segnaLamiera(ds, chiave, fatta) {
+  const s = new Set(lamiereFatte(ds));
+  fatta ? s.add(chiave) : s.delete(chiave);
+  try { localStorage.setItem('lam_fatte_' + ds, JSON.stringify([...s])); } catch (_) {}
+  renderCalendarView();
+}
+function renderOggiView() {
+  const ds = formatDateStr(calDate);
+  calSelectedDate = ds;
+  document.getElementById('cal-month-title').textContent =
+    calDate.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  const k = caricoGiorno(ds);
+  const ordini = ordiniDelGiorno(ds).filter(o => statoLaser(o) !== 'escluso');
+  // gruppi per lamiera con gli ordini del giorno (pezzi dal banco)
+  const gruppi = new Map();
+  for (const g of (sat.banco ? sat.banco.gruppi : [])) {
+    for (const p of g.pezzi) {
+      const o = ordini.find(x => x.id === p.ordine_id);
+      if (!o) continue;
+      if (!gruppi.has(g.chiave)) gruppi.set(g.chiave, { chiave: g.chiave, mat: g.materiale, sp: g.spessore_mm, ordini: new Map() });
+      const G = gruppi.get(g.chiave);
+      const x = G.ordini.get(o.id) || { o, pezzi: 0, codici: 0 };
+      x.pezzi += p.quantita || 1; x.codici++; G.ordini.set(o.id, x);
+    }
+  }
+  const per = new Map(k.per.map(r => [r.chiave, r]));
+  const lista = [...gruppi.values()].sort((a, b) => (a.mat + a.sp).localeCompare(b.mat + b.sp, 'it', { numeric: true }));
+  const fatte = lamiereFatte(ds);
+  const senza = ordini.filter(o => !lista.some(G => G.ordini.has(o.id)));
+  const html = `<div class="lz-oggi">
+    <div class="lz-oggi-head ${k.cap ? livello(k.pct) : 'off'}">
+      <div><span>Laser</span><b>${fmtOre(k.min)}</b><small>su ${fmtOre(k.cap)} utili${k.cap ? ` · ${Math.round(k.pct * 100)}%` : ''}</small></div>
+      <div><span>Lamiere</span><b>${fatte.filter(c => gruppi.has(c)).length} / ${lista.length}</b><small>fatte</small></div>
+      <div><span>Ordini</span><b>${ordini.filter(o => o.taglio_completato).length} / ${ordini.length}</b><small>tagliati</small></div>
+    </div>
+    ${lista.map(G => {
+      const r = per.get(G.chiave) || {}, fatta = fatte.includes(G.chiave);
+      return `<section class="lz-oggi-lam ${fatta ? 'fatta' : ''}">
+        <label class="lz-oggi-lam-head"><input type="checkbox" ${fatta ? 'checked' : ''} onchange="segnaLamiera('${ds}', '${esc(G.chiave)}', this.checked)">
+          <b>${esc(G.mat.replace(/_/g, ' '))} ${G.sp != null ? String(G.sp).replace('.', ',') + ' mm' : '?'}</b>
+          <span>${fmtOre(r.min)} · ${r.lamiere || '?'} ${r.lamiere === 1 ? 'lamiera' : 'lamiere'}</span></label>
+        ${[...G.ordini.values()].map(x => `<div class="lz-oggi-ord ${x.o.taglio_completato ? 'ok' : ''}">
+          <span><b>${esc(x.o.cliente || '')}</b> #${esc(numeroOrdine(x.o))} · ${x.pezzi} pezzi (${x.codici} codici)
+            ${giornoConsegna(x.o) ? `<small>consegna ${FT.fmtDataBreve(giornoConsegna(x.o))}</small>` : ''}</span>
+          ${x.o.taglio_completato ? '<span class="ft-status ok">Tagliato</span>'
+            : `<button class="ft-btn sm" onclick="markLaserDone('${x.o.id}')">Taglio fatto</button>`}
+        </div>`).join('')}
+      </section>`; }).join('')}
+    ${senza.length ? `<section class="lz-oggi-lam"><div class="lz-oggi-lam-head"><b>Senza disegni</b><span>fa fede il PDF dell’ordine</span></div>
+      ${senza.map(o => `<div class="lz-oggi-ord ${o.taglio_completato ? 'ok' : ''}"><span><b>${esc(o.cliente || '')}</b> #${esc(numeroOrdine(o))} · ${durataOrdine(o).min != null ? fmtOre(durataOrdine(o).min) + ' (a mano)' : 'durata ?'}</span>
+        ${o.taglio_completato ? '<span class="ft-status ok">Tagliato</span>' : `<button class="ft-btn sm" onclick="markLaserDone('${o.id}')">Taglio fatto</button>`}</div>`).join('')}</section>` : ''}
+    ${!lista.length && !senza.length ? `<div class="ft-empty"><div class="ft-empty-icon"><i data-lucide="sun"></i></div><b>Niente da tagliare oggi</b></div>` : ''}
+  </div>`;
+  document.getElementById('cal-grid-dashboard').innerHTML = html;
+  showDayDetailPanel(ds);
+}
+
 // ═══ KPI ═════════════════════════════════════════════════════════════
 /** Solo numeri che nascono da un fatto registrato: il taglio segnato
     dall'operatore e la data di consegna dell'ordine. */
@@ -2134,6 +2361,7 @@ async function pollNotifCount() {
   FT.icone();
   _sessioneAncoraValida().then(() => FT.mostraUtente(null, 'Postazione laser'));
   loadOrders();
+  caricaSaturazione(true);
   let poll = setInterval(loadOrders, 5000);
   document.addEventListener('visibilitychange', () => {
     clearInterval(poll); poll = null;

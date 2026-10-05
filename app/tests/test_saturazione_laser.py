@@ -201,6 +201,13 @@ def main():
     r = c.put('/api/laser/calendario-config', json={'user_id': 'laser', 'ore_turno': 9, 'giorni': [1, 2, 3, 4, 5, 6]})
     check('laser salva', r.status_code == 200 and r.get_json()['config']['ore_turno'] == 9
           and r.get_json()['config']['giorni'] == [1, 2, 3, 4, 5, 6], r.get_json())
+    fra10 = (date.today() + timedelta(days=10)).isoformat()
+    r = c.put('/api/laser/calendario-config', json={'user_id': 'laser', 'eccezioni': {
+        fra10: {'ore': 0, 'nota': 'manutenzione'}, '2020-01-01': {'ore': 3}}})
+    ecc = r.get_json()['config']['eccezioni']
+    check('giorno speciale salvato, quelli vecchi buttati', ecc == {fra10: {'ore': 0.0, 'nota': 'manutenzione'}}, ecc)
+    check('giorno speciale con ore assurde: 400', c.put('/api/laser/calendario-config', json={
+        'user_id': 'laser', 'eccezioni': {fra10: {'ore': 30}}}).status_code == 400)
     check('laser_config non toccato', json.dumps((BarcodeManager.load_config() or {}).get('laser_config'), sort_keys=True) == laser_prima)
 
     print('\n' + '=' * 60)
