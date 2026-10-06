@@ -107,7 +107,7 @@ class OrderManager:
     def create_order(cliente: str, data_consegna: str,
                      numero_ordine: str = "", note: str = "",
                      destinazione: str = None, *, origine: str = 'PDF',
-                     preventivo_id_origine: str = None) -> Order:
+                     preventivo_id_origine: str = None, prezzo_quotato: float = None) -> Order:
         """Crea un nuovo ordine.
 
         Non assegna fase né operatore: chi lavora l'ordine lo dichiara a voce
@@ -131,6 +131,7 @@ class OrderManager:
                 note=note,
                 origine=origine or 'PDF',
                 preventivo_id_origine=preventivo_id_origine,
+                prezzo_quotato=prezzo_quotato,
             )
             session.add(order)
             session.commit()

@@ -456,11 +456,22 @@ def create_order():
             if (ex.get('numero_ordine') or '').strip().lower() == numero_ordine.lower():
                 return jsonify({'success': False, 'error': f'Ordine #{numero_ordine} per {cliente} esiste già'}), 409
 
+        # Valore dell'ordine (netto, IVA esclusa): letto dal PDF gia' prezzato
+        # del cliente o scritto dall'ufficio. Vuoto = non si sa (mai zero).
+        valore = data.get('valore_ordine')
+        try:
+            valore = round(float(str(valore).replace(',', '.')), 2) if valore not in (None, '') else None
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': "Il valore dell'ordine non e' un numero"}), 400
+        if valore is not None and valore < 0:
+            return jsonify({'success': False, 'error': "Il valore dell'ordine non puo' essere negativo"}), 400
+
         order = OrderManager.create_order(
             cliente=cliente,
             data_consegna=data_consegna,
             numero_ordine=numero_ordine,
-            note=data.get('note', '')
+            note=data.get('note', ''),
+            prezzo_quotato=valore,
         )
 
         # Registra il file PDF nel DB
@@ -2516,10 +2527,32 @@ def get_archive_filters():
 
 # ============ API FILE ============
 
+def _cliente_noto(nome):
+    """Il nome del cliente come e' gia' scritto negli ordini ("POLIFORM S.p.A."
+    invece di "Poliform"), cosi' riepiloghi e filtri lo riconoscono."""
+    if not nome:
+        return nome
+    try:
+        from .ore_service import chiave_cliente
+        k = chiave_cliente(nome)
+        session = get_session()
+        try:
+            for (c,) in session.query(Order.cliente).filter(Order.cliente.isnot(None)).distinct():
+                if c and chiave_cliente(c) == k:
+                    return c
+        finally:
+            session.close()
+    except Exception:
+        pass
+    return nome
+
+
 @app.route('/api/extract-pdf-data', methods=['POST'])
 @richiede('ufficio')
 def extract_pdf_data():
-    """Carica un PDF e restituisce il filename salvato (no parsing)"""
+    """Carica il PDF dell'ordine. Se e' un ordine gia' prezzato di un formato
+    noto (Poliform, B&B Italia: preventivi/ordine_prezzi.py, a regole, senza AI)
+    propone numero, cliente, consegna e valore; l'ufficio controlla e conferma."""
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'Nessun file caricato'}), 400
@@ -2535,10 +2568,27 @@ def extract_pdf_data():
         filepath = os.path.join(PDFS_FOLDER, pdf_filename)
         file.save(filepath)
 
-        return jsonify({
-            'success': True,
-            'data': {'pdf_filename': pdf_filename}
-        }), 200
+        dati = {'pdf_filename': pdf_filename}
+        try:
+            from .preventivi.ordine_prezzi import leggi_ordine_prezzato
+            with open(filepath, 'rb') as fh:
+                letto = leggi_ordine_prezzato(fh.read())
+        except Exception:
+            logger.exception('lettura prezzi ordine fallita')
+            letto = None
+        if letto:
+            dati.update({
+                'numero_ordine': letto.get('numero_ordine'),
+                'cliente': _cliente_noto(letto.get('cliente')),
+                'data_consegna': letto.get('data_consegna'),
+                'valore_ordine': letto.get('valore_ordine'),
+                'lettura_prezzi': {
+                    'formato': letto['formato'], 'n_righe': len(letto['righe']),
+                    'somma_righe': letto['somma_righe'],
+                    'totale_stampato': letto['totale_stampato'], 'quadra': letto['quadra'],
+                },
+            })
+        return jsonify({'success': True, 'data': dati}), 200
 
     except Exception as e:
         logging.error(f"[ERROR] extract_pdf_data: {str(e)}")

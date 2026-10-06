@@ -588,7 +588,12 @@ body.ft [hidden] { display: none !important; }
             <div id="hint-laser"></div>
             <div class="ft-err-msg" id="err-data"></div>
           </label>
-          <div></div>
+          <label class="ft-field" style="align-content:start">
+            <span>Valore ordine (€, IVA esclusa)</span>
+            <input type="text" id="mod-valore" class="ft-input" inputmode="decimal" placeholder="Es. 5770,30" autocomplete="off">
+            <div class="ft-hint" id="hint-valore">Se l'ordine è già prezzato. Lo vedono solo gli uffici.</div>
+            <div class="ft-err-msg" id="err-valore"></div>
+          </label>
           <label class="ft-field span-2">
             <span>Note per l'officina</span>
             <textarea id="mod-note" class="ft-textarea" rows="4" placeholder="Es. materiale fornito dal cliente, urgenza, imballo…"></textarea>
@@ -1174,6 +1179,15 @@ async function caricaPdfOrdine(files) {
     if (d.numero_ordine && !$('mod-numero').value) $('mod-numero').value = d.numero_ordine;
     if (d.cliente && !$('mod-cliente').value) $('mod-cliente').value = d.cliente;
     if (d.data_consegna && !$('mod-data').value) { $('mod-data').value = giorno(d.data_consegna); aggiornaHintData(); }
+    // Ordine gia' prezzato (Poliform, B&B Italia): il valore si propone solo
+    // se la somma delle righe torna col totale stampato sul PDF.
+    const lp = d.lettura_prezzi;
+    if (lp) {
+      if (d.valore_ordine != null && !$('mod-valore').value) $('mod-valore').value = String(d.valore_ordine.toFixed(2)).replace('.', ',');
+      $('hint-valore').innerHTML = lp.quadra
+        ? `Letto dal PDF (${esc(lp.formato)}): ${lp.n_righe} righe, la somma torna col totale ${FT.euro(lp.totale_stampato)}. Controlla e conferma.`
+        : `<span style="color:var(--ft-warn)">Letto dal PDF (${esc(lp.formato)}) ma la somma delle righe (${FT.euro(lp.somma_righe)}) non torna col totale${lp.totale_stampato != null ? ' ' + FT.euro(lp.totale_stampato) : ''}: scrivilo tu.</span>`;
+    }
     zona.style.display = 'none';
   } else {
     $('pdf-status').innerHTML = '';
@@ -1202,7 +1216,13 @@ async function submitOrder() {
   const cliente = $('mod-cliente').value.trim();
   const data = $('mod-data').value.trim();
   const note = $('mod-note').value.trim();
+  const valoreTxt = $('mod-valore').value.trim().replace(/\s|€/g, '');
+  // "5.770,30" o "5770,30" o "5770.30"
+  const valore = valoreTxt === '' ? null
+    : Number(/,/.test(valoreTxt) ? valoreTxt.replace(/\./g, '').replace(',', '.') : valoreTxt);
   let ok = true;
+  setErr('err-valore', valore === null || (isFinite(valore) && valore >= 0) ? '' : 'Scrivi un importo, es. 5770,30', 'mod-valore');
+  ok = ok && (valore === null || (isFinite(valore) && valore >= 0));
   setErr('err-numero', numero ? '' : 'Scrivi il numero dell\u2019ordine.', 'mod-numero'); ok = ok && !!numero;
   setErr('err-cliente', cliente ? '' : 'Scrivi il cliente.', 'mod-cliente'); ok = ok && !!cliente;
   setErr('err-data', data ? '' : 'Scegli la data di consegna.', 'mod-data'); ok = ok && !!data;
@@ -1216,7 +1236,7 @@ async function submitOrder() {
   const btn = $('co-submit'); btn.disabled = true;
   const res = await inviaJson('/api/orders', {
     cliente, numero_ordine: numero, data_consegna: data, note,
-    pdf_filename: pdfData.pdf_filename
+    pdf_filename: pdfData.pdf_filename, valore_ordine: valore
   });
   btn.disabled = false;
   if (riuscita(res) && res.data && res.data.success) {
@@ -1233,8 +1253,9 @@ async function submitOrder() {
 }
 
 function resetCaricaForm() {
-  ['mod-numero', 'mod-cliente', 'mod-data', 'mod-note'].forEach(id => { $(id).value = ''; $(id).classList.remove('invalid'); });
-  ['err-numero', 'err-cliente', 'err-data', 'err-pdf'].forEach(id => setErr(id, ''));
+  ['mod-numero', 'mod-cliente', 'mod-data', 'mod-note', 'mod-valore'].forEach(id => { $(id).value = ''; $(id).classList.remove('invalid'); });
+  ['err-numero', 'err-cliente', 'err-data', 'err-pdf', 'err-valore'].forEach(id => setErr(id, ''));
+  $('hint-valore').textContent = "Se l'ordine è già prezzato. Lo vedono solo gli uffici.";
   $('pdf-upload-btn').classList.remove('invalid');
   $('status-message').hidden = true;
   $('hint-data').textContent = '';
