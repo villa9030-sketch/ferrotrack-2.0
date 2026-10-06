@@ -205,18 +205,86 @@ def backup(motivo: str = 'schedulato', controlla: bool = True) -> str | None:
     return str(dst)
 
 
+# Copia esterna (un altro PC della rete): database, impostazioni e disegni.
+# Il solo database non basta: senza uploads\ un ordine ripristinato non ha
+# piu' disegni ne' PDF, e senza app_config.json mancano tariffe e impostazioni.
+UPLOADS_DIR = _HERE / 'uploads'
+FILE_IMPOSTAZIONI = ('app_config.json', 'backup_config.json')
+_ultimo_avviso_remoto = 0.0
+
+
 def _copia_remota(src: Path, remote_path: str):
-    """Copia il backup su percorso remoto (NAS, UNC share, cartella di rete)."""
+    """Copia sul percorso esterno (cartella condivisa di un altro PC):
+         <remote>/database      le copie del database, ruotate come quelle locali
+         <remote>/impostazioni  app_config.json e backup_config.json
+         <remote>/disegni       uploads: solo i file nuovi o cambiati, non cancella mai
+    """
+    global _ultimo_avviso_remoto
     motivo = cartella_valida(remote_path)
     if motivo:
-        logger.warning(f'[BACKUP] copia remota saltata: {remote_path} {motivo}')
+        logger.warning(f'[BACKUP] copia esterna saltata: {remote_path} {motivo}')
+        _avvisa_remoto(f"La cartella {remote_path} non e' raggiungibile ({motivo}). "
+                       "Il PC che la ospita e' acceso?")
         return
+    radice = Path(remote_path)
     try:
-        dst_remote = Path(remote_path) / src.name
-        shutil.copy2(src, dst_remote)
-        logger.info(f'[BACKUP] Remoto OK: {dst_remote}')
+        cart_db = radice / 'database'
+        cart_db.mkdir(exist_ok=True)
+        shutil.copy2(src, cart_db / src.name)
+        cart_imp = radice / 'impostazioni'
+        cart_imp.mkdir(exist_ok=True)
+        for nome in FILE_IMPOSTAZIONI:
+            f = _HERE / nome
+            if f.exists():
+                shutil.copy2(f, cart_imp / nome)
+        nuovi = _copia_disegni(UPLOADS_DIR, radice / 'disegni')
+        config = load_config()
+        _ruota_backup(cart_db, int(config.get('max_backups') or DEFAULT_CONFIG['max_backups']),
+                      int(config.get('giorni_storico') or DEFAULT_CONFIG['giorni_storico']))
+        logger.info(f'[BACKUP] Esterno OK: {radice} (database, impostazioni, {nuovi} disegni nuovi)')
+        _ultimo_avviso_remoto = 0.0
     except Exception as e:
-        logger.warning(f'[BACKUP] WARN copia remota fallita: {e}')
+        logger.warning(f'[BACKUP] copia esterna fallita: {e}')
+        _avvisa_remoto(f'Copia su {remote_path} non riuscita: {e}')
+
+
+def _copia_disegni(sorgente: Path, destinazione: Path) -> int:
+    """Copia i file nuovi o cambiati (dimensione o data). Non cancella niente:
+    un file tolto per sbaglio dal programma resta nella copia."""
+    if not sorgente.is_dir():
+        return 0
+    n = 0
+    for cartella, _dirs, files in os.walk(sorgente):
+        rel = Path(cartella).relative_to(sorgente)
+        if rel.parts and rel.parts[0].startswith('tmp'):
+            continue
+        dest = destinazione / rel
+        for nome in files:
+            if nome.startswith('tmp_'):
+                continue
+            a = Path(cartella) / nome
+            b = dest / nome
+            try:
+                sa = a.stat()
+                if b.exists():
+                    sb = b.stat()
+                    if sb.st_size == sa.st_size and int(sb.st_mtime) >= int(sa.st_mtime):
+                        continue
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(a, b)
+                n += 1
+            except OSError as e:
+                logger.warning(f'[BACKUP] disegno non copiato {a}: {e}')
+    return n
+
+
+def _avvisa_remoto(testo: str):
+    """Avviso all'amministrazione, al massimo uno ogni 12 ore."""
+    global _ultimo_avviso_remoto
+    if time.time() - _ultimo_avviso_remoto < 12 * 3600:
+        return
+    _ultimo_avviso_remoto = time.time()
+    _avvisa('Copia di sicurezza esterna non fatta', testo)
 
 
 def _info(percorso: str):

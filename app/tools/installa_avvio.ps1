@@ -2,7 +2,7 @@
 FerroTrack: avvio automatico e comandi del server.
 
   powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1              installa l'avvio all'accesso a Windows
-  powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1 -Accensione  all'accensione del PC, anche senza accesso (serve amministratore)
+  powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1 -Accensione  all'accensione del PC col tuo utente, anche senza accesso (amministratore + password di Windows)
   powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1 -Rimuovi     toglie l'avvio automatico
   powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1 -Ferma       spegne il server (es. prima di un ripristino)
   powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1 -Avvia       accende il server adesso
@@ -70,10 +70,18 @@ $azione = New-ScheduledTaskAction -Execute $Pyw -Argument 'run.py' -WorkingDirec
 $imp = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable
 if ($Accensione) {
+  # Parte all'accensione COL TUO UTENTE, anche se nessuno accede a Windows.
+  # Non piu' come SYSTEM: l'account di sistema non puo' scrivere nelle cartelle
+  # condivise degli altri PC, e la copia di sicurezza esterna falliva sempre.
+  # Windows chiede la password dell'utente una volta sola (non il PIN).
+  $utente = "$env:USERDOMAIN\$env:USERNAME"
+  $pw = Read-Host -AsSecureString "Password di Windows di $utente (non il PIN)"
+  $chiaro = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw))
   $trig = New-ScheduledTaskTrigger -AtStartup
-  $chi = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-  Register-ScheduledTask -TaskName $Nome -Action $azione -Trigger $trig -Settings $imp -Principal $chi -Force | Out-Null
-  "Installato: FerroTrack parte all'accensione del PC (account di sistema)."
+  Register-ScheduledTask -TaskName $Nome -Action $azione -Trigger $trig -Settings $imp `
+    -User $utente -Password $chiaro -RunLevel Highest -Force | Out-Null
+  $chiaro = $null
+  "Installato: FerroTrack parte all'accensione del PC, con l'utente $utente."
 } else {
   $trig = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
   Register-ScheduledTask -TaskName $Nome -Action $azione -Trigger $trig -Settings $imp -Force | Out-Null

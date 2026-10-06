@@ -5,7 +5,19 @@
   - **schedulato**: una all'ora;
   - **pre_migration**: una a ogni avvio del server.
 - `database\backups\manuali\` contiene le copie fatte a mano: dal pulsante "Backup" della pagina, prima di un aggiornamento o prima di un ripristino. **Non vengono mai cancellate in automatico.**
-- La copia su un altro disco o NAS (`remote_path` in `backup_config.json`) si fa solo se la cartella esiste.
+- **Copia esterna** su un altro PC della rete (`remote_path` in `backup_config.json`, per esempio `\\PC-UFFICIO\FerroTrackBackup`). Si fa a ogni backup, solo se la cartella è raggiungibile, e contiene:
+  - `database\`: le copie del database, ruotate come quelle qui;
+  - `impostazioni\`: `app_config.json` (tariffe e impostazioni) e `backup_config.json`;
+  - `disegni\`: tutta la cartella `uploads` (DXF, PDF di ordini e preventivi). Si copiano solo i file nuovi o cambiati e non si cancella mai niente.
+
+  Se la cartella non risponde, il backup locale si fa lo stesso e l'amministrazione riceve un avviso, al massimo uno ogni 12 ore.
+
+### Se si rompe il PC server
+Su un PC nuovo, installato come in `INSTALLAZIONE.md` e con il server spento:
+1. dalla copia esterna, prendi l'ultimo file di `database\` e mettilo come `database\scheduler.db`;
+2. copia il contenuto di `impostazioni\` nella cartella `app`;
+3. copia il contenuto di `disegni\` in `app\uploads`;
+4. avvia il server.
 
 Quante copie restano:
 - **schedulato**: le ultime 48 (due giorni) più una al giorno per 30 giorni;
