@@ -1287,6 +1287,16 @@ def api_ordine_disegni_zip(order_id):
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             for percorso, arcname in voci:
                 zf.write(percorso, arcname=arcname)
+            # le quantita' da importare in Lantek con iErp, accanto ai disegni
+            try:
+                q = _quantita_lantek(order, righe)
+                if q['righe']:
+                    xb = io.BytesIO()
+                    from . import lantek as _lt
+                    _lt.scrivi_excel(xb, q['righe'], q['consegna'], q['commessa'])
+                    zf.writestr(f"{radice}/{q['nome_file']}", xb.getvalue())
+            except Exception:
+                logger.warning('quantita Lantek non aggiunte allo zip', exc_info=True)
         buf.seek(0)
         return send_file(buf, mimetype='application/zip', as_attachment=True,
                          download_name=radice + '.zip')
@@ -6991,6 +7001,17 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordin
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(percorso, dst)
             n += 1
+        try:
+            q = _quantita_lantek(order, righe) if order else None
+            if q and q['righe']:
+                from . import lantek as _lt
+                os.makedirs(destinazione, exist_ok=True)
+                _lt.scrivi_excel(os.path.join(destinazione, q['nome_file']), q['righe'],
+                                 q['consegna'], q['commessa'])
+                n += 1
+                esito['quantita_lantek'] = q['nome_file']
+        except Exception as _e:
+            logger.warning('quantita Lantek non scritte nella cartella: %s', _e)
         esito['esportati'] = n
         esito['percorso'] = os.path.normpath(destinazione)
         logger.info('Disegni ordine %s esportati in %s (%d file)', order_id, destinazione, n)
@@ -6998,6 +7019,77 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordin
         esito['error'] = str(e)
         logger.exception('export disegni in cartella di rete fallito')
     return esito
+
+
+def _quantita_lantek(order, righe=None) -> dict:
+    """Le quantita' da importare in Lantek (iErp, modello ImportProduzione) per
+    un ordine, coi controlli letti da Lantek in sola lettura (backend/lantek.py).
+
+    {righe, lantek: {disponibile, errore}, commessa, consegna, nome_file}"""
+    from . import lantek as _lt
+    from .preventivi.dxf_cleanup import _sanitize_path_part
+    if righe is None:
+        try:
+            righe = _distinta_ordine(order)[0]
+        except Exception:
+            logger.warning('distinta per le quantita Lantek non letta', exc_info=True)
+            righe = []
+    codici = [r.get('codice') for r in righe if r.get('tipo') == 'lamiera' and r.get('codice')]
+    info = _lt.pezzi_in_lantek(codici) if codici else {'disponibile': False, 'errore': None, 'pezzi': {}}
+    q = _lt.righe_quantita(righe, info)
+    commessa = _lt.commessa_lantek(_numero_per_cartelle(order) or (order.numero_ordine or ''))
+    consegna = order.data_consegna.date() if getattr(order, 'data_consegna', None) else None
+    nome = _sanitize_path_part(f'QUANTITA LANTEK - {commessa or order.id[:8]}', 'QUANTITA LANTEK') + '.xlsx'
+    return {'righe': q, 'lantek': {'disponibile': info.get('disponibile'), 'errore': info.get('errore')},
+            'commessa': commessa, 'consegna': consegna.isoformat() if consegna else None,
+            'nome_file': nome}
+
+
+@app.route('/api/orders/<order_id>/lantek-quantita', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_ordine_lantek_quantita(order_id):
+    """Le righe del file delle quantita' per Lantek, coi controlli (codice
+    gia' in Lantek o nuovo, materiale/spessore diversi, altre revisioni)."""
+    try:
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        q = _quantita_lantek(order)
+        n_avvisi = sum(1 for r in q['righe'] if r['avvisi'])
+        return jsonify({'success': True, **q, 'n_codici': len(q['righe']),
+                        'n_pezzi': sum(r['quantita'] for r in q['righe']),
+                        'n_nuovi': sum(1 for r in q['righe'] if r['stato'] == 'nuovo'),
+                        'n_avvisi': n_avvisi}), 200
+    except Exception as e:
+        logger.exception('quantita Lantek fallite')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/lantek-quantita.xlsx', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_ordine_lantek_quantita_xlsx(order_id):
+    """Il file Excel da importare in Lantek con iErp (Codice Articolo,
+    Quantita', Materiale, Spessore, Data consegna, Commessa)."""
+    try:
+        import io
+        from . import lantek as _lt
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        q = _quantita_lantek(order)
+        if not q['righe']:
+            return jsonify({'success': False, 'codice': 'nessun_pezzo',
+                            'error': "Quest'ordine non ha pezzi di lamiera con un codice"}), 404
+        buf = io.BytesIO()
+        _lt.scrivi_excel(buf, q['righe'], q['consegna'], q['commessa'])
+        buf.seek(0)
+        _audit('LANTEK_QUANTITA', 'orders', order_id,
+               f"File quantita' per Lantek: {len(q['righe'])} codici")
+        return send_file(buf, as_attachment=True, download_name=q['nome_file'],
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        logger.exception('excel quantita Lantek fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/orders/<order_id>/crea-cartella', methods=['POST'])

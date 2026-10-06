@@ -159,6 +159,19 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lv-pz-q { text-align: right; font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; }
 .lv-pz-q small { font-size: 12px; font-weight: 600; color: var(--ft-ink-4); }
 .lv-pz-vuoto { padding: 24px 20px; color: var(--ft-ink-3); font-size: 14px; }
+/* Quantita' per Lantek (iErp): barra in cima ai pezzi, etichetta su ogni codice */
+.lv-lt { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 20px; background: #F0F7FF;
+  border-bottom: 1px solid #D6E6FA; font-size: 13.5px; }
+.lv-lt b { font-size: 14px; }
+.lv-lt .lv-lt-n { color: var(--ft-ink-2); }
+.lv-lt .lv-lt-n.warn { color: #B45309; font-weight: 700; }
+.lv-lt .ft-btn { margin-left: auto; }
+.lv-lt.spento { background: #F8FAFC; border-bottom-color: var(--ft-line); color: var(--ft-ink-3); }
+.lt-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font: 700 11px var(--ft-font);
+  vertical-align: 2px; white-space: nowrap; }
+.lt-tag.ok { background: #E8F5EE; color: #1A7A48; }
+.lt-tag.nuovo { background: #FFF4E5; color: #B45309; }
+.lt-tag.avviso { background: #FDECEC; color: #B42318; cursor: help; }
 
 .ft-alert code { font-family: var(--ft-mono); font-size: 12px; background: rgba(255,255,255,.7); padding: 1px 6px; border-radius: 5px; }
 
@@ -1164,6 +1177,46 @@ async function lvCaricaDettaglio(o) {
     }).join('');
   }
   lvMostra(lvPrev ? lvPrev.tipo : (haPdf(o) && (lvTipoPref === 'pdf' || !righe.length) ? 'pdf' : 'disegno'), lvPrev && lvPrev.nome);
+  if (righe.some(r => r.tipo === 'lamiera' && r.codice)) lvQuantitaLantek(o, tok);
+}
+
+/** Le quantita' da importare in Lantek con iErp: riepilogo, pulsante per il
+    file Excel e, su ogni codice, se e' gia' in Lantek o nuovo (con gli
+    avvisi: materiale/spessore diversi, altra revisione). Sola lettura. */
+async function lvQuantitaLantek(o, tok) {
+  const { ok, d } = await _getJson(`${API_URL}/api/orders/${o.id}/lantek-quantita`);
+  if (tok !== _lvTok || selectedOrderId !== o.id) return;
+  const box = document.getElementById('lv-pezzi');
+  if (!box || !ok || !d || !d.success || !d.n_codici) return;
+  const lt = d.lantek || {};
+  const url = `${API_URL}/api/orders/${o.id}/lantek-quantita.xlsx`;
+  const bar = document.createElement('div');
+  bar.className = 'lv-lt' + (lt.disponibile ? '' : ' spento');
+  bar.innerHTML = `<b>Lantek</b>
+    <span class="lv-lt-n">${d.n_codici} codici · ${FT.numero(d.n_pezzi)} pz</span>
+    ${lt.disponibile
+      ? `${d.n_nuovi ? `<span class="lv-lt-n warn">${d.n_nuovi} da importare (nuovi)</span>` : '<span class="lv-lt-n">tutti già in Lantek</span>'}
+         ${d.n_avvisi - d.n_nuovi > 0 ? `<span class="lv-lt-n warn">${d.n_avvisi - d.n_nuovi} da controllare</span>` : ''}`
+      : `<span class="lv-lt-n" title="${esc(lt.errore || '')}">Lantek non raggiungibile: il file usa i dati di FerroTrack</span>`}
+    <a class="ft-btn sm primary" href="${esc(url)}" download title="File da importare in Lantek con iErp: codici, quantità, materiale, spessore, consegna, commessa ${esc(d.commessa || '')}"><i data-lucide="file-spreadsheet"></i> Quantità per iErp</a>`;
+  box.prepend(bar);
+  if (lt.disponibile) {
+    const per = new Map(d.righe.map(r => [String(r.codice_ft || r.codice).toLowerCase(), r]));
+    box.querySelectorAll('.lv-pz').forEach(el => {
+      const c = el.querySelector('.lv-pz-cod');
+      const r = c && per.get(c.textContent.trim().toLowerCase());
+      if (!r) return;
+      const altri = r.avvisi.filter(a => !/^non ancora in Lantek/.test(a));
+      let tag = r.stato === 'nuovo' ? '<span class="lt-tag nuovo" title="Non ancora in Lantek: importa prima il disegno">nuovo</span>'
+        : `<span class="lt-tag ok" title="Già nell'archivio pezzi di Lantek${r.codice !== r.codice_ft ? ' come ' + esc(r.codice) : ''}">in Lantek${r.codice !== r.codice_ft ? ' ' + esc(r.codice.slice(-3)) : ''}</span>`;
+      c.insertAdjacentHTML('beforeend', tag);
+      // l'avviso nella colonna delle lavorazioni, dove c'e' spazio per leggerlo
+      const lav = el.querySelector('.lv-pz-lav');
+      if (altri.length && lav) lav.insertAdjacentHTML('afterbegin',
+        `<span class="lt-tag avviso" title="${esc(altri.join('\n'))}">! ${esc(altri.map(a => a.split(':')[0]).join(', '))}</span>`);
+    });
+  }
+  FT.icone();
 }
 
 /** Disegno (della riga cliccata) o PDF dell'ordine, in grande. */

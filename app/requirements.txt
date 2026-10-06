@@ -9,6 +9,7 @@ ezdxf>=1.4.3
 shapely>=2.0.0
 pillow>=12.0.0
 openpyxl>=3.1.2
+pyodbc>=5.0  # lettura (sola) del database di Lantek sul PC server
 gunicorn>=21.2.0; sys_platform != "win32"
 waitress>=3.0.2
 reportlab>=4.0.7
