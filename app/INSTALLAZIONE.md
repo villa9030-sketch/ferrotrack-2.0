@@ -28,6 +28,17 @@ Vale sia per questo PC sia per un altro PC Windows della rete. I comandi si dann
 6. **Prova.** `tools\installa_avvio.ps1 -Avvia`, poi apri `http://<indirizzo del PC>:5000`. Per l'indirizzo, `FIND_IP.bat`.
 7. **Copia esterna dei backup.** In `backup_config.json` imposta `remote_path` su una cartella di un altro disco o NAS che esista già.
 
+## Postazioni PC (Ufficio, Preventivi, Laser, Amministrazione)
+Sul PC della postazione, non sul server. Copia la cartella `POSTAZIONI` (chiavetta o cartella condivisa) e fai doppio clic sul file giusto:
+- `INSTALLA UFFICIO.bat`, `INSTALLA PREVENTIVI.bat`: icona sul desktop, finestra senza barre del browser, si apre da sola all'accensione;
+- `INSTALLA LASER.bat`: come sopra, a schermo intero;
+- `INSTALLA AMMINISTRAZIONE.bat`: solo l'icona.
+
+La prima volta la pagina chiede di registrare la postazione col PIN dell'amministratore. Ogni postazione usa un profilo di Edge suo, quindi la registrazione resta.
+
+## Tablet Android (ore e officina)
+App in `android-app` (istruzioni in `android-app\ISTRUZIONI.txt`): si compila una volta con Android Studio e lo stesso file si installa su tutti i tablet. Al primo avvio chiede server e postazione; per cambiarli, 5 tocchi nell'angolo in alto a sinistra.
+
 ## Aggiornamento da GitHub
 1. Copia di sicurezza: `.venv\Scripts\python.exe backup_db.py`. Finisce in `database\backups\manuali`.
 2. `powershell -ExecutionPolicy Bypass -File tools\installa_avvio.ps1 -Ferma`

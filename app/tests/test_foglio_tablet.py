@@ -83,11 +83,21 @@ with sync_playwright() as p:
         pg.wait_for_timeout(2000)
         check('il foglio si apre nella pagina, non in una scheda nuova',
               pg.locator('#foglio').is_visible() and len(pg.context.pages) == 1)
-        src = pg.locator('#foglio-pdf').get_attribute('src')
-        # il foglio d'ordine: il PDF del cliente, o quello generato (/stampa)
-        check('carica il foglio di quell\'ordine', '/stampa' in (src or '') or '/pdf' in (src or ''), src)
-        check('adattato alla larghezza, senza barra del visore',
-              'view=FitH' in (src or '') and 'toolbar=0' in (src or ''), src)
+        # PDF del cliente: disegnato dalla pagina (pdf.js), perche' i tablet
+        # Android non mostrano un PDF in un riquadro. Foglio generato (HTML):
+        # nel riquadro, che li' funziona.
+        pg.wait_for_function("document.querySelector('#foglio-pagine canvas') || "
+                             "(document.querySelector('#foglio-pdf').getAttribute('src') || '').includes('/stampa')",
+                             timeout=15000)
+        pagine = pg.locator('#foglio-pagine canvas').count()
+        src = pg.locator('#foglio-pdf').get_attribute('src') or ''
+        check("il foglio di quell'ordine si vede (pagine PDF o foglio generato)", pagine > 0 or '/stampa' in src, (pagine, src))
+        if pagine:
+            w = pg.evaluate("document.querySelector('#foglio-pagine canvas').getBoundingClientRect().width")
+            check('PDF adattato alla larghezza dello schermo', w > 900, w)
+            pg.click('#foglio-piu'); pg.wait_for_timeout(1500)
+            w2 = pg.evaluate("document.querySelector('#foglio-pagine canvas').getBoundingClientRect().width")
+            check('con + si ingrandisce', w2 > w * 1.3, (w, w2))
 
         chiudi = pg.locator('.foglio-pieno .chiudi')
         cb = chiudi.bounding_box()
@@ -98,7 +108,7 @@ with sync_playwright() as p:
         pg.wait_for_timeout(800)
         check('si chiude', not pg.locator('#foglio').is_visible())
         check('e non resta caricato in memoria',
-              not pg.locator('#foglio-pdf').get_attribute('src'))
+              not pg.locator('#foglio-pdf').get_attribute('src') and pg.locator('#foglio-pagine canvas').count() == 0)
 
     # Non devono esserci piu' collegamenti ai disegni: un tablet non li apre.
     check('niente collegamenti a file che il tablet non sa aprire',

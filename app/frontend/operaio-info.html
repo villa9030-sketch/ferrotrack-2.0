@@ -283,6 +283,12 @@ button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var
   font-weight: 700; font-size: 16px; transition: background .15s, box-shadow .15s; }
 .chiudi:hover { background: #1E293B; box-shadow: 0 6px 18px rgba(15, 23, 42, .18); }
 .pieno iframe { flex: 1; width: 100%; border: 0; }
+/* Foglio d'ordine in PDF disegnato dalla pagina (pdf.js): i tablet Android non
+   mostrano un PDF dentro un riquadro, ne' in Chrome ne' nell'app. */
+.foglio-pagine { flex: 1; overflow: auto; background: #E5E7EB; padding: 12px; -webkit-overflow-scrolling: touch; }
+.foglio-pagine canvas { display: block; margin: 0 auto 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+.foglio-pagine .caric { text-align: center; padding: 40px; font-size: 18px; color: var(--ft-ink-3); }
+.zoom { min-height: 52px; min-width: 56px; border-radius: 10px; border: 1px solid var(--ft-line, #D0D5DD); background: #fff; font: 700 24px var(--ft-font); cursor: pointer; }
 /* Il disegno si muove con le dita: due dita ingrandiscono, uno sposta,
    doppio tocco ingrandisce li' (o torna intero). touch-action: none perche'
    il browser non zoomi la pagina intera al posto del disegno. */
@@ -422,9 +428,12 @@ button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var
 <div class="pieno foglio-pieno" id="foglio" hidden>
   <div class="testa">
     <div class="titolo" id="foglio-titolo"></div>
+    <button class="zoom" id="foglio-meno" onclick="zoomFoglio(-1)" aria-label="Rimpicciolisci" hidden>−</button>
+    <button class="zoom" id="foglio-piu" onclick="zoomFoglio(1)" aria-label="Ingrandisci" hidden>+</button>
     <button class="chiudi" onclick="chiudiFoglio()">Chiudi</button>
   </div>
-  <iframe id="foglio-pdf" title="Foglio d'ordine"></iframe>
+  <iframe id="foglio-pdf" title="Foglio d'ordine" hidden></iframe>
+  <div class="foglio-pagine" id="foglio-pagine" hidden></div>
 </div>
 
 <!-- Un disegno a schermo pieno: due dita per ingrandire, doppio tocco, frecce o scorri per il prossimo -->
@@ -1194,13 +1203,75 @@ function vediFoglio(id, num) {
   // view=FitH: il foglio si adatta alla larghezza, cosi' si legge davvero.
   // /stampa: il PDF del cliente se c'e', altrimenti il foglio d'ordine generato
   // dalla distinta (ordini nati da un preventivo). Lo stesso che stampa l'ufficio.
-  document.getElementById('foglio-pdf').src = `${API}/api/orders/${id}/stampa#toolbar=0&navpanes=0&view=FitH`;
+  // Il PDF lo disegna la pagina (pdf.js): Android non mostra i PDF in un
+  // riquadro. Il foglio generato dalla distinta e' HTML e va nel riquadro.
+  const url = `${API}/api/orders/${id}/stampa`;
+  const fr = document.getElementById('foglio-pdf'), box = document.getElementById('foglio-pagine');
+  fr.hidden = true; fr.src = '';
+  box.hidden = false; box.innerHTML = '<div class="caric">Apro il foglio…</div>';
+  zoomBottoni(false);
   document.getElementById('foglio').hidden = false;
+  const giro = ++FOGLIO.giro;
+  fetch(url, { credentials: 'same-origin' }).then(async r => {
+    if (giro !== FOGLIO.giro) return;
+    if (!r.ok) throw new Error('http ' + r.status);
+    const tipo = r.headers.get('content-type') || '';
+    if (!tipo.includes('pdf')) { box.hidden = true; fr.src = url; fr.hidden = false; return; }
+    const lib = await caricaPdfjs();
+    FOGLIO.doc = await lib.getDocument({ data: await r.arrayBuffer() }).promise;
+    if (giro !== FOGLIO.giro) return;
+    FOGLIO.zoom = 1;
+    zoomBottoni(true);
+    await disegnaFoglio(giro);
+  }).catch(() => {
+    if (giro === FOGLIO.giro) box.innerHTML = '<div class="caric">Non riesco ad aprire il foglio d’ordine. Riprova tra poco.</div>';
+  });
+}
+const FOGLIO = { giro: 0, doc: null, zoom: 1 };
+function caricaPdfjs() {
+  return new Promise((ok, ko) => {
+    if (window.pdfjsLib) return ok(window.pdfjsLib);
+    const s = document.createElement('script');
+    s.src = '/lib/pdf.min.js';
+    s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = '/lib/pdf.worker.min.js'; ok(window.pdfjsLib); };
+    s.onerror = ko;
+    document.head.appendChild(s);
+  });
+}
+function zoomBottoni(v) { document.getElementById('foglio-meno').hidden = !v; document.getElementById('foglio-piu').hidden = !v; }
+async function disegnaFoglio(giro) {
+  const box = document.getElementById('foglio-pagine'), doc = FOGLIO.doc;
+  if (!doc) return;
+  const larg = Math.max(300, box.clientWidth - 24) * FOGLIO.zoom;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const tele = [];
+  for (let n = 1; n <= doc.numPages; n++) {
+    const pag = await doc.getPage(n);
+    if (giro !== FOGLIO.giro) return;
+    const v0 = pag.getViewport({ scale: 1 });
+    const vp = pag.getViewport({ scale: larg / v0.width * dpr });
+    const c = document.createElement('canvas');
+    c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    c.style.width = Math.round(vp.width / dpr) + 'px';
+    await pag.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    tele.push(c);
+  }
+  if (giro !== FOGLIO.giro) return;
+  box.innerHTML = ''; tele.forEach(c => box.appendChild(c));
+}
+function zoomFoglio(d) {
+  const z = Math.min(3, Math.max(1, FOGLIO.zoom + d * 0.5));
+  if (z === FOGLIO.zoom) return;
+  FOGLIO.zoom = z;
+  disegnaFoglio(FOGLIO.giro);
 }
 function chiudiFoglio() {
-  // Si svuota l'indirizzo: un PDF lasciato caricato occupa memoria su un
-  // tablet che resta acceso tutto il giorno.
+  // Si svuota tutto: un PDF lasciato caricato occupa memoria su un tablet che
+  // resta acceso tutto il giorno.
+  FOGLIO.giro++;
+  if (FOGLIO.doc) { try { FOGLIO.doc.destroy(); } catch (_) {} FOGLIO.doc = null; }
   document.getElementById('foglio-pdf').src = '';
+  document.getElementById('foglio-pagine').innerHTML = '';
   document.getElementById('foglio').hidden = true;
 }
 

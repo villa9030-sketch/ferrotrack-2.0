@@ -2,10 +2,15 @@ FerroTrack LS — App Android per tablet officina
 ================================================
 
 COSA FA:
-- Apre http://192.168.1.241:5000 in fullscreen (no barra browser)
-- Schermo sempre acceso
-- Tasto Back naviga indietro nella pagina (non esce dall'app)
-- localStorage funziona (login persistente)
+- Una sola app per tutti i tablet: al primo avvio chiede l'indirizzo del server
+  (di solito http://192.168.1.10:5000) e che tablet e': "Tablet ore" o
+  "Tablet officina". Restano salvati.
+- Schermo intero, schermo sempre acceso, Indietro non fa uscire dall'app
+- Se il server non risponde mostra un avviso e riprova da solo ogni 10 secondi
+- Per cambiare server o postazione: 5 tocchi rapidi nell'angolo in alto a
+  sinistra (oppure "Impostazioni" nell'avviso di server non raggiungibile)
+- Prima volta su ogni tablet: la pagina chiede di registrare il tablet col PIN
+  dell'amministratore (come per le postazioni PC)
 
 COME COMPILARE:
 
@@ -29,6 +34,4 @@ COME INSTALLARE SUL TABLET:
 5. L'app appare come "FerroTrack LS" con l'icona verde
 
 CAMBIARE IP SERVER:
-Se l'IP del PC cambia, modifica SERVER_URL in:
-  app/src/main/java/it/lscarpenteria/ferrotrack/MainActivity.java
-e ricompila.
+Non serve ricompilare: 5 tocchi in alto a sinistra -> Impostazioni.
