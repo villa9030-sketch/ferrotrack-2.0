@@ -78,8 +78,11 @@ def main():
         print('Servono almeno 2 DXF in _test_input/regression. Test saltato.')
         return 0
 
-    client = A.app.test_client()
-    dati = {'admin_id': 'commerciale', 'files': [], 'paths': []}
+    # la stazione Commerciale, con una persona entrata col PIN
+    from tests.accesso_aiuto import stazione_pronta, modalita
+    modalita('protetto')
+    client = stazione_pronta(A.app, 'commerciale')
+    dati = {'files': [], 'paths': []}
     for d in disegni:
         nome = os.path.basename(os.path.dirname(d)) + '.dxf'
         with open(d, 'rb') as f:
@@ -87,7 +90,7 @@ def main():
         dati['paths'].append(nome)
 
     print('\nImport di piu\' DXF in un colpo')
-    resp = client.post(f'/api/preventivi/{pid}/import-dxf-batch?admin_id=commerciale',
+    resp = client.post(f'/api/preventivi/{pid}/import-dxf-batch',
                        data=dati, content_type='multipart/form-data')
     check('risponde 200 (prima: 500)', resp.status_code == 200, resp.status_code)
     j = resp.get_json(silent=True) or {}

@@ -81,10 +81,10 @@ def main():
     from backend.migrations_ore import migrate_ore
     migrate_ore(eng)
 
-    from backend.database import PreventivoManager, BarcodeManager  # noqa: E402
+    from backend.database import PreventivoManager, ConfigManager  # noqa: E402
     from backend.preventivi.calcolo import calcola  # noqa: E402
 
-    cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+    cfg = (ConfigManager.load_config() or {}).get('preventivi_config') or {}
     generali = cfg.get('costo_generali_pct', 0)
 
     elenco = PreventivoManager.list(limit=500)

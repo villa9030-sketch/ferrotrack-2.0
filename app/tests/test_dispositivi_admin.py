@@ -1,14 +1,14 @@
-"""Test dell'ABILITAZIONE DEI TABLET dall'interfaccia di amministrazione.
+"""Test dei DISPOSITIVI dalla pagina di amministrazione.
 
-Il tablet appeso vicino alla timbratrice non ha login: si abilita una volta
-sola con un token di dispositivo. Prima si poteva fare solo da riga di comando,
-quindi in pratica la pagina delle ore era irraggiungibile.
+Di solito un dispositivo si registra dalla sua pagina iniziale ("Cosa e'
+questo dispositivo?") col PIN di un amministratore. Dalla pagina
+Amministrazione si puo' anche preparare un codice da portare a mano (QR o
+indirizzo), vedere l'elenco, rinominare e revocare.
 
-Verifica soprattutto che aprire questa comodita' non apra anche un buco:
- - solo capi/amministratori possono abilitare o revocare
- - dall'interfaccia NON si possono creare token d'ufficio (darebbero i poteri
-   dell'impiegata a chiunque sappia chiamare l'endpoint)
- - il token creato funziona davvero sulla pagina ore
+Verifica che la comodita' non apra un buco:
+ - solo un amministratore col PIN digitato adesso crea, elenca o revoca
+   (X-User-Id, admin_id e simili non contano)
+ - il codice creato funziona davvero: aperto una volta, diventa il cookie
  - revocato, smette di funzionare subito
  - l'elenco non espone mai il segreto
 
@@ -33,8 +33,8 @@ if not hasattr(werkzeug, '__version__'):
 from sqlalchemy import create_engine  # noqa: E402
 
 from backend import models  # noqa: E402
-from backend.models import Base, User  # noqa: E402
-from backend import models_ore  # noqa: E402
+from backend.models import Base  # noqa: E402
+from backend import models_ore  # noqa: E402,F401
 from backend.models_ore import Cliente  # noqa: E402
 
 _TMP = os.path.join(tempfile.gettempdir(), f'test_disp_{uuid.uuid4().hex[:8]}.db')
@@ -45,6 +45,8 @@ models.SessionLocal.configure(bind=_ENG)
 Base.metadata.create_all(bind=_ENG)
 
 from backend.app import app  # noqa: E402
+from tests.accesso_aiuto import (postazioni, persona, entra, eleva, modalita,  # noqa: E402
+                                 PIN_ADMIN, PIN_UFFICIO)
 
 OK = 0
 KO = []
@@ -61,12 +63,11 @@ def check(nome, cond, extra=''):
 
 
 def setup():
+    postazioni()
+    persona('capo', 'Paolo Capo', 'Laser', pin=PIN_ADMIN, admin=True)
+    persona('enzo', 'Enzo Bianchi', 'Operaio', pin=PIN_UFFICIO, admin=False)
     s = models.SessionLocal()
     try:
-        s.add(User(id='capo', name='Paolo Capo', role='Capo Officina',
-                   is_active=True, is_capo=True))
-        s.add(User(id='enzo', name='Enzo Bianchi', role='Operaio Officina',
-                   is_active=True))
         s.add(Cliente(id=str(uuid.uuid4()), nome='Cliente Alfa', attivo=True))
         s.commit()
     finally:
@@ -75,98 +76,91 @@ def setup():
 
 def main():
     setup()
-    c = app.test_client()
+    modalita('protetto')
+    anon = app.test_client()
+    enzo = entra(app, 'ufficio', pin=PIN_UFFICIO)          # entrato, ma non amministratore
+    adm = eleva(entra(app, 'laser'), PIN_ADMIN)              # al laser, col PIN di Paolo
 
     # =====================================================================
-    print('\n1) Solo capi e amministratori possono abilitare un tablet')
-    r = c.post('/api/admin/dispositivi',
-               json={'label': 'Abusivo', 'scope': 'ore', 'admin_id': 'enzo'})
-    check('operaio respinto (403)', r.status_code == 403, r.status_code)
-    r = c.post('/api/admin/dispositivi',
-               json={'label': 'Abusivo', 'scope': 'ore', 'admin_id': ''})
-    check('senza identita respinto (403)', r.status_code == 403, r.status_code)
+    print('\n1) Solo un amministratore col PIN')
+    r = enzo.post('/api/admin/dispositivi', json={'label': 'Abusivo', 'scope': 'ore', 'admin_id': 'capo'},
+                  headers={'X-User-Id': 'capo'})
+    check('persona non amministratore (anche dichiarandosi capo): 403', r.status_code == 403, r.status_code)
+    r = anon.post('/api/admin/dispositivi', json={'label': 'Abusivo', 'scope': 'ore', 'admin_id': 'capo'})
+    check('browser qualunque: 403', r.status_code == 403, r.status_code)
 
     # =====================================================================
-    print('\n2) Dall interfaccia non si creano token d ufficio')
-    r = c.post('/api/admin/dispositivi',
-               json={'label': 'Scorciatoia', 'scope': 'ufficio', 'admin_id': 'capo'})
-    check('scope ufficio rifiutato (400)', r.status_code == 400, r.status_code)
-    check('spiega il perche in italiano',
-          'officina' in (r.get_json().get('error') or '').lower(), r.get_json())
-    r = c.post('/api/admin/dispositivi',
-               json={'label': 'Fantasia', 'scope': 'root', 'admin_id': 'capo'})
-    check('scope inventato rifiutato', r.status_code == 400, r.status_code)
-
-    # =====================================================================
-    print('\n3) Il tablet abilitato funziona davvero')
-    r = c.post('/api/admin/dispositivi',
-               json={'label': '', 'scope': 'ore', 'admin_id': 'capo'})
+    print('\n2) Stazioni')
+    r = adm.post('/api/admin/dispositivi', json={'label': 'Fantasia', 'scope': 'root'})
+    check('stazione inventata rifiutata', r.status_code == 400, r.status_code)
+    r = adm.post('/api/admin/dispositivi', json={'label': '', 'scope': 'ore'})
     check('nome obbligatorio', r.status_code == 400, r.status_code)
 
-    r = c.post('/api/admin/dispositivi',
-               json={'label': 'Tablet timbratrice', 'scope': 'ore', 'admin_id': 'capo'})
+    # =====================================================================
+    print('\n3) Il codice preparato funziona davvero')
+    r = adm.post('/api/admin/dispositivi', json={'label': 'Tablet timbratrice', 'scope': 'ore'})
     check('creato (201)', r.status_code == 201, r.status_code)
     disp = r.get_json()['dispositivo']
     token, tid = disp['token'], disp['id']
-    check('indirizzo pronto per la pagina ore',
-          '/ore.html?token=' in disp.get('url', ''), disp.get('url'))
+    check('indirizzo della pagina iniziale col codice', '/?codice=' in disp.get('url', ''), disp.get('url'))
     check('indirizzo non punta a localhost',
           'localhost' not in disp['url'] and '127.0.0.1' not in disp['url'], disp['url'])
-
-    r = c.get('/api/ore/contesto', headers={'X-Device-Token': token})
-    check('il token apre la pagina ore', r.status_code == 200, r.status_code)
-    check('con lo scope giusto', r.get_json().get('scope') == 'ore', r.get_json())
-
-    r = c.get('/api/ore/anomalie', headers={'X-Device-Token': token})
-    check('ma NON le funzioni d ufficio (403)', r.status_code == 403, r.status_code)
+    tablet = app.test_client()
+    r = tablet.post('/api/accesso/usa-codice', json={'codice': token})
+    check('aperto sul tablet: diventa il cookie',
+          r.status_code == 200 and r.get_json()['pagina'] == '/ore.html', r.get_json())
+    r = tablet.get('/api/ore/contesto')
+    check('il tablet apre le ore senza altro', r.status_code == 200, r.status_code)
+    check('con la stazione giusta', r.get_json().get('scope') == 'ore', r.get_json())
+    r = tablet.get('/api/ore/anomalie')
+    check("ma NON le funzioni d'ufficio (403)", r.status_code == 403, r.status_code)
+    r = app.test_client().post('/api/accesso/usa-codice', json={'codice': 'inventato'})
+    check('codice inventato: 403', r.status_code == 403, r.status_code)
 
     # =====================================================================
-    print('\n4) L elenco non espone mai il segreto')
-    r = c.get('/api/admin/dispositivi')
-    check('elenco senza utente: 403', r.status_code == 403, r.status_code)
-    r = c.get('/api/admin/dispositivi?admin_id=capo')
+    print("\n4) L'elenco non espone mai il segreto")
+    r = enzo.get('/api/admin/dispositivi?admin_id=capo')
+    check('elenco senza PIN admin: 403', r.status_code == 403, r.status_code)
+    r = adm.get('/api/admin/dispositivi')
     righe = r.get_json()['dispositivi']
     mio = [x for x in righe if x['id'] == tid]
     check('il tablet compare in elenco', len(mio) == 1, righe)
-    check('nessun campo token nell elenco',
-          all('token' not in x for x in righe), righe)
-    check('nessun hash esposto',
-          all('token_hash' not in x and 'hash' not in x for x in righe), righe)
+    check('nessun campo token nell elenco', all('token' not in x for x in righe), righe)
+    check('nessun hash esposto', all('token_hash' not in x and 'hash' not in x for x in righe), righe)
     check('indirizzo base fornito per il QR', bool(r.get_json().get('url_base')))
+    check('si sa da quale dispositivo si guarda', sum(1 for x in righe if x.get('questo')) == 1)
+    r = adm.put(f'/api/admin/dispositivi/{tid}', json={'nome': 'Timbratrice ingresso'})
+    check('rinomina', r.status_code == 200 and any(
+        x['nome'] == 'Timbratrice ingresso' for x in adm.get('/api/admin/dispositivi').get_json()['dispositivi']),
+        r.status_code)
 
     # =====================================================================
-    print('\n5) Revoca: il tablet smette subito di funzionare')
-    r = c.delete(f'/api/admin/dispositivi/{tid}?admin_id=enzo')
-    check('operaio non puo revocare (403)', r.status_code == 403, r.status_code)
-
-    r = c.get('/api/ore/contesto', headers={'X-Device-Token': token})
-    check('prima della revoca funziona ancora', r.status_code == 200)
-
-    r = c.delete(f'/api/admin/dispositivi/{tid}?admin_id=capo')
-    check('capo revoca (200)', r.status_code == 200, r.status_code)
-
-    r = c.get('/api/ore/contesto', headers={'X-Device-Token': token})
-    check('dopo la revoca e respinto (401)', r.status_code == 401, r.status_code)
-
-    r = c.get('/api/admin/dispositivi?admin_id=capo')
-    mio = [x for x in r.get_json()['dispositivi'] if x['id'] == tid]
-    check('resta in elenco come revocato',
-          len(mio) == 1 and mio[0]['is_active'] is False, mio)
-
-    r = c.delete('/api/admin/dispositivi/non-esiste?admin_id=capo')
+    print('\n5) Revoca: il dispositivo smette subito di funzionare')
+    r = enzo.delete(f'/api/admin/dispositivi/{tid}?admin_id=capo')
+    check("non amministratore non puo' revocare (403)", r.status_code == 403, r.status_code)
+    check('prima della revoca funziona ancora', tablet.get('/api/ore/contesto').status_code == 200)
+    r = adm.delete(f'/api/admin/dispositivi/{tid}')
+    check("l'amministratore revoca (200)", r.status_code == 200, r.status_code)
+    r = tablet.get('/api/ore/contesto')
+    check("dopo la revoca e' respinto (401)", r.status_code == 401, r.status_code)
+    r = app.test_client().get('/api/ore/contesto', headers={'X-Device-Token': token})
+    check("anche col vecchio token nell'intestazione", r.status_code == 401, r.status_code)
+    mio = [x for x in adm.get('/api/admin/dispositivi').get_json()['dispositivi'] if x['id'] == tid]
+    check('resta in elenco come revocato', len(mio) == 1 and mio[0]['is_active'] is False, mio)
+    r = adm.delete('/api/admin/dispositivi/non-esiste')
     check('id inesistente -> 404', r.status_code == 404, r.status_code)
 
     # =====================================================================
-    print('\n6) QR di abilitazione')
-    r = c.get('/api/admin/dispositivi/qr?testo=http://192.168.1.9:5000/ore.html?token=x')
+    print('\n6) QR del codice')
+    r = adm.get('/api/admin/dispositivi/qr?testo=http://192.168.1.9:5000/?codice=x')
     check('QR generato', r.status_code == 200, r.status_code)
-    check('e una immagine', 'svg' in r.headers.get('Content-Type', ''),
-          r.headers.get('Content-Type'))
+    check("e' una immagine", 'svg' in r.headers.get('Content-Type', ''), r.headers.get('Content-Type'))
     check('non vuoto', len(r.data) > 500, len(r.data))
-    r = c.get('/api/admin/dispositivi/qr?testo=')
+    r = adm.get('/api/admin/dispositivi/qr?testo=')
     check('senza testo rifiutato', r.status_code == 400, r.status_code)
-    r = c.get('/api/admin/dispositivi/qr?testo=' + 'x' * 600)
+    r = adm.get('/api/admin/dispositivi/qr?testo=' + 'x' * 600)
     check('testo troppo lungo rifiutato', r.status_code == 400, r.status_code)
+    check('QR: solo amministratore', enzo.get('/api/admin/dispositivi/qr?testo=x').status_code == 403)
 
     print('\n' + '=' * 60)
     print(f'PASSATI: {OK}   FALLITI: {len(KO)}')

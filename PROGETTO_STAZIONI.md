@@ -169,6 +169,37 @@ preventivo e da un pulsante nel pannello dell'ordine: tutti da togliere.
   ordini senza preventivo nascono con distinta e disegni (scheda tecnica
   nascosta, `preventivi.solo_tecnico`).
 
+## Fatto il 5-6/10/2026
+
+- **Cartellini e codici a barre tolti del tutto** (PDF del cartellino,
+  pistole, `scan_hub`, `python-barcode`). In officina si stampa il PDF del
+  cliente o il **foglio d'ordine** (`GET /api/orders/<id>/stampa`,
+  `backend/foglio_ordine.py`). Le tabelle vecchie restano nel database come
+  storico.
+- **Accesso per dispositivo + PIN** (`backend/accesso.py`, `api_accesso.py`,
+  `frontend/ft-accesso.js`, `tools/persone.py`). Decisioni di Stefano:
+  1 PIN per persona (unico, 4-8 cifre, niente 1111 o 1234); negli uffici il
+  PIN si chiede **una volta al giorno** (vale fino alle 3 di notte, mai
+  durante la giornata); **Amministrazione e cambio di stazione** vogliono il
+  PIN di un amministratore. Laser, Tablet officina e Timbratrice entrano
+  senza PIN. Modalità `transizione` (si entra ancora "come prima" finché i
+  dispositivi non sono registrati) e `protetto`.
+- **Tablet officina** rifatto (filtri, pezzi, disegni, foglio d'ordine,
+  "Segnala un problema").
+- **Uno stile per tutta l'app: quello del preventivatore** (indaco, Inter /
+  Geist / JetBrains Mono, pannelli bianchi su fondo grigio chiaro, un solo
+  logo LS). Le alternative "Acciaio" (verde LS) e "Tavola tecnica" sono state
+  scartate: la seconda stanca a usarla tutto il giorno. Anche Tablet officina
+  e Timbratrice sono chiari, con scritte e tasti più grandi (`ft-touch`).
+- **Effetti comuni** in `ft-ui.css` / `ft-ui.js`, brevi e solo su eventi
+  veri: pagine in dissolvenza, liste che entrano in sequenza la prima volta,
+  numeri che scorrono (`FT.conta`, `FT.contaDa`), ordine nuovo evidenziato
+  (`FT.evidenzia`), spunta animata sui salvataggi. Spenti con "riduci
+  movimento".
+- Nuova **pagina iniziale** (logo, orologio, luce indaco sullo sfondo, la
+  spunta all'ingresso). Corretto il giro a vuoto dopo "cambia": la pagina
+  ripresentava "Cosa è questo dispositivo?" anche a cambio riuscito.
+
 ## Domande aperte
 
 - **Esempio della lista pezzi tagliati di Lantek** (formato e colonne), per
@@ -176,10 +207,11 @@ preventivo e da un pulsante nel pannello dell'ordine: tutti da togliere.
 - **Struttura della cartella per Lantek**: per lamiera (`S235_3mm/`) o per
   ordine (`DECA_PREV-2026-0001/`), e il percorso di rete
   (`disegni_export_root` in `app_config.json` è ancora vuoto).
-- **PIN negli uffici**: confermare il PIN a 4 cifre per Commerciale e Ufficio.
 - **Pagina "Oggi"** dell'Ufficio: confermare che l'ufficio vuole aprire lì.
-- **Dashboard grande** (`dashboard-live.html`, "35 anni di esperienza"): si
-  usa su una TV? Se no, si toglie.
+- **Dashboard grande** (`dashboard-live.html`): si usa su una TV? Se no, si
+  toglie.
+- `archivio.html` e `capo-officina.html` non hanno più link: da eliminare?
+- Serve il DDT prima di poter registrare la consegna?
 
 ## Ordine di lavoro proposto
 

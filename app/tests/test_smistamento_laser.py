@@ -25,10 +25,21 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 from playwright.sync_api import sync_playwright
 
 B = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
-LASER = {'id': 'postazione-laser', 'name': 'Laser', 'role': 'Laser', 'is_capo': True,
-         'permissions': ['overview', 'supervisione', 'lavorazione', 'archive']}
-VISIONE = {'id': 'postazione-visione', 'name': 'Tablet di visione',
-           'role': 'Visione', 'permissions': ['overview']}
+
+import os  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.accesso_server import Sessione, contesto_stazione  # noqa: E402
+
+# Chi agisce lo dice il dispositivo registrato (cookie), non lo user_id:
+# un "dispositivo" Laser per le chiamate dirette, creato quando serve.
+_LASER = None
+
+
+def laser():
+    global _LASER
+    if _LASER is None:
+        _LASER = Sessione(B, 'laser')
+    return _LASER
 
 esiti = []
 
@@ -39,7 +50,7 @@ def check(nome, cond, extra=''):
 
 
 def ordini():
-    d = json.loads(urllib.request.urlopen(B + '/api/orders', timeout=15).read())
+    _c, d = laser().get('/api/orders')
     return d if isinstance(d, list) else (d.get('orders') or [])
 
 
@@ -56,15 +67,9 @@ def rimetti_da_smistare(quanti=2):
             break
         if o.get('taglio_completato'):
             continue          # su un ordine gia' tagliato non si torna indietro
-        corpo = json.dumps({'user_id': 'postazione-laser', 'annulla': True}).encode()
-        req = urllib.request.Request(
-            B + '/api/orders/%s/smistamento' % o['id'], data=corpo, method='POST')
-        req.add_header('Content-Type', 'application/json')
-        try:
-            urllib.request.urlopen(req, timeout=15).read()
+        c, _d = laser().post('/api/orders/%s/smistamento' % o['id'], {'annulla': True})
+        if c == 200:
             fatti += 1
-        except Exception:
-            continue
     return fatti
 
 
@@ -86,15 +91,18 @@ if not _salute.get('istanza_di_prova'):
 
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
-    pg = b.new_page(viewport={'width': 1500, 'height': 950})
+    ctx = contesto_stazione(b.new_context(viewport={'width': 1500, 'height': 950}), B, 'laser')
+    pg = ctx.new_page()
     err = []
     pg.on('pageerror', lambda e: err.append(str(e)))
-
-    pg.goto(B + '/login.html')
-    pg.evaluate('u => localStorage.setItem("currentUser", JSON.stringify(u))', LASER)
     # Tre: due si smistano nella prova, e uno deve restare da guardare —
     # e' quello che in officina si deve leggere come "Da smistare".
-    rimetti_da_smistare(3)
+    if not rimetti_da_smistare(3):
+        # Nella copia del database ogni ordine e' gia' tagliato: niente da
+        # smistare, e su un taglio fatto non si torna indietro.
+        print('Nessun ordine non tagliato in questa copia del database. Test saltato.')
+        b.close()
+        sys.exit(0)
 
     pg.goto(B + '/laser.html')
     pg.wait_for_load_state('networkidle')
@@ -146,11 +154,10 @@ with sync_playwright() as p:
     pg.close()
 
     # --- l'officina vede il cambiamento ---
-    pg2 = b.new_page(viewport={'width': 1024, 'height': 768})
+    ctx2 = contesto_stazione(b.new_context(viewport={'width': 1024, 'height': 768}), B, 'reparto')
+    pg2 = ctx2.new_page()
     err2 = []
     pg2.on('pageerror', lambda e: err2.append(str(e)))
-    pg2.goto(B + '/login.html')
-    pg2.evaluate('u => localStorage.setItem("currentUser", JSON.stringify(u))', VISIONE)
     pg2.goto(B + '/operaio-info.html')
     pg2.wait_for_load_state('networkidle')
     pg2.wait_for_timeout(2500)

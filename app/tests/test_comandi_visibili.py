@@ -38,18 +38,19 @@ except ImportError:
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
 
-CAPO = {'id': 'postazione-laser', 'name': 'Laser', 'role': 'Laser', 'is_capo': True,
-        'permissions': ['overview', 'supervisione', 'lavorazione', 'archive']}
-UFFICIO = {'id': 'postazione-amministrazione', 'name': 'Amministrazione',
-           'role': 'Amministrazione', 'permissions': ['overview', 'supervisione']}
+# Ogni pagina si apre da un dispositivo registrato come la sua stazione
+# (cookie), con la persona dentro col PIN negli uffici: lo prepara
+# tests/accesso_server.py sul server di prova.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.accesso_server import contesto_stazione, PIN_ADMIN  # noqa: E402
 
 PAGINE = [
-    ('impiegata.html', UFFICIO),
-    ('capo-officina.html', CAPO),
-    ('laser.html', CAPO),
-    ('preventivi.html', CAPO),
-    ('admin.html', CAPO),
-    ('archivio.html', CAPO),
+    ('impiegata.html', 'ufficio'),
+    ('capo-officina.html', 'laser'),
+    ('laser.html', 'laser'),
+    ('preventivi.html', 'commerciale'),
+    ('admin.html', 'admin'),
+    ('archivio.html', 'ufficio'),
 ]
 
 # Sotto 3 una scritta si fatica a leggerla; sotto 2 e' praticamente sparita.
@@ -171,13 +172,14 @@ def main():
     print('Comandi che spariscono al passaggio del mouse\n')
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True)
-        for pagina, utente in PAGINE:
-            pg = b.new_page(viewport={'width': 1500, 'height': 950})
+        for pagina, stazione in PAGINE:
+            ctx = contesto_stazione(b.new_context(viewport={'width': 1500, 'height': 950}), BASE,
+                                    'ufficio' if stazione == 'admin' else stazione)
+            if stazione == 'admin':
+                ctx.request.post(BASE + '/api/accesso/admin', data={'pin': PIN_ADMIN})
+            pg = ctx.new_page()
             guasti = []
             try:
-                pg.goto(BASE + '/login.html')
-                pg.evaluate('u => localStorage.setItem("currentUser", JSON.stringify(u))',
-                            utente)
                 pg.goto(BASE + '/' + pagina)
                 pg.wait_for_load_state('networkidle', timeout=20000)
                 pg.wait_for_timeout(1500)

@@ -75,7 +75,7 @@ os.makedirs(A.DRAWINGS_FOLDER, exist_ok=True)
 os.makedirs(A.PDFS_FOLDER, exist_ok=True)
 dxf_cache._CACHE_DB_PATH = os.path.join(_CARTELLE, 'dxf_cache.db')
 _RETE = os.path.join(_CARTELLE, 'rete')
-_config_vera = A.BarcodeManager.load_config
+_config_vera = A.ConfigManager.load_config
 
 
 def _config_prova():
@@ -84,7 +84,7 @@ def _config_prova():
     return cfg
 
 
-A.BarcodeManager.load_config = staticmethod(_config_prova)
+A.ConfigManager.load_config = staticmethod(_config_prova)
 
 OK = 0
 KO = []
@@ -171,8 +171,14 @@ def zip_di(contenuti):
     return buf.getvalue()
 
 
+# Chi agisce lo dice il dispositivo (+ PIN negli uffici): un client per
+# ognuno. Si riempie in main().
+CL = {}
+
+
 def analizza(c, user='ufficio', files=None, paths=None, zip_bytes=None):
-    data = {'user_id': user}
+    c = CL.get(user, c)
+    data = {}
     if zip_bytes is not None:
         data['zip'] = (io.BytesIO(zip_bytes), 'pacchetto.zip')
     else:
@@ -185,7 +191,8 @@ def analizza(c, user='ufficio', files=None, paths=None, zip_bytes=None):
 
 
 def conferma(c, pid, **corpo):
-    base = {'user_id': 'ufficio', 'numero_ordine': '4521', 'cliente': 'Officine Rossi S.r.l.',
+    c = CL.get(corpo.pop('user_id', None), c)
+    base = {'numero_ordine': '4521', 'cliente': 'Officine Rossi S.r.l.',
             'data_consegna': CONSEGNA_ISO}
     base.update(corpo)
     return c.post(f'/api/orders/da-pacchetto/{pid}/conferma', json=base)
@@ -205,13 +212,21 @@ def main():
         s.commit()
     finally:
         s.close()
-    c = A.app.test_client()
+    from tests.accesso_aiuto import postazioni, persona, entra, modalita
+    modalita('protetto')
+    postazioni()
+    persona('ufficio', 'Amministrazione', 'Amministrazione', pin='2580')
+    persona('comm', 'Commerciale', 'Commerciale', pin='3691')
+    CL.update({'ufficio': entra(A.app, 'ufficio', pin='2580'),
+               'comm': entra(A.app, 'commerciale', pin='3691'),
+               'operaio': entra(A.app, 'reparto')})
+    c = CL['ufficio']
 
     # =====================================================================
     print('\n1) Import del preventivatore dopo il riordino')
     files, paths = cartella(nome_pdf='RICHIESTA.pdf')
-    r = c.post('/api/preventivi/import-rfq-package',
-               data={'admin_id': 'comm', 'files': files, 'paths': paths},
+    r = CL['comm'].post('/api/preventivi/import-rfq-package',
+               data={'files': files, 'paths': paths},
                content_type='multipart/form-data')
     d = r.get_json() or {}
     check('import-rfq-package risponde come prima', r.status_code == 200 and d.get('success')
@@ -227,8 +242,8 @@ def main():
     print('\n2) Analisi del pacchetto')
     r = analizza(c, user='operaio')
     check('un operaio non puo\'', r.status_code == 403
-          and r.get_json().get('codice') == 'permesso_negato', r.get_json())
-    r = c.post('/api/orders/da-pacchetto/analizza', data={'user_id': 'ufficio'},
+          and r.get_json().get('codice') == 'stazione_non_ammessa', r.get_json())
+    r = c.post('/api/orders/da-pacchetto/analizza', data={},
                content_type='multipart/form-data')
     check('senza file: 400 nessun_file', r.status_code == 400
           and r.get_json().get('codice') == 'nessun_file', r.get_json())
@@ -310,7 +325,7 @@ def main():
             ('post', f'/api/preventivi/{pid}/accetta', {'user_id': 'comm'}),
             ('post', f'/api/preventivi/{pid}/duplica', {'user_id': 'comm', 'created_by': 'comm'}),
             ('delete', f'/api/preventivi/{pid}', {'user_id': 'comm'})):
-        r = getattr(c, metodo)(url, json=corpo)
+        r = getattr(CL['comm'], metodo)(url, json=corpo)
         check(f'{metodo.upper()} {url.split(pid)[1] or "/"} rifiutato (409)', r.status_code == 409
               and 'pacchetto' in (r.get_json() or {}).get('error', ''), (r.status_code, r.get_json()))
     check('update / transizioni rifiutati anche dal gestore',
@@ -357,7 +372,7 @@ def main():
     check('ordine creato (201)', r.status_code == 201 and d.get('success') and d.get('order_id'), d)
     oid = d.get('order_id')
     check('risposta completa', d.get('numero_ordine') == '4521'
-          and d.get('cartellino_url') == f'/api/orders/{oid}/cartellino'
+          and 'cartellino_url' not in d
           and (d.get('ordine') or {}).get('id') == oid, d)
     s = models.SessionLocal()
     try:
@@ -420,7 +435,7 @@ def main():
           and j.get('codice') == 'gia_confermato' and j.get('order_id') == oid, j)
     lista = c.get('/api/preventivi?limit=500').get_json()
     check('anche usato resta fuori dal preventivatore', pid not in {p['id'] for p in lista['preventivi']})
-    r = c.delete(f'/api/orders/da-pacchetto/{pid}', json={'user_id': 'ufficio'})
+    r = c.delete(f'/api/orders/da-pacchetto/{pid}', json={})
     check('un pacchetto diventato ordine non si annulla', r.status_code == 409)
 
     # =====================================================================
@@ -462,9 +477,9 @@ def main():
     check('conferma senza forza: 409 ordine_duplicato', r.status_code == 409
           and j.get('codice') == 'ordine_duplicato' and j.get('ordine_esistente', {}).get('id') == oid, j)
     check('il pacchetto resta confermabile', PreventivoManager.get_tecnico(pid2) is not None)
-    r = c.delete(f'/api/orders/da-pacchetto/{pid2}', json={'user_id': 'operaio'})
+    r = CL['operaio'].delete(f'/api/orders/da-pacchetto/{pid2}', json={})
     check('annulla: operaio 403', r.status_code == 403)
-    r = c.delete(f'/api/orders/da-pacchetto/{pid2}', json={'user_id': 'ufficio'})
+    r = c.delete(f'/api/orders/da-pacchetto/{pid2}', json={})
     check('annulla: 200', r.status_code == 200 and r.get_json().get('success'), r.get_json())
     s = models.SessionLocal()
     try:
@@ -474,9 +489,9 @@ def main():
         s.close()
     check('annulla: file temporanei cancellati',
           not os.path.exists(os.path.join(A.UPLOAD_FOLDER, 'preventivi_tmp', pid2)))
-    r = c.delete(f'/api/orders/da-pacchetto/{pid2}', json={'user_id': 'ufficio'})
+    r = c.delete(f'/api/orders/da-pacchetto/{pid2}', json={})
     check('annulla di nuovo: 404', r.status_code == 404)
-    r = c.delete(f'/api/orders/da-pacchetto/{prev_vero}', json={'user_id': 'ufficio'})
+    r = c.delete(f'/api/orders/da-pacchetto/{prev_vero}', json={})
     check('un preventivo vero non si cancella da qui', r.status_code == 404)
 
     # forza: un secondo ordine con lo stesso numero, se l'ufficio lo vuole
@@ -505,7 +520,7 @@ def main():
         check('i pacchetti usati non si toccano', s.query(Preventivo).filter(Preventivo.id == pid).first() is not None)
     finally:
         s.close()
-    c.delete(f"/api/orders/da-pacchetto/{d5['pacchetto_id']}", json={'user_id': 'ufficio'})
+    c.delete(f"/api/orders/da-pacchetto/{d5['pacchetto_id']}", json={})
 
     # =====================================================================
     print('\n8) Pacchetti incompleti')
@@ -547,15 +562,16 @@ def main():
     check('PDF non riconosciuto: testata vuota da compilare, con avviso',
           d.get('cliente') == '' and d.get('numero_ordine') == '' and d.get('data_consegna') is None
           and any('quantita' in a.lower() for a in d.get('avvisi') or []), (d.get('cliente'), d.get('avvisi')))
-    c.delete(f"/api/orders/da-pacchetto/{d['pacchetto_id']}", json={'user_id': 'ufficio'})
+    c.delete(f"/api/orders/da-pacchetto/{d['pacchetto_id']}", json={})
 
     z = zip_di({'disegno.dxf': DXF['EXTRA-900.dxf']})
     r = analizza(c, zip_bytes=z)
     check('senza PDF: errore chiaro', r.status_code == 400
           and r.get_json().get('codice') == 'pacchetto_illeggibile', r.get_json())
+    # Caricare gli ordini e' dell'Ufficio (stazioni): prima lo poteva fare
+    # anche il commerciale, che pero' non ha la pagina per farlo.
     r = analizza(c, user='comm')
-    check('anche il commerciale puo\' caricare un pacchetto', r.status_code == 200)
-    c.delete(f"/api/orders/da-pacchetto/{r.get_json()['pacchetto_id']}", json={'user_id': 'comm'})
+    check("il commerciale non carica pacchetti d'ordine (e' dell'Ufficio)", r.status_code == 403, r.status_code)
 
     # =====================================================================
     print('\n9) Migrazione della colonna solo_tecnico')
@@ -589,7 +605,7 @@ if __name__ == '__main__':
     try:
         code = main()
     finally:
-        A.BarcodeManager.load_config = _config_vera
+        A.ConfigManager.load_config = _config_vera
         try:
             _ENG.dispose()
             os.remove(_TMP)

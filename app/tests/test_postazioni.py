@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Si entra da una postazione, non col nome di una persona.
+"""Le postazioni e le persone, viste dal server.
 
 Copre le due cose che, sbagliate, si notano solo in azienda:
 
-  1. all'ingresso compaiono i POSTI (timbratrice, tablet di visione,
-     amministrazione, laser, commerciale) e non le persone. Se comparisse
-     Mirko, la prima cosa che uno fa e' entrare come se stesso, e da li' in poi
-     non si capisce piu' chi ha fatto cosa;
+  1. le cinque POSTAZIONI (timbratrice, tablet di visione, amministrazione,
+     laser, commerciale) ci sono ancora: sono il "chi" dello storico quando
+     non c'e' una persona (al laser, in officina). Oggi all'ingresso non si
+     sceglie piu' da un elenco: il dispositivo e' registrato come stazione
+     (backend/accesso.py) e negli uffici si entra col PIN;
 
   2. gli OPERAI restano, con la loro storia di ore attaccata. Se sparissero,
      la bacheca della timbratrice non avrebbe piu' nomi da mostrare e le
@@ -74,13 +75,18 @@ def main():
         print('Server non raggiungibile su %s. Test saltato.' % BASE)
         return 0
 
-    stato, d = chiama('/api/users')
+    # L'elenco delle persone non e' piu' aperto a chiunque: lo legge l'Ufficio.
+    stato, _ = chiama('/api/users')
+    check('elenco utenti: da un browser qualunque non si legge (401)', stato == 401, stato)
+    from tests.accesso_server import Sessione
+    uff = Sessione(BASE, 'ufficio')
+    stato, d = uff.get('/api/users')
     if stato != 200:
-        print('Elenco utenti non leggibile. Test saltato.')
-        return 0
-    utenti = {u['id']: u for u in (d.get('users') or d if isinstance(d, list) else d.get('users', []))}
+        print('Elenco utenti non leggibile neanche dall\'Ufficio (%s). Test saltato.' % stato)
+        return 1
+    utenti = {u['id']: u for u in (d.get('users') or [])}
 
-    print('1) All\'ingresso compaiono i posti, non le persone')
+    print('1) Le cinque postazioni ci sono ancora')
     postazioni = {i: u for i, u in utenti.items()
                   if u.get('e_postazione') and u.get('is_active', True)}
     check('ci sono tutte e cinque le postazioni',
@@ -90,7 +96,7 @@ def main():
         check('%-28s si chiama "%s"' % (pid, nome), u.get('name') == nome, u.get('name'))
         check('%-28s ha ruolo "%s"' % (pid, ruolo), u.get('role') == ruolo, u.get('role'))
 
-    print("\n2) Le persone, se ci sono, non entrano nel programma")
+    print("\n2) Le persone non sono postazioni e non comandano")
     # Non si pretende di trovare nomi precisi: il programma non arriva con
     # delle persone dentro, le mette chi lavora. Un test che cerca "Mirko"
     # fallirebbe il giorno in cui Mirko se ne va, cioe' quando tutto funziona.
@@ -108,11 +114,13 @@ def main():
 
 
     print('\n3) La bacheca della timbratrice ha ancora i nomi da mostrare')
-    from backend.ore_service import elenco_operai
+    # Dal SERVER di prova, non importando il backend qui: importarlo in questo
+    # processo apriva il database VERO (e all'import lo migrava).
     try:
-        nomi = {o['id'] for o in elenco_operai()}
-        check('gli operai compaiono sulla bacheca',
-              set(OPERAI).issubset(nomi), sorted(nomi))
+        _c, d = uff.get('/api/ore/operai')
+        nomi = {o['id'] for o in (d.get('operai') or [])}
+        # Non nomi precisi: le persone le mette chi lavora (e se ne vanno).
+        check('gli operai compaiono sulla bacheca', bool(nomi), sorted(nomi))
         check('le postazioni NON compaiono sulla bacheca',
               not (set(POSTAZIONI) & nomi), sorted(nomi))
     except Exception as e:
@@ -131,49 +139,39 @@ def main():
     # L'elenco normale mostra solo chi e' attivo: per vedere anche le utenze
     # spente bisogna chiederle. Devono esserci ancora, perche' l'archivio
     # delle azioni le nomina, e senza la riga lo storico diventa illeggibile.
-    _, tutti = chiama('/api/users?include_inactive=true')
+    _, tutti = uff.get('/api/users?include_inactive=true')
     tutte = {u['id']: u for u in (tutti.get('users') or [])}
     for vecchio in ('elena-impiegata', 'paolo-responsabile',
                     'stefano-responsabile'):
         u = tutte.get(vecchio)
-        check("%-22s c'e' ancora (storico leggibile)" % vecchio, u is not None)
+        if u is None:
+            # installazione nata dopo il passaggio alle postazioni: non c'e' mai stata
+            print("   %-22s non c'e' in questo database (mai esistita qui)" % vecchio)
+            continue
         if u:
             check("%-22s e' spenta" % vecchio, u.get('is_active') is False)
         check("%-22s non compare all'ingresso" % vecchio,
               vecchio not in postazioni)
 
 
-    print('\n6) Una sessione vecchia viene riconosciuta come tale')
-    stato, d = chiama('/api/auth/sessione/stefano-responsabile')
-    check('una postazione spenta non vale piu\'',
-          stato == 200 and d.get('valida') is False, d)
-    check('e lo spiega, invece di tacere', bool(d.get('motivo')), d)
-    stato, d = chiama('/api/auth/sessione/postazione-laser')
-    check('una postazione attiva vale', stato == 200 and d.get('valida') is True, d)
-    check('e riporta i dati aggiornati',
-          (d.get('utente') or {}).get('role') == 'Laser', d.get('utente'))
-    stato, d = chiama('/api/auth/sessione/non-esiste-questo')
-    check('un id inventato non vale', d.get('valida') is False, d)
+    print('\n6) La vecchia "sessione" del browser non esiste piu\'')
+    # Prima la pagina chiedeva al server se lo user_id in memoria valeva
+    # ancora; ora chi sei lo sa il server (cookie del dispositivo + PIN).
+    stato, _ = chiama('/api/auth/sessione/postazione-laser')
+    check('/api/auth/sessione/<id> tolta (404)', stato == 404, stato)
 
-    print("\n7) Nessuna pagina e' rimasta indietro sui nomi nuovi")
-    # La mappa "dove sta di casa una postazione" e' ripetuta in cinque pagine,
-    # perche' le pagine sono indipendenti l'una dall'altra. Se una resta
-    # indietro, chi ci capita viene rimandato nel posto sbagliato. Il controllo
-    # e' grossolano — cerca il nome del ruolo nel testo della pagina — ma prende
-    # il caso vero: una pagina che il ruolo nuovo non lo nomina affatto.
+    print("\n7) Ogni pagina usa lo stesso ingresso")
+    # Dove sta di casa una stazione lo dice il server (/api/accesso/io) e lo
+    # applica ft-accesso.js, uguale in tutte le pagine: prima la mappa era
+    # copiata in cinque pagine e una restava sempre indietro.
     import io as _io
-    ruoli_attesi = ('Timbratrice', 'Visione', 'Laser', 'Amministrazione',
-                    'Commerciale')
-    for pagina in ('login.html', 'admin.html', 'archivio.html',
-                   'preventivi.html', 'capo-officina.html'):
+    for pagina in ('admin.html', 'archivio.html', 'preventivi.html', 'capo-officina.html',
+                   'impiegata.html', 'laser.html', 'operaio-info.html', 'ore.html',
+                   'ufficio-ore.html', 'dashboard-live.html', 'dxf-editor.html', 'preview-dxf.html'):
         percorso = os.path.join(_APP, 'frontend', pagina)
-        try:
-            testo = _io.open(percorso, encoding='utf-8').read()
-        except OSError:
-            continue
-        mancanti = [r for r in ruoli_attesi if ("'%s'" % r) not in testo]
-        check('%-22s conosce tutte le postazioni' % pagina,
-              not mancanti, 'non nomina: %s' % ', '.join(mancanti))
+        testo = _io.open(percorso, encoding='utf-8').read()
+        check('%-22s usa ft-accesso.js' % pagina, '/ft-accesso.js' in testo)
+        check('%-22s non manda piu\' X-User-Id' % pagina, 'X-User-Id' not in testo)
 
     print('\n' + '=' * 60)
     print('PASSATI: %d   FALLITI: %d' % (OK, len(KO)))

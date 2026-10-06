@@ -182,8 +182,8 @@ def rivaluta_giornata(operatore_id: str, giorno) -> dict:
 def _data_avvio():
     """Giorno da cui il sistema delle ore e' in uso (None se non impostato)."""
     try:
-        from .database import BarcodeManager
-        valore = (BarcodeManager.load_config() or {}).get('ore_attive_dal')
+        from .database import ConfigManager
+        valore = (ConfigManager.load_config() or {}).get('ore_attive_dal')
         return parse_data(valore) if valore else None
     except Exception:
         logger.warning('data di avvio ore non leggibile: controllo tutto lo storico')

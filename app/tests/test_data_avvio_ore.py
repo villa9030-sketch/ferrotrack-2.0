@@ -39,7 +39,7 @@ models.SessionLocal.configure(bind=_ENG)
 Base.metadata.create_all(bind=_ENG)
 
 from backend import anomalie_service as A          # noqa: E402
-from backend.database import get_session, BarcodeManager  # noqa: E402
+from backend.database import get_session, ConfigManager  # noqa: E402
 
 OK = 0
 KO = []
@@ -69,10 +69,10 @@ def main():
     finally:
         s.close()
 
-    vera = BarcodeManager.load_config
+    vera = ConfigManager.load_config
 
     def con_avvio(valore):
-        BarcodeManager.load_config = staticmethod(
+        ConfigManager.load_config = staticmethod(
             lambda: {'ore_attive_dal': valore})
 
     # 1. Senza data di avvio: si controlla tutto lo storico, come prima.
@@ -118,7 +118,7 @@ def main():
     check('la data di avvio vale anche su un periodo chiesto a mano',
           r.get('giorni', 0) == 0, r)
 
-    BarcodeManager.load_config = vera
+    ConfigManager.load_config = vera
 
     print('\n' + '=' * 60)
     print('PASSATI: %d   FALLITI: %d' % (OK, len(KO)))

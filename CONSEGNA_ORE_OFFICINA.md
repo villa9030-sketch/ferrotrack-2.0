@@ -126,14 +126,14 @@ Niente è stato cancellato.
 
 | Cosa | Dove sta ora |
 |---|---|
-| Scansioni con la pistola | Tabella `officina_scans`, intatta e consultabile dal dettaglio ordine |
+| Scansioni con la pistola | Tabella `officina_scans`, intatta (da ottobre 2026 l'app non la legge più) |
 | Tempi per ordine ricavati dalle scansioni | Restano leggibili; **non** entrano nel riepilogo economico (niente doppio conteggio) |
 | Ordini già in `DA_FATTURARE` | Compaiono in *Pronti per DDT*, con la riga "già finito prima di questo sistema" |
 | Stato `status` dell'ordine | Significato invariato; le nuove date sono colonne a parte |
 | Pistole registrate | Tabella `pistole`, intatta |
 
-Riattivando l'interruttore in *Admin → Rilevazione delle ore* tutto il vecchio
-sistema torna a funzionare com'era.
+Da ottobre 2026 pistole, cartellini e `scan_hub` sono stati tolti del tutto
+dal codice: l'interruttore per riattivarli non c'è più.
 
 ---
 
@@ -238,10 +238,8 @@ comanda lo scope del dispositivo.
 
 Tutto reversibile, in ordine di gravità.
 
-**Tornare alle pistole senza toccare il codice**
-Admin → Soglie sistema → *Rilevazione delle ore* → spunta *Riattiva la
-rilevazione con pistola barcode*. Riavvia `scan_hub` sul PC di Elena. Le
-dichiarazioni già inserite restano.
+**Tornare alle pistole**: non più possibile senza tornare a un codice
+precedente (ottobre 2026: pistole, cartellini e `scan_hub` tolti del tutto).
 
 **Disabilitare un tablet**
 Admin → Soglie sistema → Tablet di officina → *Revoca*. Da quel momento non

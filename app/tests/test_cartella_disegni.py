@@ -20,7 +20,7 @@ A = importlib.import_module('backend.app')  # noqa: E402
 FINTA = os.path.join(tempfile.gettempdir(), 'ferrotrack_prova_disegni')
 os.makedirs(os.path.join(FINTA, 'DECA S.r.l', 'PREV-2026-0007'), exist_ok=True)
 
-_vera = A.BarcodeManager.load_config
+_vera = A.ConfigManager.load_config
 esiti = []
 
 
@@ -38,7 +38,7 @@ ORD = {'id': 'abc-123', 'cliente': 'DECA S.r.l.', 'numero_ordine': 'PREV-2026-00
 print('Etichetta cartella disegni')
 
 # 1. cartella condivisa configurata e la sottocartella esiste
-A.BarcodeManager.load_config = staticmethod(lambda: {'disegni_export_root': FINTA})
+A.ConfigManager.load_config = staticmethod(lambda: {'disegni_export_root': FINTA})
 controlla('dice cliente e numero ordine',
           'DECA S.r.l.  \u203a  PREV-2026-0007',
           A._etichetta_cartella_disegni(ORD))
@@ -50,13 +50,13 @@ controlla('tace se la sottocartella non e\' stata preparata',
               {'id': 'x', 'cliente': 'ALTRO', 'numero_ordine': 'PREV-9999'}))
 
 # 3. cartella condivisa non configurata: non c'e' niente da dire
-A.BarcodeManager.load_config = staticmethod(lambda: {'disegni_export_root': ''})
+A.ConfigManager.load_config = staticmethod(lambda: {'disegni_export_root': ''})
 controlla('tace se la cartella condivisa non e\' configurata',
           '',
           A._etichetta_cartella_disegni(ORD))
 
 # 4. ordine senza numero: non si puo' costruire un nome
-A.BarcodeManager.load_config = staticmethod(lambda: {'disegni_export_root': FINTA})
+A.ConfigManager.load_config = staticmethod(lambda: {'disegni_export_root': FINTA})
 controlla('tace se l\'ordine non ha numero',
           '',
           A._etichetta_cartella_disegni({'id': 'y', 'cliente': 'DECA S.r.l.',
@@ -69,10 +69,10 @@ def _esplode():
     raise RuntimeError('configurazione irraggiungibile')
 
 
-A.BarcodeManager.load_config = staticmethod(_esplode)
+A.ConfigManager.load_config = staticmethod(_esplode)
 controlla('regge se la configurazione non si legge', '',
           A._etichetta_cartella_disegni(ORD))
 
-A.BarcodeManager.load_config = _vera
+A.ConfigManager.load_config = _vera
 print('\nPASSATI: %d   FALLITI: %d' % (sum(esiti), len(esiti) - sum(esiti)))
 sys.exit(0 if all(esiti) else 1)

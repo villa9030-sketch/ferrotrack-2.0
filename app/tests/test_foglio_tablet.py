@@ -23,8 +23,11 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 from playwright.sync_api import sync_playwright
 
 B = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
-U = {'id': 'postazione-visione', 'name': 'Tablet di visione', 'role': 'Visione',
-     'permissions': ['overview']}
+# Il tablet e' un dispositivo registrato come Tablet officina (cookie):
+# tests/accesso_server.py lo prepara sul server di prova.
+import os  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.accesso_server import contesto_stazione  # noqa: E402
 
 esiti = []
 
@@ -46,12 +49,10 @@ except Exception as _e:
 
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
-    pg = b.new_page(viewport={'width': 1024, 'height': 768})
+    ctx = contesto_stazione(b.new_context(viewport={'width': 1024, 'height': 768}), B, 'reparto')
+    pg = ctx.new_page()
     err = []
     pg.on('pageerror', lambda e: err.append(str(e)))
-
-    pg.goto(B + '/login.html')
-    pg.evaluate('u => localStorage.setItem("currentUser", JSON.stringify(u))', U)
     pg.goto(B + '/operaio-info.html')
     pg.wait_for_load_state('networkidle')
     pg.wait_for_timeout(2500)
@@ -83,7 +84,8 @@ with sync_playwright() as p:
         check('il foglio si apre nella pagina, non in una scheda nuova',
               pg.locator('#foglio').is_visible() and len(pg.context.pages) == 1)
         src = pg.locator('#foglio-pdf').get_attribute('src')
-        check('carica il PDF di quell\'ordine', '/pdf' in (src or ''), src)
+        # il foglio d'ordine: il PDF del cliente, o quello generato (/stampa)
+        check('carica il foglio di quell\'ordine', '/stampa' in (src or '') or '/pdf' in (src or ''), src)
         check('adattato alla larghezza, senza barra del visore',
               'view=FitH' in (src or '') and 'toolbar=0' in (src or ''), src)
 

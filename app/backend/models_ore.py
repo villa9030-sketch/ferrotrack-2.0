@@ -34,21 +34,57 @@ class DeviceToken(Base):
     operai non fanno alcun passaggio aggiuntivo. Il backend deriva i permessi
     DAL TOKEN, non da cio' che dichiara il client.
 
-    Scope:
-      'ore'     -> solo operazioni sulle dichiarazioni ore
-      'reparto' -> sola lettura ordini e allegati
-      'ufficio' -> operazioni dell'impiegata (correzioni, ordini)
+    Lo scope e' la STAZIONE del dispositivo (vedi backend/accesso.py):
+      'commerciale' -> PC dei preventivi (si entra col PIN personale)
+      'ufficio'     -> PC dell'amministrazione (si entra col PIN personale)
+      'laser'       -> secondo monitor accanto a Lantek (entra subito)
+      'reparto'     -> Tablet officina, sola lettura (entra subito)
+      'ore'         -> Timbratrice (entra subito)
     """
     __tablename__ = 'device_tokens'
     id = Column(String, primary_key=True)
     token_hash = Column(String, nullable=False, unique=True, index=True)
     label = Column(String, nullable=False)          # es. "Tablet officina 1"
-    scope = Column(String, nullable=False)          # 'ore' | 'reparto' | 'ufficio'
+    scope = Column(String, nullable=False)          # stazione: vedi sopra
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     created_by = Column(String, nullable=True)
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
+
+
+class SessioneAccesso(Base):
+    """Una sessione aperta col PIN su un dispositivo registrato.
+
+    tipo 'ufficio': la persona e' entrata in Commerciale/Ufficio. Dura fino
+        alle 3 di notte (ora italiana): di giorno il PIN non si richiede mai.
+    tipo 'admin': un amministratore ha digitato il suo PIN per un'operazione
+        di amministrazione. Dura pochi minuti.
+
+    Come per i dispositivi si salva solo l'impronta del segreto: il segreto
+    vero sta nel cookie del browser, che JavaScript non puo' leggere.
+    """
+    __tablename__ = 'sessioni_accesso'
+    id = Column(String, primary_key=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    tipo = Column(String, nullable=False)              # 'ufficio' | 'admin'
+    device_id = Column(String, nullable=True, index=True)
+    user_id = Column(String, nullable=False)
+    creata_il = Column(DateTime, nullable=False)
+    scade_il = Column(DateTime, nullable=False)
+    chiusa_il = Column(DateTime, nullable=True)
+    ultimo_uso_il = Column(DateTime, nullable=True)
+    ip = Column(String, nullable=True)
+
+
+class TentativoPin(Base):
+    """Ogni PIN digitato, giusto o sbagliato: serve a fermare chi tira a
+    indovinare (5 sbagliati di fila e il dispositivo aspetta qualche minuto)."""
+    __tablename__ = 'tentativi_pin'
+    id = Column(String, primary_key=True)
+    chiave = Column(String, nullable=False, index=True)   # dispositivo o indirizzo
+    quando = Column(DateTime, nullable=False, index=True)
+    riuscito = Column(Boolean, nullable=False, default=False)
 
 
 # ---------------------------------------------------------------------------

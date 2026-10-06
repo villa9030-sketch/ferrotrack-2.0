@@ -45,11 +45,11 @@ models.SessionLocal.configure(bind=_ENG)
 Base.metadata.create_all(bind=_ENG)
 
 from backend.app import app  # noqa: E402
-from backend.database import PreventivoManager, BarcodeManager  # noqa: E402
+from backend.database import PreventivoManager, ConfigManager  # noqa: E402
 from backend.preventivi.verifica import verifica  # noqa: E402
 
 _CFG = os.path.join(tempfile.gettempdir(), f'test_ver_cfg_{uuid.uuid4().hex[:8]}.json')
-BarcodeManager._CONFIG_PATH = _CFG
+ConfigManager._CONFIG_PATH = _CFG
 with open(_CFG, 'w', encoding='utf-8') as _f:
     json.dump({'preventivi_config': {'costo_generali_pct': 0}}, _f)
 
@@ -78,7 +78,10 @@ def main():
         s.commit()
     finally:
         s.close()
-    c = app.test_client()
+    # la stazione Commerciale, con una persona entrata col PIN
+    from tests.accesso_aiuto import stazione_pronta, modalita
+    modalita('protetto')
+    c = stazione_pronta(app, 'commerciale')
 
     # =====================================================================
     print('\n1) Errori che fermano')

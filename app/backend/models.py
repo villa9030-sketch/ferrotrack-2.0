@@ -236,6 +236,16 @@ class User(Base):
     # False = e' una PERSONA di cui si contano le ore (bacheca timbratrice),
     #         che nel programma non entra.
     e_postazione = Column(Boolean, default=False, nullable=False)  # True = capo officina, controllo totale
+    # PIN personale per entrare in Commerciale e Ufficio. Si salva solo
+    # l'impronta (scrypt col sale di quella persona, vedi backend/accesso.py):
+    # chi copia il database non legge i PIN. Vuoto = la persona non entra
+    # negli uffici (gli operai della bacheca, per esempio).
+    pin_hash = Column(String, nullable=True)
+    pin_impostato_il = Column(DateTime, nullable=True)
+    # Amministratore: registra i dispositivi, rimette i PIN, gestisce le
+    # persone. E' una qualita' della PERSONA, non del posto: al laser non si
+    # entra col PIN, quindi l'amministratore lo digita al momento.
+    e_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -311,10 +321,12 @@ class Notification(Base):
 
 
 class Pistola(Base):
-    """Pistola barcode WiFi assegnata a un operatore.
+    """STORICO, NON PIU' USATO: pistole barcode WiFi assegnate agli operai.
 
-    L'ID hardware (pistola_id) viene configurato una sola volta nella pistola
-    stessa e inviato a ogni scan; il sistema risale all'operatore di conseguenza.
+    Le pistole sono state tolte (ottobre 2026): nessun codice legge o scrive
+    piu' questa tabella. Il modello resta solo perche' la tabella esiste nel
+    database con i dati di allora, e non si cancellano dati con una
+    migrazione distruttiva.
     """
     __tablename__ = 'pistole'
     id = Column(String, primary_key=True)
@@ -326,15 +338,12 @@ class Pistola(Base):
 
 
 class OfficinaScan(Base):
-    """Sessione di lavoro su un ordine in officina, aperta/chiusa da scan barcode.
+    """STORICO, NON PIU' USATO: sessioni di lavoro aperte/chiuse dalle
+    scansioni con la pistola barcode.
 
-    Una scan apre una sessione (timestamp_inizio). Si chiude quando:
-    - lo stesso operaio scansiona un altro ordine ('altro_ordine')
-    - capo/impiegata sposta l'ordine a fase successiva ('cambio_fase')
-    - job di fine turno chiude le residue ('fine_turno')
-    - admin chiude manualmente ('manuale')
-
-    Tempo totale ordine = SUM(timestamp_fine - timestamp_inizio) sulle scan chiuse.
+    Pistole e cartellini sono stati tolti (ottobre 2026): le ore si dichiarano
+    dal tablet della timbratrice (ore_service). La tabella resta coi dati di
+    allora; nessun codice la legge o la scrive piu'.
     """
     __tablename__ = 'officina_scans'
     id = Column(String, primary_key=True)
@@ -889,6 +898,14 @@ def initialize_database():
 
     _indice_numero_prev()
     seed_users()
+
+    # Accesso: se app_config.json non dice ancora "transizione" o "protetto",
+    # ci scrive quella di partenza (in uso -> transizione, nuova -> protetto).
+    try:
+        from .accesso import fissa_modalita_di_partenza
+        fissa_modalita_di_partenza()
+    except Exception as e:  # l'avvio non si ferma per questo
+        logger.warning('modalita\' di accesso non fissata: %s', e)
 
 
 def _indice_numero_prev():

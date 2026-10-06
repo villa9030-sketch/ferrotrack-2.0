@@ -41,12 +41,12 @@ models.engine = _ENG
 models.SessionLocal.configure(bind=_ENG)
 Base.metadata.create_all(bind=_ENG)
 
-from backend.database import PreventivoManager, BarcodeManager  # noqa: E402
+from backend.database import PreventivoManager, ConfigManager  # noqa: E402
 from backend.preventivi.calcolo import calcola  # noqa: E402
 from backend.app import _nome_disegno_libero, _preventivo_to_pdf_dati  # noqa: E402
 
 _CFG = os.path.join(tempfile.gettempdir(), f'test_rob_cfg_{uuid.uuid4().hex[:8]}.json')
-BarcodeManager._CONFIG_PATH = _CFG
+ConfigManager._CONFIG_PATH = _CFG
 
 
 def scrivi_config(generali_pct):

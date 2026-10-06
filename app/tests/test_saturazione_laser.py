@@ -59,8 +59,9 @@ Base.metadata.create_all(bind=_ENG)
 
 import importlib  # noqa: E402
 A = importlib.import_module('backend.app')
-from backend.database import PreventivoManager, BarcodeManager  # noqa: E402
+from backend.database import PreventivoManager, ConfigManager  # noqa: E402
 from backend.preventivi import laser_cost_estimator as L  # noqa: E402
+from tests.accesso_aiuto import postazioni, entra, modalita  # noqa: E402
 
 _CARTELLE = tempfile.mkdtemp(prefix='ft_sat_')
 A.UPLOAD_FOLDER = os.path.join(_CARTELLE, 'uploads')
@@ -116,7 +117,13 @@ def main():
         s.commit()
     finally:
         s.close()
-    c = A.app.test_client()
+    # Il laser e' il dispositivo registrato come Laser; "l'operaio" e' il
+    # tablet d'officina (sola lettura); "senza utente" un browser qualunque.
+    modalita('protetto')
+    postazioni()
+    c = entra(A.app, 'laser')
+    tab = entra(A.app, 'reparto')
+    anon = A.app.test_client()
 
     print('\n1) Colonne e lista ordini')
     cols = {x['name'] for x in inspect(_ENG).get_columns('orders')}
@@ -144,17 +151,17 @@ def main():
     print('\n2) Pianificare il taglio')
     url = f'/api/orders/{con_stima}/pianifica-taglio'
     domani = (date.today() + timedelta(days=1)).isoformat()
-    check('operaio: 403', c.post(url, json={'user_id': 'enzo', 'data': domani}).status_code == 403)
-    check('senza utente: 403', c.post(url, json={'data': domani}).status_code == 403)
-    check('data sbagliata: 400', c.post(url, json={'user_id': 'laser', 'data': '31/12/2026'}).status_code == 400)
-    check('data passata: 400', c.post(url, json={'user_id': 'laser', 'data': '2020-01-01'}).status_code == 400)
-    r = c.post(url, json={'user_id': 'laser', 'data': domani})
+    check('tablet officina: 403', tab.post(url, json={'data': domani}).status_code == 403)
+    check('browser non registrato: 401', anon.post(url, json={'data': domani}).status_code == 401)
+    check('data sbagliata: 400', c.post(url, json={'data': '31/12/2026'}).status_code == 400)
+    check('data passata: 400', c.post(url, json={'data': '2020-01-01'}).status_code == 400)
+    r = c.post(url, json={'data': domani})
     check('laser pianifica', r.status_code == 200 and r.get_json()['data_taglio_pianificata'] == domani, r.get_json())
-    r = c.post(url, json={'user_id': 'paolo', 'data': None})
+    r = c.post(url, json={'data': None})
     check('null = torna alla consegna', r.status_code == 200 and r.get_json()['data_taglio_pianificata'] is None)
-    r = c.post(f'/api/orders/{pacchetto}/pianifica-taglio', json={'user_id': 'laser', 'durata_min': 90})
+    r = c.post(f'/api/orders/{pacchetto}/pianifica-taglio', json={'durata_min': 90})
     check('durata a mano', r.status_code == 200 and r.get_json()['durata_laser_manuale_min'] == 90)
-    check('durata assurda: 400', c.post(url, json={'user_id': 'laser', 'durata_min': -5}).status_code == 400)
+    check('durata assurda: 400', c.post(url, json={'durata_min': -5}).status_code == 400)
     s = models.SessionLocal()
     try:
         n_audit = s.query(AuditLog).filter(AuditLog.action == 'ORDINE_PIANIFICA_TAGLIO').count()
@@ -163,7 +170,7 @@ def main():
     check('audit di ogni modifica', n_audit == 3, n_audit)
 
     print('\n3) Tempo di taglio senza prezzo')
-    cfg = BarcodeManager.load_config() or {}
+    cfg = ConfigManager.load_config() or {}
     t, _ = L.tempo_taglio_min(PEZZO, cfg)
     ref = L.stima_base(PEZZO, cfg)['tempo_totale_min']
     check('uguale a stima_base', t is not None and abs(t - ref) < 1e-3, (t, ref))
@@ -194,21 +201,21 @@ def main():
     g = c.get('/api/laser/calendario-config').get_json()['config']
     check('default: 8 h, riserva 2, 5 min, 3 s, +18%', (g['ore_turno'], g['ore_riserva'], g['carico_min_lamiera'],
                                                      g['scarico_s_pezzo'], g['fattore_tempo']) == (8, 2, 5, 3, 1.18), g)
-    laser_prima = json.dumps((BarcodeManager.load_config() or {}).get('laser_config'), sort_keys=True)
-    check('operaio non salva', c.put('/api/laser/calendario-config', json={'user_id': 'enzo', 'ore_turno': 9}).status_code == 403)
+    laser_prima = json.dumps((ConfigManager.load_config() or {}).get('laser_config'), sort_keys=True)
+    check('il tablet officina non salva', tab.put('/api/laser/calendario-config', json={'ore_turno': 9}).status_code == 403)
     check('riserva >= turno rifiutata', c.put('/api/laser/calendario-config',
-                                              json={'user_id': 'laser', 'ore_riserva': 8}).status_code == 400)
-    r = c.put('/api/laser/calendario-config', json={'user_id': 'laser', 'ore_turno': 9, 'giorni': [1, 2, 3, 4, 5, 6]})
+                                              json={'ore_riserva': 8}).status_code == 400)
+    r = c.put('/api/laser/calendario-config', json={'ore_turno': 9, 'giorni': [1, 2, 3, 4, 5, 6]})
     check('laser salva', r.status_code == 200 and r.get_json()['config']['ore_turno'] == 9
           and r.get_json()['config']['giorni'] == [1, 2, 3, 4, 5, 6], r.get_json())
     fra10 = (date.today() + timedelta(days=10)).isoformat()
-    r = c.put('/api/laser/calendario-config', json={'user_id': 'laser', 'eccezioni': {
+    r = c.put('/api/laser/calendario-config', json={'eccezioni': {
         fra10: {'ore': 0, 'nota': 'manutenzione'}, '2020-01-01': {'ore': 3}}})
     ecc = r.get_json()['config']['eccezioni']
     check('giorno speciale salvato, quelli vecchi buttati', ecc == {fra10: {'ore': 0.0, 'nota': 'manutenzione'}}, ecc)
     check('giorno speciale con ore assurde: 400', c.put('/api/laser/calendario-config', json={
-        'user_id': 'laser', 'eccezioni': {fra10: {'ore': 30}}}).status_code == 400)
-    check('laser_config non toccato', json.dumps((BarcodeManager.load_config() or {}).get('laser_config'), sort_keys=True) == laser_prima)
+        'eccezioni': {fra10: {'ore': 30}}}).status_code == 400)
+    check('laser_config non toccato', json.dumps((ConfigManager.load_config() or {}).get('laser_config'), sort_keys=True) == laser_prima)
 
     print('\n' + '=' * 60)
     print(f'PASSATI: {OK}   FALLITI: {len(KO)}')

@@ -51,7 +51,13 @@ _NUOVE_TABELLE_COLS = {
                    'solo_tecnico': 'BOOLEAN'},
     # Distingue una POSTAZIONE da cui si entra (timbratrice, laser, ufficio)
     # da una PERSONA di cui si contano le ore. Prima stavano mescolate.
-    'users': {'e_postazione': 'BOOLEAN'},
+    'users': {'e_postazione': 'BOOLEAN',
+              # Accesso vero (backend/accesso.py): PIN personale (solo
+              # l'impronta) e amministratore. Nascono vuoti: nessuno ha un
+              # PIN finche' un amministratore non glielo da'.
+              'pin_hash': 'VARCHAR',
+              'pin_impostato_il': 'DATETIME',
+              'e_admin': 'BOOLEAN'},
     # Lo smistamento del laser: quali ordini passano da lui e quali no.
     'orders': {'taglio_richiesto': 'BOOLEAN',
                'smistato_il': 'DATETIME',
@@ -329,6 +335,25 @@ _INDICI = (
 )
 
 
+def _admin_iniziali(engine, insp):
+    """Chi e' amministratore la prima volta: le persone dell'amministrazione e
+    quelle del laser (decisione del titolare). Tocca solo le righe ancora
+    vuote, quindi un amministratore tolto a mano resta tolto. Le postazioni
+    non sono persone e non sono mai amministratori."""
+    if 'users' not in insp.get_table_names() or not _column_exists(insp, 'users', 'e_admin'):
+        return 0
+    from .accesso import RUOLI_ADMIN_DI_PARTENZA
+    ruoli = ', '.join("'%s'" % r.replace("'", "''") for r in RUOLI_ADMIN_DI_PARTENZA)
+    with engine.connect() as conn:
+        n = conn.execute(text(
+            'UPDATE users SET e_admin = CASE WHEN COALESCE(e_postazione, 0) = 0 '
+            'AND role IN (%s) THEN 1 ELSE 0 END WHERE e_admin IS NULL' % ruoli)).rowcount
+        conn.commit()
+    if n:
+        logger.info('migrations_ore: amministratori di partenza assegnati a %d righe', n)
+    return n
+
+
 def _indici_prestazioni(engine, insp):
     """Crea gli indici mancanti. Idempotente (IF NOT EXISTS)."""
     tabelle = set(insp.get_table_names())
@@ -356,6 +381,7 @@ def migrate_ore(engine):
         _smistamento_iniziale(engine, insp)
         _unifica_ddt(engine, insp)
         _indici_prestazioni(engine, insp)
+        _admin_iniziali(engine, insp)
         cli = _seed_clienti(engine, insp)
         ore = _seed_ore_attese(engine, insp)
         if cols or cli or ore:

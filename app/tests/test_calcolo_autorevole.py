@@ -47,13 +47,13 @@ models.engine = _ENG
 models.SessionLocal.configure(bind=_ENG)
 Base.metadata.create_all(bind=_ENG)
 
-from backend.database import PreventivoManager, BarcodeManager  # noqa: E402
+from backend.database import PreventivoManager, ConfigManager  # noqa: E402
 from backend.preventivi.calcolo import calcola, verifica  # noqa: E402
 
 # Configurazione isolata: il test non deve dipendere dai costi generali
 # impostati sulla macchina di chi lo esegue.
 _CFG = os.path.join(tempfile.gettempdir(), f'test_calc_cfg_{uuid.uuid4().hex[:8]}.json')
-BarcodeManager._CONFIG_PATH = _CFG
+ConfigManager._CONFIG_PATH = _CFG
 with open(_CFG, 'w', encoding='utf-8') as _f:
     _f.write('{"preventivi_config": {"costo_generali_pct": 0}}')
 

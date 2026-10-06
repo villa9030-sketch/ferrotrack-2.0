@@ -17,9 +17,8 @@ logger = logging.getLogger(__name__)
 from . import email_sender as _email_sender
 from .models import (initialize_database, Order, OrderFile, get_session,
                      e_istanza_di_prova,
-                     RUOLI_UFFICIO, RUOLI_COMANDO, RUOLI_LASER)
-from .database import OrderManager, UserManager, AuditManager, ArchiveManager, FatturazioneManager, NotificationManager, AlertManager, KPIManager, BarcodeManager, PreventivoManager
-from .pdf_cartellino import genera_cartellino_pdf
+                     RUOLI_UFFICIO)
+from .database import OrderManager, UserManager, AuditManager, ArchiveManager, FatturazioneManager, NotificationManager, AlertManager, KPIManager, ConfigManager, PreventivoManager
 from .events import OrderEventBus
 from .orario import iso_utc, iso_data, data_locale, oggi_locale, giorno_locale_in_utc
 from urllib.parse import quote
@@ -103,11 +102,27 @@ def _convert_dwg_to_dxf(dwg_path):
 app = Flask(__name__, static_folder=None)
 
 # Sottosistema DICHIARAZIONI ORE (blueprint isolato: la logica non sta qui).
-# I suoi endpoint usano token di dispositivo verificati dal server.
+# I suoi endpoint vogliono un dispositivo registrato (vedi backend/accesso.py).
 from .api_ore import bp_ore  # noqa: E402
 app.register_blueprint(bp_ore)
+# Ingresso (dispositivo, PIN, amministratore) e gestione di persone e dispositivi.
+from .api_accesso import bp_accesso  # noqa: E402
+app.register_blueprint(bp_accesso)
+# Il controllo unico degli accessi, prima di qualunque altra cosa.
+from . import accesso  # noqa: E402
+from .accesso import richiede, identita, ADMIN, PUBBLICO, UFFICI  # noqa: E402,F401
+accesso.installa(app)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max upload
-CORS(app, origins=[r"http://localhost:*", r"http://127\.0\.0\.1:*", r"http://192\.168\.\d+\.\d+:*"])
+# Le pagine sono servite da questo stesso server: allo stesso indirizzo il
+# browser non chiede permessi CORS. La regola serve solo a chi apre le pagine
+# da un altro indirizzo della rete locale; prima le espressioni non erano
+# ancorate in fondo e "http://192.168.1.10.evil.example" passava.
+CORS(app, origins=[r"^http://localhost(:\d+)?$", r"^http://127\.0\.0\.1(:\d+)?$",
+                   r"^https?://192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$"])
+
+# Gruppi di stazioni ricorrenti nelle regole delle rotte
+OFFICINA_LETTURA = ('commerciale', 'ufficio', 'laser', 'reparto')   # ordini, disegni, foglio
+CON_AVVISI = ('commerciale', 'ufficio', 'laser')                      # hanno la campanella
 
 # Configurazioni
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '..', 'uploads')
@@ -129,7 +144,19 @@ def handle_http_error(e):
     e' quello che il codice del frontend si aspetta di leggere.
     """
     if request.path.startswith('/api/'):
-        return jsonify({'error': e.description, 'codice': e.code}), e.code
+        codice, testo = e.code, e.description
+        # Un indirizzo /api/ che non esiste (es. /api/scan, tolto con le
+        # pistole) con un metodo diverso da GET finirebbe sulla pagina
+        # "/<path:filename>", che accetta solo GET: la risposta sarebbe 405
+        # "metodo non ammesso", come se l'indirizzo esistesse. E' un 404.
+        if codice == 405:
+            try:
+                regola, _ = app.url_map.bind('').match(request.path, method='GET')
+            except HTTPException:
+                regola = None
+            if regola == 'serve_frontend':
+                codice, testo = 404, 'Indirizzo non trovato'
+        return jsonify({'error': testo, 'codice': codice}), codice
     return e
 
 
@@ -149,80 +176,55 @@ def handle_file_too_large(e):
 if os.environ.get('FERROTRACK_SKIP_DB_INIT') != '1':
     initialize_database()
 
-# ============ UTILITÀ AUTORIZZAZIONE ============
+# ============ CHI STA AGENDO ============
+# I permessi li decide backend/accesso.py (@richiede su ogni rotta). Qui
+# resta solo come scrivere nello storico chi ha fatto una cosa: la persona
+# entrata col PIN, oppure la postazione (laser, tablet). Mai uno user_id,
+# admin_id o created_by mandato dalla pagina.
 
-def _require_capo(user_id: str) -> bool:
-    """Verifica che user_id appartenga a un capo (is_capo=True) O a un Amministratore.
-    L'Amministratore fa da FALLBACK: senza questo, azioni come gestione pistole/utenti/
-    config sarebbero eseguibili SOLO dai due capi seedati → collo di bottiglia se assenti."""
-    if not user_id:
-        return False
-    user = UserManager.get_user(user_id)
-    # un utente disattivato non comanda piu' (come in _require_role)
-    return bool(user and user.get('is_active', True)
-                and (user.get('is_capo', False) or user.get('role') in RUOLI_COMANDO))
-
-
-def _require_role(user_id: str, roles: list) -> bool:
-    """Verifica che user_id abbia uno dei ruoli specificati.
-
-    `roles` accetta: ruoli espliciti ('Commerciale', 'Admin', 'Impiegata',
-    'Capo Officina', 'Operaio Laser', 'Operaio Officina', 'Amministratore')
-    o l'alias virtuale 'CAPO' che include is_capo=True OR role='Amministratore'.
-
-    Usato dagli endpoint preventivi per autorizzare Commerciale, Admin, Capi.
-    """
-    if not user_id:
-        return False
-    user = UserManager.get_user(user_id)
-    if not user or not user.get('is_active', True):
-        return False
-    user_role = user.get('role', '')
-    for r in roles:
-        if r == 'CAPO' and (user.get('is_capo') or user_role in RUOLI_COMANDO):
-            return True
-        # 'Impiegata' vale come "chi sta in amministrazione", col nome nuovo
-        # o con quello vecchio: gli endpoint scritti prima non vanno riscritti.
-        if r == 'Impiegata' and user_role in RUOLI_UFFICIO:
-            return True
-        if r == user_role:
-            return True
-    return False
-
-_RUOLI_GESTIONE = ['Impiegata', 'CAPO']      # amministrazione, capi, Amministratore
+def _chi() -> str:
+    """L'id da scrivere nello storico per l'operazione in corso."""
+    ident = identita()
+    if ident.admin and not ident.persona and ident.stazione is None:
+        return ident.admin['id']
+    return ident.utente_id or (ident.admin or {}).get('id') or ''
 
 
-def _utente_richiesta(user_id_come_identita: bool = True):
-    """Chi fa la richiesta: header X-User-Id, poi admin_id (query/body/form),
-    poi user_id. Finche' non c'e' il PIN delle stazioni e' l'identita'
-    dichiarata dalla pagina: ferma gli usi sbagliati, non un attacco voluto.
-    user_id_come_identita=False dove user_id e' un filtro (es. audit)."""
-    uid = request.headers.get('X-User-Id') or request.args.get('admin_id')
-    data = request.get_json(silent=True) if request.is_json else None
-    data = data if isinstance(data, dict) else {}
-    uid = uid or data.get('admin_id') or request.form.get('admin_id')
-    if not uid and user_id_come_identita:
-        uid = data.get('user_id') or request.form.get('user_id') or request.args.get('user_id')
-    return uid
+def _chi_nome() -> str:
+    ident = identita()
+    if ident.persona:
+        return ident.persona['nome']
+    if ident.admin and ident.stazione is None:
+        return ident.admin['nome']
+    return ident.nome
 
 
-def _permesso_gestione(user_id_come_identita: bool = True):
-    """None se chi chiama e' amministrazione/capo, altrimenti la risposta 403."""
-    uid = _utente_richiesta(user_id_come_identita)
-    if _require_role(uid, _RUOLI_GESTIONE):
-        return None
-    return jsonify({'success': False, 'error': 'Permesso negato: serve l\'amministrazione'}), 403
+def _chi_admin() -> str:
+    """Per le operazioni da amministratore: chi ha digitato il PIN."""
+    ident = identita()
+    return (ident.admin or {}).get('id') or _chi()
 
 
 def _audit(azione: str, entita: str, entita_id: str, dettaglio: str):
     try:
-        uid = _utente_richiesta()
-        u = UserManager.get_user(uid) if uid else None
-        AuditManager.log(user_id=uid, user_name=(u or {}).get('name'), action=azione,
+        AuditManager.log(user_id=_chi() or None, user_name=_chi_nome(), action=azione,
                          entity_type=entita, entity_id=entita_id, detail=dettaglio[:2000],
                          ip_address=request.remote_addr)
     except Exception as e:
         logger.warning('audit %s non registrato: %s', azione, e)
+
+
+# Prezzi, costi e margini: li vedono solo gli uffici (il laser vede gli
+# ordini, non quanto valgono).
+_CHIAVI_PREZZO = ('prezzo_quotato', 'costo_manodopera', 'margine', 'margine_pct',
+                  'importo', 'valore', 'totale_lotto', 'totale_pezzo')
+
+
+def _senza_prezzi(ordine):
+    if isinstance(ordine, dict) and identita().stazione not in UFFICI:
+        for k in _CHIAVI_PREZZO:
+            ordine.pop(k, None)
+    return ordine
 
 # ============ FRONTEND ROUTES ============
 
@@ -272,38 +274,30 @@ def serve_frontend(filename):
     return resp
 
 # ============ API AUTH ============
-
-@app.route('/api/auth/sessione/<user_id>', methods=['GET'])
-def api_sessione_valida(user_id):
-    """Dice se una sessione salvata nel browser vale ancora.
-
-    Serve a chi apre una pagina con in memoria un'utenza spenta o sostituita:
-    meglio rimandarlo all'ingresso che lasciarlo davanti a una pagina che si
-    apre ma rifiuta ogni salvataggio. Non registra un accesso, perche' viene
-    chiamata a ogni caricamento e riempirebbe l'archivio di accessi finti.
-    """
-    utente = UserManager.get_user(user_id)
-    if not utente or not utente.get('is_active', True):
-        return jsonify({'valida': False,
-                        'motivo': 'Questa postazione non e\' piu\' attiva.'}), 200
-    return jsonify({'valida': True, 'utente': utente}), 200
-
+# L'ingresso vero sta in backend/api_accesso.py (/api/accesso/...). Qui resta
+# solo il vecchio "entra come postazione", per i dispositivi non ancora
+# registrati e SOLO in modalita' transizione: risponde con i dati della
+# postazione, che la pagina tiene in memoria e manda come X-User-Id. Non apre
+# sessioni e non da' mai i permessi di un amministratore.
 
 @app.route('/api/auth/login', methods=['POST'])
+@richiede(PUBBLICO)
 def login():
-    """Autentica utente e registra nel log di audit"""
+    """Vecchio ingresso per postazione (solo in transizione)."""
     try:
-        data = request.get_json() or {}
-        user_id = data.get('user_id')
-
+        if accesso.modalita() != 'transizione':
+            return jsonify({'success': False, 'codice': 'protetto',
+                            'error': "Questo dispositivo non e' registrato: chiedi all'amministrazione."}), 403
+        data = request.get_json(silent=True) or {}
+        user_id = (data.get('user_id') or '').strip()
         if not user_id:
             return jsonify({'success': False, 'error': 'user_id obbligatorio'}), 400
-
-        # Autentica e aggiorna last_login
+        u = UserManager.get_user(user_id)
+        if not u or not u.get('is_active', True) or not u.get('e_postazione'):
+            return jsonify({'success': False, 'error': 'Postazione non trovata'}), 404
         user = UserManager.authenticate(user_id)
         if not user:
-            return jsonify({'success': False, 'error': 'Utente non trovato'}), 404
-
+            return jsonify({'success': False, 'error': 'Postazione non trovata'}), 404
         return jsonify({
             'success': True,
             'user_id': user['id'],
@@ -313,35 +307,29 @@ def login():
             'permissions': user['permissions'],
             'machines': user['machines'],
             'is_capo': user.get('is_capo', False),
+            'e_postazione': True,
             'assigned_clients': user.get('assigned_clients', [])
         }), 200
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
-@app.route('/api/auth/logout', methods=['POST'])
-def logout():
-    """Registra logout nel log di audit"""
+def _e_ultimo_admin(user_id) -> bool:
+    """Spegnere l'ultimo amministratore chiuderebbe fuori tutti."""
+    from .database import get_session as _gs
+    from .models import User as _U
+    s = _gs()
     try:
-        data = request.get_json() or {}
-        user_id = data.get('user_id')
+        u = s.get(_U, user_id)
+        if u is None or not (u.e_admin and u.pin_hash and u.is_active):
+            return False
+        return not any(x.e_admin and x.id != user_id for x in accesso.persone_con_pin(s))
+    finally:
+        s.close()
 
-        if user_id:
-            user = UserManager.get_user(user_id)
-            if user:
-                AuditManager.log(
-                    user_id=user_id,
-                    user_name=user.get('name'),
-                    action='LOGOUT',
-                    ip_address=request.remote_addr
-                )
-
-        return jsonify({'success': True}), 200
-
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/users', methods=['GET'])
+@richiede('ufficio', ADMIN)
 def get_users():
     """Recupera lista utenti (attivi, o tutti se include_inactive=true)"""
     try:
@@ -356,13 +344,11 @@ def get_users():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/users', methods=['POST'])
+@richiede(ADMIN)
 def create_user():
     """Crea un nuovo utente"""
     try:
         data = request.get_json()
-        created_by = data.get('created_by')
-        if not _require_capo(created_by):
-            return jsonify({'success': False, 'error': 'Operazione riservata al Capo Officina'}), 403
 
         user_id = data.get('user_id', '').strip()
         name = data.get('name', '').strip()
@@ -392,15 +378,15 @@ def create_user():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/users/<user_id>', methods=['DELETE'])
+@richiede(ADMIN)
 def delete_user(user_id):
     """Disattiva un utente (soft delete)"""
     try:
-        data = request.get_json() or {}
-        deleted_by = data.get('deleted_by')
-        if not _require_capo(deleted_by):
-            return jsonify({'success': False, 'error': 'Operazione riservata al Capo Officina'}), 403
-
+        if _e_ultimo_admin(user_id):
+            return jsonify({'success': False, 'codice': 'ultimo_admin',
+                            'error': "È l’unico amministratore: prima nominane un altro."}), 409
         success = UserManager.delete_user(user_id)
+        accesso.chiudi_sessioni(user_id=user_id)
         if not success:
             return jsonify({'success': False, 'error': 'User not found'}), 404
 
@@ -410,13 +396,14 @@ def delete_user(user_id):
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/users/<user_id>', methods=['PUT'])
+@richiede(ADMIN)
 def update_user(user_id):
     """Modifica un utente esistente"""
     try:
         data = request.get_json()
-        updated_by = data.get('updated_by')
-        if not _require_capo(updated_by):
-            return jsonify({'success': False, 'error': 'Operazione riservata al Capo Officina'}), 403
+        if data.get('is_active') is False and _e_ultimo_admin(user_id):
+            return jsonify({'success': False, 'codice': 'ultimo_admin',
+                            'error': "È l’unico amministratore: prima nominane un altro."}), 409
 
         result = UserManager.update_user(
             user_id=user_id,
@@ -434,6 +421,7 @@ def update_user(user_id):
 # ============ API ORDINI ============
 
 @app.route('/api/orders', methods=['POST'])
+@richiede('ufficio')
 def create_order():
     """Crea un nuovo ordine con routing dinamico"""
     try:
@@ -522,23 +510,22 @@ def create_order():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/orders/<order_id>', methods=['GET'])
+@richiede('commerciale', 'ufficio', 'laser')
 def get_order(order_id):
     """Recupera dettagli ordine con stato articoli"""
     try:
         details = OrderManager.get_order_details(order_id)
         if 'error' in details:
             return jsonify(details), 404
-        return jsonify(details), 200
+        return jsonify(_senza_prezzi(details)), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/orders/<order_id>/delivery-date', methods=['PUT'])
+@richiede('ufficio')
 def update_delivery_date(order_id):
     """Aggiorna data di consegna di un ordine (solo amministrazione/capi)."""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         data = request.get_json()
         if not data or 'data_consegna' not in data:
             return jsonify({'success': False, 'error': 'data_consegna obbligatoria'}), 400
@@ -559,13 +546,11 @@ def update_delivery_date(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/orders/<order_id>', methods=['PUT'])
+@richiede('ufficio')
 def update_order(order_id):
     """Aggiorna dati ordine: cliente, note, data_consegna, numero_ordine.
     Solo amministrazione/capi, con audit dei valori prima e dopo."""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         data = request.get_json()
         if not data:
             return jsonify({'success': False, 'error': 'Body JSON richiesto'}), 400
@@ -590,12 +575,10 @@ def update_order(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
+@richiede('ufficio')
 def delete_order(order_id):
     """Soft delete di un ordine (is_deleted=True): solo amministrazione/capi, con audit."""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         session = get_session()
         try:
             order = session.query(Order).filter(Order.id == order_id).first()
@@ -613,23 +596,14 @@ def delete_order(order_id):
 
 
 @app.route('/api/orders/<order_id>/mark-laser-done', methods=['POST'])
+@richiede('laser')
 def mark_laser_done(order_id):
     """Marca il taglio laser come completato — chiama il LASER (Mirko).
-    Da questo momento gli operai officina possono scansionare il cartellino.
+    Da questo momento i pezzi sono pronti per l'officina.
     """
     try:
-        data = request.get_json(silent=True) or {}
-        user_id = (data.get('user_id') or '').strip()
-        if not user_id:
-            return jsonify({'error': 'user_id obbligatorio'}), 400
-        user = UserManager.get_user(user_id)
-        if not user:
-            return jsonify({'error': 'utente non trovato'}), 403
-        # Solo ruolo Laser (o capo) può marcare il taglio completato
-        is_laser = user.get('role') in RUOLI_LASER or user.get('is_capo')
-        if not is_laser:
-            return jsonify({'error': 'Solo operatore Laser o capo può marcare il taglio'}), 403
-        result = OrderManager.mark_laser_done(order_id, user_id=user_id)
+        # Solo la stazione Laser (regola sopra): chi ha tagliato e' il laser
+        result = OrderManager.mark_laser_done(order_id, user_id=_chi())
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
         logger.exception('mark_laser_done endpoint failed')
@@ -637,6 +611,7 @@ def mark_laser_done(order_id):
 
 
 @app.route('/api/orders/<order_id>/smistamento', methods=['POST'])
+@richiede('laser')
 def smista_ordine(order_id):
     """Il laser dice se un ordine passa da lui.
 
@@ -645,17 +620,9 @@ def smista_ordine(order_id):
     """
     try:
         data = request.get_json(silent=True) or {}
-        user_id = (data.get('user_id') or '').strip()
-        if not user_id:
-            return jsonify({'error': 'user_id obbligatorio'}), 400
-        user = UserManager.get_user(user_id)
-        if not user:
-            return jsonify({'error': 'utente non trovato'}), 403
         # Smistare e' una decisione del laser: la stessa porta della marcatura
-        # del taglio, non una piu' larga.
-        if not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
-            return jsonify({'error': 'Solo la postazione laser o un capo '
-                                     'puo\' smistare gli ordini'}), 403
+        # del taglio, non una piu' larga (regola sopra).
+        user_id = _chi()
 
         if data.get('annulla'):
             result = OrderManager.annulla_smistamento(order_id, user_id=user_id)
@@ -671,15 +638,13 @@ def smista_ordine(order_id):
 
 
 @app.route('/api/orders/<order_id>/importato', methods=['POST'])
+@richiede('laser')
 def segna_importato_lantek(order_id):
     """Il laser segna che i disegni dell'ordine sono in Lantek.
-    Corpo: {user_id, annulla?: true}."""
+    Corpo: {annulla?: true}."""
     try:
         data = request.get_json(silent=True) or {}
-        user = UserManager.get_user((data.get('user_id') or '').strip()) if data.get('user_id') else None
-        if not user or not user.get('is_active', True) or not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
-            return jsonify({'success': False, 'error': 'Solo la postazione laser o un capo'}), 403
-        r = OrderManager.segna_importato(order_id, user_id=user['id'], annulla=bool(data.get('annulla')))
+        r = OrderManager.segna_importato(order_id, user_id=_chi(), annulla=bool(data.get('annulla')))
         return jsonify(r), (200 if r.get('success') else (404 if r.get('codice') == 'non_trovato' else 400))
     except Exception as e:
         logger.exception('importato endpoint fallito')
@@ -687,15 +652,13 @@ def segna_importato_lantek(order_id):
 
 
 @app.route('/api/orders/<order_id>/pianifica-taglio', methods=['POST'])
+@richiede('laser')
 def pianifica_taglio(order_id):
-    """Calendario del laser. Corpo: {user_id, data?: 'AAAA-MM-GG' | null,
+    """Calendario del laser. Corpo: {data?: 'AAAA-MM-GG' | null,
     durata_min?: numero | null}. data null = torna sul giorno di consegna;
     durata_min = durata stimata a mano (ordini senza disegni)."""
     try:
         data = request.get_json(silent=True) or {}
-        user = UserManager.get_user((data.get('user_id') or '').strip()) if data.get('user_id') else None
-        if not user or not user.get('is_active', True) or not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
-            return jsonify({'success': False, 'error': 'Solo la postazione laser o un capo pianifica il taglio'}), 403
         kw = {}
         if 'data' in data:
             g = data.get('data')
@@ -722,7 +685,7 @@ def pianifica_taglio(order_id):
                 kw['durata_min'] = round(d, 1)
         if not kw:
             return jsonify({'success': False, 'error': 'Niente da cambiare (data o durata_min)'}), 400
-        r = OrderManager.pianifica_taglio(order_id, user_id=user['id'], **kw)
+        r = OrderManager.pianifica_taglio(order_id, user_id=_chi(), **kw)
         return jsonify(r), (200 if r.get('success') else (404 if r.get('codice') == 'non_trovato' else 400))
     except Exception as e:
         logger.exception('pianifica_taglio endpoint fallito')
@@ -739,11 +702,13 @@ _CAL_LIMITI = {'ore_turno': (1, 24), 'ore_riserva': (0, 23), 'carico_min_lamiera
 
 
 def _cal_config() -> dict:
-    v = (BarcodeManager.load_config() or {}).get('laser_calendario') or {}
+    v = (ConfigManager.load_config() or {}).get('laser_calendario') or {}
     return {**_CAL_DEFAULT, **{k: v[k] for k in _CAL_DEFAULT if k in v}}
 
 
 @app.route('/api/laser/calendario-config', methods=['GET', 'PUT'])
+@richiede('laser', 'ufficio', metodi=('GET',))
+@richiede('laser', metodi=('PUT',))
 def api_laser_calendario_config():
     """Impostazioni del calendario del laser: ore del turno, riserva, giorni
     lavorativi, carico/scarico, correzione dei tempi verso Lantek. Stanno
@@ -752,9 +717,6 @@ def api_laser_calendario_config():
         if request.method == 'GET':
             return jsonify({'success': True, 'config': _cal_config()}), 200
         data = request.get_json(silent=True) or {}
-        user = UserManager.get_user(data.get('user_id') or '') if data.get('user_id') else None
-        if not user or not user.get('is_active', True) or not (user.get('role') in RUOLI_LASER or user.get('is_capo')):
-            return jsonify({'success': False, 'error': 'Solo la postazione laser o un capo'}), 403
         cfg = _cal_config()
         for k, (lo, hi) in _CAL_LIMITI.items():
             if k in data:
@@ -789,7 +751,7 @@ def api_laser_calendario_config():
             cfg['eccezioni'] = pulite
         if cfg['ore_riserva'] >= cfg['ore_turno']:
             return jsonify({'success': False, 'error': 'La riserva deve essere minore del turno'}), 400
-        BarcodeManager.save_config({'laser_calendario': cfg})
+        ConfigManager.save_config({'laser_calendario': cfg})
         return jsonify({'success': True, 'config': _cal_config()}), 200
     except Exception as e:
         logger.exception('calendario-config fallito')
@@ -797,20 +759,11 @@ def api_laser_calendario_config():
 
 
 @app.route('/api/orders/<order_id>/mark-laser-undone', methods=['POST'])
+@richiede('laser')
 def mark_laser_undone(order_id):
     """Rollback marcatura taglio completato (errore, va re-tagliato)."""
     try:
-        data = request.get_json(silent=True) or {}
-        user_id = (data.get('user_id') or '').strip()
-        if not user_id:
-            return jsonify({'error': 'user_id obbligatorio'}), 400
-        user = UserManager.get_user(user_id)
-        if not user:
-            return jsonify({'error': 'utente non trovato'}), 403
-        is_laser = user.get('role') in RUOLI_LASER or user.get('is_capo')
-        if not is_laser:
-            return jsonify({'error': 'Solo operatore Laser o capo può annullare il taglio'}), 403
-        result = OrderManager.mark_laser_undone(order_id, user_id=user_id)
+        result = OrderManager.mark_laser_undone(order_id, user_id=_chi())
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
         logger.exception('mark_laser_undone endpoint failed')
@@ -818,6 +771,7 @@ def mark_laser_undone(order_id):
 
 
 @app.route('/api/orders/<order_id>/close', methods=['POST'])
+@richiede('ufficio', 'laser')
 def close_order(order_id):
     """Capo officina: "Lavoro finito". E' il completamento del ciclo ordini
     (data e autore registrati, ufficio avvisato), non uno stato a parte.
@@ -825,23 +779,12 @@ def close_order(order_id):
     Permesso: capi officina E impiegata (Elena fa da backup quando i capi
     si dimenticano o accumulano).
 
-    Risposta: {success, order_id, scan_chiuse, nuovo_status, gia_registrato,
+    Risposta: {success, order_id, nuovo_status, gia_registrato,
     ordine, avviso?}. `avviso` c'e' quando il laser doveva tagliare l'ordine e
     non ha segnato il taglio: non blocca, ma va detto.
     """
     try:
-        data = request.get_json(silent=True) or {}
-        user_id = (data.get('user_id') or '').strip()
-        if not user_id:
-            return jsonify({'error': 'user_id obbligatorio'}), 400
-        user = UserManager.get_user(user_id)
-        if not user:
-            return jsonify({'error': 'utente non trovato'}), 403
-        is_allowed = (user.get('is_capo')
-                      or user.get('role') in RUOLI_UFFICIO + RUOLI_COMANDO)
-        if not is_allowed:
-            return jsonify({'error': 'Permesso negato'}), 403
-        result = OrderManager.close_order(order_id, user_id=user_id)
+        result = OrderManager.close_order(order_id, user_id=_chi())
         if result.get('success'):
             return jsonify(result), 200
         return jsonify(result), (404 if result.get('codice') == 'non_trovato' else 400)
@@ -851,6 +794,7 @@ def close_order(order_id):
 
 
 @app.route('/api/orders/sospetti-finiti', methods=['GET'])
+@richiede('ufficio', 'laser')
 def api_ordini_sospetti_finiti():
     """Ordini che probabilmente sono finiti ma nessuno li ha chiusi.
 
@@ -858,12 +802,15 @@ def api_ordini_sospetti_finiti():
     Soglie configurabili via /api/admin/config.
     """
     try:
-        items = BarcodeManager.get_ordini_sospetti_finiti()
+        items = OrderManager.get_ordini_sospetti_finiti()
+        cfg = ConfigManager.load_config() or {}
         return jsonify({
             'success': True,
             'count': len(items),
-            'orders': items,
-            'config': BarcodeManager.load_config(),
+            'orders': [_senza_prezzi(o) for o in items],
+            # Solo le soglie: il resto della configurazione ha i prezzi, e
+            # questa la legge anche il laser.
+            'config': {k: v for k, v in cfg.items() if k.startswith('sospetto_')},
         }), 200
     except Exception as e:
         logger.exception('sospetti-finiti endpoint failed')
@@ -871,27 +818,27 @@ def api_ordini_sospetti_finiti():
 
 
 @app.route('/api/admin/config', methods=['GET'])
+@richiede('commerciale', 'ufficio', ADMIN)
 def api_admin_config_get():
     """Config app (soglie sospetto, ecc.). Lettura aperta."""
     try:
-        return jsonify({'success': True, 'config': BarcodeManager.load_config()}), 200
+        return jsonify({'success': True, 'config': ConfigManager.load_config()}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/admin/config', methods=['PUT'])
+@richiede(ADMIN)
 def api_admin_config_update():
     """Modifica config app (solo capi/admin)."""
     try:
         data = request.get_json(silent=True) or {}
-        user_id = (data.get('admin_id') or '').strip()
-        if not _require_capo(user_id):
-            return jsonify({'error': 'Permesso negato'}), 403
-        # `user_id` e `admin_id` servono al controllo dei permessi, non sono
-        # impostazioni: senza toglierli finirebbero fra quelle "sconosciute".
+        user_id = _chi_admin()
+        # Pagine vecchie possono ancora mandare `user_id`/`admin_id`: non sono
+        # impostazioni, e senza toglierli finirebbero fra quelle "sconosciute".
         updates = {k: v for k, v in data.items()
                    if k not in ('admin_id', 'user_id')}
-        new_cfg = BarcodeManager.save_config(updates)
+        new_cfg = ConfigManager.save_config(updates)
         if 'error' in new_cfg:
             return jsonify({'success': False, 'error': new_cfg['error']}), 500
         try:
@@ -908,12 +855,10 @@ def api_admin_config_update():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/orders/<order_id>/replace-pdf', methods=['POST'])
+@richiede('ufficio')
 def replace_order_pdf(order_id):
     """Sostituisce il PDF di un ordine esistente (solo amministrazione/capi, con audit)."""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'Nessun file inviato'}), 400
         file = request.files['file']
@@ -959,6 +904,7 @@ def replace_order_pdf(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/orders/<order_id>/pdf', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
 def get_order_pdf(order_id):
     """Serve il PDF dell'ordine inline (per iframe viewer)"""
     try:
@@ -997,6 +943,58 @@ def get_order_pdf(order_id):
         logger.error(f"get_order_pdf: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+# ============ STAMPA ORDINE ============
+#
+# In officina l'ordine si riconosce dal PDF d'ordine stampato (i cartellini
+# A6 col barcode non ci sono piu'). Un solo indirizzo per "Stampa ordine":
+# chi stampa non deve sapere da dove e' nato l'ordine.
+
+@app.route('/api/orders/<order_id>/stampa', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
+def api_stampa_ordine(order_id):
+    """Cosa stampare per un ordine.
+
+    - col PDF del cliente: quel PDF, lo stesso di /api/orders/<id>/pdf (e del
+      foglio d'ordine sul tablet dell'officina);
+    - senza (ordini nati da un preventivo): il foglio d'ordine A4 in HTML,
+      con la stessa distinta che mostra il tablet (backend/foglio_ordine.py).
+    """
+    try:
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        session = get_session()
+        try:
+            pdf_file = session.query(OrderFile).filter(
+                OrderFile.order_id == order_id,
+                OrderFile.file_type == 'PDF'
+            ).first()
+        finally:
+            session.close()
+        if pdf_file and pdf_file.filepath and os.path.exists(pdf_file.filepath):
+            return send_file(pdf_file.filepath, mimetype='application/pdf',
+                             as_attachment=False, download_name=pdf_file.filename)
+
+        from .foglio_ordine import html_foglio
+        righe, _origine, prev = _distinta_ordine(order)
+        num_cli = ((prev or {}).get('numero_ordine_cliente') or '').strip()
+        testata = {
+            # il numero che conosce l'officina, come sul tablet
+            'numero': num_cli or order.numero_ordine or order.id[:8],
+            'numero_ordine': order.numero_ordine or '',
+            'cliente': order.cliente or '',
+            'data_consegna': iso_data(order.data_consegna),
+            'note': order.note or '',
+        }
+        risposta = app.response_class(html_foglio(testata, righe),
+                                      mimetype='text/html')
+        risposta.headers['Cache-Control'] = 'no-store'
+        return risposta
+    except Exception as e:
+        logger.exception('stampa ordine fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ============ DISEGNI E DISTINTA DELL'ORDINE ============
 #
 # Accettando un preventivo i DXF vengono copiati in uploads/drawings/<order_id>/,
@@ -1032,7 +1030,27 @@ def _nome_mostrato(nome: str, order_id: str) -> str:
     return base
 
 
-def _disegni_ordine(order) -> list:
+def _elenco_cartella(cartella: str) -> list:
+    """[(nome, percorso, dimensione)] dei FILE di una cartella, in ordine di nome.
+
+    os.scandir legge nome, tipo e dimensione in un colpo solo: su Windows
+    chiedere a parte "e' un file?" e "quanto pesa?" per ogni disegno costava
+    piu' di tutto il resto (il tablet chiede i disegni di tutti gli ordini)."""
+    out = []
+    try:
+        with os.scandir(cartella) as it:
+            for e in it:
+                try:
+                    if e.is_file():
+                        out.append((e.name, e.path, e.stat().st_size))
+                except OSError:
+                    continue
+    except OSError:
+        return []
+    return sorted(out, key=lambda x: x[0].lower())
+
+
+def _disegni_ordine(order, piatti=None, righe_file=None) -> list:
     """Tutti i disegni di un ordine: [{nome, percorso, dimensione}].
 
     Dove si cercano, nell'ordine:
@@ -1041,12 +1059,17 @@ def _disegni_ordine(order) -> list:
       3. le righe di order_files, per gli ordini vecchi che hanno il percorso
          registrato altrove
     Lo stesso nome compare una volta sola: vince il primo trovato.
+
+    Chi chiede i disegni di MOLTI ordini (il tablet dell'officina) puo' passare
+    la cartella piatta gia' letta (piatti = _elenco_cartella(DRAWINGS_FOLDER))
+    e le righe di order_files gia' caricate (righe_file = order.files): il
+    risultato e' lo stesso, senza rileggerle per ogni ordine.
     """
     order_id = order.id
     visti = {}
 
-    def aggiungi(percorso, nome=None):
-        if not percorso or not os.path.isfile(percorso):
+    def aggiungi(percorso, nome=None, dim=-1):
+        if not percorso:
             return
         nome = _nome_mostrato(nome or percorso, order_id)
         if not nome.lower().endswith(_ESTENSIONI_DISEGNO):
@@ -1054,47 +1077,51 @@ def _disegni_ordine(order) -> list:
         chiave = nome.lower()
         if chiave in visti:
             return
-        try:
-            dim = os.path.getsize(percorso)
-        except OSError:
-            dim = None
+        if dim == -1:          # percorso non visto da una lettura di cartella
+            if not os.path.isfile(percorso):
+                return
+            try:
+                dim = os.path.getsize(percorso)
+            except OSError:
+                dim = None
         visti[chiave] = {'nome': nome, 'percorso': os.path.normpath(percorso),
                          'dimensione': dim}
 
     cartella = os.path.join(DRAWINGS_FOLDER, order_id)
-    if os.path.isdir(cartella):
-        for nome in sorted(os.listdir(cartella), key=str.lower):
-            aggiungi(os.path.join(cartella, nome), nome)
+    for nome, percorso, dim in _elenco_cartella(cartella):
+        aggiungi(percorso, nome, dim)
 
     prefisso = order_id + '_'
-    try:
-        for nome in sorted(os.listdir(DRAWINGS_FOLDER), key=str.lower):
-            if nome.startswith(prefisso):
-                aggiungi(os.path.join(DRAWINGS_FOLDER, nome), nome)
-    except OSError:
-        pass
+    if piatti is None:
+        piatti = _elenco_cartella(DRAWINGS_FOLDER)
+    for nome, percorso, dim in piatti:
+        if nome.startswith(prefisso):
+            aggiungi(percorso, nome, dim)
 
-    session = get_session()
-    try:
-        righe = session.query(OrderFile).filter(OrderFile.order_id == order_id).all()
-        for r in righe:
-            nome = r.filename or os.path.basename(r.filepath or '')
-            if not nome.lower().endswith(_ESTENSIONI_DISEGNO):
-                continue
-            percorso = r.filepath
-            if not (percorso and os.path.isfile(percorso)):
-                # Percorso registrato su un'altra macchina o spostato: si
-                # riprova nelle cartelle note col solo nome del file.
-                base = os.path.basename(nome)
-                for tentativo in (os.path.join(cartella, base),
-                                  os.path.join(DRAWINGS_FOLDER, base),
-                                  os.path.join(DRAWINGS_FOLDER, prefisso + base)):
-                    if os.path.isfile(tentativo):
-                        percorso = tentativo
-                        break
-            aggiungi(percorso, nome)
-    finally:
-        session.close()
+    if righe_file is None:
+        session = get_session()
+        try:
+            righe_file = session.query(OrderFile).filter(OrderFile.order_id == order_id).all()
+        finally:
+            session.close()
+    for r in righe_file:
+        nome = r.filename or os.path.basename(r.filepath or '')
+        if not nome.lower().endswith(_ESTENSIONI_DISEGNO):
+            continue
+        if nome.lower() in visti or _nome_mostrato(nome, order_id).lower() in visti:
+            continue           # gia' trovato nelle cartelle: niente controlli in piu'
+        percorso = r.filepath
+        if not (percorso and os.path.isfile(percorso)):
+            # Percorso registrato su un'altra macchina o spostato: si
+            # riprova nelle cartelle note col solo nome del file.
+            base = os.path.basename(nome)
+            for tentativo in (os.path.join(cartella, base),
+                              os.path.join(DRAWINGS_FOLDER, base),
+                              os.path.join(DRAWINGS_FOLDER, prefisso + base)):
+                if os.path.isfile(tentativo):
+                    percorso = tentativo
+                    break
+        aggiungi(percorso, nome)
     return list(visti.values())
 
 
@@ -1114,7 +1141,7 @@ def _cartella_condivisa(order) -> dict:
     """Stato della copia dei disegni nella cartella di rete (quella di Lantek)."""
     out = {'configurata': False, 'percorso': None, 'esportato': False}
     try:
-        root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+        root = ((ConfigManager.load_config() or {}).get('disegni_export_root') or '').strip()
         if not root:
             return out
         out['configurata'] = True
@@ -1141,6 +1168,7 @@ def _non_trovato_ordine():
 
 
 @app.route('/api/orders/<order_id>/disegni', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
 def api_ordine_disegni(order_id):
     """Elenco dei disegni dell'ordine, con i link per scaricarli e vederli."""
     try:
@@ -1169,6 +1197,7 @@ def api_ordine_disegni(order_id):
 
 
 @app.route('/api/orders/<order_id>/dxf/<filename>', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
 def get_dxf_file(order_id, filename):
     """Scarica un disegno dell'ordine, col suo nome."""
     try:
@@ -1191,6 +1220,7 @@ def get_dxf_file(order_id, filename):
 
 
 @app.route('/api/orders/<order_id>/dxf/<filename>/svg', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
 def api_ordine_dxf_svg(order_id, filename):
     """Anteprima SVG di un disegno dell'ordine: stesso disegnatore (e stessa
     cache) dell'anteprima nel preventivo, cosi' il pezzo si vede uguale."""
@@ -1216,6 +1246,7 @@ def api_ordine_dxf_svg(order_id, filename):
 
 
 @app.route('/api/orders/<order_id>/disegni.zip', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
 def api_ordine_disegni_zip(order_id):
     """Tutti i disegni dell'ordine in un file zip (in memoria: sono decine di
     file da pochi KB, non serve scrivere su disco)."""
@@ -1318,7 +1349,7 @@ _CFG_TEMPO = {'t': 0.0, 'cfg': None}
 def _cfg_per_tempi() -> dict:
     """Configurazione laser (velocita' delle ricette) riletta al massimo ogni 30 s."""
     if time.time() - _CFG_TEMPO['t'] > 30 or _CFG_TEMPO['cfg'] is None:
-        _CFG_TEMPO['cfg'] = BarcodeManager.load_config() or {}
+        _CFG_TEMPO['cfg'] = ConfigManager.load_config() or {}
         _CFG_TEMPO['t'] = time.time()
     return _CFG_TEMPO['cfg']
 
@@ -1475,6 +1506,7 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
 
 
 @app.route('/api/orders/<order_id>/distinta', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
 def api_ordine_distinta(order_id):
     """Distinta dei pezzi dell'ordine.
 
@@ -1496,9 +1528,14 @@ def api_ordine_distinta(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def _distinta_ordine(order):
-    """(righe, origine, preventivo) della distinta di un ordine."""
-    disegni_per_nome = {d['nome'].lower(): d for d in _disegni_ordine(order)}
+def _distinta_ordine(order, disegni=None):
+    """(righe, origine, preventivo) della distinta di un ordine.
+
+    disegni: l'elenco di _disegni_ordine se chi chiama ce l'ha gia' (il
+    tablet lo usa anche lui): cercarli costa, non si cercano due volte."""
+    if disegni is None:
+        disegni = _disegni_ordine(order)
+    disegni_per_nome = {d['nome'].lower(): d for d in disegni}
     righe, origine = [], 'nessuna'
     prev = None
     if order.preventivo_id_origine:
@@ -1532,6 +1569,336 @@ def _distinta_ordine(order):
     return righe, origine, prev
 
 
+# ============ TABLET OFFICINA ============
+#
+# Il tablet appeso in officina chiedeva l'elenco degli ordini e poi, per ogni
+# ordine aperto, distinta e disegni: per sapere quali ordini servono alla piega
+# o quanto e' tagliato avrebbe dovuto fare decine di richieste a ogni giro.
+# Qui c'e' UNA richiesta con tutto quello che il tablet mostra, gia' tradotto
+# nella lingua dell'officina (reparti, pieghe, stato del taglio).
+
+def _chi_tablet() -> dict:
+    """Chi guarda il tablet: il nome del dispositivo (es. "Tablet piega"), o la
+    persona se la pagina e' aperta da un PC d'ufficio. Chi puo' farlo lo
+    decide la regola della rotta, non questa funzione."""
+    ident = identita()
+    nome = ident.persona['nome'] if ident.persona else (
+        (ident.dispositivo or {}).get('label') or ident.nome)
+    return {'id': _chi() or None, 'nome': nome}
+
+
+def _file_step(preventivo_id) -> list:
+    """Nomi dei file STEP del preventivo d'origine (vuoto se non ce ne sono).
+
+    Solo id fatti come un UUID (come _cartella_preventivo): bastano a
+    restare dentro preventivi_tmp, senza risolvere il percorso per ogni ordine."""
+    if not _RX_UUID.match(str(preventivo_id or '')):
+        return []
+    cart = os.path.join(UPLOAD_FOLDER, 'preventivi_tmp', str(preventivo_id))
+    return [n for n, _p, _d in _elenco_cartella(cart) if n.lower().endswith(('.step', '.stp'))]
+
+
+def _step_per_assieme(codice: str, files: list):
+    """Lo STEP dell'assieme, con le stesse regole del preventivatore
+    (_stepPerAssieme in preventivi.html): nome uguale, poi stesso codice
+    (prima parola), poi stesso codice senza la revisione finale (-00)."""
+    def nome(s):
+        return re.sub(r'\.[a-z0-9]{2,4}$', '', str(s or ''), flags=re.IGNORECASE).strip().lower()
+
+    def cod(s):
+        return (nome(s).split() or [''])[0]
+
+    def senza_rev(s):
+        return re.sub(r'-\d{1,3}$', '', cod(s))
+    if not nome(codice):
+        return None
+    for uguale in (lambda f: nome(f) == nome(codice), lambda f: cod(f) == cod(codice),
+                   lambda f: senza_rev(f) == senza_rev(codice)):
+        trovato = next((f for f in files if uguale(f)), None)
+        if trovato:
+            return trovato
+    return None
+
+
+def _segnalazioni_di_oggi(order_ids) -> dict:
+    """{order_id: [segnalazioni di oggi]} lette dall'audit, dalla piu' recente."""
+    from .models import AuditLog
+    from . import tablet_officina as tab
+    if not order_ids:
+        return {}
+    inizio, _fine = giorno_locale_in_utc()
+    session = get_session()
+    try:
+        righe = session.query(AuditLog).filter(
+            AuditLog.action == tab.AZIONE_AUDIT,
+            AuditLog.entity_id.in_(list(order_ids)),
+            AuditLog.timestamp >= inizio,
+        ).order_by(AuditLog.timestamp.desc()).all()
+        out = {}
+        for r in righe:
+            s = tab.leggi_segnalazione(r.detail)
+            if s:
+                s['quando'] = iso_utc(r.timestamp)
+                out.setdefault(r.entity_id, []).append(s)
+        return out
+    finally:
+        session.close()
+
+
+def _ordine_per_tablet(o, segnalazioni: dict, piatti=None) -> dict:
+    """Un ordine come lo mostra il tablet: testata, reparti, taglio, pezzi."""
+    from .ordini_service import stato_taglio, fase_laser
+    from . import tablet_officina as tab
+    disegni = _disegni_ordine(o, piatti=piatti, righe_file=list(o.files or []))
+    righe, origine, prev = _distinta_ordine(o, disegni)
+    st = stato_taglio(o)
+    stati, taglio = tab.stato_taglio_pezzi(o, righe, st, tab.tagliati_da_lantek(o, righe))
+    steps = _file_step(o.preventivo_id_origine) if prev else []
+    n_assiemi = sum(1 for r in righe if r.get('tipo') == 'assieme')
+
+    conteggi = {k: {'pezzi': 0, 'codici': 0} for k, _ in tab.REPARTI}
+    pezzi = []
+    for r, t in zip(righe, stati):
+        reparti = tab.reparti_di(r.get('lavorazioni'), r.get('tipo'))
+        q = int(r.get('quantita') or 0)
+        for k in reparti:
+            conteggi[k]['pezzi'] += q
+            conteggi[k]['codici'] += 1
+        dis = r.get('disegno')
+        url_dis = _url_disegno(o.id, dis) if dis else None
+        dxf = bool(dis and dis.lower().endswith('.dxf'))
+        pieghe = tab.pieghe_di(r.get('lavorazioni'))
+        url_step = None
+        if r.get('tipo') == 'assieme' and steps:
+            f = _step_per_assieme(r.get('codice'), steps)
+            # Un solo assieme e un solo STEP: e' quello, anche col nome diverso.
+            if not f and n_assiemi == 1 and len(steps) == 1:
+                f = steps[0]
+            if f:
+                url_step = '/api/preventivi/%s/step/%s' % (o.preventivo_id_origine, quote(f))
+        pezzi.append({
+            'codice': r.get('codice') or '',
+            'descrizione': r.get('descrizione') or '',
+            'tipo': r.get('tipo'),
+            'materiale': r.get('materiale'),
+            'spessore_mm': r.get('spessore_mm'),
+            'quantita': q,
+            'pieghe': pieghe,
+            'lavorazioni': tab.lavorazioni_officina(r.get('lavorazioni')),
+            'reparti': reparti,
+            'assieme': r.get('assieme'),
+            'disegno': dis,
+            'url_svg': (url_dis + '/svg') if dxf else None,
+            # Il piegato 3D si ricostruisce dal DXF sviluppato: solo lamiere
+            # che piegano e che hanno il disegno.
+            'url_piega_3d': ('%s/fold-model?spessore=%s' % (url_dis, '%g' % r['spessore_mm'] if r.get('spessore_mm') else '')
+                             if dxf and pieghe > 0 else None),
+            'url_step': url_step,
+            'taglio': t,
+        })
+
+    num_cli = ((prev or {}).get('numero_ordine_cliente') or '').strip()
+    pdf = next((f for f in (o.files or []) if f.file_type == 'PDF'), None)
+    return {
+        'id': o.id,
+        'cliente': o.cliente or '',
+        # il numero che conosce l'officina: quello dell'ordine del cliente
+        # (come il laser); il nostro PREV-... resta in numero_ordine
+        'numero': num_cli or o.numero_ordine or o.id[:8],
+        'numero_ordine': o.numero_ordine or '',
+        'numero_ordine_cliente': num_cli or None,
+        # data di calendario e basta: la consegna e' un giorno, non un istante
+        'data_consegna': (iso_data(o.data_consegna) or '')[:10] or None,
+        'note': (o.note or '').strip(),
+        'lotto_numero': o.lotto_numero or 0,
+        'lotto_nome': o.lotto_nome or '',
+        'origine': origine,
+        'stato_taglio': st,
+        'fase_laser': fase_laser(o),
+        'taglio_completato': bool(o.taglio_completato),
+        'taglio_richiesto': o.taglio_richiesto,
+        'importato_lantek_il': iso_utc(getattr(o, 'importato_lantek_il', None)),
+        'data_taglio_completato': iso_utc(getattr(o, 'data_taglio_completato', None)),
+        'taglio': taglio,
+        'reparti': [{'reparto': k, 'etichetta': e, **conteggi[k]}
+                    for k, e in tab.REPARTI if conteggi[k]['codici']],
+        'pezzi_totali': sum(p['quantita'] for p in pezzi if p['tipo'] != 'assieme'),
+        'n_codici': len(pezzi),
+        'n_disegni': len(disegni),
+        'disegni': [{'nome': d['nome'],
+                     'url_svg': (_url_disegno(o.id, d['nome']) + '/svg')
+                     if d['nome'].lower().endswith('.dxf') else None} for d in disegni],
+        'has_pdf': bool(pdf and pdf.filepath and os.path.exists(pdf.filepath)),
+        'pezzi': pezzi,
+        'segnalazioni_oggi': segnalazioni.get(o.id, []),
+    }
+
+
+@app.route('/api/officina/tablet', methods=['GET'])
+@richiede('reparto', 'ufficio', 'laser')
+def api_officina_tablet():
+    """Tutto quello che mostra il tablet dell'officina, in una richiesta.
+
+    Gli ordini sono quelli che il tablet mostrava gia': non eliminati, non
+    archiviati e ancora "aperti" (non finiti, non consegnati), dalla consegna
+    piu' vicina. Sola lettura.
+    """
+    chi = _chi_tablet()
+    try:
+        from sqlalchemy.orm import selectinload
+        from .ordini_service import STATI_ARCHIVIO, fase as fase_ordine
+        t0 = time.perf_counter()
+        session = get_session()
+        try:
+            ordini = session.query(Order).options(selectinload(Order.files)).filter(
+                Order.is_deleted == False,  # noqa: E712
+                (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO)),
+            ).order_by(Order.data_consegna.asc()).all()
+            ordini = [o for o in ordini if fase_ordine(o) == 'aperto']
+            segnalazioni = _segnalazioni_di_oggi([o.id for o in ordini])
+            piatti = _elenco_cartella(DRAWINGS_FOLDER)   # una volta, non per ogni ordine
+            out = [_ordine_per_tablet(o, segnalazioni, piatti) for o in ordini]
+        finally:
+            session.close()
+        ms = round((time.perf_counter() - t0) * 1000)
+        if ms > 1500:
+            logger.warning('tablet officina: %d ordini in %d ms', len(out), ms)
+        return jsonify({'success': True, 'ordini': out, 'oggi': oggi_locale().isoformat(),
+                        'dispositivo': chi.get('nome'), 'ms': ms}), 200
+    except Exception as e:
+        logger.exception('tablet officina fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/segnalazioni', methods=['POST'])
+@richiede('reparto', 'ufficio', 'laser')
+def api_segnala_problema(order_id):
+    """"Segnala un problema" dal tablet dell'officina: arriva all'ufficio.
+
+    Corpo: {tipo, nota?, codice_pezzo?, da?}; tipo fra quelli di
+    tablet_officina.TIPI_SEGNALAZIONE. Diventa una notifica per ogni utenza
+    d'ufficio attiva (come "Lavoro finito: pronto per DDT") e una riga
+    d'audit. Lo stesso problema sullo stesso pezzo entro 10 minuti non si
+    ripete: risponde {success, gia_segnalato: true}.
+    """
+    from . import tablet_officina as tab
+    from .models import AuditLog
+    chi = _chi_tablet()
+    try:
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
+        tipo = str(data.get('tipo') or '').strip()
+        if tipo not in tab.TIPI_SEGNALAZIONE:
+            return jsonify({'success': False, 'codice': 'tipo_non_valido',
+                            'error': 'Tipo di problema non valido',
+                            'tipi': list(tab.TIPI_SEGNALAZIONE)}), 400
+
+        def pulisci(v):
+            # " | " separa i campi nella riga d'audit: dentro i testi diventa "/"
+            return ' '.join(str(v or '').replace('|', '/').split())
+        nota = pulisci(data.get('nota'))
+        codice = pulisci(data.get('codice_pezzo'))
+        da = pulisci(data.get('da'))[:tab.MAX_DA]
+        if len(nota) > tab.MAX_NOTA:
+            return jsonify({'success': False, 'codice': 'nota_lunga',
+                            'error': 'Nota troppo lunga (al massimo %d caratteri)' % tab.MAX_NOTA}), 400
+        if len(codice) > tab.MAX_CODICE:
+            return jsonify({'success': False, 'codice': 'pezzo_non_valido',
+                            'error': 'Codice del pezzo non valido'}), 400
+        if tipo == 'altro' and not nota:
+            return jsonify({'success': False, 'codice': 'nota_mancante',
+                            'error': 'Per "Altro" scrivi due parole: cosa succede?'}), 400
+        order = _ordine_esistente(order_id)
+        if not order or getattr(order, 'is_deleted', False):
+            return _non_trovato_ordine()
+        righe, _origine, prev = _distinta_ordine(order)
+        if codice and righe and codice not in {(r.get('codice') or '') for r in righe}:
+            return jsonify({'success': False, 'codice': 'pezzo_non_valido',
+                            'error': 'Il pezzo non fa parte di quest\'ordine'}), 400
+
+        chiave = tab.chiave_segnalazione(tipo, codice)
+        session = get_session()
+        try:
+            dal = datetime.utcnow() - timedelta(minutes=tab.MINUTI_DOPPIONE)
+            recenti = session.query(AuditLog.detail).filter(
+                AuditLog.action == tab.AZIONE_AUDIT, AuditLog.entity_id == order_id,
+                AuditLog.timestamp >= dal).all()
+        finally:
+            session.close()
+        if any((d or '').startswith(chiave) for (d,) in recenti):
+            return jsonify({'success': True, 'gia_segnalato': True}), 200
+
+        from .models import RUOLI_UFFICIO
+        etichetta = tab.TIPI_SEGNALAZIONE[tipo]
+        numero = (((prev or {}).get('numero_ordine_cliente') or '').strip()
+                  or order.numero_ordine or order.id[:8])
+        mittente = da or chi.get('nome') or 'tablet officina'
+        messaggio = f'Ordine #{numero} ({order.cliente or "cliente ?"}): {etichetta.lower()}'
+        if codice:
+            messaggio += f', pezzo {codice}'
+        if nota:
+            messaggio += f'. "{nota}"'
+        messaggio += f'. Segnalato da {mittente}.'
+        avvisati = 0
+        for u in UserManager.get_all_users() or []:
+            # Gli avvisi sono della STAZIONE (la campanella dell'Ufficio), non
+            # delle singole persone che ci entrano col PIN.
+            if u.get('is_active', True) and u.get('e_postazione') and u.get('role') in RUOLI_UFFICIO:
+                if NotificationManager.create_notification(
+                        user_id=u['id'], order_id=order_id,
+                        title=f'Officina: {etichetta.lower()}',
+                        message=messaggio, notification_type='order',
+                        notification_category='attiva'):
+                    avvisati += 1
+        AuditManager.log(user_id=chi.get('id'), user_name=chi.get('nome'),
+                         action=tab.AZIONE_AUDIT, entity_type='order', entity_id=order_id,
+                         detail=f'{chiave} nota: {nota or "-"} | da: {mittente}'[:2000],
+                         ip_address=request.remote_addr)
+        return jsonify({'success': True, 'gia_segnalato': False, 'avvisati': avvisati,
+                        'tipo': tipo, 'etichetta': etichetta}), 201
+    except Exception as e:
+        logger.exception('segnalazione officina fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+_PIEGA_CACHE: dict = {}
+
+
+@app.route('/api/orders/<order_id>/dxf/<filename>/fold-model', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)
+def api_ordine_dxf_piega(order_id, filename):
+    """Il pezzo piegato in 3D, dal disegno dell'ordine (per il tablet).
+
+    Sola lettura: lo stesso calcolo del preventivatore, sul DXF dell'ordine.
+    ?spessore=<mm>. Il risultato si tiene in memoria finche' il file non
+    cambia: ricostruire il contorno costa qualche secondo.
+    """
+    try:
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        d = _trova_disegno(order, filename)
+        if not d or not d['nome'].lower().endswith('.dxf'):
+            return jsonify({'success': False, 'codice': 'disegno_assente',
+                            'error': 'Disegno non trovato per quest\'ordine'}), 404
+        try:
+            sp = float(request.args.get('spessore') or 0) or 2.0
+        except ValueError:
+            sp = 2.0
+        chiave = (d['percorso'], os.path.getmtime(d['percorso']), sp)
+        if chiave not in _PIEGA_CACHE:
+            from .preventivi.dxf_scanner import estrai_pieghe_3d
+            cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
+            pieghe = estrai_pieghe_3d(d['percorso'], cfg)
+            if len(_PIEGA_CACHE) > 200:
+                _PIEGA_CACHE.clear()
+            _PIEGA_CACHE[chiave] = _modello_piega(d['percorso'], pieghe, None, sp, cfg)
+        return jsonify(_PIEGA_CACHE[chiave]), 200
+    except Exception as e:
+        logger.exception('piega 3D ordine fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # Formati di lamiera proposti al laser (mm). Si cambiano da app_config.json,
 # chiave "laser_formati_lamiera": [[3000, 1500], [2500, 1250], ...].
 _FORMATI_LAMIERA = ((3000, 1500), (2500, 1250), (2000, 1000))
@@ -1539,7 +1906,7 @@ _FORMATI_LAMIERA = ((3000, 1500), (2500, 1250), (2000, 1000))
 
 def _formati_lamiera():
     try:
-        cfg = (BarcodeManager.load_config() or {}).get('laser_formati_lamiera')
+        cfg = (ConfigManager.load_config() or {}).get('laser_formati_lamiera')
         formati = [(float(w), float(h)) for w, h in (cfg or []) if float(w) > 0 and float(h) > 0]
     except (TypeError, ValueError):
         formati = []
@@ -1548,6 +1915,7 @@ def _formati_lamiera():
 
 
 @app.route('/api/laser/banco', methods=['GET'])
+@richiede('laser', 'ufficio')
 def api_laser_banco():
     """Banco lamiere: i pezzi da tagliare raggruppati per materiale e spessore.
 
@@ -1650,6 +2018,7 @@ def api_laser_banco():
 
 
 @app.route('/api/orders', methods=['GET'])
+@richiede('commerciale', 'ufficio', 'laser')
 def get_orders():
     """Recupera lista ordini con filtri per il nuovo workflow"""
     try:
@@ -1676,7 +2045,7 @@ def get_orders():
                     for so in OrderManager.get_orders_by_ids(new_ids):
                         orders_data.append(so)
 
-        return jsonify({'orders': orders_data}), 200
+        return jsonify({'orders': [_senza_prezzi(o) for o in orders_data]}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1684,6 +2053,7 @@ def get_orders():
 # ============ API MARK ORDER SEEN ============
 
 @app.route('/api/orders/<order_id>/mark-seen', methods=['POST'])
+@richiede('ufficio', 'laser')
 def mark_order_seen(order_id):
     """Marca un ordine come visto dall'operatore"""
     try:
@@ -1695,6 +2065,7 @@ def mark_order_seen(order_id):
 # ============ API ALERTS ============
 
 @app.route('/api/alerts/check', methods=['GET'])
+@richiede('ufficio', 'laser')
 def check_alerts():
     """Controlla alert automatici (timer lunghi, ordini fermi, scadenze)"""
     try:
@@ -1706,6 +2077,7 @@ def check_alerts():
 # ============ API KPI DASHBOARD ============
 
 @app.route('/api/kpi/dashboard', methods=['GET'])
+@richiede('ufficio', ADMIN)
 def get_kpi_dashboard():
     """KPI operatori e fasi per dashboard Capo Officina"""
     try:
@@ -1730,6 +2102,7 @@ def _giorno_iso(testo):
 
 
 @app.route('/api/admin/kpi', methods=['GET'])
+@richiede('ufficio', ADMIN)
 def get_admin_kpi():
     """Recupera KPI sistema per admin dashboard"""
     try:
@@ -1784,13 +2157,11 @@ def get_admin_kpi():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/admin/audit-log', methods=['GET'])
+@richiede(ADMIN)
 def get_admin_audit_log():
     """Recupera log di audit per admin dashboard"""
     try:
-        requester_id = request.args.get('requester_id')
-        if not _require_capo(requester_id):
-            return jsonify({'success': False, 'error': 'Operazione riservata al Capo Officina'}), 403
-
+        # user_id qui e' un FILTRO (di chi vedere le azioni), non un'identita'
         limit = min(request.args.get('limit', 100, type=int), 500)
         user_id = request.args.get('user_id', None)
 
@@ -1808,6 +2179,7 @@ def get_admin_audit_log():
 # ============ API FATTURAZIONE (Chiusura Amministrativa) ============
 
 @app.route('/api/ordini-da-fatturare', methods=['GET'])
+@richiede('ufficio')
 def get_ordini_da_fatturare():
     """Ordini consegnati e non ancora fatturati.
 
@@ -1843,6 +2215,7 @@ def get_ordini_da_fatturare():
 
 
 @app.route('/api/ordini-da-fatturare/count', methods=['GET'])
+@richiede('ufficio')
 def get_ordini_da_fatturare_count():
     """Conteggio ordini da fatturare (per badge): uguale alla vista "consegnati"."""
     try:
@@ -1853,14 +2226,13 @@ def get_ordini_da_fatturare_count():
 
 
 @app.route('/api/orders/<order_id>/salva-bozza-fattura', methods=['PUT'])
+@richiede('ufficio')
 def salva_bozza_fattura(order_id):
     """Salva dati DDT/fattura come bozza senza chiudere l'ordine.
     Autorizzato: Impiegata, Capi, Amministratore."""
     try:
         data = request.get_json() or {}
-        user_id = (data.get('user_id') or '').strip()
-        if not _require_role(user_id, ['Impiegata', 'CAPO']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        user_id = _chi()
         result = FatturazioneManager.salva_bozza(order_id, data)
         if not result['success']:
             return jsonify(result), 400
@@ -1870,6 +2242,7 @@ def salva_bozza_fattura(order_id):
 
 
 @app.route('/api/orders/<order_id>/chiudi-amministrativo', methods=['POST'])
+@richiede('ufficio')
 def chiudi_ordine_amministrativo(order_id):
     """Vecchia chiusura amministrativa, tenuta per compatibilita'.
 
@@ -1880,9 +2253,7 @@ def chiudi_ordine_amministrativo(order_id):
     note_chiusura?}. Autorizzato: Impiegata, Capi, Amministratore."""
     try:
         data = request.get_json() or {}
-        user_id = data.get('user_id', '')
-        if not _require_role(user_id, ['Impiegata', 'CAPO']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        user_id = _chi()
         result = FatturazioneManager.chiudi_ordine(order_id, data, user_id)
         if not result['success']:
             return jsonify(result), (404 if result.get('codice') == 'non_trovato' else 400)
@@ -1904,14 +2275,13 @@ def chiudi_ordine_amministrativo(order_id):
 
 
 @app.route('/api/orders/<order_id>/riapri', methods=['POST'])
+@richiede('ufficio')
 def riapri_ordine(order_id):
     """Riapre ordine CHIUSO riportandolo a DA_FATTURARE.
     Autorizzato: Impiegata, Capi, Amministratore."""
     try:
         data = request.get_json() or {}
-        user_id = data.get('user_id', '')
-        if not _require_role(user_id, ['Impiegata', 'CAPO']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        user_id = _chi()
         result = FatturazioneManager.riapri_ordine(order_id, user_id)
         if not result['success']:
             return jsonify(result), 400
@@ -1933,6 +2303,7 @@ def riapri_ordine(order_id):
 # ============ API ARCHIVE ============
 
 @app.route('/api/archive/orders', methods=['GET'])
+@richiede(*UFFICI)
 def get_archive_orders():
     """Recupera ordini completati con paginazione e filtri"""
     try:
@@ -1973,6 +2344,7 @@ def get_archive_orders():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/archive/orders/<order_id>/details', methods=['GET'])
+@richiede(*UFFICI)
 def get_archive_order_details(order_id):
     """Recupera dettagli completi di un ordine completato"""
     try:
@@ -1989,6 +2361,7 @@ def get_archive_order_details(order_id):
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/archive/export/csv', methods=['GET'])
+@richiede(*UFFICI)
 def export_archive_csv():
     """Esporta ordini completati come CSV"""
     try:
@@ -2029,6 +2402,7 @@ def export_archive_csv():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/archive/export/excel', methods=['GET'])
+@richiede(*UFFICI)
 def export_archive_excel():
     """Esporta ordini completati come Excel (una riga per fase)"""
     try:
@@ -2123,6 +2497,7 @@ def export_archive_excel():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/archive/filters', methods=['GET'])
+@richiede(*UFFICI)
 def get_archive_filters():
     """Ritorna liste per i filtri dell'archivio (clienti e operatori)"""
     try:
@@ -2139,6 +2514,7 @@ def get_archive_filters():
 # ============ API FILE ============
 
 @app.route('/api/extract-pdf-data', methods=['POST'])
+@richiede('ufficio')
 def extract_pdf_data():
     """Carica un PDF e restituisce il filename salvato (no parsing)"""
     try:
@@ -2165,39 +2541,10 @@ def extract_pdf_data():
         logging.error(f"[ERROR] extract_pdf_data: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
-@app.route('/api/upload-drawing', methods=['POST'])
-def upload_drawing():
-    """Carica un disegno DXF o immagine"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'Nessun file'}), 400
-        
-        file = request.files['file']
-        order_id = request.form.get('order_id', 'unknown')
-
-        from werkzeug.utils import secure_filename
-        safe_name = secure_filename(file.filename)
-        if not safe_name:
-            return jsonify({'error': 'Nome file non valido'}), 400
-        ALLOWED_EXTENSIONS = {'.dxf', '.dwg', '.png', '.jpg', '.jpeg', '.pdf', '.step', '.stp'}
-        ext = os.path.splitext(safe_name)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            return jsonify({'error': f'Tipo file non supportato: {ext}'}), 400
-        filename = f"{order_id}_{safe_name}"
-        filepath = os.path.join(DRAWINGS_FOLDER, filename)
-        file.save(filepath)
-
-        return jsonify({
-            'success': True,
-            'filename': filename
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-
 # ============ HEALTH CHECK ============
 
 @app.route('/api/health', methods=['GET'])
+@richiede(PUBBLICO)
 def health_check():
     """Dice che il programma risponde, e su quali dati sta lavorando.
 
@@ -2213,6 +2560,7 @@ def health_check():
 
 
 @app.route('/api/dashboard-live', methods=['GET'])
+@richiede(PUBBLICO)
 def api_dashboard_live():
     """Dashboard live pubblica (info-panel per TV in ufficio Elena).
 
@@ -2227,29 +2575,29 @@ def api_dashboard_live():
     dati sensibili.
     """
     try:
-        from .models import get_session, Order, OfficinaScan
+        from .models import get_session, Order
         session = get_session()
         try:
-            # 1. Operatori attivi ORA (sessioni aperte, non chiuse)
-            n_attivi = session.query(OfficinaScan).filter(
-                OfficinaScan.timestamp_fine == None  # noqa: E711
-            ).count()
-
-            # 2-6. Ordini per fase: le STESSE fasi delle viste dell'ufficio
+            # "Attivi ora" e la curva dell'attivita' della giornata venivano
+            # dalle scansioni con la pistola: pistole tolte, tolti anche loro
+            # (sarebbero stati zeri per sempre).
+            # Ordini per fase: le STESSE fasi delle viste dell'ufficio
             # (ordini_service.fase). Prima "pronti" contava gli ordini
             # tagliati ma ancora in officina (taglio fatto + RICEVUTO), cioe'
             # proprio quelli in lavorazione.
             #   in produzione = ordini aperti: in coda al laser, tagliati, in
             #                   lavorazione in officina
             #   pronti        = lavoro finito, non ancora consegnati
-            #   ricevuti      = aperti che nessuno ha ancora toccato (non
-            #                   mandati al laser, non tagliati, mai scansionati)
+            #   ricevuti      = aperti che nessuno ha ancora toccato: il laser
+            #                   non li ha ancora smistati e non sono tagliati.
+            #                   Smistato "non va tagliato" vuol dire che e' gia'
+            #                   passato in officina: prima lo diceva la prima
+            #                   scansione, ora lo dice lo smistamento.
             from .ordini_service import fase as _fase
             ora = datetime.utcnow()
             ordini = session.query(Order).filter(
                 Order.is_deleted == False  # noqa: E712
             ).all()
-            con_scan = {r[0] for r in session.query(OfficinaScan.order_id).distinct()}
             n_in_produzione = 0
             n_pronti = 0
             n_ricevuti_puri = 0
@@ -2259,39 +2607,16 @@ def api_dashboard_live():
                     n_pronti += 1
                 elif f == 'aperto':
                     n_in_produzione += 1
-                    toccato = (o.taglio_richiesto is True
-                               or bool(o.taglio_completato)
-                               or o.id in con_scan)
+                    toccato = (o.taglio_richiesto is not None
+                               or bool(o.taglio_completato))
                     if not toccato:
                         n_ricevuti_puri += 1
             n_kanban_lavorazione = n_in_produzione - n_ricevuti_puri
             n_kanban_pronti = n_pronti
 
-            # 7. Curva attivita' ORE giornata (anonimo — solo count sessioni per ora)
-            # Dalle 07:00 alle 18:00 di OGGI in Italia: le fasce sono ore
-            # locali, le scan sono salvate in UTC, quindi si convertono gli
-            # estremi (prima la curva era spostata di due ore).
-            oggi_00 = giorno_locale_in_utc()[0]
-            curva_ore = []
-            for h in range(7, 19):  # 7-18
-                slot_start = oggi_00 + timedelta(hours=h)
-                slot_end = slot_start + timedelta(hours=1)
-                if slot_start > ora:
-                    curva_ore.append({'ora': h, 'attivita': 0})
-                    continue
-                # Conta sessioni che erano attive in quell'ora
-                q = session.query(OfficinaScan).filter(
-                    OfficinaScan.timestamp_inizio < slot_end,
-                ).filter(
-                    (OfficinaScan.timestamp_fine == None) |  # noqa: E711
-                    (OfficinaScan.timestamp_fine >= slot_start)
-                )
-                curva_ore.append({'ora': h, 'attivita': q.count()})
-
             return jsonify({
                 'success': True,
                 'snapshot': {
-                    'operatori_attivi': n_attivi,
                     'ordini_in_produzione': n_in_produzione,
                     'ordini_pronti': n_pronti,
                 },
@@ -2300,7 +2625,6 @@ def api_dashboard_live():
                     'lavorazione': n_kanban_lavorazione,
                     'pronti': n_kanban_pronti,
                 },
-                'curva_ore': curva_ore,
                 'timestamp': iso_utc(ora),
             }), 200
         finally:
@@ -2325,12 +2649,10 @@ except Exception as _e:
     logging.warning(f'[BACKUP] modulo backup non disponibile: {_e}')
 
 @app.route('/api/admin/backup', methods=['POST'])
+@richiede('ufficio', ADMIN)
 def manual_backup():
     """Esegue un backup manuale del database (solo amministrazione/capi)"""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         ok = _integrity_check()
         path = _do_backup(motivo='manuale')
         if path:
@@ -2341,12 +2663,11 @@ def manual_backup():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/admin/backup/settings', methods=['GET', 'PUT'])
+@richiede('ufficio', ADMIN, metodi=('GET',))
+@richiede(ADMIN, metodi=('PUT',))
 def backup_settings():
     """Leggi o aggiorna impostazioni backup (solo amministrazione/capi)"""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         if request.method == 'GET':
             config = _backup_load_config()
             return jsonify({'success': True, 'settings': config}), 200
@@ -2376,24 +2697,20 @@ def backup_settings():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/admin/backup/list', methods=['GET'])
+@richiede('ufficio', ADMIN)
 def backup_list():
     """Lista dei backup esistenti (solo amministrazione/capi)"""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         backups = _backup_list()
         return jsonify({'success': True, 'backups': backups, 'count': len(backups)}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/admin/audit', methods=['GET'])
+@richiede(ADMIN)
 def get_audit_log():
     """Recupera log attività recenti (solo amministrazione/capi; user_id = filtro)"""
     try:
-        vietato = _permesso_gestione(user_id_come_identita=False)
-        if vietato:
-            return vietato
         limit = min(request.args.get('limit', 100, type=int), 500)
         user_id = request.args.get('user_id')
         logs = AuditManager.get_recent(limit=limit, user_id=user_id)
@@ -2402,12 +2719,10 @@ def get_audit_log():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/admin/export-json', methods=['GET'])
+@richiede('ufficio', ADMIN)
 def export_json():
     """Esporta tutti gli ordini attivi in formato JSON (download, solo amministrazione/capi)"""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
         import json, io
         orders = OrderManager.get_all_orders_dict()
         ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -2424,18 +2739,35 @@ def export_json():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ============ NOTIFICATION SYSTEM (WhatsApp-like) ============
+# Gli avvisi sono della STAZIONE: la campanella dell'Ufficio e' la stessa per
+# chiunque ci entri col PIN. Ogni stazione vede e tocca solo i suoi: prima
+# bastava scrivere un altro user_id nell'indirizzo per leggere (o cancellare)
+# gli avvisi di chiunque.
+
+def _proprietario_avvisi() -> str:
+    st = identita().stazione
+    return accesso.STAZIONI[st]['utente'] if st in accesso.STAZIONI else ''
+
+
+def _avviso_mio(notification_id: str) -> bool:
+    from .models import Notification as _N
+    s = get_session()
+    try:
+        n = s.get(_N, notification_id)
+        return n is not None and n.user_id == _proprietario_avvisi()
+    finally:
+        s.close()
+
 
 @app.route('/api/notifications', methods=['GET', 'POST'])
+@richiede(*CON_AVVISI, metodi=('GET',))
+@richiede(ADMIN, metodi=('POST',))
 def handle_notifications():
     """GET: Recupera notifiche | POST: Crea notifica"""
     if request.method == 'GET':
         try:
-            user_id = request.args.get('user_id')
+            user_id = _proprietario_avvisi()    # lo user_id dell'indirizzo non conta
             limit = request.args.get('limit', 50, type=int)
-
-            if not user_id:
-                return jsonify({'success': False, 'error': 'user_id obbligatorio'}), 400
-
             notifications = NotificationManager.get_notifications(user_id, limit=limit)
             unread_count = NotificationManager.get_unread_count(user_id)
 
@@ -2452,11 +2784,9 @@ def handle_notifications():
 
     elif request.method == 'POST':
         try:
+            # Gli avvisi li crea il server; da fuori solo un amministratore
+            # (regola sopra). Qui user_id e' il DESTINATARIO, un dato.
             data = request.get_json() or {}
-            sender_id = data.get('sender_id')
-            if not sender_id or not UserManager.get_user(sender_id):
-                return jsonify({'success': False, 'error': 'sender_id obbligatorio e deve essere un utente valido'}), 403
-
             user_id = data.get('user_id')
             order_id = data.get('order_id')
             title = data.get('title', 'Notifica')
@@ -2487,18 +2817,24 @@ def handle_notifications():
             return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/notifications/<notification_id>/read', methods=['PUT'])
+@richiede(*CON_AVVISI)
 def mark_notification_read(notification_id):
     """Segna una notifica come letta"""
     try:
+        if not _avviso_mio(notification_id):
+            return jsonify({'success': False, 'error': 'Notifica non trovata'}), 404
         success = NotificationManager.mark_as_read(notification_id)
         return jsonify({'success': success}), 200 if success else 404
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/notifications/<notification_id>', methods=['DELETE'])
+@richiede(*CON_AVVISI)
 def delete_notification(notification_id):
     """Cancella una singola notifica (soft delete)"""
     try:
+        if not _avviso_mio(notification_id):
+            return jsonify({'success': False, 'error': 'Notifica non trovata'}), 404
         success = NotificationManager.delete_notification(notification_id)
 
         if success:
@@ -2509,15 +2845,11 @@ def delete_notification(notification_id):
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/api/notifications/clear-all', methods=['DELETE'])
+@richiede(*CON_AVVISI)
 def clear_all_notifications():
     """Cancella tutte le notifiche dell'utente"""
     try:
-        user_id = request.args.get('user_id')
-
-        if not user_id:
-            return jsonify({'success': False, 'error': 'user_id obbligatorio'}), 400
-
-        success = NotificationManager.delete_all_notifications(user_id)
+        success = NotificationManager.delete_all_notifications(_proprietario_avvisi())
 
         if success:
             return jsonify({'success': True, 'message': 'Tutte le notifiche cancellate'}), 200
@@ -2527,79 +2859,12 @@ def clear_all_notifications():
         return jsonify({'success': False, 'error': str(e)}), 400
 
 # ============================================================================
-#  BARCODE / OFFICINA SCAN — endpoint per pistole WiFi e UI dedicate
-# ============================================================================
-
-@app.route('/api/scan', methods=['POST'])
-def api_scan():
-    """Endpoint chiamato dalle pistole WiFi a ogni scansione.
-
-    Body: { "pistola_id": "<id hw configurato>", "codice": "<numero ordine>" }
-    Risposta 200 = beep ok sulla pistola; 4xx = beep errore.
-    """
-    try:
-        data = request.get_json(silent=True) or {}
-        pistola_id = data.get('pistola_id') or ''
-        codice = data.get('codice') or ''
-        result = BarcodeManager.process_scan(pistola_id, codice)
-        status = result.pop('status_code', 200 if result.get('ok') else 500)
-        return jsonify(result), status
-    except Exception as e:
-        logger.exception('api_scan failed')
-        return jsonify({'error': str(e)}), 500
-
-
-# ============================================================================
 #  CICLO AMMINISTRATIVO DEGLI ORDINI — riservato all'ufficio
 #  L'operaio comunica a voce che ha finito: nessuno in officina cambia lo stato
-#  di un ordine. Queste transizioni sono consentite solo a Impiegata, capi e
-#  amministratori, e il controllo e' qui nel backend: nascondere i pulsanti non
+#  di un ordine. Queste transizioni sono consentite solo alla stazione Ufficio
+#  (@richiede), e il controllo e' nel backend: nascondere i pulsanti non
 #  basta, l'API va protetta anche contro una chiamata diretta.
 # ============================================================================
-
-_RUOLI_UFFICIO = ['Impiegata', 'CAPO']
-
-
-def _utente_ufficio():
-    """Ritorna (user_id, None) se autorizzato, altrimenti (None, risposta 403).
-
-    Se la richiesta arriva da un DISPOSITIVO registrato (tablet), comanda lo
-    scope del dispositivo e non lo user_id scritto nel corpo: un tablet di
-    officina o di reparto viene respinto anche se dichiara di essere
-    l'impiegata. Senza dispositivo si ricade sul controllo di ruolo classico,
-    usato dai PC dell'ufficio che entrano col login.
-    """
-    dati = request.get_json(silent=True) or {}
-    user_id = (dati.get('user_id') or request.args.get('user_id') or '').strip()
-
-    def negato():
-        return None, (jsonify({
-            'error': "Solo l'ufficio puo' registrare i passaggi di un ordine.",
-            'codice': 'permesso_negato'}), 403)
-
-    try:
-        from .auth_device import risolvi_dispositivo
-        dispositivo = risolvi_dispositivo()
-    except Exception:
-        dispositivo = None
-
-    if dispositivo:
-        if dispositivo.get('scope') != 'ufficio':
-            logger.warning(
-                'Transizione ordine rifiutata: dispositivo "%s" (scope=%s) '
-                'si dichiarava utente "%s"',
-                dispositivo.get('label'), dispositivo.get('scope'), user_id)
-            return negato()
-        # Dispositivo d'ufficio: identita' verificata dal server. Lo user_id
-        # serve solo a registrare CHI ha agito, e deve comunque essere valido.
-        if user_id and not _require_role(user_id, _RUOLI_UFFICIO):
-            return negato()
-        return user_id or ('dispositivo:' + (dispositivo.get('label') or '')), None
-
-    if not _require_role(user_id, _RUOLI_UFFICIO):
-        return negato()
-    return user_id, None
-
 
 def _verifica_preventivo(preventivo_id):
     """Esito della verifica, o None se il preventivo non esiste."""
@@ -2607,15 +2872,16 @@ def _verifica_preventivo(preventivo_id):
     if not prev or prev.get('error'):
         return None
     from .preventivi.verifica import verifica as _v
-    cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+    cfg = (ConfigManager.load_config() or {}).get('preventivi_config') or {}
     snap = prev.get('snapshot_economico') or None
     if snap:
         cfg = {'costo_generali_pct': snap.get('costo_generali_pct') or 0}
-    cfg = dict(cfg, _materiali=((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {})
+    cfg = dict(cfg, _materiali=((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {})
     return _v(prev, cfg)
 
 
 @app.route('/api/preventivi/<preventivo_id>/verifica', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivo_verifica(preventivo_id):
     """E' pronto per l'invio? Se no, cosa manca e su quale riga.
 
@@ -2627,13 +2893,13 @@ def api_preventivo_verifica(preventivo_id):
         if not prev or prev.get('error'):
             return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
         from .preventivi.verifica import verifica as _verifica
-        cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+        cfg = (ConfigManager.load_config() or {}).get('preventivi_config') or {}
         # Se l'offerta e' gia' partita valgono le percentuali congelate allora.
         snap = prev.get('snapshot_economico') or None
         if snap:
             cfg = {'costo_generali_pct': snap.get('costo_generali_pct') or 0}
         # Materiali aggiunti nelle Impostazioni (C75...): non sono "sconosciuti"
-        cfg = dict(cfg, _materiali=((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {})
+        cfg = dict(cfg, _materiali=((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {})
         return jsonify({'success': True, **_verifica(prev, cfg)}), 200
     except Exception as e:
         logger.exception('api_preventivo_verifica failed')
@@ -2641,6 +2907,7 @@ def api_preventivo_verifica(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/totali', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivo_totali(preventivo_id):
     """Totali calcolati dal SERVER sui dati salvati, con la composizione.
 
@@ -2652,7 +2919,7 @@ def api_preventivo_totali(preventivo_id):
         if not prev or prev.get('error'):
             return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
         from .preventivi.calcolo import calcola
-        cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+        cfg = (ConfigManager.load_config() or {}).get('preventivi_config') or {}
         return jsonify({'success': True, 'totali': calcola(prev, cfg)}), 200
     except Exception as e:
         logger.exception('api_preventivo_totali failed')
@@ -2660,6 +2927,7 @@ def api_preventivo_totali(preventivo_id):
 
 
 @app.route('/api/ordini/viste', methods=['GET'])
+@richiede('ufficio')
 def api_ordini_viste():
     """Le quattro viste dell'ufficio con i conteggi di tutte le linguette."""
     try:
@@ -2673,10 +2941,9 @@ def api_ordini_viste():
 
 
 def _transizione(funzione, order_id, **extra):
-    user_id, negato = _utente_ufficio()
-    if negato:
-        return negato
-    res = funzione(order_id, user_id, **extra)
+    # Chi puo' lo dice la regola della rotta (solo l'Ufficio); qui si scrive
+    # nello storico la persona entrata col PIN.
+    res = funzione(order_id, _chi(), **extra)
     if res.get('error'):
         codice = res.get('codice')
         stato = 404 if codice == 'non_trovato' else (
@@ -2686,6 +2953,7 @@ def _transizione(funzione, order_id, **extra):
 
 
 @app.route('/api/ordini/<order_id>/completamento', methods=['POST'])
+@richiede('ufficio')
 def api_ordine_completamento(order_id):
     """L'officina ha comunicato che ha finito: passa alla preparazione del DDT."""
     from .ordini_service import registra_completamento
@@ -2693,12 +2961,14 @@ def api_ordine_completamento(order_id):
 
 
 @app.route('/api/ordini/<order_id>/completamento', methods=['DELETE'])
+@richiede('ufficio')
 def api_ordine_completamento_annulla(order_id):
     from .ordini_service import annulla_completamento
     return _transizione(annulla_completamento, order_id)
 
 
 @app.route('/api/ordini/<order_id>/ddt', methods=['POST'])
+@richiede('ufficio')
 def api_ordine_ddt(order_id):
     """Registra il riferimento del DDT emesso nell'altro sistema.
 
@@ -2712,6 +2982,7 @@ def api_ordine_ddt(order_id):
 
 
 @app.route('/api/ordini/<order_id>/consegna', methods=['POST'])
+@richiede('ufficio')
 def api_ordine_consegna(order_id):
     """Merce consegnata. `completa=false` lascia un residuo da consegnare."""
     from .ordini_service import registra_consegna
@@ -2722,6 +2993,7 @@ def api_ordine_consegna(order_id):
 
 
 @app.route('/api/ordini/<order_id>/chiudi', methods=['POST'])
+@richiede('ufficio')
 def api_ordine_chiudi(order_id):
     """Fatturato: ciclo amministrativo concluso, l'ordine va in archivio.
 
@@ -2739,6 +3011,7 @@ def api_ordine_chiudi(order_id):
 
 
 @app.route('/api/ordini/<order_id>/riapri', methods=['POST'])
+@richiede('ufficio')
 def api_ordine_riapri(order_id):
     from .ordini_service import riapri
     return _transizione(riapri, order_id)
@@ -2746,16 +3019,14 @@ def api_ordine_riapri(order_id):
 
 # ============================================================================
 #  TABLET DI OFFICINA — abilitazione dei dispositivi condivisi
-#  Il tablet appeso vicino alla timbratrice non ha login: viene abilitato UNA
-#  volta con un token di dispositivo, e da quel momento gli operai toccano solo
-#  il proprio nome. Qui l'ufficio puo' crearlo, vederlo e revocarlo senza CLI.
+#  Ogni dispositivo e' registrato UNA volta come stazione (backend/accesso.py).
+#  Qui un amministratore li vede, li rinomina e li revoca senza riga di comando.
 # ============================================================================
 
-# Scope creabili dall'interfaccia. 'ufficio' NO: darebbe i poteri
-# dell'impiegata a chiunque sappia chiamare l'endpoint, e questa API e'
-# protetta solo dall'id utente inviato dal browser come il resto dell'admin.
-# I token d'ufficio restano da riga di comando (app/tools/device_token.py).
-_SCOPE_DA_UI = ('ore', 'reparto')
+# Stazioni creabili dall'interfaccia: tutte, ora che queste rotte vogliono il
+# PIN di un amministratore. Di solito pero' un dispositivo si registra dalla
+# sua pagina iniziale; questo serve a preparare un codice da portare a mano.
+_SCOPE_DA_UI = tuple(accesso.STAZIONI)
 
 
 def _url_base_lan() -> str:
@@ -2776,15 +3047,27 @@ def _url_base_lan() -> str:
 
 
 @app.route('/api/admin/dispositivi', methods=['GET'])
+@richiede(ADMIN)
 def api_dispositivi_list():
     """Elenco dei tablet abilitati (senza segreti) + indirizzo base per il QR.
     Solo amministrazione/capi."""
     try:
-        vietato = _permesso_gestione()
-        if vietato:
-            return vietato
-        from .auth_device import elenca_token
-        return jsonify({'success': True, 'dispositivi': elenca_token(),
+        from .models_ore import DeviceToken as _DT
+        questo = (identita().dispositivo or {}).get('id')
+        s = get_session()
+        try:
+            righe = s.query(_DT).order_by(_DT.is_active.desc(), _DT.created_at.desc()).all()
+            out = []
+            for r in righe:
+                d = accesso._dispositivo_dict(r)
+                # nomi vecchi, per chi legge ancora label/scope/is_active
+                d.update({'label': r.label, 'scope': r.scope, 'is_active': bool(r.is_active),
+                          'created_at': d['registrato_il'], 'last_used_at': d['ultimo_uso'],
+                          'questo': r.id == questo})
+                out.append(d)
+        finally:
+            s.close()
+        return jsonify({'success': True, 'dispositivi': out,
                         'url_base': _url_base_lan()}), 200
     except Exception as e:
         logger.exception('api_dispositivi_list failed')
@@ -2792,17 +3075,15 @@ def api_dispositivi_list():
 
 
 @app.route('/api/admin/dispositivi', methods=['POST'])
+@richiede(ADMIN)
 def api_dispositivi_create():
     """Abilita un tablet. Il token in chiaro viene restituito UNA sola volta."""
     try:
         data = request.get_json(silent=True) or {}
-        user_id = (data.get('admin_id') or '').strip()
-        if not _require_capo(user_id):
-            return jsonify({'error': 'Permesso negato'}), 403
+        user_id = _chi_admin()
         scope = (data.get('scope') or 'ore').strip().lower()
         if scope not in _SCOPE_DA_UI:
-            return jsonify({'error': 'Da qui si abilitano solo i tablet di officina '
-                                     'e di reparto.'}), 400
+            return jsonify({'error': 'Stazione sconosciuta.'}), 400
         etichetta = (data.get('label') or '').strip()
         if not etichetta:
             return jsonify({'error': 'Dai un nome al tablet (es. "Tablet timbratrice")'}), 400
@@ -2817,9 +3098,9 @@ def api_dispositivi_create():
                              detail=f'{etichetta} ({scope})')
         except Exception:
             pass
-        base = _url_base_lan()
-        pagina = '/ore.html' if scope == 'ore' else '/operaio-info.html'
-        res['url'] = f"{base}{pagina}?token={res['token']}"
+        # Si apre la pagina iniziale col codice: diventa il cookie del
+        # dispositivo e la pagina sparisce dall'indirizzo.
+        res['url'] = f"{_url_base_lan()}/?codice={res['token']}"
         return jsonify({'success': True, 'dispositivo': res}), 201
     except Exception as e:
         logger.exception('api_dispositivi_create failed')
@@ -2827,16 +3108,17 @@ def api_dispositivi_create():
 
 
 @app.route('/api/admin/dispositivi/<token_id>', methods=['DELETE'])
+@richiede(ADMIN)
 def api_dispositivi_revoke(token_id):
     """Revoca un tablet (es. smarrito). Da quel momento non salva piu' nulla."""
     try:
-        user_id = (request.args.get('admin_id') or '').strip()
-        if not _require_capo(user_id):
-            return jsonify({'error': 'Permesso negato'}), 403
+        user_id = _chi_admin()
         from .auth_device import revoca_token
         res = revoca_token(token_id, da=user_id)
         if res.get('error'):
             return jsonify(res), 404
+        # Dispositivo perso o rubato: chi era entrato da li' esce subito.
+        accesso.chiudi_sessioni(device_id=token_id)
         try:
             AuditManager.log(user_id=user_id, action='REVOCA_DEVICE_TOKEN',
                              entity_type='device_token', entity_id=token_id, detail='')
@@ -2849,6 +3131,7 @@ def api_dispositivi_revoke(token_id):
 
 
 @app.route('/api/admin/dispositivi/qr', methods=['GET'])
+@richiede(ADMIN)
 def api_dispositivi_qr():
     """QR PNG dell'indirizzo di abilitazione, da inquadrare col tablet.
 
@@ -2879,76 +3162,20 @@ def api_dispositivi_qr():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/orders/<order_id>/cartellino', methods=['GET'])
-def api_cartellino(order_id):
-    """Ritorna il PDF A6 col cartellino barcode dell'ordine."""
-    try:
-        session = get_session()
-        try:
-            order = session.query(Order).filter(Order.id == order_id).first()
-            if not order:
-                return jsonify({'error': 'Ordine non trovato'}), 404
-            codice = order.numero_ordine or order.id[:8]
-            cliente = order.cliente or ''
-            data_consegna = order.data_consegna
-            note = ''
-            if order.lotto_numero and order.lotto_numero > 0:
-                note = f'Lotto {order.lotto_numero}'
-                if order.lotto_nome:
-                    note += f' — {order.lotto_nome}'
-        finally:
-            session.close()
-
-        pdf_bytes = genera_cartellino_pdf(
-            codice=codice,
-            cliente=cliente,
-            data_consegna=data_consegna,
-            note=note,
-        )
-        import io as _io
-        return send_file(
-            _io.BytesIO(pdf_bytes),
-            mimetype='application/pdf',
-            as_attachment=False,
-            download_name=f'cartellino_{codice}.pdf',
-        )
-    except Exception as e:
-        logger.exception('api_cartellino failed for %s', order_id)
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/orders/<order_id>/tempo-officina', methods=['GET'])
-def api_tempo_officina(order_id):
-    """Ritorna il dettaglio delle sessioni officina per un ordine."""
-    try:
-        data = BarcodeManager.get_tempo_officina(order_id)
-        return jsonify(data), 200
-    except Exception as e:
-        logger.exception('api_tempo_officina failed')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/officina/live-status', methods=['GET'])
-def api_officina_live_status():
-    """Feed live per la pagina 'Stato officina' dell'impiegata."""
-    try:
-        return jsonify(BarcodeManager.get_live_status()), 200
-    except Exception as e:
-        logger.exception('api_officina_live_status failed')
-        return jsonify({'error': str(e)}), 500
-
-
 @app.route('/api/capo/kpi-operai', methods=['GET'])
+@richiede('ufficio', ADMIN)
 def api_capo_kpi_operai():
-    """KPI ore per operaio (oggi/settimana/mese) — pagina capo officina."""
+    """KPI ore per operaio (oggi/settimana/mese) — pagina capo officina.
+    Le ore sono quelle dichiarate dagli operai sul tablet della timbratrice."""
     try:
-        return jsonify(BarcodeManager.get_kpi_operai()), 200
+        return jsonify(KPIManager.get_kpi_operai()), 200
     except Exception as e:
         logger.exception('api_capo_kpi_operai failed')
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/capo/calendario-ordini', methods=['GET'])
+@richiede('ufficio', 'laser')
 def api_capo_calendario():
     """Ordini per data consegna nel mese (param ?mese=YYYY-MM)."""
     try:
@@ -2966,126 +3193,10 @@ def api_capo_calendario():
                 return jsonify({'error': 'Formato mese non valido (usa YYYY-MM)'}), 400
         return jsonify({
             'mese': f'{year:04d}-{month:02d}',
-            'giorni': BarcodeManager.get_calendario_ordini(year, month),
+            'giorni': OrderManager.get_calendario_ordini(year, month),
         }), 200
     except Exception as e:
         logger.exception('api_capo_calendario failed')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/admin/close-residual', methods=['POST'])
-def api_admin_close_residual():
-    """Chiude tutte le scan ancora aperte (fine turno).
-
-    Richiede capo/admin: passa user_id nel body per audit.
-    """
-    try:
-        data = request.get_json(silent=True) or {}
-        user_id = data.get('user_id') or ''
-        if not _require_capo(user_id):
-            return jsonify({'error': 'Permesso negato'}), 403
-        motivo = data.get('motivo') or 'fine_turno'
-        n = BarcodeManager.close_residual_scans(motivo=motivo)
-        AuditManager.log(
-            user_id=user_id,
-            action='CLOSE_RESIDUAL_SCANS',
-            entity_type='officina_scans',
-            entity_id='*',
-            detail=f'Chiuse {n} scan, motivo={motivo}',
-        )
-        return jsonify({'ok': True, 'chiuse': n}), 200
-    except Exception as e:
-        logger.exception('api_admin_close_residual failed')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/admin/pistole', methods=['GET'])
-def api_admin_pistole_list():
-    """Lista pistole registrate."""
-    try:
-        return jsonify(BarcodeManager.list_pistole(include_inactive=True)), 200
-    except Exception as e:
-        logger.exception('api_admin_pistole_list failed')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/admin/pistole', methods=['POST'])
-def api_admin_pistole_create():
-    """Registra una nuova pistola."""
-    try:
-        data = request.get_json(silent=True) or {}
-        user_id = data.get('admin_id') or ''
-        if not _require_capo(user_id):
-            return jsonify({'error': 'Permesso negato'}), 403
-        result = BarcodeManager.create_pistola(
-            pistola_id=data.get('pistola_id') or '',
-            operatore_id=data.get('operatore_id') or '',
-            note=data.get('note') or '',
-        )
-        if result.get('error'):
-            return jsonify(result), 400
-        AuditManager.log(
-            user_id=user_id,
-            action='CREATE_PISTOLA',
-            entity_type='pistole',
-            entity_id=result.get('id'),
-            detail=f'pistola_id={data.get("pistola_id")} → {data.get("operatore_id")}',
-        )
-        return jsonify(result), 201
-    except Exception as e:
-        logger.exception('api_admin_pistole_create failed')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/admin/pistole/<pistola_uuid>', methods=['PUT'])
-def api_admin_pistole_update(pistola_uuid):
-    """Aggiorna pistola (operatore, attiva, note)."""
-    try:
-        data = request.get_json(silent=True) or {}
-        user_id = data.get('admin_id') or ''
-        if not _require_capo(user_id):
-            return jsonify({'error': 'Permesso negato'}), 403
-        result = BarcodeManager.update_pistola(
-            pistola_uuid=pistola_uuid,
-            operatore_id=data.get('operatore_id'),
-            attiva=data.get('attiva'),
-            note=data.get('note'),
-        )
-        if result.get('error'):
-            return jsonify(result), 400
-        AuditManager.log(
-            user_id=user_id,
-            action='UPDATE_PISTOLA',
-            entity_type='pistole',
-            entity_id=pistola_uuid,
-            detail=str(data),
-        )
-        return jsonify(result), 200
-    except Exception as e:
-        logger.exception('api_admin_pistole_update failed')
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/admin/pistole/<pistola_uuid>', methods=['DELETE'])
-def api_admin_pistole_delete(pistola_uuid):
-    """Elimina pistola."""
-    try:
-        admin_id = request.args.get('admin_id') or ''
-        if not _require_capo(admin_id):
-            return jsonify({'error': 'Permesso negato'}), 403
-        result = BarcodeManager.delete_pistola(pistola_uuid)
-        if result.get('error'):
-            return jsonify(result), 400
-        AuditManager.log(
-            user_id=admin_id,
-            action='DELETE_PISTOLA',
-            entity_type='pistole',
-            entity_id=pistola_uuid,
-            detail='',
-        )
-        return jsonify(result), 200
-    except Exception as e:
-        logger.exception('api_admin_pistole_delete failed')
         return jsonify({'error': str(e)}), 500
 
 
@@ -3094,7 +3205,6 @@ def api_admin_pistole_delete(pistola_uuid):
 # ============================================================================
 
 # Ruoli autorizzati a write/read sui preventivi (decisione: aperto interni, no operai)
-_PREV_WRITE_ROLES = ['Commerciale', 'Amministratore', 'CAPO']
 _PREV_READ_ROLES = ['Commerciale', 'Amministratore', 'CAPO', 'Impiegata']
 
 _RX_ROTTA_PREVENTIVO = re.compile(
@@ -3157,6 +3267,7 @@ def _blocca_preventivi_tecnici():
 
 
 @app.route('/api/preventivi', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_list():
     """Lista preventivi (filtri opzionali: cliente, status)."""
     try:
@@ -3171,13 +3282,12 @@ def api_preventivi_list():
 
 
 @app.route('/api/preventivi', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_create():
     """Crea preventivo (BOZZA). Riservato a Commerciale + Admin."""
     try:
         data = request.get_json() or {}
-        created_by = data.get('created_by') or ''
-        if not _require_role(created_by, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        created_by = _chi()
         cliente = (data.get('cliente') or '').strip()
         if not cliente:
             return jsonify({'success': False, 'error': 'Cliente obbligatorio'}), 400
@@ -3210,6 +3320,7 @@ def api_preventivi_create():
 
 
 @app.route('/api/preventivi/<preventivo_id>', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_get(preventivo_id):
     """Dettaglio preventivo + articoli/assiemi/tubolari/piastre.
 
@@ -3244,7 +3355,7 @@ def api_preventivi_get(preventivo_id):
             try:
                 from .preventivi import dxf_cleanup as _dxc
                 if detection_cfg is None:
-                    detection_cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+                    detection_cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
                 orig_name = art.get('dxf_filename')
                 orig_path = os.path.join(prev_dir, os.path.basename(orig_name)) if orig_name else None
                 esito = _dxc.verifica_pulito_articolo(
@@ -3266,6 +3377,19 @@ def api_preventivi_get(preventivo_id):
             except Exception as ee:
                 logger.debug('verifica DXF pulito %s fallita: %s', cleaned_name, ee)
                 # non fatale — fallback formula lato client
+        # Preventivo accettato: l'ordine che ne e' nato, per "Stampa ordine"
+        # dal preventivatore (qui e non in PreventivoManager.get, che il
+        # tablet chiama per ogni ordine aperto).
+        if p.get('status') == 'ACCETTATO':
+            session = get_session()
+            try:
+                o = session.query(Order.id).filter(
+                    Order.preventivo_id_origine == preventivo_id,
+                    Order.is_deleted == False,  # noqa: E712
+                ).first()
+                p['ordine_id'] = o[0] if o else None
+            finally:
+                session.close()
         return jsonify({'success': True, 'preventivo': p}), 200
     except Exception as e:
         logger.exception('preventivo get failed')
@@ -3273,13 +3397,13 @@ def api_preventivi_get(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>', methods=['PUT'])
+@richiede('commerciale')
 def api_preventivi_update(preventivo_id):
     """Modifica preventivo. Bloccato se status INVIATO/ACCETTATO (immutabili)."""
     try:
         data = request.get_json() or {}
-        updated_by = data.pop('updated_by', '')
-        if not _require_role(updated_by, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        data.pop('updated_by', None)      # pagine vecchie: non e' un campo del preventivo
+        updated_by = _chi()
         # data_consegna_proposta come stringa → datetime
         if 'data_consegna_proposta' in data and data['data_consegna_proposta']:
             try:
@@ -3305,6 +3429,7 @@ def api_preventivi_update(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/duplica', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_duplicate(preventivo_id):
     """Duplica un preventivo esistente in un nuovo BOZZA.
 
@@ -3315,9 +3440,7 @@ def api_preventivi_duplicate(preventivo_id):
     """
     try:
         data = request.get_json(silent=True) or {}
-        created_by = data.get('created_by') or ''
-        if not _require_role(created_by, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        created_by = _chi()
         new_cliente = data.get('cliente') or ''
         copy_articoli = bool(data.get('copy_articoli', True))
         result = PreventivoManager.duplicate(
@@ -3351,12 +3474,11 @@ def api_preventivi_duplicate(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>', methods=['DELETE'])
+@richiede('commerciale')
 def api_preventivi_delete(preventivo_id):
     """Soft delete (is_deleted=True). Riservato a Commerciale + Admin."""
     try:
-        deleted_by = request.args.get('deleted_by') or ''
-        if not _require_role(deleted_by, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        deleted_by = _chi()
         ok = PreventivoManager.soft_delete(preventivo_id)
         if not ok:
             return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
@@ -3373,14 +3495,13 @@ def api_preventivi_delete(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/import-xlsx', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_import_xlsx(preventivo_id):
     """Upload XLSX Lantek → estrae articoli e li ritorna (NON li salva ancora).
     La UI mostra l'anteprima; il save effettivo avviene quando l'utente conferma.
     """
     try:
-        admin_id = request.form.get('admin_id') or request.args.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'File XLSX obbligatorio'}), 400
         f = request.files['file']
@@ -3403,14 +3524,13 @@ def api_preventivi_import_xlsx(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/import-dxf', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_import_dxf(preventivo_id):
     """Upload DXF → estrae lavorazioni (pieghe/saldature) + geometria (area/perimetro).
     Il file viene scartato dopo l'estrazione (decisione: no storage DXF).
     """
     try:
-        admin_id = request.form.get('admin_id') or request.args.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'File disegno obbligatorio'}), 400
         f = request.files['file']
@@ -3464,7 +3584,7 @@ def api_preventivi_import_dxf(preventivo_id):
         # Config rilevamento da app_config.json (sezione dxf_detection) — valori calibrati
         # sul config Preventivatore desktop (ratio_min=1.8, filtra_zona=True, ecc.)
         from .preventivi.dxf_batch_worker import process_single_dxf
-        app_cfg = BarcodeManager.load_config()
+        app_cfg = ConfigManager.load_config()
         dxf_cfg = app_cfg.get('dxf_detection') or {
             'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
             'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
@@ -3475,7 +3595,7 @@ def api_preventivi_import_dxf(preventivo_id):
         payload = process_single_dxf(tmp_path, saved_filename, dxf_cfg)
         # Materiale del cartiglio che corrisponde a un materiale aggiunto (C75...)
         from .preventivi.materiali_personali import applica_a_risultato as _mat_pers
-        payload = _mat_pers(payload, ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali'))
+        payload = _mat_pers(payload, ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali'))
         if not payload.get('success'):
             try: os.remove(tmp_path)
             except OSError: pass
@@ -3493,6 +3613,7 @@ def api_preventivi_import_dxf(preventivo_id):
 
 
 @app.route('/api/preventivi/rfq-diagnostic', methods=['GET'])
+@richiede('commerciale')
 def api_preventivi_rfq_diagnostic():
     """L'AI (Gemini) e' stata tolta il 2026-09-29: gli ordini si leggono dal
     testo del PDF, sul server. Nessuna chiamata esterna."""
@@ -3652,7 +3773,7 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             logger.warning('salvataggio STEP fallito: %s', sname)
 
     # 4. Processa i DXF in parallelo (detector v3 + scanner dettagli)
-    app_cfg = BarcodeManager.load_config()
+    app_cfg = ConfigManager.load_config()
     dxf_cfg = app_cfg.get('dxf_detection') or {
         'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
         'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
@@ -3662,7 +3783,7 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     }
     dxf_results: dict[str, dict] = {}
     from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_rfq, trova as _trova_mat
-    _mats_rfq = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali')
+    _mats_rfq = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
     if saved_tasks:
         max_workers = min(8, max(1, len(saved_tasks)))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -3813,6 +3934,7 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
 
 
 @app.route('/api/preventivi/import-rfq-package', methods=['POST'])
+@richiede(*UFFICI)
 def api_preventivi_import_rfq_package():
     """AI RFQ Importer: da ZIP (PDF ordine + cartella DXF) → preventivo BOZZA pronto.
 
@@ -3836,16 +3958,13 @@ def api_preventivi_import_rfq_package():
     """
     from .preventivi import rfq_importer
     try:
-        admin_id = request.form.get('admin_id') or ''
-        # Anche l'Impiegata (Elena) può caricare una richiesta: crea la BOZZA
+        admin_id = _chi()
+        # Anche l'Ufficio (Elena) può caricare una richiesta: crea la BOZZA
         # "da prezzare" e la gira al commerciale. Non prezza né tocca il CAD.
-        if not _require_role(admin_id, _PREV_WRITE_ROLES + ['Impiegata']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
-        _caller = UserManager.get_user(admin_id) or {}
-        # Una richiesta che arriva dall'amministrazione, col nome nuovo o
-        # con quello vecchio: senza questo, la bozza non risulta "da prezzare"
-        # e il commerciale non sa che c'e' qualcosa da fare.
-        is_intake_elena = (_caller.get('role') in RUOLI_UFFICIO)
+        # Lo dice la STAZIONE, non il ruolo dichiarato: senza questo la bozza
+        # non risulta "da prezzare" e il commerciale non sa che c'e' da fare.
+        is_intake_elena = identita().stazione == 'ufficio'
+        _caller = {'name': _chi_nome()}
 
         zip_bytes, f = _zip_dalla_richiesta()
         if zip_bytes is None:
@@ -3953,7 +4072,6 @@ def api_preventivi_import_rfq_package():
 #  Due passi: /analizza (legge, l'ufficio rivede) e /conferma (crea l'ordine).
 # ============================================================================
 
-_RUOLI_PACCHETTO = ['Impiegata', 'Commerciale', 'Amministratore', 'CAPO']
 # Un'analisi lasciata a meta' (pagina chiusa) si butta dopo tanto tempo.
 _ORE_PACCHETTO_ABBANDONATO = 24
 # Due clic su "Crea ordine" non devono creare due ordini dallo stesso pacchetto.
@@ -4045,6 +4163,7 @@ def _avvisi_riga_pacchetto(it, fonte):
 
 
 @app.route('/api/orders/da-pacchetto/analizza', methods=['POST'])
+@richiede('ufficio')
 def api_ordine_pacchetto_analizza():
     """Legge il pacchetto del cliente (PDF d'ordine + disegni) senza creare
     l'ordine: l'ufficio rivede quantita', materiali e spessori, poi conferma.
@@ -4054,10 +4173,7 @@ def api_ordine_pacchetto_analizza():
     """
     from .preventivi import rfq_importer
     try:
-        user_id = (request.form.get('user_id') or '').strip()
-        if not _require_role(user_id, _RUOLI_PACCHETTO):
-            return _errore_pacchetto('permesso_negato',
-                                     "Solo l'ufficio o il commerciale possono caricare un ordine.", 403)
+        user_id = _chi()
         _pulisci_pacchetti_abbandonati()
 
         zip_bytes, file_caricato = _zip_dalla_richiesta()
@@ -4225,6 +4341,7 @@ def _leggi_correzioni_pacchetto(prev, righe_in):
 
 
 @app.route('/api/orders/da-pacchetto/<pacchetto_id>/conferma', methods=['POST'])
+@richiede('ufficio')
 def api_ordine_pacchetto_conferma(pacchetto_id):
     """Crea l'ordine dal pacchetto analizzato, con le correzioni dell'ufficio.
 
@@ -4234,10 +4351,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
     """
     try:
         data = request.get_json(silent=True) or {}
-        user_id = (data.get('user_id') or '').strip()
-        if not _require_role(user_id, _RUOLI_PACCHETTO):
-            return _errore_pacchetto('permesso_negato',
-                                     "Solo l'ufficio o il commerciale possono caricare un ordine.", 403)
+        user_id = _chi()
 
         numero = str(data.get('numero_ordine') or '').strip()
         cliente = str(data.get('cliente') or '').strip()
@@ -4357,7 +4471,6 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
             'success': True,
             'order_id': order.id,
             'numero_ordine': numero,
-            'cartellino_url': f'/api/orders/{order.id}/cartellino',
             'ordine': riga_ordine(order.id),
             'n_pezzi': len(nuovi),
             'dxf_transfer': dxf_stats,
@@ -4371,15 +4484,13 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
 
 
 @app.route('/api/orders/da-pacchetto/<pacchetto_id>', methods=['DELETE'])
+@richiede('ufficio')
 def api_ordine_pacchetto_scarta(pacchetto_id):
     """L'ufficio annulla un'analisi: via il preventivo tecnico e i suoi file.
     Un pacchetto gia' diventato ordine non si tocca (la distinta sta li')."""
     try:
         data = request.get_json(silent=True) or {}
-        user_id = (data.get('user_id') or request.args.get('user_id') or '').strip()
-        if not _require_role(user_id, _RUOLI_PACCHETTO):
-            return _errore_pacchetto('permesso_negato',
-                                     "Solo l'ufficio o il commerciale possono annullare un caricamento.", 403)
+        user_id = _chi()
         if not PreventivoManager.e_tecnico(pacchetto_id):
             return _errore_pacchetto('pacchetto_non_trovato', 'Pacchetto non trovato.', 404)
         if not PreventivoManager.elimina_tecnico(pacchetto_id):
@@ -4393,6 +4504,7 @@ def api_ordine_pacchetto_scarta(pacchetto_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/import-dxf-batch', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_import_dxf_batch(preventivo_id):
     """Import batch di N file DXF con parsing parallelizzato.
 
@@ -4411,9 +4523,7 @@ def api_preventivi_import_dxf_batch(preventivo_id):
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from .preventivi.dxf_batch_worker import process_single_dxf
     try:
-        admin_id = request.form.get('admin_id') or request.args.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         files = request.files.getlist('files')
         if not files:
             return jsonify({'success': False, 'error': 'Nessun file inviato'}), 400
@@ -4466,7 +4576,7 @@ def api_preventivi_import_dxf_batch(preventivo_id):
             return jsonify({'success': True, 'results': skipped, 'step_salvati': n_step,
                             'master_saltati': master_saltati}), 200
         # Config DXF (una volta per tutti)
-        app_cfg = BarcodeManager.load_config()
+        app_cfg = ConfigManager.load_config()
         dxf_cfg = app_cfg.get('dxf_detection') or {
             'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
             'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
@@ -4478,7 +4588,7 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         results = list(skipped)
         max_workers = min(8, max(1, len(saved_tasks)))
         from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_b
-        _mats_b = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali')
+        _mats_b = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {
                 pool.submit(process_single_dxf, path, fname, dxf_cfg): (fname, originale)
@@ -4531,7 +4641,7 @@ def _prewarm_dxf_cache(tasks):
     Errori silenziati (il render live gestirà comunque).
     """
     from concurrent.futures import ThreadPoolExecutor
-    detection_cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+    detection_cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
     # 4 worker (non 8): ezdxf ha race condition al cold-start dei moduli con
     # troppi thread paralleli (rilevato: primo run può perdere 1-2 file su 7).
     # Con 4 worker + moduli caldi va sempre a 7/7. I fallimenti residui vengono
@@ -4553,6 +4663,7 @@ def _prewarm_dxf_cache(tasks):
 
 
 @app.route('/api/preventivi/<preventivo_id>/step-files', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_step_files_list(preventivo_id):
     """Elenca i file STEP (.step/.stp) caricati per il preventivo (in preventivi_tmp/<id>/)."""
     try:
@@ -4575,6 +4686,7 @@ def api_preventivi_step_files_list(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/verifica-pezzo', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_verifica_pezzo(preventivo_id):
     """Dati indipendenti per il controllo di coerenza di un pezzo (sola lettura):
     peso del cartiglio del DXF e, se c'e' lo STEP dello stesso pezzo, i suoi dati
@@ -4587,7 +4699,7 @@ def api_preventivi_verifica_pezzo(preventivo_id):
         prev_dir = _cartella_preventivo(preventivo_id)
         dxf = os.path.basename(request.args.get('dxf') or '') or None
         codice = request.args.get('codice') or None
-        cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+        cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
         return jsonify({'success': True, **verifica_pezzo(prev_dir, dxf, codice, cfg)}), 200
     except Exception as e:
         logger.exception('verifica-pezzo failed')
@@ -4595,6 +4707,7 @@ def api_preventivi_verifica_pezzo(preventivo_id):
 
 
 @app.route('/api/preventivi/profili-tubolari', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_profili_tubolari():
     """Catalogo dei profili (tubi quadri, rettangolari, tondi) con kg/m, per
     aggiungere un tubolare a mano. Sola lettura."""
@@ -4602,6 +4715,7 @@ def api_preventivi_profili_tubolari():
 
 
 @app.route('/api/preventivi/<preventivo_id>/distinte', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_distinte(preventivo_id):
     """Distinte base lette dai PDF d'insieme caricati (sola lettura).
     Query: codici=46SA00579-00,... (codici degli assiemi). Restituisce anche le
@@ -4617,6 +4731,7 @@ def api_preventivi_distinte(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/proponi-contorno', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_proponi_contorno(preventivo_id):
     """Suggerisce il contorno del disegno che pesa quanto il cartiglio (sola
     lettura: l'operatore vede la forma e decide). Query: dxf, spessore,
@@ -4633,7 +4748,7 @@ def api_preventivi_proponi_contorno(preventivo_id):
                 return float(str(request.args.get(k) or '').replace(',', '.'))
             except ValueError:
                 return 0.0
-        cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+        cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
         r = proponi_contorno(dxf_path, _f('spessore'), _f('densita'), _f('peso'), cfg)
         return jsonify({'success': True, **r}), 200
     except Exception as e:
@@ -4642,6 +4757,7 @@ def api_preventivi_proponi_contorno(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/step/<path:filename>', methods=['GET'])
+@richiede(*OFFICINA_LETTURA)     # anche il tablet: il modello 3D del pezzo
 def api_preventivi_step_file(preventivo_id, filename):
     """Serve il file STEP raw (per viewer 3D preview-step.html che lo scarica via fetch)."""
     try:
@@ -4660,6 +4776,7 @@ def api_preventivi_step_file(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/disegni-pdf', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_disegni_pdf_upload(preventivo_id):
     """PDF dei disegni del cliente (di solito nella stessa cartella dei DXF).
 
@@ -4669,9 +4786,7 @@ def api_preventivi_disegni_pdf_upload(preventivo_id):
     Form: files[] (+ admin_id). Risposta: [{originale, salvato}].
     """
     try:
-        admin_id = request.form.get('admin_id') or request.args.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         files = request.files.getlist('files')
         if not files:
             return jsonify({'success': False, 'error': 'Nessun PDF ricevuto'}), 400
@@ -4696,6 +4811,7 @@ def api_preventivi_disegni_pdf_upload(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/file-disegni', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_file_disegni(preventivo_id):
     """Disegni salvati col preventivo (PDF e DXF originali, non i puliti).
     Servono alla scheda assieme: senza STEP si mostra il disegno d'insieme
@@ -4719,6 +4835,7 @@ def api_preventivi_file_disegni(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/disegni-pdf/<path:filename>', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_disegno_pdf(preventivo_id, filename):
     """Restituisce un PDF di disegno salvato con il preventivo."""
     try:
@@ -4794,6 +4911,7 @@ def _get_dxf_geometry_cached(dxf_path: str, detection_cfg: dict) -> str:
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/svg', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_dxf_svg(preventivo_id, filename):
     """Ritorna SVG ad alta fedeltà del DXF (caricato in import-dxf).
 
@@ -4827,6 +4945,7 @@ def api_preventivi_dxf_svg(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf-confidenze', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_confidenze(preventivo_id):
     """Confidenza del riconoscimento automatico per piu' disegni in una volta.
 
@@ -4840,7 +4959,7 @@ def api_preventivi_dxf_confidenze(preventivo_id):
         nomi = [os.path.basename(str(n)) for n in (data.get('files') or [])][:300]
         prev_dir = _cartella_preventivo(preventivo_id)
         from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         detection_cfg = app_cfg.get('dxf_detection', {})
         risultati = {}
         for nome in nomi:
@@ -4860,6 +4979,7 @@ def api_preventivi_dxf_confidenze(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/candidates', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_dxf_candidates(preventivo_id, filename):
     """Ritorna la lista dei poligoni candidati come pezzo (per UI selezione manuale).
 
@@ -4889,7 +5009,7 @@ def api_preventivi_dxf_candidates(preventivo_id, filename):
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         detection_cfg = app_cfg.get('dxf_detection', {})
         r = detect_pezzo_geometry_v3(dxf_path, detection_cfg)
         return jsonify({'success': True, **r}), 200
@@ -4899,6 +5019,7 @@ def api_preventivi_dxf_candidates(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/spessore', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_spessore(preventivo_id, filename):
     """Ricalcola lo spessore lamiera per un DXF dato area (dal detector/manuale)
     e materiale (che l'utente potrebbe aver cambiato dopo l'import).
@@ -4925,6 +5046,7 @@ def api_preventivi_dxf_spessore(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/select-point', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_select_point(preventivo_id, filename):
     """Pattern 'Trova pezzo' Lantek: click su un contorno chiuso → sistema
     identifica quel poligono e i suoi contorni interni.
@@ -4945,7 +5067,7 @@ def api_preventivi_dxf_select_point(preventivo_id, filename):
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         from .preventivi.dxf_polygon_detector_v3 import compute_geometry_from_point
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         detection_cfg = app_cfg.get('dxf_detection', {})
         r = compute_geometry_from_point(dxf_path, x, y, detection_cfg)
         return jsonify({'success': True, **r}), 200
@@ -4955,6 +5077,7 @@ def api_preventivi_dxf_select_point(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/generate-canonical', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_generate_canonical(preventivo_id, filename):
     """Genera il DXF CANONICO dal contorno confermato (solo pezzo + fori).
     È il file byte-identico che andrà in produzione (preventivato≡prodotto) e
@@ -4988,7 +5111,7 @@ def api_preventivi_dxf_generate_canonical(preventivo_id, filename):
                 from .preventivi import dxf_cleanup as _dxc
                 base_p, ext_p = os.path.splitext(src_path)
                 cleaned_path = base_p + '_cleaned' + ext_p
-                cfg = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+                cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
                 rp = _dxc.pulito_da_contorno(src_path, cleaned_path, outer, holes, cfg)
                 if rp.get('success'):
                     pulito['cleaned_dxf_filename'] = os.path.basename(cleaned_path)
@@ -5006,6 +5129,7 @@ def api_preventivi_dxf_generate_canonical(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/warm-cad', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_warm_cad(preventivo_id):
     """Pre-scalda in background le cache SVG + geometria per TUTTI i DXF del
     preventivo, così l'apertura del CAD (e i thumbnail) è istantanea. Ritorna
@@ -5028,6 +5152,7 @@ def api_preventivi_warm_cad(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/geometry-json', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_dxf_geometry_json(preventivo_id, filename):
     """CAD interno — geometria del DXF come polilinee in mm, per il viewer.
 
@@ -5040,7 +5165,7 @@ def api_preventivi_dxf_geometry_json(preventivo_id, filename):
         dxf_path = os.path.join(prev_dir, safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'error': 'File DXF non trovato'}), 404
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         payload = _get_dxf_geometry_cached(dxf_path, app_cfg.get('dxf_detection', {}))
         from flask import Response
         resp = Response(payload, mimetype='application/json')
@@ -5052,6 +5177,7 @@ def api_preventivi_dxf_geometry_json(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/follow-contour', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_follow_contour(preventivo_id, filename):
     """CAD interno — tracciamento contorno stile Lantek Detect Part.
 
@@ -5078,7 +5204,7 @@ def api_preventivi_dxf_follow_contour(preventivo_id, filename):
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         from .preventivi.pick_part import follow_contour_from_click
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         detection_cfg = app_cfg.get('dxf_detection', {})
         r = follow_contour_from_click(dxf_path, x, y, detection_cfg)
         status = 200 if r.get('success') else 200  # success:False non è errore HTTP
@@ -5089,6 +5215,7 @@ def api_preventivi_dxf_follow_contour(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/pick-candidates', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_pick_candidates(preventivo_id, filename):
     """CAD interno — MULTI-IPOTESI: dal click enumera i contorni chiusi plausibili
     e li ritorna come candidati (il corretto in cima). Se 1 solo → l'UI auto-
@@ -5107,7 +5234,7 @@ def api_preventivi_dxf_pick_candidates(preventivo_id, filename):
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         from .preventivi.pick_part import pick_candidates
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         r = pick_candidates(dxf_path, x, y, app_cfg.get('dxf_detection', {}))
         return jsonify(r), 200
     except Exception as e:
@@ -5116,6 +5243,7 @@ def api_preventivi_dxf_pick_candidates(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/lavorazioni', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_dxf_lavorazioni(preventivo_id, filename):
     """Riconta le lavorazioni dal DXF: pieghe (testi SU/GIU'), saldatura,
     filettatura, svasatura. Usato alla conferma del contorno nel CAD per
@@ -5129,7 +5257,7 @@ def api_preventivi_dxf_lavorazioni(preventivo_id, filename):
         if not os.path.exists(dxf_path):
             return jsonify({'error': 'File DXF non trovato'}), 404
         from .preventivi.dxf_scanner import scansiona_dxf_dettagli
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         cfg = app_cfg.get('dxf_detection', {}) or {
             'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
             'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
@@ -5145,7 +5273,55 @@ def api_preventivi_dxf_lavorazioni(preventivo_id, filename):
         return jsonify({'error': str(e)}), 500
 
 
+def _modello_piega(dxf_path, pieghe, outer, thickness, cfg) -> dict:
+    """Modello 3D piegato di un DXF sviluppato (facce + cerniere) per fold3d.html,
+    oppure {success: False, reason, error}. Lo usano il preventivatore e il
+    tablet dell'officina: stesso calcolo, stesso risultato."""
+    from .preventivi.pick_part import pick_candidates
+    from .preventivi.pick_fold import build_fold_model
+    if not pieghe:
+        return {'success': False, 'reason': 'no_bends',
+                'error': 'Nessuna piega leggibile in questo pezzo'}
+    if not outer:
+        # Semina il pick vicino a OGNI cerniera (non al centroide: su disegni
+        # multi-vista il centroide cade nel vuoto). Offset lungo la normale
+        # per non stare sulla linea di piega. Tieni il candidato di area
+        # maggiore = il blank sviluppato completo.
+        import math as _m
+        best_area = -1.0
+        for b in pieghe:
+            h = b['hinge']
+            mx, my = (h[0] + h[2]) / 2, (h[1] + h[3]) / 2
+            dx, dy = h[2] - h[0], h[3] - h[1]
+            L = _m.hypot(dx, dy) or 1.0
+            nx, ny = -dy / L, dx / L
+            for off in (12, 20, -12, -20):
+                sx, sy = mx + nx * off, my + ny * off
+                try:
+                    cand = pick_candidates(dxf_path, sx, sy, cfg)
+                    for c in (cand.get('candidates') or []):
+                        a = c.get('area_dm2') or 0
+                        oxy = c.get('outer_xy') or c.get('outer')
+                        if oxy and a > best_area:
+                            best_area, outer = a, oxy
+                except Exception:
+                    continue
+            # trovato un contorno reale (non una scheggia) → basta, non
+            # scandiamo tutte le 15 cerniere (sarebbe lentissimo)
+            if best_area > 0.03:
+                break
+    if not outer:
+        return {'success': False, 'reason': 'no_outline',
+                'error': 'Contorno non ricavabile in automatico'}
+    try:
+        thickness = float(thickness or 0) or 2.0
+    except (TypeError, ValueError):
+        thickness = 2.0
+    return build_fold_model(dxf_path, outer, thickness, cfg)
+
+
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/fold-model', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_fold_model(preventivo_id, filename):
     """Anteprima piega 3D — modello {facce, cerniere, radice} per il viewer.
 
@@ -5162,66 +5338,24 @@ def api_preventivi_dxf_fold_model(preventivo_id, filename):
         dxf_path = os.path.join(_cartella_preventivo(preventivo_id), safe_name)
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         cfg = app_cfg.get('dxf_detection', {})
         from .preventivi.dxf_scanner import estrai_pieghe_3d
-        from .preventivi.pick_part import pick_candidates
-        from .preventivi.pick_fold import build_fold_model
 
         pieghe = estrai_pieghe_3d(dxf_path, cfg)
         # Probe veloce: solo conteggio pieghe (per il badge), niente pick_candidates
         if data.get('probe'):
             return jsonify({'probe': True, 'has_bends': bool(pieghe),
                             'n_bends': len(pieghe)}), 200
-        if not pieghe:
-            return jsonify({'success': False, 'reason': 'no_bends',
-                            'error': 'Nessuna piega leggibile in questo pezzo'}), 200
-
-        outer = data.get('outer_xy')
-        if not outer:
-            # Semina il pick vicino a OGNI cerniera (non al centroide: su disegni
-            # multi-vista il centroide cade nel vuoto). Offset lungo la normale
-            # per non stare sulla linea di piega. Tieni il candidato di area
-            # maggiore = il blank sviluppato completo.
-            import math as _m
-            best_area = -1.0
-            for b in pieghe:
-                h = b['hinge']
-                mx, my = (h[0] + h[2]) / 2, (h[1] + h[3]) / 2
-                dx, dy = h[2] - h[0], h[3] - h[1]
-                L = _m.hypot(dx, dy) or 1.0
-                nx, ny = -dy / L, dx / L
-                for off in (12, 20, -12, -20):
-                    sx, sy = mx + nx * off, my + ny * off
-                    try:
-                        cand = pick_candidates(dxf_path, sx, sy, cfg)
-                        for c in (cand.get('candidates') or []):
-                            a = c.get('area_dm2') or 0
-                            oxy = c.get('outer_xy') or c.get('outer')
-                            if oxy and a > best_area:
-                                best_area, outer = a, oxy
-                    except Exception:
-                        continue
-                # trovato un contorno reale (non una scheggia) → basta, non
-                # scandiamo tutte le 15 cerniere (sarebbe lentissimo)
-                if best_area > 0.03:
-                    break
-        if not outer:
-            return jsonify({'success': False, 'reason': 'no_outline',
-                            'error': 'Contorno non ricavabile in automatico'}), 200
-
-        try:
-            thickness = float(data.get('thickness') or 0) or 2.0
-        except (TypeError, ValueError):
-            thickness = 2.0
-        model = build_fold_model(dxf_path, outer, thickness, cfg)
-        return jsonify(model), 200
+        return jsonify(_modello_piega(dxf_path, pieghe, data.get('outer_xy'),
+                                      data.get('thickness'), cfg)), 200
     except Exception as e:
         logger.exception('fold-model failed')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/trace-waypoints', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_trace_waypoints(preventivo_id, filename):
     """CAD interno — tracciamento GUIDATO con waypoint (per bivi/pezzi complessi).
 
@@ -5242,7 +5376,7 @@ def api_preventivi_dxf_trace_waypoints(preventivo_id, filename):
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         from .preventivi.pick_part import trace_contour_waypoints
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         r = trace_contour_waypoints(dxf_path, points, app_cfg.get('dxf_detection', {}))
         return jsonify(r), 200
     except Exception as e:
@@ -5251,6 +5385,7 @@ def api_preventivi_dxf_trace_waypoints(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/select-region', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_select_region(preventivo_id, filename):
     """Ricalcola geometria pezzo prendendo tutti i contorni chiusi nella
     region bbox (mm) indicata dall'utente col marquee drag sulla preview.
@@ -5273,7 +5408,7 @@ def api_preventivi_dxf_select_region(preventivo_id, filename):
         if not os.path.exists(dxf_path):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
         from .preventivi.dxf_polygon_detector_v3 import compute_geometry_from_region
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         detection_cfg = app_cfg.get('dxf_detection', {})
         r = compute_geometry_from_region(dxf_path, (minx, miny, maxx, maxy), detection_cfg)
         return jsonify({'success': True, **r}), 200
@@ -5283,6 +5418,7 @@ def api_preventivi_dxf_select_region(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/save-cleaned', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_save_cleaned(preventivo_id, filename):
     """Salva un DXF pulito manualmente definito dall'utente col drag rettangolare.
 
@@ -5296,9 +5432,7 @@ def api_preventivi_dxf_save_cleaned(preventivo_id, filename):
     """
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         try:
             bbox = (
                 float(data.get('minx')), float(data.get('miny')),
@@ -5322,7 +5456,7 @@ def api_preventivi_dxf_save_cleaned(preventivo_id, filename):
 
         # Formato Lantek (TAGLIO/PIEGA/MARCATURA, mm veri): se non riesce resta il pulito di prima
         try:
-            _cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+            _cfg_l = (ConfigManager.load_config() or {}).get('dxf_detection', {})
             _rl = dxf_cleanup.converti_pulito_in_lantek(dxf_path, cleaned_path, _cfg_l)
             if _rl.get('success'):
                 cleanup_r['bbox_mm'] = _rl.get('bbox_mm_mm') or cleanup_r.get('bbox_mm')
@@ -5340,7 +5474,7 @@ def api_preventivi_dxf_save_cleaned(preventivo_id, filename):
         geom = {}
         try:
             from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
-            app_cfg = BarcodeManager.load_config() or {}
+            app_cfg = ConfigManager.load_config() or {}
             detection_cfg = app_cfg.get('dxf_detection', {})
             geom = detect_pezzo_geometry_v3(cleaned_path, detection_cfg) or {}
             if geom.get('n_pierce') is None and geom.get('n_forature') is not None:
@@ -5452,6 +5586,7 @@ def api_preventivi_dxf_save_cleaned(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/save-cleaned-by-click', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
     """Pulizia DXF a partire da un CLICK sul pezzo (invece del drag rettangolo).
 
@@ -5464,9 +5599,7 @@ def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
     """
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         try:
             cx = float(data.get('x'))
             cy = float(data.get('y'))
@@ -5487,7 +5620,7 @@ def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
 
         # Formato Lantek (TAGLIO/PIEGA/MARCATURA, mm veri): se non riesce resta il pulito di prima
         try:
-            _cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+            _cfg_l = (ConfigManager.load_config() or {}).get('dxf_detection', {})
             _rl = dxf_cleanup.converti_pulito_in_lantek(dxf_path, cleaned_path, _cfg_l)
             if _rl.get('success'):
                 cleanup_r['bbox_mm'] = _rl.get('bbox_mm_mm') or cleanup_r.get('bbox_mm')
@@ -5500,7 +5633,7 @@ def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
         geom = {}
         try:
             from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
-            app_cfg = BarcodeManager.load_config() or {}
+            app_cfg = ConfigManager.load_config() or {}
             detection_cfg = app_cfg.get('dxf_detection', {})
             geom = detect_pezzo_geometry_v3(cleaned_path, detection_cfg) or {}
             if geom.get('n_pierce') is None and geom.get('n_forature') is not None:
@@ -5658,6 +5791,7 @@ def api_preventivi_dxf_save_cleaned_by_click(preventivo_id, filename):
 
 
 @app.route('/api/preventivi/<preventivo_id>/dxf/<path:filename>/select-polygon', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_dxf_select_polygon(preventivo_id, filename):
     """Ricalcola area/perimetro/n_pierce assumendo che l'utente ha scelto un
     poligono specifico come outer del pezzo (invece del top-scored automatico).
@@ -5686,7 +5820,7 @@ def api_preventivi_dxf_select_polygon(preventivo_id, filename):
             return jsonify({'success': False, 'error': 'File DXF non trovato'}), 404
 
         from .preventivi.dxf_polygon_detector_v3 import compute_geometry_from_candidate
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         detection_cfg = app_cfg.get('dxf_detection', {})
         r = compute_geometry_from_candidate(dxf_path, cand_idx, detection_cfg)
         return jsonify({'success': True, **r}), 200
@@ -5771,7 +5905,7 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
     Preferenza:
       - `cleaned_dxf_filename` se disponibile (pulito auto o manuale)
       - fallback all'originale `dxf_filename` con warning ("cliente riceve
-        DXF sporco, cartellino segnala che va pulito in Lantek")
+        DXF sporco, da pulire in Lantek")
 
     Ritorna stats: {copied_cleaned, copied_original_fallback, missing, warnings, drawings_dir}
     """
@@ -5854,7 +5988,7 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
                     b_, e_ = os.path.splitext(src)
                     if os.path.isfile(b_ + '_cleaned' + e_):
                         pulito_path = b_ + '_cleaned' + e_
-                cfg_l = (BarcodeManager.load_config() or {}).get('dxf_detection', {})
+                cfg_l = (ConfigManager.load_config() or {}).get('dxf_detection', {})
                 v = _dxc.prepara_pulito_lantek(src, pulito_path, a, cfg_l)
                 # divisi per lamiera (materiale + spessore): in Lantek si apre
                 # una cartella e si annida, niente smistamento a mano
@@ -5910,6 +6044,7 @@ def _ordine_cliente_segnato(prev_dir: str) -> str | None:
 
 
 @app.route('/api/preventivi/<preventivo_id>/ordine-cliente', methods=['POST'])
+@richiede(*UFFICI)
 def api_preventivi_ordine_cliente(preventivo_id):
     """Allega il PDF dell'ordine del cliente e lo legge SENZA AI: per ogni
     codice dei pezzi (form 'codici', JSON) quantita' e posizione nell'ordine.
@@ -5959,6 +6094,7 @@ def api_preventivi_ordine_cliente(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/ordine-cliente', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_ordine_cliente_get(preventivo_id):
     """Nome del PDF d'ordine allegato (None se non c'e')."""
     prev_dir = _cartella_preventivo(preventivo_id)
@@ -6015,6 +6151,7 @@ def _copy_order_pdf_to_order(preventivo_id: str, order_id: str) -> dict:
 
 
 @app.route('/api/orders/<order_id>/verify-files', methods=['GET'])
+@richiede('commerciale', 'ufficio', 'laser')
 def api_orders_verify_files(order_id):
     """Verifica integrità: ricalcola l'hash dei file DXF in produzione
     (uploads/drawings/<order_id>/) e lo confronta con quello registrato
@@ -6067,6 +6204,7 @@ def api_orders_verify_files(order_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/import-step', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_import_step(preventivo_id):
     """Upload STEP (.stp/.step) → estrae assiemi 3D + tubolari + piastre.
 
@@ -6079,9 +6217,7 @@ def api_preventivi_import_step(preventivo_id):
     di default (commerciale può modificare poi).
     """
     try:
-        admin_id = request.form.get('admin_id') or request.args.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'File STEP obbligatorio'}), 400
         f = request.files['file']
@@ -6112,7 +6248,7 @@ def api_preventivi_import_step(preventivo_id):
 
         # Coefficienti: €/kg e tagli dei tubolari dalle Impostazioni
         # (preventivi_config.tubolari_*), gli altri ancora fissi.
-        _pc_tub = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+        _pc_tub = (ConfigManager.load_config() or {}).get('preventivi_config') or {}
 
         def _tar(k, d):
             try:
@@ -6278,6 +6414,7 @@ def api_preventivi_import_step(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/articoli', methods=['PUT'])
+@richiede('commerciale')
 def api_preventivi_articoli_replace(preventivo_id):
     """Sostituisce l'intera lista degli articoli del preventivo (bulk replace).
 
@@ -6287,9 +6424,7 @@ def api_preventivi_articoli_replace(preventivo_id):
     """
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         articoli = data.get('articoli', [])
         if not isinstance(articoli, list):
             return jsonify({'success': False, 'error': 'articoli deve essere una lista'}), 400
@@ -6310,6 +6445,7 @@ def api_preventivi_articoli_replace(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/assiemi', methods=['PUT'])
+@richiede('commerciale')
 def api_preventivi_assiemi_replace(preventivo_id):
     """Sostituisce l'intera lista degli assiemi del preventivo (bulk replace).
 
@@ -6319,9 +6455,7 @@ def api_preventivi_assiemi_replace(preventivo_id):
     """
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         assiemi = data.get('assiemi', [])
         if not isinstance(assiemi, list):
             return jsonify({'success': False, 'error': 'assiemi deve essere una lista'}), 400
@@ -6342,14 +6476,13 @@ def api_preventivi_assiemi_replace(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/tubolari', methods=['PUT'])
+@richiede('commerciale')
 def api_preventivi_tubolari_replace(preventivo_id):
     """Sostituisce l'intera lista dei tubolari (da STEP). Autosave dopo import
     STEP / modifiche. Bloccato se INVIATO/ACCETTATO. Simmetrico ad assiemi."""
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         tubolari = data.get('tubolari', [])
         if not isinstance(tubolari, list):
             return jsonify({'success': False, 'error': 'tubolari deve essere una lista'}), 400
@@ -6370,14 +6503,13 @@ def api_preventivi_tubolari_replace(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/piastre', methods=['PUT'])
+@richiede('commerciale')
 def api_preventivi_piastre_replace(preventivo_id):
     """Sostituisce l'intera lista delle piastre (da STEP). Autosave dopo import
     STEP / modifiche. Bloccato se INVIATO/ACCETTATO. Simmetrico ad assiemi."""
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         piastre = data.get('piastre', [])
         if not isinstance(piastre, list):
             return jsonify({'success': False, 'error': 'piastre deve essere una lista'}), 400
@@ -6398,6 +6530,7 @@ def api_preventivi_piastre_replace(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/articoli/<articolo_id>/stima-base', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_stima_base(preventivo_id, articolo_id):
     """Calcola stima costo base laser per un articolo (richiede spessore+materiale).
 
@@ -6407,9 +6540,7 @@ def api_preventivi_stima_base(preventivo_id, articolo_id):
     """
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or request.args.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         articolo = data.get('articolo')
         if not articolo:
             # Leggi articolo dal DB
@@ -6419,7 +6550,7 @@ def api_preventivi_stima_base(preventivo_id, articolo_id):
             articolo = next((a for a in p['articoli'] if a['id'] == articolo_id), None)
             if not articolo:
                 return jsonify({'success': False, 'error': 'Articolo non trovato'}), 404
-        cfg = BarcodeManager.load_config()
+        cfg = ConfigManager.load_config()
         stima = _laser_estimator.stima_base(articolo, cfg)
         stima['firma_tariffe'] = _firma_tariffe(cfg)
         return jsonify({'success': True, 'stima': stima}), 200
@@ -6440,6 +6571,7 @@ def _firma_tariffe(cfg: dict) -> str:
 
 
 @app.route('/api/preventivi/<preventivo_id>/stima-batch', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_stima_batch(preventivo_id):
     """Stima del costo base di piu' pezzi in UNA richiesta (tariffe attuali).
     E' solo calcolo, niente DXF: decine di pezzi in pochi millisecondi, senza
@@ -6447,13 +6579,11 @@ def api_preventivi_stima_batch(preventivo_id):
     Body: {admin_id, articoli: [{...articolo...}]} → {stime: [stima|null], firma}."""
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         articoli = data.get('articoli') or []
         if not isinstance(articoli, list) or len(articoli) > 2000:
             return jsonify({'success': False, 'error': 'Elenco articoli non valido'}), 400
-        cfg = BarcodeManager.load_config()
+        cfg = ConfigManager.load_config()
         firma = _firma_tariffe(cfg)
         stime = []
         for a in articoli:
@@ -6471,6 +6601,7 @@ def api_preventivi_stima_batch(preventivo_id):
 
 
 @app.route('/api/preventivi/config', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_config_get():
     """Coefficienti globali usati dallo stimatore + cost calculator.
 
@@ -6481,7 +6612,7 @@ def api_preventivi_config_get():
     Accessibile a Commerciale + Amministratore + Capo.
     """
     try:
-        cfg = BarcodeManager.load_config()
+        cfg = ConfigManager.load_config()
         laser_cfg = cfg.get('laser_config') or _laser_estimator.DEFAULT_LASER_CONFIG
         # Ricette taglio: default = file JSON calibrato; effettive = override utente se presente.
         from .preventivi.lantek_lookup import load_recipes as _load_recipes
@@ -6503,6 +6634,7 @@ def api_preventivi_config_get():
 
 
 @app.route('/api/preventivi/config', methods=['PUT'])
+@richiede(ADMIN)
 def api_preventivi_config_put():
     """Aggiorna coefficienti globali. Salva quello che riceve senza validazione
     stretta sui valori (l'admin è responsabile). Loggato in audit.
@@ -6512,9 +6644,7 @@ def api_preventivi_config_put():
     """
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi_admin()
         updates = {}
         if isinstance(data.get('laser_config'), dict):
             updates['laser_config'] = data['laser_config']
@@ -6526,7 +6656,7 @@ def api_preventivi_config_put():
             updates['disegni_export_root'] = root
         if not updates:
             return jsonify({'success': False, 'error': 'Nessuna sezione da aggiornare'}), 400
-        saved = BarcodeManager.save_config(updates)
+        saved = ConfigManager.save_config(updates)
         if 'error' in saved:
             return jsonify({'success': False, 'error': saved['error']}), 500
         try:
@@ -6548,6 +6678,7 @@ def api_preventivi_config_put():
 
 
 @app.route('/api/preventivi/<preventivo_id>/calcola', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_calcola(preventivo_id):
     """Totali del preventivo col calcolo AUTOREVOLE (preventivi.calcolo), gli
     stessi di PDF, invio e accettazione. Per un preventivo gia' inviato valgono
@@ -6555,14 +6686,12 @@ def api_preventivi_calcola(preventivo_id):
     In BOZZA aggiorna anche i totali salvati (lista storico)."""
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         p = PreventivoManager.get(preventivo_id, include_children=True)
         if not p:
             return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
         from .preventivi.calcolo import calcola as _calcola
-        cfg = (BarcodeManager.load_config() or {}).get('preventivi_config') or {}
+        cfg = (ConfigManager.load_config() or {}).get('preventivi_config') or {}
         snap = p.get('snapshot_economico') or None
         calc_p = p
         if snap:
@@ -6598,7 +6727,7 @@ def _etichetta_cartella_disegni(order) -> str:
         numero = _numero_per_cartelle(order) or ''
         cliente = (order.get('cliente') if isinstance(order, dict)
                    else getattr(order, 'cliente', None)) or ''
-        root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+        root = ((ConfigManager.load_config() or {}).get('disegni_export_root') or '').strip()
         if not (root and numero):
             return ''
         from .preventivi.dxf_cleanup import _sanitize_path_part
@@ -6626,7 +6755,7 @@ def _cartella_disegni_ordine(order) -> str:
                    else getattr(order, 'cliente', None)) or ''
         oid = (order.get('id') if isinstance(order, dict)
                else getattr(order, 'id', None)) or ''
-        root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+        root = ((ConfigManager.load_config() or {}).get('disegni_export_root') or '').strip()
         if root and numero:
             from .preventivi.dxf_cleanup import _sanitize_path_part
             leggibile = os.path.join(root,
@@ -6655,7 +6784,7 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordin
     quando si vuole: i file si sovrascrivono, niente si cancella.
     cliente/numero_ordine: ripiego se l'ordine non si trova."""
     esito = {'esportati': 0, 'percorso': None, 'error': None}
-    root = ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '').strip()
+    root = ((ConfigManager.load_config() or {}).get('disegni_export_root') or '').strip()
     if not root:
         esito['error'] = 'cartella dei disegni non impostata'
         return esito
@@ -6694,14 +6823,11 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordin
 
 
 @app.route('/api/orders/<order_id>/crea-cartella', methods=['POST'])
+@richiede('laser', 'ufficio')
 def api_ordine_crea_cartella(order_id):
     """Bottone "Crea cartella" della pagina laser: la cartella dell'ordine nella
     cartella master (anche per gli ordini accettati prima)."""
     try:
-        data = request.get_json(silent=True) or {}
-        user = UserManager.get_user(data.get('user_id') or '') if data.get('user_id') else None
-        if not user or not user.get('is_active', True):
-            return jsonify({'success': False, 'error': 'Utente non riconosciuto'}), 403
         if not _ordine_esistente(order_id):
             return _non_trovato_ordine()
         e = _esporta_disegni_per_officina(order_id)
@@ -6715,29 +6841,33 @@ def api_ordine_crea_cartella(order_id):
 
 
 @app.route('/api/laser/cartella-disegni', methods=['GET', 'PUT', 'POST'])
+@richiede('laser', 'ufficio', ADMIN, metodi=('GET',))
+@richiede(ADMIN, metodi=('PUT', 'POST'))
 def api_laser_cartella_disegni():
     """Cartella "master" dei disegni per Lantek (sul PC server).
-    GET: {percorso}. PUT {user_id, percorso}: la salva (vuota = disattiva).
-    POST {percorso}: prova; la crea se manca e ci scrive un file di prova."""
+    GET: {percorso, consentite}. PUT {percorso}: la salva (vuota = disattiva).
+    POST {percorso}: prova; la crea se manca e ci scrive un file di prova.
+
+    PUT e POST solo col PIN di un amministratore, e solo DENTRO le cartelle
+    consentite (app_config.json, "cartelle_disegni_consentite", che si
+    cambiano sul server con tools/persone.py): prima chiunque poteva far
+    creare cartelle e scrivere file al server in qualunque percorso, anche su
+    una condivisione di rete di un altro PC."""
     try:
         if request.method == 'GET':
+            from .database import cartelle_consentite
             return jsonify({'success': True, 'percorso':
-                            ((BarcodeManager.load_config() or {}).get('disegni_export_root') or '')}), 200
+                            ((ConfigManager.load_config() or {}).get('disegni_export_root') or ''),
+                            'consentite': cartelle_consentite()}), 200
         data = request.get_json(silent=True) or {}
         percorso = str(data.get('percorso') or '').strip().strip('"')
-        if request.method == 'PUT':
-            user = UserManager.get_user(data.get('user_id') or '') if data.get('user_id') else None
-            # tutti tranne gli operai d'officina (prima: solo laser/capo/commerciale,
-            # e l'utente personale di Stefano veniva rifiutato)
-            from .models import RUOLI_OPERAI
-            if not user:
-                return jsonify({'success': False, 'error': 'Utente non riconosciuto: esci e rientra, poi riprova'}), 403
-            if not user.get('is_active', True) or not (
-                    user.get('is_capo') or user.get('role') in RUOLI_LASER
-                    or user.get('role') not in RUOLI_OPERAI):
-                return jsonify({'success': False, 'error': "Permesso negato: l'utente con cui sei entrato non puo' cambiare le impostazioni"}), 403
         if percorso and not (os.path.isabs(percorso) or percorso.startswith('\\\\')):
             return jsonify({'success': False, 'error': 'Serve un percorso completo, es. C:\\Commesse'}), 400
+        from .database import cartella_non_consentita
+        motivo = cartella_non_consentita(percorso)
+        if motivo:
+            return jsonify({'success': False, 'codice': 'non_consentita',
+                            'error': 'Cartella non consentita: ' + motivo}), 400
         if request.method == 'POST' or percorso:
             # prova di scrittura (anche prima di salvare)
             try:
@@ -6750,7 +6880,8 @@ def api_laser_cartella_disegni():
                 return jsonify({'success': False, 'error': f'Il server non riesce a scrivere in {percorso}: {oe.strerror or oe}'}), 400
             if request.method == 'POST':
                 return jsonify({'success': True, 'percorso': os.path.normpath(percorso)}), 200
-        BarcodeManager.save_config({'disegni_export_root': os.path.normpath(percorso) if percorso else ''})
+        ConfigManager.save_config({'disegni_export_root': os.path.normpath(percorso) if percorso else ''})
+        _audit('CARTELLA_DISEGNI', 'config', 'disegni_export_root', percorso or '(tolta)')
         return jsonify({'success': True, 'percorso': os.path.normpath(percorso) if percorso else ''}), 200
     except Exception as e:
         logger.exception('cartella-disegni fallita')
@@ -6803,7 +6934,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     # INOX_316L → INOX_304, ALU_6082 → ALU, S235JR → S235…). Prima qui c'era una
     # copia a mano che poteva divergere.
     from .preventivi.calcolo import costo_base_articolo as _costo_base_art
-    _mat_cfg = (((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali')
+    _mat_cfg = (((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
                 or _laser_estimator.DEFAULT_LASER_CONFIG['materiali'])
 
     def _densita(materiale):
@@ -6944,7 +7075,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         })
 
     # Info azienda: da app_config sezione 'azienda' se presente
-    app_cfg = BarcodeManager.load_config() or {}
+    app_cfg = ConfigManager.load_config() or {}
     azienda_info = app_cfg.get('azienda') or {}
 
     # ═══════════════════════════════════════════════════════════════════
@@ -7212,6 +7343,7 @@ def _persisti_totali(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/pdf', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_pdf(preventivo_id):
     """Genera e serve il PDF del preventivo.
 
@@ -7238,7 +7370,7 @@ def api_preventivi_pdf(preventivo_id):
         filename = ''.join(c if c.isalnum() or c in '._-' else '_' for c in filename)
         pdf_path = os.path.join(pdf_dir, filename)
 
-        app_cfg = BarcodeManager.load_config() or {}
+        app_cfg = ConfigManager.load_config() or {}
         exporter = _pdf_exporter.PDFPreventivo(app_cfg)
         exporter.genera_pdf(pdf_path, dati_pdf, interno=interno)
 
@@ -7252,6 +7384,7 @@ def api_preventivi_pdf(preventivo_id):
 
 
 @app.route('/api/preventivi/storico-prezzo', methods=['GET'])
+@richiede(*UFFICI)
 def api_preventivi_storico_prezzo():
     """Storico prezzi di un pezzo già visto: match per codice O geometria (hash).
 
@@ -7278,6 +7411,7 @@ def api_preventivi_storico_prezzo():
 
 
 @app.route('/api/preventivi/storico-prezzo-batch', methods=['POST'])
+@richiede(*UFFICI)
 def api_preventivi_storico_prezzo_batch():
     """Batch: per una lista di pezzi ritorna chi è già stato prezzato altrove.
 
@@ -7332,7 +7466,7 @@ def _valida_costi_preventivo(preventivo_id):
     if not prev:
         return []  # non trovato → l'endpoint darà 404 da sé
     invalidi = []
-    _materiali_cfg = ((BarcodeManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {}
+    _materiali_cfg = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali') or {}
     for a in (prev.get('articoli') or []):
         codice = a.get('codice') or '(senza codice)'
         # 1) Contorno INCERTO (stessa regola della pagina, wbContorno): blocca
@@ -7362,13 +7496,12 @@ def _valida_costi_preventivo(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/invia', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_invia(preventivo_id):
     """Transizione BOZZA → INVIATO. (Snapshot versioning sarà aggiunto in Fase 3.)"""
     try:
         data = request.get_json(silent=True) or {}
-        user_id = data.get('user_id') or ''
-        if not _require_role(user_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        user_id = _chi()
         # Controllo unico prima di un'operazione definitiva: senza, l'invio
         # partiva e i buchi si scoprivano dal cliente.
         esito = _verifica_preventivo(preventivo_id)
@@ -7427,7 +7560,7 @@ def _genera_pdf_cliente_bytes(p: dict) -> tuple[bytes, str]:
     filename = f"Preventivo_{base}.pdf"
     filename = ''.join(c if c.isalnum() or c in '._-' else '_' for c in filename)
     pdf_path = os.path.join(pdf_dir, filename)
-    app_cfg = BarcodeManager.load_config() or {}
+    app_cfg = ConfigManager.load_config() or {}
     _pdf_exporter.PDFPreventivo(app_cfg).genera_pdf(pdf_path, dati_pdf, interno=False)
     with open(pdf_path, 'rb') as fp:
         return fp.read(), _nome_pdf_preventivo(p)
@@ -7438,7 +7571,7 @@ _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 
 def _azienda_info() -> dict:
     """Dati azienda (per firma email / intestazioni), da app_config.json."""
-    cfg = BarcodeManager.load_config() or {}
+    cfg = ConfigManager.load_config() or {}
     return cfg.get('azienda') or {}
 
 
@@ -7460,6 +7593,7 @@ def _firma_email() -> str:
 
 
 @app.route('/api/preventivi/email-config', methods=['GET'])
+@richiede('commerciale')
 def api_preventivi_email_config():
     """Stato (non sensibile) della config SMTP + dati azienda (per firma), per la UI."""
     try:
@@ -7474,6 +7608,7 @@ def api_preventivi_email_config():
 
 
 @app.route('/api/preventivi/ultima-email-cliente', methods=['GET'])
+@richiede('commerciale')
 def api_preventivi_ultima_email_cliente():
     """Ultimo indirizzo email usato per un cliente, per riproporlo all'invio."""
     try:
@@ -7485,6 +7620,7 @@ def api_preventivi_ultima_email_cliente():
 
 
 @app.route('/api/preventivi/<preventivo_id>/invia-email', methods=['POST'])
+@richiede('commerciale')
 def api_preventivi_invia_email(preventivo_id):
     """Spedisce il PDF cliente via email e, se il preventivo è BOZZA, lo porta a
     INVIATO (immutabile). La transizione avviene SOLO se la mail parte davvero.
@@ -7494,9 +7630,7 @@ def api_preventivi_invia_email(preventivo_id):
     """
     try:
         data = request.get_json(silent=True) or {}
-        user_id = data.get('user_id') or ''
-        if not _require_role(user_id, _PREV_WRITE_ROLES):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        user_id = _chi()
 
         to_addr = (data.get('to') or '').strip()
         if not to_addr or not _EMAIL_RE.match(to_addr):
@@ -7565,6 +7699,7 @@ def api_preventivi_invia_email(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/accetta', methods=['POST'])
+@richiede(*UFFICI)
 def api_preventivi_accetta(preventivo_id):
     """Transizione INVIATO → ACCETTATO + creazione atomica Order FerroTrack.
 
@@ -7577,7 +7712,7 @@ def api_preventivi_accetta(preventivo_id):
         "note_aggiuntive": "..."            // appese alle note ordine FerroTrack
       }
 
-    Output: {success, order_id, numero_ordine, cartellino_url, preventivo}.
+    Output: {success, order_id, numero_ordine, preventivo}.
     """
     try:
         # Anche l'accettazione e' definitiva: crea un ordine e blocca un prezzo.
@@ -7591,11 +7726,9 @@ def api_preventivi_accetta(preventivo_id):
                 'errori': _pre['errori'],
             }), 400
         data = request.get_json(silent=True) or {}
-        user_id = data.get('user_id') or ''
-        # Anche l'Impiegata (Elena) conferma: è lei che vede la risposta via mail
-        # del cliente e fa partire il ciclo produttivo.
-        if not _require_role(user_id, _PREV_WRITE_ROLES + ['Impiegata']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        # Anche l'Ufficio (Elena) conferma: è lei che vede la risposta via mail
+        # del cliente e fa partire il ciclo produttivo (regola: i due uffici).
+        user_id = _chi()
         # Data di consegna: controllata PRIMA di scrivere qualsiasi cosa. Prima
         # una data sbagliata faceva fallire la creazione dell'ordine dopo che
         # gli articoli erano gia' stati riscritti.
@@ -7694,14 +7827,12 @@ def api_preventivi_accetta(preventivo_id):
 
 
 @app.route('/api/preventivi/<preventivo_id>/rifiuta', methods=['POST'])
+@richiede(*UFFICI)
 def api_preventivi_rifiuta(preventivo_id):
     """Transizione INVIATO → RIFIUTATO."""
     try:
-        data = request.get_json(silent=True) or {}
-        user_id = data.get('user_id') or ''
-        # Anche l'Impiegata (Elena) può rifiutare: vede la risposta del cliente.
-        if not _require_role(user_id, _PREV_WRITE_ROLES + ['Impiegata']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        # Anche l'Ufficio (Elena) può rifiutare: vede la risposta del cliente.
+        user_id = _chi()
         result = PreventivoManager.transition_status(preventivo_id, 'RIFIUTATO', user_id=user_id)
         if result is None:
             return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
@@ -7717,7 +7848,10 @@ def api_preventivi_rifiuta(preventivo_id):
         # è lui stesso a rifiutare.
         try:
             creatore = (result or {}).get('created_by')
-            if creatore and creatore != user_id:
+            _u = UserManager.get_user(creatore) if creatore else None
+            if _u and not _u.get('e_postazione'):
+                creatore = accesso.STAZIONI['commerciale']['utente']
+            if creatore and creatore != _proprietario_avvisi():
                 cliente = (result or {}).get('cliente') or ''
                 NotificationManager.create_notification(
                     user_id=creatore, order_id=None,
@@ -7735,10 +7869,11 @@ def api_preventivi_rifiuta(preventivo_id):
 
 
 @app.route('/api/admin/laser-config', methods=['GET'])
+@richiede(*UFFICI, ADMIN)
 def api_admin_laser_config_get():
     """Ritorna sezione laser_config dal app_config.json (coefficienti stimatore)."""
     try:
-        cfg = BarcodeManager.load_config()
+        cfg = ConfigManager.load_config()
         return jsonify({
             'success': True,
             'laser_config': cfg.get('laser_config') or _laser_estimator.DEFAULT_LASER_CONFIG,
@@ -7749,17 +7884,16 @@ def api_admin_laser_config_get():
 
 
 @app.route('/api/admin/laser-config', methods=['PUT'])
+@richiede(ADMIN)
 def api_admin_laser_config_put():
     """Aggiorna coefficienti stimatore laser (solo admin/capi)."""
     try:
         data = request.get_json(silent=True) or {}
-        admin_id = data.get('admin_id') or ''
-        if not _require_role(admin_id, ['Amministratore', 'CAPO']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi_admin()
         new_config = data.get('laser_config')
         if not isinstance(new_config, dict):
             return jsonify({'success': False, 'error': 'laser_config deve essere un oggetto'}), 400
-        saved = BarcodeManager.save_config({'laser_config': new_config})
+        saved = ConfigManager.save_config({'laser_config': new_config})
         if 'error' in saved:
             return jsonify({'success': False, 'error': saved['error']}), 500
         try:
@@ -7775,15 +7909,14 @@ def api_admin_laser_config_put():
 
 
 @app.route('/api/admin/export-orders', methods=['GET'])
+@richiede('ufficio', ADMIN)
 def api_admin_export_orders():
     """Export CSV ordini per gestionale esterno (cliente non ha Odoo ma userà altro gestionale).
 
     Query: ?format=csv|json (default: csv), ?from=YYYY-MM-DD, ?to=YYYY-MM-DD
     """
     try:
-        admin_id = request.args.get('admin_id') or ''
-        if not _require_role(admin_id, ['Amministratore', 'CAPO']):
-            return jsonify({'success': False, 'error': 'Permesso negato'}), 403
+        admin_id = _chi()
         fmt = (request.args.get('format') or 'csv').lower()
         orders = OrderManager.get_all_orders_dict() or []
         # Filtri data

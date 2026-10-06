@@ -616,13 +616,16 @@ def main():
         s.commit()
     finally:
         s.close()
-    c = app.test_client()
+    # la stazione Commerciale, con una persona entrata col PIN
+    from tests.accesso_aiuto import stazione_pronta, modalita
+    modalita('protetto')
+    c = stazione_pronta(app, 'commerciale')
     pid = str(uuid.uuid4())      # le rotte /api/preventivi/<id> accettano solo UUID
 
     def _import(nome):
         with open(os.path.join(DIR, nome), 'rb') as fh:
             dati = fh.read()
-        r = c.post(f'/api/preventivi/{pid}/import-step?admin_id=commerciale',
+        r = c.post(f'/api/preventivi/{pid}/import-step',
                    data={'file': (io.BytesIO(dati), nome)}, content_type='multipart/form-data')
         return r.status_code, r.get_json() or {}
     try:

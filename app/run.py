@@ -6,7 +6,7 @@ Avvio di FerroTrack: l'UNICO modo di far partire il server.
   rete); con FLASK_DEBUG=true il server di sviluppo di Flask, ma solo su
   127.0.0.1
 - log su file a rotazione in logs/ferrotrack.log (+ console quando c'e')
-- thread: backup, export JSON, fine turno, vigilanza
+- thread: backup, export JSON, vigilanza
 - se il server e' gia' acceso si ferma subito (una sola istanza)
 
 Si avvia con START_FERROTRACK.bat (senza finestra) o
@@ -55,9 +55,6 @@ load_dotenv(Path(__file__).parent / ".env")  # Carica app/.env (contiene GEMINI_
 
 # Intervallo export JSON in secondi (default: 24 ore)
 EXPORT_INTERVALLO = int(os.environ.get('EXPORT_INTERVALLO_SECONDI', 86400))
-# Orario fine turno (HH:MM) — chiusura automatica scan officina rimaste aperte
-# Default 17:30 = orario di fine turno aziendale. Configurabile via env var.
-FINE_TURNO_HHMM = os.environ.get('FINE_TURNO_HHMM', '17:30')
 
 
 def _loop_export_json():
@@ -71,60 +68,19 @@ def _loop_export_json():
         time.sleep(EXPORT_INTERVALLO)
 
 
-def _loop_fine_turno():
-    """Thread daemon: ogni minuto controlla se è l'ora di fine turno.
-    Orario letto dinamicamente da app_config.json (chiave `fine_turno_hhmm`, default 17:30),
-    con fallback su env var FINE_TURNO_HHMM. La modifica via admin diventa effettiva al
-    prossimo controllo (entro 30s) senza riavviare il server.
-    """
-    import datetime as _dt
-    from backend.database import BarcodeManager
-
-    def _get_target_hhmm():
-        try:
-            cfg = BarcodeManager.load_config()
-            v = (cfg.get('fine_turno_hhmm') or FINE_TURNO_HHMM).strip()
-            hh, mm = (int(x) for x in v.split(':'))
-            if 0 <= hh <= 23 and 0 <= mm <= 59:
-                return hh, mm
-        except Exception:
-            pass
-        return 17, 30
-
-    logger.info('Cron fine turno attivo (orario letto da app_config.json)')
-    last_run_date = None
-    while True:
-        try:
-            hh, mm = _get_target_hhmm()
-            now = _dt.datetime.now()
-            if now.hour == hh and now.minute == mm and last_run_date != now.date():
-                n = BarcodeManager.close_residual_scans(motivo='fine_turno')
-                logger.info(f'Cron fine turno {hh:02d}:{mm:02d}: chiuse {n} scan rimaste aperte')
-                last_run_date = now.date()
-        except Exception as e:
-            logger.error(f'Errore nel thread fine turno: {e}')
-        time.sleep(30)
-
-
 def _loop_vigilanza():
     """Thread daemon di VIGILANZA: ogni 30 min converte in notifiche PUSH i rischi che
     prima erano solo 'pull' (visibili solo aprendo la dashboard), così un collo di
     bottiglia non passa inosservato se nessuno guarda. Controlla:
-      - taglio non confermato oltre soglia (alert_taglio_ore, default 4h) → capi
       - consegna imminente/scaduta con ordine non pronto → capi
-      - ordini 'sospetti finiti' (lavorati ma mai chiusi) → capi + Impiegata
+      - ordini 'sospetti finiti' (aperti da troppo, mai chiusi) → capi + Impiegata
       - dichiarazioni ORE mancanti o incomplete -> Impiegata
     Ogni alert è dedup (una notifica per ordine) e solo in orario lavorativo."""
-    from backend.database import OrderManager, BarcodeManager
+    from backend.database import OrderManager, ConfigManager
     time.sleep(180)  # attende 3 minuti dopo l'avvio
     while True:
         try:
-            cfg = BarcodeManager.load_config()
-            try:
-                soglia = float(cfg.get('alert_taglio_ore', 4) or 4)
-            except (TypeError, ValueError):
-                soglia = 4.0
-            OrderManager.alert_ordini_taglio_fermo(soglia_ore=soglia)
+            cfg = ConfigManager.load_config()
             OrderManager.alert_consegne_a_rischio(giorni=int(cfg.get('alert_consegna_giorni', 1) or 1))
             OrderManager.alert_sospetti_finiti_push()
             # Controllo mancanze ORE: rileva le anomalie (recuperando gli
@@ -194,14 +150,10 @@ def main():
     t_export.start()
     logger.info(f'Thread export JSON schedulato ogni {EXPORT_INTERVALLO//3600} ore')
 
-    # Avvia thread chiusura scan a fine turno
-    t_eot = threading.Thread(target=_loop_fine_turno, daemon=True, name='eot-scheduler')
-    t_eot.start()
-
-    # Avvia thread di vigilanza (taglio fermo + consegne a rischio + sospetti finiti)
+    # Avvia thread di vigilanza (consegne a rischio + sospetti finiti + ore mancanti)
     t_alert = threading.Thread(target=_loop_vigilanza, daemon=True, name='vigilanza')
     t_alert.start()
-    logger.info('Thread vigilanza (taglio / consegne / sospetti finiti / ore mancanti) attivo')
+    logger.info('Thread vigilanza (consegne / sospetti finiti / ore mancanti) attivo')
 
     debug_mode = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
     if debug_mode:

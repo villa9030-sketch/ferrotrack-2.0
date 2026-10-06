@@ -48,6 +48,7 @@ Base.metadata.create_all(bind=_ENG)
 
 from backend.app import app  # noqa: E402
 from backend.auth_device import crea_token  # noqa: E402
+from tests.accesso_aiuto import postazioni, persona, per_token, modalita, PIN_UFFICIO  # noqa: E402
 from backend import ore_service as svc  # noqa: E402
 from backend import anomalie_service as an  # noqa: E402
 
@@ -92,11 +93,16 @@ def setup():
 def main():
     t_ore, t_uff = setup()
     c = app.test_client()
+    # L'ufficio e' una persona entrata col PIN; ogni token un dispositivo.
+    modalita('protetto')
+    postazioni()
+    persona('uff-test', 'Persona Ufficio', 'Amministrazione', pin=PIN_UFFICIO)
+    C = per_token(app, pin_ufficio=PIN_UFFICIO)
     H = lambda tok: {'X-Device-Token': tok}  # noqa: E731
 
     # =====================================================================
     print('\n1) Le ore attese arrivano al tablet insieme alla giornata')
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={OGGI.isoformat()}',
+    r = C(t_ore).get(f'/api/ore/giornata?operatore_id=enzo&data={OGGI.isoformat()}',
               headers=H(t_ore))
     g = r.get_json().get('giornata', {})
     dovuta_oggi = OGGI.isoweekday() <= 5
@@ -107,7 +113,7 @@ def main():
         check('oggi non e giorno lavorativo: nessun obiettivo',
               g.get('minuti_attesi') is None, g)
 
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={FERIALE.isoformat()}',
+    r = C(t_uff).get(f'/api/ore/giornata?operatore_id=enzo&data={FERIALE.isoformat()}',
               headers=H(t_uff))
     check('anche in un feriale passato sono 480',
           r.get_json()['giornata'].get('minuti_attesi') == 480,
@@ -118,18 +124,18 @@ def main():
     sabato = OGGI
     while sabato.isoweekday() != 6:
         sabato -= timedelta(days=1)
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={sabato.isoformat()}',
+    r = C(t_uff).get(f'/api/ore/giornata?operatore_id=enzo&data={sabato.isoformat()}',
               headers=H(t_uff))
     check('sabato: nessun obiettivo',
           r.get_json()['giornata'].get('minuti_attesi') is None)
 
     an.salva_eccezione('enzo', FERIALE, 'assenza', nota='ferie', da='elena')
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={FERIALE.isoformat()}',
+    r = C(t_uff).get(f'/api/ore/giornata?operatore_id=enzo&data={FERIALE.isoformat()}',
               headers=H(t_uff))
     check('assenza approvata: nessun obiettivo',
           r.get_json()['giornata'].get('minuti_attesi') is None)
     an.elimina_eccezione('enzo', FERIALE)
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={FERIALE.isoformat()}',
+    r = C(t_uff).get(f'/api/ore/giornata?operatore_id=enzo&data={FERIALE.isoformat()}',
               headers=H(t_uff))
     check('tolta l eccezione, l obiettivo torna',
           r.get_json()['giornata'].get('minuti_attesi') == 480)
@@ -140,7 +146,7 @@ def main():
              'righe': [{'cliente': 'Cliente Alfa', 'minuti': 300}],
              'revisione_attesa': 0, 'richiesta_id': 'c1',
              'scostamento_confermato': True}
-    r = c.post('/api/ore/giornata', json=corpo, headers=H(t_uff))
+    r = C(t_uff).post('/api/ore/giornata', json=corpo, headers=H(t_uff))
     g = r.get_json().get('giornata', {})
     check('salvataggio riuscito', r.status_code == 200 and g.get('totale_minuti') == 300,
           r.get_json())
@@ -162,7 +168,7 @@ def main():
              'righe': [{'cliente': 'Cliente Alfa', 'minuti': 480}],
              'revisione_attesa': g['revisione'], 'richiesta_id': 'c2',
              'scostamento_confermato': False}
-    r = c.post('/api/ore/giornata', json=corpo, headers=H(t_uff))
+    r = C(t_uff).post('/api/ore/giornata', json=corpo, headers=H(t_uff))
     g2 = r.get_json().get('giornata', {})
     check('giornata completa salvata', g2.get('totale_minuti') == 480, g2)
     check('nessuna conferma appesa', g2.get('scostamento_confermato') is False, g2)
@@ -173,7 +179,7 @@ def main():
              'righe': [{'cliente': 'Cliente Alfa', 'minuti': 240}],
              'revisione_attesa': g2['revisione'], 'richiesta_id': 'c3',
              'scostamento_confermato': True}
-    c.post('/api/ore/giornata', json=corpo, headers=H(t_uff))
+    C(t_uff).post('/api/ore/giornata', json=corpo, headers=H(t_uff))
     an.controlla_periodo(dal=FERIALE, al=FERIALE)
     anomalie = [a for a in an.elenco_anomalie(stato='aperta')
                 if a['operatore_id'] == 'enzo' and a['data'] == FERIALE.isoformat()]
@@ -189,7 +195,7 @@ def main():
     check('l anomalia resta APERTA nonostante la conferma',
           anomalie and anomalie[0]['stato'] == 'aperta', anomalie)
 
-    r = c.get('/api/ore/anomalie', headers=H(t_uff))
+    r = C(t_uff).get('/api/ore/anomalie', headers=H(t_uff))
     check('visibile anche dalla pagina ufficio', r.status_code == 200, r.status_code)
 
     print('\n' + '=' * 60)

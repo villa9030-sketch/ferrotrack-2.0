@@ -50,7 +50,7 @@ from backend import ore_service as svc  # noqa: E402
 from backend import anomalie_service as an  # noqa: E402
 from backend import riepilogo_service as ri  # noqa: E402
 from backend import ordini_service as osv  # noqa: E402
-from backend.database import BarcodeManager  # noqa: E402
+from backend.database import ConfigManager  # noqa: E402
 
 OK = 0
 KO = []
@@ -71,7 +71,7 @@ IERI = OGGI - timedelta(days=1)
 LALTRO = OGGI - timedelta(days=2)
 
 _CFG = os.path.join(tempfile.gettempdir(), f'test_criteri_cfg_{uuid.uuid4().hex[:8]}.json')
-BarcodeManager._CONFIG_PATH = _CFG
+ConfigManager._CONFIG_PATH = _CFG
 
 
 def setup():
@@ -104,12 +104,20 @@ def setup():
 
 def main():
     t_ore, t_rep, t_uff = setup()
+    # Ogni token e' un dispositivo; l'ufficio e' Elena entrata col PIN;
+    # "enzo senza dispositivo" e' un browser qualunque.
+    from tests.accesso_aiuto import postazioni, persona, entra, per_token, modalita, PIN_UFFICIO
+    modalita('protetto')
+    postazioni()
+    persona('elena', 'Elena', 'Impiegata', pin=PIN_UFFICIO)
+    C = per_token(app, pin_ufficio=PIN_UFFICIO)
+    CL = {'elena': entra(app, 'ufficio', pin=PIN_UFFICIO), 'enzo': app.test_client()}
     c = app.test_client()
     H = lambda tok: {'X-Device-Token': tok}  # noqa: E731
 
     print('\n--- RACCOLTA ORE ---')
     # 1
-    r = c.post('/api/ore/giornata', headers=H(t_ore), json={
+    r = C(t_ore).post('/api/ore/giornata', headers=H(t_ore), json={
         'operatore_id': 'enzo', 'data': OGGI.isoformat(),
         'righe': [{'cliente': 'Cliente Y', 'minuti': 300},
                   {'cliente': 'Cliente Z', 'minuti': 180}],
@@ -119,14 +127,14 @@ def main():
           and g.get('totale_minuti') == 480, r.get_json())
 
     # 2
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={OGGI.isoformat()}', headers=H(t_ore))
+    r = C(t_ore).get(f'/api/ore/giornata?operatore_id=enzo&data={OGGI.isoformat()}', headers=H(t_ore))
     g2 = r.get_json()['giornata']
     check(2, 'Riapertura: stessi dati e totale', g2['totale_minuti'] == 480
           and len(g2['righe']) == 2
           and {x['cliente'] for x in g2['righe']} == {'Cliente Y', 'Cliente Z'}, g2)
 
     # 3
-    r = c.post('/api/ore/giornata', headers=H(t_ore), json={
+    r = C(t_ore).post('/api/ore/giornata', headers=H(t_ore), json={
         'operatore_id': 'enzo', 'data': OGGI.isoformat(),
         'righe': [{'cliente': 'Cliente Y', 'minuti': 420},
                   {'cliente': 'Cliente Z', 'minuti': 60}],
@@ -140,19 +148,19 @@ def main():
              'righe': [{'cliente': 'Cliente Y', 'minuti': 420},
                        {'cliente': 'Cliente Z', 'minuti': 60}],
              'revisione_attesa': g3['revisione'], 'richiesta_id': 'ripetuta'}
-    a1 = c.post('/api/ore/giornata', headers=H(t_ore), json=corpo).get_json()['giornata']
-    a2 = c.post('/api/ore/giornata', headers=H(t_ore), json=corpo).get_json()['giornata']
+    a1 = C(t_ore).post('/api/ore/giornata', headers=H(t_ore), json=corpo).get_json()['giornata']
+    a2 = C(t_ore).post('/api/ore/giornata', headers=H(t_ore), json=corpo).get_json()['giornata']
     check(4, 'Doppio invio e retry: nessun doppio conteggio',
           a1['totale_minuti'] == a2['totale_minuti'] == 480
           and a2.get('idempotente') is True, (a1, a2))
 
     # 5 — il salvataggio fallisce e i valori restano al chiamante
-    r = c.post('/api/ore/giornata', headers=H(t_ore), json={
+    r = C(t_ore).post('/api/ore/giornata', headers=H(t_ore), json={
         'operatore_id': 'enzo', 'data': OGGI.isoformat(),
         'righe': [{'cliente': 'Cliente Y', 'minuti': 120}],
         'revisione_attesa': 999, 'richiesta_id': 'conflitto'})
     dati = r.get_json()
-    r2 = c.get(f'/api/ore/giornata?operatore_id=enzo&data={OGGI.isoformat()}', headers=H(t_ore))
+    r2 = C(t_ore).get(f'/api/ore/giornata?operatore_id=enzo&data={OGGI.isoformat()}', headers=H(t_ore))
     check(5, 'Errore: nessun falso "Salvato", dati intatti',
           r.status_code == 409 and dati.get('success') is False
           and r2.get_json()['giornata']['totale_minuti'] == 480, dati)
@@ -164,7 +172,7 @@ def main():
         [{'cliente': 'Cliente Inesistente', 'minuti': 60}],
         [{'cliente': 'Cliente Y', 'minuti': 99999}],
     ]
-    esiti = [c.post('/api/ore/giornata', headers=H(t_ore), json={
+    esiti = [C(t_ore).post('/api/ore/giornata', headers=H(t_ore), json={
         'operatore_id': 'enzo', 'data': OGGI.isoformat(), 'righe': x,
         'revisione_attesa': None, 'richiesta_id': f'inv{i}'}).status_code
         for i, x in enumerate(invalidi)]
@@ -173,10 +181,10 @@ def main():
 
     # 7
     an.salva_eccezione('enzo', IERI, 'assenza', nota='ferie', da='elena')
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={IERI.isoformat()}', headers=H(t_uff))
+    r = C(t_uff).get(f'/api/ore/giornata?operatore_id=enzo&data={IERI.isoformat()}', headers=H(t_uff))
     senza = r.get_json()['giornata']['minuti_attesi']
     an.salva_eccezione('enzo', LALTRO, 'ridotta', minuti_attesi=240, da='elena')
-    r = c.get(f'/api/ore/giornata?operatore_id=enzo&data={LALTRO.isoformat()}', headers=H(t_uff))
+    r = C(t_uff).get(f'/api/ore/giornata?operatore_id=enzo&data={LALTRO.isoformat()}', headers=H(t_uff))
     ridotta = r.get_json()['giornata']['minuti_attesi']
     check(7, 'Assenze e orari ridotti gestiti', senza is None and ridotta == 240,
           (senza, ridotta))
@@ -210,21 +218,21 @@ def main():
     print('\n--- ORDINI E REPARTO ---')
     # 11 — il tablet di reparto non deve poter chiudere un ordine
     tentativi = [
-        c.post('/api/ordini/ord-1/completamento', headers=H(t_rep),
+        C(t_rep).post('/api/ordini/ord-1/completamento', headers=H(t_rep),
                json={'user_id': 'elena'}),          # finge di essere l'impiegata
-        c.post('/api/ordini/ord-1/chiudi', headers=H(t_rep), json={'user_id': 'enzo'}),
-        c.post('/api/ordini/ord-1/completamento', json={'user_id': 'enzo'}),
+        C(t_rep).post('/api/ordini/ord-1/chiudi', headers=H(t_rep), json={'user_id': 'enzo'}),
+        CL['enzo'].post('/api/ordini/ord-1/completamento', json={}),
     ]
     check(11, 'Tablet reparto: non chiude ordini nemmeno via API',
-          all(t.status_code == 403 for t in tentativi[1:])
+          all(t.status_code in (401, 403) for t in tentativi)
           and osv.elenco()['conteggi']['aperto'] == 2,
           [t.status_code for t in tentativi])
     check(11.1, 'Il token di reparto non da poteri d ufficio',
-          c.post('/api/ordini/ord-2/chiudi', headers=H(t_rep),
+          C(t_rep).post('/api/ordini/ord-2/chiudi', headers=H(t_rep),
                  json={'user_id': 'enzo'}).status_code == 403)
 
     # 12
-    r = c.post('/api/ordini/ord-1/completamento', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/ord-1/completamento', json={})
     from backend.database import OrderManager
     ordini = {o['id']: o for o in OrderManager.get_all_orders_dict()}
     check(12, 'Completamento: l ordine sparisce dal lavoro da fare',
@@ -233,12 +241,12 @@ def main():
           {k: v['fase'] for k, v in ordini.items()})
 
     # 13
-    c.post('/api/ordini/ord-1/ddt', json={'user_id': 'elena', 'numero': 'DDT 1'})
+    CL['elena'].post('/api/ordini/ord-1/ddt', json={'numero': 'DDT 1'})
     f_ddt = osv.elenco()['conteggi']
-    prima_chiusura = c.post('/api/ordini/ord-1/chiudi', json={'user_id': 'elena'})
-    c.post('/api/ordini/ord-1/consegna', json={'user_id': 'elena', 'completa': True})
+    prima_chiusura = CL['elena'].post('/api/ordini/ord-1/chiudi', json={})
+    CL['elena'].post('/api/ordini/ord-1/consegna', json={'completa': True})
     dopo_consegna = osv.elenco()['conteggi']
-    c.post('/api/ordini/ord-1/chiudi', json={'user_id': 'elena', 'numero_fattura': 'FT 1'})
+    CL['elena'].post('/api/ordini/ord-1/chiudi', json={'numero_fattura': 'FT 1'})
     finale = osv.elenco()['conteggi']
     # Il solo DDT lascia l'ordine fra i pronti: "consegnati" e' la vista da
     # fatturare, e si fattura cio' che e' stato consegnato.
@@ -284,9 +292,9 @@ def main():
 
     print('\n--- IL RESTO DELL APPLICAZIONE ---')
     # 17
-    r_prev = c.get('/api/preventivi')
-    r_ord = c.get('/api/orders')
-    r_dis = c.get('/api/orders/ord-1/dxf/inesistente.dxf')
+    r_prev = CL['elena'].get('/api/preventivi')
+    r_ord = CL['elena'].get('/api/orders')
+    r_dis = CL['elena'].get('/api/orders/ord-1/dxf/inesistente.dxf')
     check(17, 'Preventivatore e ordini ancora raggiungibili',
           r_prev.status_code == 200 and r_ord.status_code == 200,
           (r_prev.status_code, r_ord.status_code))
@@ -294,7 +302,7 @@ def main():
           r_dis.status_code in (404, 400), r_dis.status_code)
 
     # 19 — la bacheca del tablet e' leggibile: pochi dati, nessun conteggio inventato
-    r = c.get('/api/ore/bacheca', headers=H(t_ore))
+    r = C(t_ore).get('/api/ore/bacheca', headers=H(t_ore))
     voci = r.get_json()['operai']
     check(19, 'Bacheca tablet: dati essenziali per ogni operaio',
           all({'nome', 'dichiarata', 'totale_minuti', 'righe', 'minuti_attesi'} <= set(v)
@@ -302,11 +310,11 @@ def main():
 
     # 20
     stato = svc.leggi_giornata('enzo', OGGI)
-    r1 = c.post('/api/ore/giornata', headers=H(t_uff), json={
+    r1 = C(t_uff).post('/api/ore/giornata', headers=H(t_uff), json={
         'operatore_id': 'enzo', 'data': OGGI.isoformat(),
         'righe': [{'cliente': 'Cliente Y', 'minuti': 60}],
         'revisione_attesa': stato['revisione'], 'richiesta_id': 'conc-1'})
-    r2 = c.post('/api/ore/giornata', headers=H(t_ore), json={
+    r2 = C(t_ore).post('/api/ore/giornata', headers=H(t_ore), json={
         'operatore_id': 'enzo', 'data': OGGI.isoformat(),
         'righe': [{'cliente': 'Cliente Z', 'minuti': 90}],
         'revisione_attesa': stato['revisione'], 'richiesta_id': 'conc-2'})

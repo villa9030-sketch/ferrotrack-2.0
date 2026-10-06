@@ -89,7 +89,17 @@ def fasi():
 
 def main():
     setup()
-    c = app.test_client()
+    # Chi agisce lo dice il dispositivo (e negli uffici il PIN), non lo
+    # user_id del corpo: Elena e Paolo entrano col PIN nella stazione Ufficio,
+    # "l'operaio" e' il tablet d'officina, "senza utente" un browser qualunque.
+    from tests.accesso_aiuto import postazioni, persona, entra, modalita
+    modalita('protetto')
+    postazioni()
+    persona('elena', 'Elena Colombo', 'Impiegata', pin='2580')
+    persona('paolo', 'Paolo Capo', 'Laser', pin='4826')
+    CL = {'elena': entra(app, 'ufficio', pin='2580'), 'paolo': entra(app, 'ufficio', pin='4826'),
+          'enzo': entra(app, 'reparto'), '': app.test_client(), 'non-esiste': app.test_client()}
+    c = CL['elena']
 
     # =====================================================================
     print('\n1) Le quattro viste, storico compreso')
@@ -110,14 +120,15 @@ def main():
 
     # =====================================================================
     print('\n2) Le transizioni sono riservate all ufficio')
-    for chi, atteso in (('enzo', 403), ('', 403), ('non-esiste', 403)):
-        r = c.post('/api/ordini/o-aperto/completamento', json={'user_id': chi})
+    for chi, atteso in (('enzo', 403), ('', 401), ('non-esiste', 401)):
+        r = CL[chi].post('/api/ordini/o-aperto/completamento', json={'user_id': chi},
+                         headers={'X-User-Id': chi})
         check(f'"{chi or "senza utente"}" respinto', r.status_code == atteso, r.status_code)
     check('lo stato non e cambiato', fasi()['o-aperto'] == 'aperto')
 
-    r = c.post('/api/ordini/o-aperto/completamento', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-aperto/completamento', json={})
     check('l impiegata puo registrare (200)', r.status_code == 200, r.get_json())
-    r = c.post('/api/ordini/o-aperto2/completamento', json={'user_id': 'paolo'})
+    r = CL['paolo'].post('/api/ordini/o-aperto2/completamento', json={})
     check('anche il capo puo registrare', r.status_code == 200, r.status_code)
 
     # =====================================================================
@@ -131,7 +142,7 @@ def main():
     check('ma non inventa un DDT', riga['ddt_numero'] is None)
     check('ne una consegna', riga['consegna'] is None)
 
-    r = c.post('/api/ordini/o-aperto2/chiudi', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-aperto2/chiudi', json={})
     check('non si chiude senza consegna (409)', r.status_code == 409, r.status_code)
 
     s = models.SessionLocal()
@@ -142,77 +153,77 @@ def main():
         s.commit()
     finally:
         s.close()
-    r = c.post('/api/ordini/o-salto/ddt', json={'user_id': 'elena', 'numero': 'DDT 9'})
+    r = CL['elena'].post('/api/ordini/o-salto/ddt', json={'numero': 'DDT 9'})
     check('non si registra un DDT prima del completamento', r.status_code == 409, r.status_code)
-    r = c.post('/api/ordini/o-salto/consegna', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-salto/consegna', json={})
     check('ne una consegna', r.status_code == 409, r.status_code)
 
-    r = c.post('/api/ordini/o-aperto/ddt', json={'user_id': 'elena', 'numero': ''})
+    r = CL['elena'].post('/api/ordini/o-aperto/ddt', json={'numero': ''})
     check('numero DDT obbligatorio', r.status_code == 409, r.status_code)
-    r = c.post('/api/ordini/o-aperto/ddt', json={'user_id': 'elena', 'numero': 'DDT 128'})
+    r = CL['elena'].post('/api/ordini/o-aperto/ddt', json={'numero': 'DDT 128'})
     check('DDT registrato (200)', r.status_code == 200, r.get_json())
     # Il solo DDT non e' una consegna: l'ordine resta fra i pronti, al passo
     # "DDT registrato". "Consegnati" e' la vista da fatturare.
     check('DDT registrato: resta fra i pronti finche non e consegnato',
           fasi()['o-aperto'] == 'pronto_ddt')
 
-    r = c.post('/api/ordini/o-aperto/consegna', json={'user_id': 'elena', 'completa': True})
+    r = CL['elena'].post('/api/ordini/o-aperto/consegna', json={'completa': True})
     check('consegna registrata', r.status_code == 200, r.status_code)
     check('consegnato: ora e fra i consegnati', fasi()['o-aperto'] == 'consegnato')
-    r = c.post('/api/ordini/o-aperto/chiudi', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-aperto/chiudi', json={})
     check('senza fattura non si chiude (409)', r.status_code == 409, r.get_json())
-    r = c.post('/api/ordini/o-aperto/chiudi',
-               json={'user_id': 'elena', 'numero_fattura': 'FT 1'})
+    r = CL['elena'].post('/api/ordini/o-aperto/chiudi',
+               json={'numero_fattura': 'FT 1'})
     check('ora la pratica si chiude', r.status_code == 200, r.get_json())
     check('e finisce in archivio', fasi()['o-aperto'] == 'archivio')
 
     # =====================================================================
     print('\n4) Consegne parziali: un residuo non e una pratica chiusa')
-    r = c.post('/api/ordini/o-aperto2/consegna',
-               json={'user_id': 'elena', 'completa': False, 'note': ''})
+    r = CL['elena'].post('/api/ordini/o-aperto2/consegna',
+               json={'completa': False, 'note': ''})
     check('parziale senza spiegazione rifiutata', r.status_code == 409, r.status_code)
-    r = c.post('/api/ordini/o-aperto2/consegna',
-               json={'user_id': 'elena', 'completa': False, 'note': 'mancano 12 staffe'})
+    r = CL['elena'].post('/api/ordini/o-aperto2/consegna',
+               json={'completa': False, 'note': 'mancano 12 staffe'})
     check('parziale con nota accettata', r.status_code == 200, r.get_json())
     riga = [x for x in osv.elenco()['ordini'] if x['id'] == 'o-aperto2'][0]
     check('segnata come parziale', riga['consegna_parziale'] is True, riga)
     check('con la nota del residuo', 'staffe' in (riga['note_consegna'] or ''), riga)
-    r = c.post('/api/ordini/o-aperto2/chiudi', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-aperto2/chiudi', json={})
     check('NON archiviabile con residuo (409)', r.status_code == 409, r.status_code)
     check('lo dice in chiaro', 'residuo' in (r.get_json().get('error') or ''), r.get_json())
 
-    r = c.post('/api/ordini/o-aperto2/consegna', json={'user_id': 'elena', 'completa': True})
+    r = CL['elena'].post('/api/ordini/o-aperto2/consegna', json={'completa': True})
     check('completata la consegna', r.status_code == 200)
-    r = c.post('/api/ordini/o-aperto2/chiudi',
-               json={'user_id': 'elena', 'numero_fattura': 'FT 2'})
+    r = CL['elena'].post('/api/ordini/o-aperto2/chiudi',
+               json={'numero_fattura': 'FT 2'})
     check('ora si archivia', r.status_code == 200, r.get_json())
 
     # =====================================================================
     print('\n5) Correzioni senza stati incoerenti')
-    r = c.post('/api/ordini/o-salto/completamento', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-salto/completamento', json={})
     check('completamento registrato', r.status_code == 200)
-    r = c.post('/api/ordini/o-salto/completamento', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-salto/completamento', json={})
     check('ripeterlo non rompe nulla', r.status_code == 200
           and r.get_json().get('gia_registrato') is True, r.get_json())
-    r = c.delete('/api/ordini/o-salto/completamento?user_id=elena')
+    r = CL['elena'].delete('/api/ordini/o-salto/completamento')
     check('si puo annullare', r.status_code == 200, r.get_json())
     check('torna fra gli aperti', fasi()['o-salto'] == 'aperto')
-    r = c.delete('/api/ordini/o-salto/completamento?user_id=enzo')
+    r = CL['enzo'].delete('/api/ordini/o-salto/completamento')
     check('ma non da un operaio', r.status_code == 403, r.status_code)
 
-    c.post('/api/ordini/o-salto/completamento', json={'user_id': 'elena'})
-    c.post('/api/ordini/o-salto/ddt', json={'user_id': 'elena', 'numero': 'DDT 200'})
-    r = c.delete('/api/ordini/o-salto/completamento?user_id=elena')
+    CL['elena'].post('/api/ordini/o-salto/completamento', json={})
+    CL['elena'].post('/api/ordini/o-salto/ddt', json={'numero': 'DDT 200'})
+    r = CL['elena'].delete('/api/ordini/o-salto/completamento')
     check('non si annulla il completamento con un DDT gia registrato',
           r.status_code == 409, r.status_code)
 
-    r = c.post('/api/ordini/o-chiuso/riapri', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-chiuso/riapri', json={})
     check('un archiviato si puo riaprire', r.status_code == 200, r.get_json())
     check('e torna disponibile', fasi()['o-chiuso'] != 'archivio', fasi())
-    r = c.post('/api/ordini/o-salto/riapri', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-salto/riapri', json={})
     check('riaprire cio che non e archiviato viene rifiutato', r.status_code == 409)
 
-    r = c.post('/api/ordini/non-esiste/completamento', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/non-esiste/completamento', json={})
     check('ordine inesistente -> 404', r.status_code == 404, r.status_code)
 
     # =====================================================================

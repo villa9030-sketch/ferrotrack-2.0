@@ -53,6 +53,7 @@ import importlib  # noqa: E402
 A = importlib.import_module('backend.app')  # il MODULO, non l'oggetto Flask
 from backend.database import PreventivoManager  # noqa: E402
 from backend.migrations_ore import _indici_prestazioni  # noqa: E402
+from tests.accesso_aiuto import postazioni, entra, modalita  # noqa: E402
 
 _CARTELLE = tempfile.mkdtemp(prefix='ft_banco_')
 A.UPLOAD_FOLDER = os.path.join(_CARTELLE, 'uploads')
@@ -141,7 +142,10 @@ def main():
     da_smistare = preventivo_accettato('Cliente Epsilon')
     imposta(da_smistare, taglio_richiesto=None, taglio_completato=False)
 
-    c = A.app.test_client()
+    # la stazione Laser: e' lei che legge il banco
+    modalita('protetto')
+    postazioni()
+    c = entra(A.app, 'laser')
 
     # =====================================================================
     print('\n1) Banco lamiere: gruppi, quantita\', ingombri')

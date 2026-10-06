@@ -91,7 +91,7 @@ def main():
 
     print('\n4) PDF generato')
     tmp = os.path.join(tempfile.gettempdir(), f'test_righe_{uuid.uuid4().hex[:6]}.pdf')
-    pdf_exporter.PDFPreventivo(A.BarcodeManager.load_config() or {}).genera_pdf(tmp, d, interno=False)
+    pdf_exporter.PDFPreventivo(A.ConfigManager.load_config() or {}).genera_pdf(tmp, d, interno=False)
     import pdfplumber
     with pdfplumber.open(tmp) as f:
         testo = '\n'.join((pg.extract_text() or '') for pg in f.pages)
@@ -99,7 +99,7 @@ def main():
     check('tutte le commesse nel PDF', all(c in testo for c in ('C26-200-4', 'C26-200-7', 'C26-200-12', 'C26-201-24')))
     check('08PA03635-00 su 4 righe', testo.count('08PA03635-00') == 4, testo.count('08PA03635-00'))
     tmp3 = tmp.replace('.pdf', '_altro.pdf')
-    pdf_exporter.PDFPreventivo(A.BarcodeManager.load_config() or {}).genera_pdf(tmp3, d3, interno=False)
+    pdf_exporter.PDFPreventivo(A.ConfigManager.load_config() or {}).genera_pdf(tmp3, d3, interno=False)
     with pdfplumber.open(tmp3) as f:
         testo3 = '\n'.join((pg.extract_text() or '') for pg in f.pages)
     check('altro cliente: niente colonna Commessa', 'Commessa' not in testo3)

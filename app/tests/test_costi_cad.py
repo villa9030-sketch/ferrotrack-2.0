@@ -58,7 +58,7 @@ models.SessionLocal.configure(bind=_ENG)
 Base.metadata.create_all(bind=_ENG)
 
 from backend.app import app, _preventivo_to_pdf_dati  # noqa: E402
-from backend.database import PreventivoManager, BarcodeManager  # noqa: E402
+from backend.database import PreventivoManager, ConfigManager  # noqa: E402
 from backend.preventivi.calcolo import calcola  # noqa: E402
 from backend.preventivi.verifica import verifica  # noqa: E402
 from backend.preventivi.validazione import valida_articoli  # noqa: E402
@@ -73,7 +73,7 @@ PCFG = {'costo_generali_pct': 8, 'saldatura_a_tempo': True, 'tariffa_oraria': 45
         'costo_setup_piega': 10, 'soglia_setup_pieghe': 5, 'costo_filettatura': 0.8,
         'costo_svasatura': 0.3}
 _CFG = os.path.join(tempfile.gettempdir(), f'test_cad_cfg_{uuid.uuid4().hex[:8]}.json')
-BarcodeManager._CONFIG_PATH = _CFG
+ConfigManager._CONFIG_PATH = _CFG
 with open(_CFG, 'w', encoding='utf-8') as _f:
     json.dump({'preventivi_config': PCFG, 'laser_config': DEFAULT_LASER_CONFIG}, _f)
 
@@ -291,14 +291,17 @@ def test_database_e_pdf():
     check('base con ripiego su costo_materiale', p3['costo_base'] == 4.0 and p3['costo'] == 4.0, p3)
     check('fattore prezzo passato alla distinta interna',
           abs(dati['fattore_prezzo'] - 1.08 * 1.2) < 1e-9, dati.get('fattore_prezzo'))
-    c = app.test_client()
+    # la stazione Commerciale, con una persona entrata col PIN
+    from tests.accesso_aiuto import stazione_pronta, modalita
+    modalita('protetto')
+    c = stazione_pronta(app, 'commerciale')
     for interno in ('', '?interno=1'):
         resp = c.get(f'/api/preventivi/{pid}/pdf{interno}')
         check(f'PDF {"interno" if interno else "cliente"} generato', resp.status_code == 200
               and resp.data[:4] == b'%PDF', resp.status_code)
 
     print('\n   /calcola usa il calcolo autorevole')
-    resp = c.post(f'/api/preventivi/{pid}/calcola', json={'admin_id': 'commerciale'})
+    resp = c.post(f'/api/preventivi/{pid}/calcola', json={})
     d = resp.get_json() or {}
     check('/calcola: totali del calcolo autorevole', d.get('success') and
           abs(d['totali']['totale_lotto'] - tot['totale_lotto']) < 0.01, d)

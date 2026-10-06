@@ -44,7 +44,7 @@ from sqlalchemy import create_engine, text  # noqa: E402
 
 from backend import models  # noqa: E402
 from backend.models import (Base, User, Order, OrderFile, Notification,  # noqa: E402
-                            Preventivo, OfficinaScan)
+                            Preventivo)
 from backend import models_ore  # noqa: E402,F401
 
 _TMP = os.path.join(tempfile.gettempdir(), f'test_flusso_{uuid.uuid4().hex[:8]}.db')
@@ -67,7 +67,7 @@ A.UPLOAD_FOLDER = os.path.join(_CARTELLE, 'uploads')
 A.DRAWINGS_FOLDER = os.path.join(A.UPLOAD_FOLDER, 'drawings')
 os.makedirs(A.DRAWINGS_FOLDER, exist_ok=True)
 _RETE = os.path.join(_CARTELLE, 'rete')
-_config_vera = A.BarcodeManager.load_config
+_config_vera = A.ConfigManager.load_config
 
 
 def _config_prova():
@@ -76,7 +76,7 @@ def _config_prova():
     return cfg
 
 
-A.BarcodeManager.load_config = staticmethod(_config_prova)
+A.ConfigManager.load_config = staticmethod(_config_prova)
 
 OK = 0
 KO = []
@@ -156,18 +156,27 @@ def riga(oid):
 
 def main():
     setup()
-    c = A.app.test_client()
+    # Chi agisce lo dice il dispositivo (e negli uffici il PIN): Elena e Paolo
+    # entrano col loro PIN nella stazione Ufficio, l'operaio e' il tablet.
+    from tests.accesso_aiuto import persona, entra, modalita
+    modalita('protetto')
+    persona('elena', 'Elena Colombo', 'Impiegata', pin='2580')
+    persona('paolo', 'Paolo Capo', 'Laser', pin='4826')
+    CL = {'elena': entra(A.app, 'ufficio', pin='2580'), 'paolo': entra(A.app, 'ufficio', pin='4826'),
+          'enzo': entra(A.app, 'reparto')}
+    c = CL['elena']
 
     # =====================================================================
     print('\n1) "Lavoro finito" del capo = completamento del ciclo')
-    r = c.post('/api/orders/o-laser/close', json={'user_id': 'enzo'})
+    r = CL['enzo'].post('/api/orders/o-laser/close', json={})
     check('un operaio non puo (403)', r.status_code == 403, r.status_code)
-    r = c.post('/api/orders/o-laser/close', json={'user_id': 'paolo'})
+    r = CL['paolo'].post('/api/orders/o-laser/close', json={})
     d = r.get_json()
     check('il capo chiude (200)', r.status_code == 200, d)
     check('forma della risposta compatibile',
           d.get('success') is True and d.get('order_id') == 'o-laser'
-          and 'scan_chiuse' in d and d.get('nuovo_status') == 'DA_FATTURARE', d)
+          and d.get('nuovo_status') == 'DA_FATTURARE'
+          and 'scan_chiuse' not in d, d)
     check('avviso: il laser non ha segnato il taglio',
           'laser' in (d.get('avviso') or '').lower(), d)
     o = leggi('o-laser')
@@ -179,25 +188,25 @@ def main():
     check('notifica a tutte le postazioni d ufficio',
           destinatari == ['elena', 'postazione-amministrazione'], n)
     check('la notifica dice del taglio mancante', all('laser' in x[2].lower() for x in n), n)
-    r = c.post('/api/orders/o-laser/close', json={'user_id': 'paolo'})
+    r = CL['paolo'].post('/api/orders/o-laser/close', json={})
     check('ripetere non e un errore', r.status_code == 200
           and r.get_json().get('gia_registrato') is True, r.get_json())
     check('e non manda notifiche doppie', len(notifiche('o-laser')) == 2)
-    r = c.post('/api/orders/o-tagliato/close', json={'user_id': 'paolo'})
+    r = CL['paolo'].post('/api/orders/o-tagliato/close', json={})
     check('ordine tagliato: nessun avviso', r.status_code == 200
           and 'avviso' not in r.get_json(), r.get_json())
-    r = c.post('/api/orders/o-tagliato/close', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/orders/o-tagliato/close', json={})
     check('l impiegata puo farlo come riserva', r.status_code == 200, r.status_code)
-    r = c.post('/api/orders/non-esiste/close', json={'user_id': 'paolo'})
+    r = CL['paolo'].post('/api/orders/non-esiste/close', json={})
     check('ordine inesistente -> 404', r.status_code == 404, r.status_code)
 
     # =====================================================================
     print('\n2) Una sola chiusura: consegna + fattura')
-    r = c.post('/api/ordini/o-laser/chiudi',
-               json={'user_id': 'elena', 'numero_fattura': 'FT 1'})
+    r = CL['elena'].post('/api/ordini/o-laser/chiudi',
+               json={'numero_fattura': 'FT 1'})
     check('senza consegna: 409', r.status_code == 409, r.get_json())
     check('e lo dice', 'consegna' in (r.get_json().get('error') or '').lower(), r.get_json())
-    r = c.post('/api/ordini/o-laser/ddt', json={'user_id': 'elena', 'numero': 'DDT 42',
+    r = CL['elena'].post('/api/ordini/o-laser/ddt', json={'numero': 'DDT 42',
                                                  'data': '2026-09-29'})
     check('DDT registrato con la sua data', r.status_code == 200
           and r.get_json()['ordine']['ddt_data'] == '2026-09-29T00:00:00', r.get_json())
@@ -206,24 +215,24 @@ def main():
           rr['fase'] == 'pronto_ddt' and rr['passo'] == 'ddt_registrato', rr)
     check('non ancora chiudibile, e si sa perche',
           rr['chiudibile'] is False and 'consegna' in rr['manca_per_chiudere'].lower(), rr)
-    r = c.post('/api/ordini/o-laser/ddt', json={'user_id': 'elena', 'numero': 'X',
+    r = CL['elena'].post('/api/ordini/o-laser/ddt', json={'numero': 'X',
                                                  'data': '29/09/2026'})
     check('data DDT in formato sbagliato: 409 chiaro',
           r.status_code == 409 and r.get_json().get('codice') == 'data_non_valida', r.get_json())
-    r = c.post('/api/ordini/o-laser/consegna', json={'user_id': 'elena', 'completa': True})
+    r = CL['elena'].post('/api/ordini/o-laser/consegna', json={'completa': True})
     check('consegna registrata', r.status_code == 200, r.get_json())
     rr = riga('o-laser')
     check('ora e fra i consegnati / da fatturare',
           rr['fase'] == 'consegnato' and rr['passo'] == 'da_fatturare' and rr['chiudibile'], rr)
-    r = c.post('/api/ordini/o-laser/chiudi', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/ordini/o-laser/chiudi', json={})
     check('senza numero fattura: 409 fattura_mancante',
           r.status_code == 409 and r.get_json().get('codice') == 'fattura_mancante', r.get_json())
-    r = c.post('/api/ordini/o-laser/chiudi',
-               json={'user_id': 'elena', 'numero_fattura': 'FT 9', 'data_fattura': '2026-13-45'})
+    r = CL['elena'].post('/api/ordini/o-laser/chiudi',
+               json={'numero_fattura': 'FT 9', 'data_fattura': '2026-13-45'})
     check('data fattura non valida: 409', r.status_code == 409
           and r.get_json().get('codice') == 'data_non_valida', r.get_json())
-    r = c.post('/api/ordini/o-laser/chiudi',
-               json={'user_id': 'elena', 'numero_fattura': 'FT 2026/118', 'note': 'ok'})
+    r = CL['elena'].post('/api/ordini/o-laser/chiudi',
+               json={'numero_fattura': 'FT 2026/118', 'note': 'ok'})
     d = r.get_json()
     check('con consegna e fattura si chiude', r.status_code == 200, d)
     oggi = orario.oggi_locale().isoformat()
@@ -233,40 +242,40 @@ def main():
     check('in archivio, con chi e quando',
           d['ordine']['fase'] == 'archivio' and d['ordine']['chiuso_da_id'] == 'elena'
           and (d['ordine']['data_chiusura_amministrativa'] or '').endswith('Z'), d['ordine'])
-    r = c.post('/api/ordini/o-laser/chiudi',
-               json={'user_id': 'elena', 'numero_fattura': 'FT 3'})
+    r = CL['elena'].post('/api/ordini/o-laser/chiudi',
+               json={'numero_fattura': 'FT 3'})
     check('richiudere un archiviato: 409', r.status_code == 409, r.status_code)
 
     # Via vecchia: stesse regole
-    r = c.post('/api/orders/o-legacy/chiudi-amministrativo',
-               json={'user_id': 'elena', 'numero_ddt': 'DDT 77', 'data_ddt': '2026-09-20',
+    r = CL['elena'].post('/api/orders/o-legacy/chiudi-amministrativo',
+               json={'numero_ddt': 'DDT 77', 'data_ddt': '2026-09-20',
                      'numero_fattura': 'FT 77'})
     check('chiudi-amministrativo senza consegna: rifiutato',
           r.status_code == 400 and r.get_json().get('codice') == 'sequenza', r.get_json())
     check('...ma il DDT passato e stato registrato nel campo buono',
           leggi('o-legacy').ddt_numero == 'DDT 77', leggi('o-legacy').ddt_numero)
-    c.post('/api/ordini/o-legacy/consegna', json={'user_id': 'elena', 'completa': True})
-    r = c.post('/api/orders/o-legacy/chiudi-amministrativo',
-               json={'user_id': 'elena', 'numero_fattura': ''})
+    CL['elena'].post('/api/ordini/o-legacy/consegna', json={'completa': True})
+    r = CL['elena'].post('/api/orders/o-legacy/chiudi-amministrativo',
+               json={'numero_fattura': ''})
     check('chiudi-amministrativo senza fattura: rifiutato',
           r.status_code == 400 and r.get_json().get('codice') == 'fattura_mancante', r.get_json())
-    r = c.post('/api/orders/o-legacy/chiudi-amministrativo',
-               json={'user_id': 'elena', 'numero_fattura': 'FT 77', 'data_fattura': '2026-09-21'})
+    r = CL['elena'].post('/api/orders/o-legacy/chiudi-amministrativo',
+               json={'numero_fattura': 'FT 77', 'data_fattura': '2026-09-21'})
     d = r.get_json()
     check('chiudi-amministrativo consegnato + fattura: forma vecchia',
           r.status_code == 200 and d.get('status') == 'CHIUSO' and d.get('order_id') == 'o-legacy'
           and 'data_chiusura' in d, d)
-    r = c.post('/api/orders/o-legacy/riapri', json={'user_id': 'elena'})
+    r = CL['elena'].post('/api/orders/o-legacy/riapri', json={})
     check('riapri (via vecchia) riporta fra i consegnati',
           r.status_code == 200 and riga('o-legacy')['fase'] == 'consegnato', r.get_json())
     check('e toglie la data di chiusura', leggi('o-legacy').data_chiusura_amministrativa is None)
-    c.post('/api/ordini/o-legacy/chiudi', json={'user_id': 'elena', 'numero_fattura': 'FT 77'})
+    CL['elena'].post('/api/ordini/o-legacy/chiudi', json={'numero_fattura': 'FT 77'})
 
     # =====================================================================
     print('\n3) Badge "da fatturare" == vista "consegnati"')
-    c.post('/api/ordini/o-tagliato/consegna', json={'user_id': 'elena', 'completa': True})
-    c.post('/api/ordini/o-vecchio-ddt/consegna',
-           json={'user_id': 'elena', 'completa': False, 'note': 'mancano 2 staffe'})
+    CL['elena'].post('/api/ordini/o-tagliato/consegna', json={'completa': True})
+    CL['elena'].post('/api/ordini/o-vecchio-ddt/consegna',
+           json={'completa': False, 'note': 'mancano 2 staffe'})
     viste = c.get('/api/ordini/viste').get_json()
     consegnati = sorted(o['id'] for o in viste['ordini'] if o['fase'] == 'consegnato')
     n_badge = c.get('/api/ordini-da-fatturare/count').get_json()['count']
@@ -309,8 +318,8 @@ def main():
     check('migrazione idempotente',
           toccati >= 2 and _unifica_ddt(_ENG, __import__('sqlalchemy').inspect(_ENG)) == 0,
           toccati)
-    r = c.put('/api/orders/o-tagliato/salva-bozza-fattura',
-              json={'user_id': 'elena', 'numero_ddt': 'DDT-BOZZA', 'data_ddt': '2026-09-25',
+    r = CL['elena'].put('/api/orders/o-tagliato/salva-bozza-fattura',
+              json={'numero_ddt': 'DDT-BOZZA', 'data_ddt': '2026-09-25',
                     'numero_fattura': 'FT bozza'})
     check('bozza dalla scheda vecchia accettata', r.status_code == 200, r.get_json())
     o = leggi('o-tagliato')
@@ -318,7 +327,7 @@ def main():
           o.ddt_numero == 'DDT-BOZZA' and o.numero_ddt == 'DDT-BOZZA'
           and o.ddt_data == datetime(2026, 9, 25), (o.ddt_numero, o.numero_ddt, o.ddt_data))
     check('la vista nuova la vede', riga('o-tagliato')['ddt_numero'] == 'DDT-BOZZA')
-    c.post('/api/ordini/o-tagliato/chiudi', json={'user_id': 'elena', 'numero_fattura': 'FT 5'})
+    CL['elena'].post('/api/ordini/o-tagliato/chiudi', json={'numero_fattura': 'FT 5'})
     arch = c.get('/api/archive/orders?limit=100').get_json()['data']['orders']
     a = {x['id']: x for x in arch}
     check('archivio: DDT unificato con entrambi i nomi',
@@ -472,9 +481,9 @@ def main():
     print('\n7) Dashboard live coerente con le viste')
     s = models.SessionLocal()
     try:
-        s.add(OfficinaScan(id=str(uuid.uuid4()), order_id='o-dis', operatore_id='enzo',
-                           timestamp_inizio=datetime.utcnow() - timedelta(hours=30),
-                           timestamp_fine=datetime.utcnow() - timedelta(hours=29)))
+        # Smistato dal laser "non va tagliato": e' gia' in officina. Prima lo
+        # diceva la prima scansione con la pistola, ora lo smistamento.
+        s.query(Order).filter(Order.id == 'o-dis').update({'taglio_richiesto': False})
         s.commit()
     finally:
         s.close()
@@ -488,8 +497,10 @@ def main():
     check('ricevuti + in lavorazione == in produzione',
           live['kanban']['ricevuti'] + live['kanban']['lavorazione']
           == live['snapshot']['ordini_in_produzione'], live['kanban'])
-    check('o-nuovo e ricevuto, o-dis (scansionato) e in lavorazione',
+    check('o-nuovo e ricevuto, o-dis (smistato senza taglio) e in lavorazione',
           live['kanban']['ricevuti'] >= 1 and live['kanban']['lavorazione'] >= 1, live['kanban'])
+    check('niente piu contatori dalle scansioni',
+          'operatori_attivi' not in live['snapshot'] and 'curva_ore' not in live, live)
     check('istante della dashboard con la Z', live['timestamp'].endswith('Z'), live['timestamp'])
 
     # =====================================================================
@@ -524,7 +535,7 @@ if __name__ == '__main__':
     try:
         code = main()
     finally:
-        A.BarcodeManager.load_config = _config_vera
+        A.ConfigManager.load_config = _config_vera
     try:
         _ENG.dispose()
         os.remove(_TMP)

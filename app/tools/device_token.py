@@ -1,5 +1,11 @@
 """Gestione dei TOKEN DI DISPOSITIVO (da eseguire sul server, una volta).
 
+NOTA: oggi i dispositivi si registrano dalla pagina iniziale col PIN di un
+amministratore, e da riga di comando con tools/persone.py ("dispositivo",
+"dispositivi", "revoca"), che stampa un indirizzo /?codice=... da aprire una
+volta sul dispositivo. Questo strumento resta per compatibilita'; gli scope
+sono le stazioni: commerciale, ufficio, laser, reparto, ore.
+
 I token sono l'identita' verificata dal server: sostituiscono la fiducia nello
 `user_id` inviato dal browser. Vanno creati qui e poi inseriti UNA VOLTA nel
 tablet / PC ufficio; gli operai non fanno alcun passaggio quotidiano.
@@ -12,8 +18,8 @@ Uso:
     python app/tools/device_token.py revoca <id>
 
 Il token in chiaro viene mostrato SOLO alla creazione (nel DB c'e' solo l'hash).
-Per configurare un tablet: apri la pagina con ?token=<token> una sola volta,
-oppure incollalo nella schermata di configurazione del dispositivo.
+Per configurare un dispositivo: apri http://<server>:5000/?codice=<token> una
+sola volta (diventa il cookie del dispositivo).
 """
 import os
 import sys

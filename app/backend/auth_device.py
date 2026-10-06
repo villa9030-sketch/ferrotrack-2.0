@@ -14,10 +14,16 @@ permessi DAL TOKEN, ignorando qualunque ruolo/utente dichiarato dal client.
 
     X-Device-Token: <token>      (oppure  Authorization: Bearer <token>)
 
-Scope disponibili:
-    'ore'     -> solo dichiarazioni ore
-    'reparto' -> sola lettura ordini/allegati
-    'ufficio' -> operazioni dell'impiegata (correzioni, ordini)
+Scope disponibili = le stazioni (vedi backend/accesso.py):
+    'commerciale', 'ufficio' -> uffici, si entra col PIN personale
+    'laser'                  -> secondo monitor accanto a Lantek
+    'reparto'                -> Tablet officina, sola lettura
+    'ore'                    -> Timbratrice
+
+Oggi i dispositivi si registrano dalla pagina iniziale col PIN di un
+amministratore e il segreto sta in un cookie HttpOnly; questo modulo resta per
+lo strumento da riga di comando e per i tablet configurati col vecchio token
+nell'intestazione, che continuano a funzionare.
 
 LIMITE DICHIARATO
 -----------------
@@ -34,9 +40,7 @@ import logging
 import secrets
 import uuid
 from datetime import datetime
-from functools import wraps
-
-from flask import g, jsonify, request
+from flask import request
 
 from .database import get_session
 from .orario import iso_utc
@@ -44,7 +48,9 @@ from .models_ore import DeviceToken
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ('ore', 'reparto', 'ufficio')
+# Le stazioni (vedi backend/accesso.py). 'reparto' e' il Tablet officina,
+# 'ore' la Timbratrice.
+SCOPES = ('commerciale', 'ufficio', 'laser', 'reparto', 'ore')
 
 # Header accettati (il secondo per compatibilita' con client generici)
 _HEADER = 'X-Device-Token'
@@ -164,38 +170,20 @@ def risolvi_dispositivo():
 
 
 def require_scope(*scopes_ammessi):
-    """Decoratore Flask: richiede un token di dispositivo con uno degli scope.
+    """Richiede un dispositivo registrato come una di queste stazioni.
 
-    In caso di successo popola `g.device` = {'id','label','scope'}.
-    NON legge mai ruoli o user_id dal client per decidere i permessi.
-
-    Nota: 'ufficio' e' considerato sovrainsieme di 'reparto' in SOLA LETTURA;
-    le operazioni di scrittura richiedono lo scope esatto elencato.
+    Ora e' solo un nome comodo per `accesso.richiede(...)`: il controllo vero
+    e' quello unico di backend/accesso.py, prima di ogni richiesta. Le ore
+    restano protette come prima: serve il DISPOSITIVO (cookie o vecchio
+    token), la postazione dichiarata dal browser non basta nemmeno in
+    transizione. Lo scope 'ufficio' e' la stazione Ufficio, che in modalita'
+    protetta vuole anche il PIN della persona.
     """
-    def deco(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            dev = risolvi_dispositivo()
-            if not dev:
-                return jsonify({
-                    'success': False,
-                    'error': 'Dispositivo non autorizzato: token mancante o non valido.',
-                    'codice': 'device_non_autorizzato',
-                }), 401
-            if dev['scope'] not in scopes_ammessi:
-                logger.warning('accesso negato: device "%s" (scope=%s) su %s',
-                               dev['label'], dev['scope'], request.path)
-                return jsonify({
-                    'success': False,
-                    'error': 'Questo dispositivo non puo\' eseguire questa operazione.',
-                    'codice': 'scope_insufficiente',
-                }), 403
-            g.device = dev
-            return fn(*args, **kwargs)
-        return wrapper
-    return deco
+    from .accesso import richiede
+    return richiede(*scopes_ammessi, vecchio_accesso=False)
 
 
 def device_corrente() -> dict:
-    """Dispositivo della richiesta corrente (dopo require_scope)."""
-    return getattr(g, 'device', None) or {}
+    """Dispositivo della richiesta corrente: {'id','label','scope'}."""
+    from .accesso import dispositivo_compat
+    return dispositivo_compat()

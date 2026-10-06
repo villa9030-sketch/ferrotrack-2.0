@@ -81,7 +81,7 @@ e (in futuro) eventuali subscriber di `OrderEventBus`.
 ```
 
 - BOZZA → INVIATO: crea **snapshot immutabile** del preventivo. Modifiche successive partono da BOZZA v2 (`parent_preventivo_id`=snapshot v1).
-- INVIATO → ACCETTATO: commerciale clicca "Manda in produzione". Si crea l'ordine FerroTrack atomicamente (transazione DB) + cartellino A6 + notifica capi.
+- INVIATO → ACCETTATO: commerciale clicca "Manda in produzione". Si crea l'ordine FerroTrack atomicamente (transazione DB) + notifica capi. Per l'officina si stampa con "Stampa ordine" (`GET /api/orders/<id>/stampa`).
 - INVIATO → RIFIUTATO: status finale, preventivo archiviato. Non crea ordine.
 
 ## Payload di "Accetta preventivo" (input)
@@ -101,8 +101,7 @@ Output:
   "success": true,
   "preventivo_id": "...",
   "order_id": "...",
-  "numero_ordine": "PREV-2026-0042",
-  "cartellino_url": "/api/orders/<id>/cartellino"
+  "numero_ordine": "PREV-2026-0042"
 }
 ```
 

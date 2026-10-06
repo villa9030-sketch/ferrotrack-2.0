@@ -32,26 +32,19 @@ except ImportError:
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
 
-# La postazione laser: porta la delega del capo, quindi apre le stesse
-# pagine che prima apriva l'utenza del responsabile.
-CAPO = {'id': 'postazione-laser', 'name': 'Laser',
-        'role': 'Laser', 'is_capo': True,
-        'permissions': ['overview', 'supervisione', 'lavorazione', 'archive']}
+# Ogni pagina si apre da un dispositivo registrato come la sua stazione
+# (cookie), con la persona dentro col PIN negli uffici: lo prepara
+# tests/accesso_server.py sul server di prova.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.accesso_server import contesto_stazione, PIN_ADMIN  # noqa: E402
 
-# Chi deve risultare collegato per far vedere ciascuna pagina.
-UTENTI = {
-    'laser.html': {'id': 'postazione-laser', 'name': 'Laser',
-                   'role': 'Laser', 'is_capo': True},
-    'impiegata.html': {'id': 'postazione-amministrazione',
-                       'name': 'Amministrazione',
-                       'role': 'Amministrazione',
-                       'permissions': ['overview', 'supervisione']},
-    'operaio-info.html': {'id': 'postazione-visione',
-                          'name': 'Tablet di visione', 'role': 'Visione'},
-    'capo-officina.html': CAPO,
-    'admin.html': CAPO,
-    'preventivi.html': CAPO,
-    'dashboard.html': CAPO,
+# Da quale stazione si apre ciascuna pagina ('admin' = Ufficio + PIN admin).
+STAZIONE = {
+    'laser.html': 'laser', 'capo-officina.html': 'laser',
+    'impiegata.html': 'ufficio', 'archivio.html': 'ufficio', 'ufficio-ore.html': 'ufficio',
+    'admin.html': 'admin',
+    'preventivi.html': 'commerciale', 'dxf-editor.html': 'commerciale',
+    'operaio-info.html': 'reparto', 'ore.html': 'ore',
 }
 
 # Le pagine si leggono dalla cartella, non da un elenco scritto a mano: un
@@ -65,8 +58,6 @@ NON_AUTONOME = {'preview-dxf.html', 'preview-step.html', 'fold3d.html'}
 PAGINE = sorted(f for f in os.listdir(_FRONTEND)
                 if f.endswith('.html') and f not in NON_AUTONOME)
 
-# Le pagine dei tablet vogliono un token di dispositivo: si crea al volo.
-DA_ABILITARE = {'ore.html': 'ore', 'ufficio-ore.html': 'ufficio'}
 
 OK = 0
 KO = []
@@ -93,30 +84,20 @@ def main():
         print('Avvia un\'istanza di prova e riesegui. Test saltato.')
         return 0
 
-    # Token di dispositivo per le pagine che li richiedono
-    token = {}
-    try:
-        from backend.auth_device import elenca_token
-        for t in elenca_token():
-            if t.get('is_active') and t['scope'] not in token:
-                token[t['scope']] = None      # esiste, ma il segreto non e' leggibile
-    except Exception:
-        pass
-
     print(f'Controllo {len(PAGINE)} pagine su {BASE}\n')
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True)
         for pagina in PAGINE:
             errori = []
-            pg = b.new_page(viewport={'width': 1440, 'height': 900})
+            ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+            st = STAZIONE.get(pagina)
+            if st:
+                contesto_stazione(ctx, BASE, 'ufficio' if st == 'admin' else st)
+                if st == 'admin':
+                    ctx.request.post(BASE + '/api/accesso/admin', data={'pin': PIN_ADMIN})
+            pg = ctx.new_page()
             pg.on('pageerror', lambda e: errori.append(str(e)))
             try:
-                pg.goto(BASE + '/login.html')
-                pg.wait_for_timeout(200)
-                u = UTENTI.get(pagina)
-                if u:
-                    pg.evaluate(
-                        'x => localStorage.setItem("currentUser", JSON.stringify(x))', u)
                 risposta = pg.goto(BASE + '/' + pagina)
                 # Il codice HTTP va guardato: una pagina che risponde 500
                 # restituisce un JSON di errore, dentro cui non c'e' nessun
@@ -136,7 +117,7 @@ def main():
             except Exception as e:
                 check(f'{pagina} si apre senza errori JavaScript', False, str(e)[:90])
             finally:
-                pg.close()
+                ctx.close()
         b.close()
 
     print('\n' + '=' * 60)

@@ -29,11 +29,11 @@ except ImportError:
     sys.exit(0)
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
-# Si entra dalla postazione laser, che porta con se' la delega del capo:
-# e' da li' che, in azienda, si tocca un preventivo senza passare dall'ufficio.
-UTENTE = {'id': 'postazione-laser', 'name': 'Laser',
-          'role': 'Laser', 'is_capo': True,
-          'permissions': ['overview', 'supervisione', 'lavorazione', 'archive']}
+# I preventivi si fanno dalla stazione Commerciale, con una persona entrata
+# col PIN (tests/accesso_server.py prepara dispositivo e persona di prova).
+import os  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.accesso_server import Sessione, contesto_stazione  # noqa: E402
 
 OK = 0
 KO = []
@@ -60,8 +60,8 @@ def main():
         print('Avvia un\'istanza di prova e riesegui. Test saltato.')
         return 0
 
-    with urllib.request.urlopen(BASE + '/api/preventivi', timeout=8) as r:
-        elenco = json.load(r)
+    comm = Sessione(BASE, 'commerciale')
+    _c, elenco = comm.get('/api/preventivi')
     prev = elenco.get('preventivi') if isinstance(elenco, dict) else elenco
     bozze = [p for p in prev if p.get('status') == 'BOZZA']
     # Serve una bozza CON articoli: senza, i controlli sui messaggi CAD non
@@ -69,8 +69,7 @@ def main():
     con_articoli = []
     for x in bozze[:12]:
         try:
-            with urllib.request.urlopen(BASE + '/api/preventivi/' + x['id'], timeout=6) as r:
-                d = json.load(r)
+            _c, d = comm.get('/api/preventivi/' + x['id'])
             dett = d.get('preventivo') or d
             if (dett.get('articoli') or []):
                 con_articoli.append(x['id'])
@@ -87,12 +86,9 @@ def main():
     errori_pagina = []
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True)
-        # L'utente si imposta PRIMA che la pagina parta: passando da login.html
-        # la pagina di ingresso reindirizza da sola e interrompe la navigazione
-        # del test (net::ERR_ABORTED a caso).
-        ctx = b.new_context(viewport={'width': 1500, 'height': 950})
-        ctx.add_init_script('localStorage.setItem("currentUser", '
-                            + json.dumps(json.dumps(UTENTE)) + ')')
+        # Dispositivo e PIN si preparano PRIMA che la pagina parta (cookie del
+        # contesto), cosi' la pagina si apre gia' dentro.
+        ctx = contesto_stazione(b.new_context(viewport={'width': 1500, 'height': 950}), BASE, 'commerciale')
         pg = ctx.new_page()
         pg.on('pageerror', lambda e: errori_pagina.append(str(e)))
         pg.goto(BASE + '/preventivi.html')
