@@ -38,6 +38,16 @@ $risponde = $true
 try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 4 "$Server/api/health" | Out-Null } catch { $risponde = $false }
 
 $profilo = Join-Path $env:LOCALAPPDATA ("FerroTrack_" + $Stazione)
+
+# L'icona LS si copia sul PC: la cartella POSTAZIONI puo' stare su una chiavetta
+$icona = "$edge,0"
+$icoSrc = Join-Path $PSScriptRoot 'ferrotrack.ico'
+if (Test-Path $icoSrc) {
+  $icoDir = Join-Path $env:LOCALAPPDATA 'FerroTrack'
+  New-Item -ItemType Directory -Force $icoDir | Out-Null
+  Copy-Item $icoSrc (Join-Path $icoDir 'ferrotrack.ico') -Force
+  $icona = Join-Path $icoDir 'ferrotrack.ico'
+}
 $modo = if ($SchermoIntero) { '--start-fullscreen' } else { '--start-maximized' }
 $argomenti = "--app=$url $modo --user-data-dir=`"$profilo`" --no-first-run --disable-features=Translate"
 
@@ -47,7 +57,7 @@ function Crea-Collegamento($cartella) {
   $lnk.TargetPath = $edge
   $lnk.Arguments = $argomenti
   $lnk.WorkingDirectory = Split-Path $edge
-  $lnk.IconLocation = "$edge,0"
+  $lnk.IconLocation = $icona
   $lnk.Description = "FerroTrack - $Stazione"
   $lnk.Save()
 }

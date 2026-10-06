@@ -236,8 +236,11 @@ def index():
 
 @app.route('/favicon.ico')
 def favicon():
-    """Evita il 500 sui browser che chiedono automaticamente il favicon."""
-    from flask import Response
+    """Icona LS (scheda del browser, finestre delle postazioni, barra di Windows)."""
+    from flask import Response, send_file
+    f = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'favicon.ico')
+    if os.path.exists(f):
+        return send_file(f, mimetype='image/x-icon', max_age=86400)
     return Response(b'', status=204, mimetype='image/x-icon')
 
 @app.route('/download-cert')
