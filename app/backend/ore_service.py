@@ -485,16 +485,22 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
             return {'error': 'Operatore non valido o non attivo',
                     'codice': 'operatore_non_valido'}
 
-        clienti_validi = {c.nome for c in session.query(Cliente)
-                          .filter(Cliente.attivo == True).all()}  # noqa: E712
-        pulite, err = _normalizza_righe(righe, clienti_validi)
-        if err:
-            return {'error': err, 'codice': 'righe_non_valide'}
-
         g = session.query(GiornataOre).filter(
             GiornataOre.operatore_id == operatore_id,
             GiornataOre.data == d,
         ).first()
+
+        clienti_validi = {c.nome for c in session.query(Cliente)
+                          .filter(Cliente.attivo == True).all()}  # noqa: E712
+        # Un cliente gia' presente nella giornata resta valido anche se nel
+        # frattempo e' stato disattivato o rinominato: altrimenti quella giornata
+        # non si potrebbe piu' correggere (ogni ri-salvataggio veniva rifiutato).
+        if g is not None:
+            clienti_validi |= {r.cliente for r in session.query(RigaOre)
+                               .filter(RigaOre.giornata_id == g.id).all() if r.cliente}
+        pulite, err = _normalizza_righe(righe, clienti_validi)
+        if err:
+            return {'error': err, 'codice': 'righe_non_valide'}
 
         # --- Idempotenza: stessa richiesta gia' applicata -> restituisci lo stato
         if g is not None and richiesta_id and g.ultima_richiesta_id == richiesta_id:

@@ -223,6 +223,15 @@
     .totale span{font-size:28px}
     .btn-salva{padding:0 26px; font-size:19px}
   }
+/* finestra per scrivere un nome (al posto di prompt del browser) */
+.ore-chiedi-testo { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 16px; background: rgba(11, 18, 32, .45); }
+.ore-chiedi-testo .box { width: min(520px, 100%); background: #fff; border-radius: 18px; padding: 24px; box-shadow: 0 24px 60px rgba(0,0,0,.25); }
+.ore-chiedi-testo h3 { margin: 0 0 6px; font-size: 22px; }
+.ore-chiedi-testo p { margin: 0 0 14px; color: #667085; font-size: 15px; }
+.ore-chiedi-testo input { width: 100%; height: 60px; border: 2px solid #D0D5DD; border-radius: 14px; padding: 0 16px; font: 600 20px inherit; font-family: inherit; }
+.ore-chiedi-testo input:focus { outline: none; border-color: var(--ft-accent); }
+.ore-chiedi-testo .az { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.ore-chiedi-testo .az button { min-height: 56px; padding: 0 22px; font-size: 17px; }
 </style>
 </head>
 <body class="ft ft-touch">
@@ -397,11 +406,31 @@ async function caricaAnagrafiche() {
   renderOperai();
 }
 
+/** Rilegge il contesto dal server. Il tablet resta acceso per giorni: "oggi"
+    letto una volta all'apertura, dopo mezzanotte faceva rifiutare ogni
+    salvataggio (giorno non corrente) finche' qualcuno non ricaricava la pagina.
+    Torna true se il giorno e' cambiato. */
+async function aggiornaContesto() {
+  try {
+    const r = await api('/api/ore/contesto');
+    if (!r.ok || !r.data || !r.data.oggi) return false;
+    const cambiato = !!CTX && CTX.oggi !== r.data.oggi;
+    CTX = r.data;
+    document.getElementById('oggi').textContent = dataIta(CTX.oggi);
+    return cambiato;
+  } catch (_) { return false; }
+}
+
 // La bacheca resta accesa tutto il giorno: si riaggiorna da sola cosi' chi passa
 // vede sempre lo stato vero, e chi ha appena registrato si vede comparire.
 async function aggiornaBacheca() {
+  const nuovoGiorno = await aggiornaContesto();
   if (operatore) return;                 // qualcuno sta compilando: non disturbare
-  const r = await api('/api/ore/bacheca');
+  if (nuovoGiorno) VISTI = null;         // giorno nuovo: la bacheca riparte da zero
+  const [r, c] = await Promise.all([api('/api/ore/bacheca'), api('/api/ore/clienti').catch(() => null)]);
+  // i clienti si rileggono anche loro: quelli aggiunti dall'ufficio compaiono
+  // senza ricaricare la pagina, quelli tolti spariscono
+  if (c && c.ok && c.data && Array.isArray(c.data.clienti)) CLIENTI = c.data.clienti;
   if (r.ok && r.data && r.data.operai) {
     OPERAI = r.data.operai;
     ULTIMA_BACHECA = new Date();
@@ -498,7 +527,7 @@ function renderOperai() {
     Chi arriva oggi non si trova addosso le mancanze dei giorni in cui non
     c'era — di quello si occupa il server. */
 async function chiediNome() {
-  const nome = (prompt('Nome della persona da aggiungere:') || '').trim();
+  const nome = await chiediTesto('Aggiungi una persona', 'Nome e cognome, come lo conoscono tutti in officina.');
   if (!nome) return;
   const r = await api('/api/ore/operai', {
     method: 'POST',
@@ -755,6 +784,7 @@ async function salva() {
 
     if (r.status === 409) {                  // qualcun altro ha modificato
       const g = r.data.giornata;
+      MIE_RIGHE = righe.map(x => ({ ...x }));  // quelle appena scritte: si possono rimettere
       if (g) {
         righe = (g.righe || []).map(x => ({
           cliente: x.cliente, attivita_interna: !!x.attivita_interna, minuti: x.minuti
@@ -766,6 +796,39 @@ async function salva() {
       mostra('msg-giornata',
         'La tua giornata è stata modificata dall\'ufficio. Qui sopra vedi i dati aggiornati: ' +
         'controllali e, se serve, correggi e salva di nuovo.', 'warn');
+      if (MIE_RIGHE.length) {
+        const az = document.createElement('div');
+        az.className = 'azioni';
+        az.innerHTML = '<button class="btn-sec">Rimetti le ore che avevo scritto</button>';
+        az.querySelector('button').onclick = () => {
+          righe = MIE_RIGHE.map(x => ({ ...x })); sporco = true;
+          renderRighe(); renderClienti(); aggiornaTotale();
+          mostra('msg-giornata', "Rimesse le tue ore. Premi Salva per sostituire quelle dell'ufficio.", 'warn');
+        };
+        document.getElementById('msg-giornata').appendChild(az);
+      }
+      return;
+    }
+
+    if (r.data && r.data.codice === 'giorno_non_corrente') {
+      // E' passata la mezzanotte mentre si compilava: il tablet registra solo
+      // la giornata di oggi. Le ore restano qui; si possono salvare su oggi.
+      const ieri = CTX.oggi;
+      await aggiornaContesto();
+      try {
+        const g = await api(`/api/ore/giornata?operatore_id=${encodeURIComponent(operatore.id)}`);
+        if (g.ok && g.data.giornata) {
+          revisione = g.data.giornata.revisione || 0;
+          minutiAttesi = (g.data.giornata.minuti_attesi === undefined) ? null : g.data.giornata.minuti_attesi;
+        } else revisione = 0;
+      } catch (_) { revisione = 0; }
+      richiestaId = null; scostamentoOk = false;
+      document.getElementById('titolo-giornata').textContent = `${operatore.nome} — oggi`;
+      aggiornaTotale();
+      mostra('msg-giornata',
+        `È cambiato il giorno: il tablet registra solo la giornata di oggi (${dataIta(CTX.oggi)}). ` +
+        `Se queste ore sono di oggi premi Riprova; se sono di ieri (${dataIta(ieri)}) chiedi all'ufficio di inserirle.`,
+        'warn', true);
       return;
     }
 
@@ -792,9 +855,11 @@ function confermaEsci(totMin) {
   setTimeout(() => { t.classList.remove('on'); tornaAiNomi(true); }, 1400);
 }
 
-function tornaAiNomi(forza) {
+async function tornaAiNomi(forza) {
   if (!forza && sporco) {
-    if (!confirm('Hai modifiche non salvate. Vuoi uscire senza salvare?')) return;
+    const esci = await FT.conferma({ titolo: 'Esci senza salvare?', testo: 'Le ore inserite adesso andranno perse.',
+                                     ok: 'Esci senza salvare', annulla: 'Resta', pericolo: true });
+    if (!esci) return;
   }
   operatore = null; righe = []; revisione = 0; sporco = false; richiestaId = null;
   document.getElementById('cerca-cliente').value = '';
@@ -817,6 +882,29 @@ function mostra(id, testo, tipo, conRiprova) {
 }
 function nascondi(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
 const esc = s => FT.esc(s);
+let MIE_RIGHE = [];   // ore scritte sul tablet quando l'ufficio le ha cambiate nel frattempo
+
+/** Chiede un testo con una finestra grande da tablet (al posto di prompt()). */
+function chiediTesto(titolo, sotto) {
+  return new Promise(risolvi => {
+    const bg = document.createElement('div');
+    bg.className = 'ore-chiedi-testo';
+    bg.innerHTML = `<div class="box" role="dialog" aria-modal="true">
+      <h3>${esc(titolo)}</h3><p>${esc(sotto || '')}</p>
+      <input type="text" autocomplete="off" autocapitalize="words" maxlength="60">
+      <div class="az"><button class="btn-sec" data-v="0">Annulla</button><button class="btn-salva" data-v="1">Aggiungi</button></div></div>`;
+    document.body.appendChild(bg);
+    const inp = bg.querySelector('input');
+    setTimeout(() => inp.focus(), 50);
+    const chiudi = v => { bg.remove(); risolvi(v); };
+    bg.addEventListener('click', e => {
+      if (e.target === bg) return chiudi('');
+      const b = e.target.closest('button[data-v]');
+      if (b) chiudi(b.dataset.v === '1' ? inp.value.trim() : '');
+    });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') chiudi(inp.value.trim()); if (e.key === 'Escape') chiudi(''); });
+  });
+}
 
 window.addEventListener('beforeunload', e => {
   if (sporco) { e.preventDefault(); e.returnValue = ''; }

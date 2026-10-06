@@ -229,18 +229,39 @@ def controlla_periodo(dal=None, al=None) -> dict:
             # arrivato il giorno prima, e si trovava addosso una mancanza.
             attivi[u.id] = data_locale(getattr(u, 'created_at', None))
 
+        # Anomalie ancora aperte nel periodo: se quella giornata non e' piu'
+        # dovuta (persona tolta, messa "non tenuta", giorni cambiati, assenza
+        # aggiunta dopo) si chiudono, invece di restare per sempre "da controllare".
+        aperte = {(a.operatore_id, a.data) for a in session.query(AnomaliaOre).filter(
+            AnomaliaOre.stato == 'aperta',
+            AnomaliaOre.data >= da_giorno, AnomaliaOre.data <= a_giorno).all()}
+
+        def non_dovuta(op_id, giorno):
+            if (op_id, giorno) in aperte:
+                dichiarata, minuti = _minuti_dichiarati(session, op_id, giorno)
+                if _applica(session, op_id, giorno, None, minuti, None) == 'risolta':
+                    esiti['risolta'] += 1
+
+        for op_id, giorno in sorted(aperte, key=lambda x: (x[1], x[0])):
+            if op_id not in cfgs:            # tolto dalla bacheca del tutto
+                non_dovuta(op_id, giorno)
+
         giorno = da_giorno
         n_giorni = 0
         while giorno <= a_giorno:
             n_giorni += 1
             for op_id, cfg in cfgs.items():
                 if op_id not in attivi:
+                    non_dovuta(op_id, giorno)
                     continue
                 sulla_bacheca_dal = attivi[op_id]
                 if sulla_bacheca_dal and giorno < sulla_bacheca_dal:
+                    # niente nuove anomalie prima che arrivasse, ma quelle nate
+                    # da una giornata salvata davvero (rivaluta_giornata) restano
                     continue
                 attesi = _minuti_attesi(cfg, ecc.get((op_id, giorno)), giorno)
                 if attesi is None:
+                    non_dovuta(op_id, giorno)
                     continue
                 dichiarata, minuti = _minuti_dichiarati(session, op_id, giorno)
                 tipo = _tipo_anomalia(dichiarata, minuti, attesi)
@@ -299,6 +320,7 @@ def notifica_anomalie(limite: int = 50) -> int:
         for a in aperte:
             a.notificata = True
             da_notificare.append({
+                'id': a.id,
                 'operatore': nomi.get(a.operatore_id, a.operatore_id),
                 'data': a.data,
                 'tipo': a.tipo,
@@ -313,13 +335,16 @@ def notifica_anomalie(limite: int = 50) -> int:
     finally:
         session.close()
 
+    non_arrivate = []
     for n in da_notificare:
+        arrivata = False
         dettaglio = ''
         if n['tipo'] in ('sotto', 'sopra'):
             dettaglio = f" ({n['dich'] / 60:.1f}h invece di {n['att'] / 60:.1f}h)".replace('.', ',')
         for uid in destinatari:
             try:
-                NotificationManager.create_notification(
+                # create_notification non solleva: se fallisce torna None
+                esito = NotificationManager.create_notification(
                     user_id=uid, order_id=None,
                     title='Ore da controllare',
                     message=f"{n['operatore']}: {_TESTO.get(n['tipo'], n['tipo'])}"
@@ -327,9 +352,30 @@ def notifica_anomalie(limite: int = 50) -> int:
                     notification_type='ore_anomalia',
                     notification_category='attiva',
                 )
-                inviate += 1
             except Exception:
+                esito = None
+            if esito is None:
                 logger.warning('notifica anomalia non inviata a %s', uid)
+            else:
+                inviate += 1
+                arrivata = True
+        if not arrivata:
+            non_arrivate.append(n['id'])
+
+    # Marcata prima di inviare (per non mandarla due volte se due passi si
+    # sovrappongono); se non e' arrivata a nessuno torna "da notificare" e
+    # si riprova al passo successivo, invece di perdersi.
+    if non_arrivate:
+        session = get_session()
+        try:
+            session.query(AnomaliaOre).filter(AnomaliaOre.id.in_(non_arrivate)).update(
+                {AnomaliaOre.notificata: False}, synchronize_session=False)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.exception('notifica_anomalie (ripristino) fallita: %s', e)
+        finally:
+            session.close()
     return inviate
 
 

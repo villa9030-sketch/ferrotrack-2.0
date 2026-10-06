@@ -190,6 +190,7 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
         minuti_interni = 0
         costo_interni = 0.0
         giorni_senza_tariffa = set()
+        senza_tariffa_cli = set()  # clienti con ore in giorni senza tariffa
 
         for r, g in righe:
             minuti = int(r.minuti or 0)
@@ -211,7 +212,9 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
             k = chiave_cliente(r.cliente)
             _ricorda_nome(nomi_mostrati, k, r.cliente)
             minuti_cli[k] = minuti_cli.get(k, 0) + minuti
-            if costo is not None:
+            if costo is None:
+                senza_tariffa_cli.add(k)
+            else:
                 costo_cli[k] = costo_cli.get(k, 0.0) + costo
 
         # --- FATTURATO (inserito a mano dall'ufficio) ------------------------
@@ -264,7 +267,9 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
             ha_fatt = k in fatt
             ha_mat = k in mat
             costo_ore = costo_cli.get(k)
-            costo_noto = (minuti == 0) or (costo_ore is not None and not giorni_senza_tariffa)
+            # Incompleto solo il cliente che ha ore in un giorno senza tariffa:
+            # prima un solo giorno scoperto rendeva "non calcolabile" tutti.
+            costo_noto = (minuti == 0) or (costo_ore is not None and k not in senza_tariffa_cli)
             f = fatt.get(k)
             m = mat.get(k)
             residuo = None
@@ -316,6 +321,9 @@ def riepilogo(anno=None, mese=None, dal=None, al=None, cliente=None) -> dict:
                 'costo_ore': round(tot_costo, 2),
                 'ore': round(tot_min / 60.0, 2),
                 'residuo': round(tot_fatt - tot_mat - tot_costo, 2),
+                # con giorni senza tariffa il costo delle ore e' una parte del vero
+                # (quindi il residuo totale e' sovrastimato): va detto
+                'costo_ore_incompleto': bool(giorni_senza_tariffa),
             },
             'avvisi': {
                 'giornate_mancanti': mancanti,
@@ -347,14 +355,19 @@ def dettaglio_cliente(cliente: str, anno=None, mese=None, dal=None, al=None) -> 
         nomi = {u.id: u.name for u in session.query(User).all()}
         tariffe = _tariffe_ordinate(session)
 
+        # Stesso criterio del riepilogo: "DECA", "Deca" e "DECA S.r.l." sono lo
+        # stesso cliente. Col nome esatto il dettaglio mostrava meno ore del totale.
+        k = chiave_cliente(cliente)
+        stesso = (lambda n: chiave_cliente(n) == k) if k else (lambda n: (n or '') == cliente)
         righe = (session.query(RigaOre, GiornataOre)
                  .join(GiornataOre, RigaOre.giornata_id == GiornataOre.id)
                  .filter(GiornataOre.data >= d1, GiornataOre.data <= d2,
-                         RigaOre.cliente == cliente,
                          RigaOre.attivita_interna == False)  # noqa: E712
                  .order_by(GiornataOre.data.asc()).all())
         ore = []
         for r, g in righe:
+            if not stesso(r.cliente):
+                continue
             t = _tariffa_del_giorno(tariffe, g.data)
             ore.append({
                 'data': g.data.isoformat(),
@@ -371,16 +384,18 @@ def dettaglio_cliente(cliente: str, anno=None, mese=None, dal=None, al=None) -> 
         if mesi:
             for a, m in mesi:
                 for f in session.query(FatturatoCliente).filter(
-                        FatturatoCliente.cliente == cliente,
                         FatturatoCliente.anno == a, FatturatoCliente.mese == m).all():
+                    if not stesso(f.cliente):
+                        continue
                     fatture.append({'periodo': f'{a:04d}-{m:02d}',
                                     'importo': float(f.importo or 0),
                                     'riferimento': f.riferimento, 'nota': f.nota,
                                     'inserito_da': f.inserito_da})
                 for x in session.query(CostoMaterialeCliente).filter(
-                        CostoMaterialeCliente.cliente == cliente,
                         CostoMaterialeCliente.anno == a,
                         CostoMaterialeCliente.mese == m).all():
+                    if not stesso(x.cliente):
+                        continue
                     materiali.append({'periodo': f'{a:04d}-{m:02d}',
                                       'importo': float(x.importo or 0),
                                       'descrizione': x.descrizione,

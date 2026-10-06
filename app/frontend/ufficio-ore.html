@@ -302,7 +302,7 @@
           <div class="uo-row" style="margin-top:14px; border:0; padding:0">
             <p class="ft-hint" style="margin:0; flex:1">Per gli acquisti generici lascia il cliente su
               <b>«non attribuito»</b>: non vengono ripartiti sui clienti.</p>
-            <button class="ft-btn primary" onclick="salvaDato()">Registra</button>
+            <button class="ft-btn primary" id="btn-registra" onclick="salvaDato()">Registra</button>
           </div>
         </div>
       </div>
@@ -364,9 +364,23 @@ async function api(path, opts = {}) {
   // Chi sta usando la pagina lo sa il server (dispositivo Ufficio + PIN).
   const o = Object.assign({headers: {}}, opts);
   if (o.body) o.headers['Content-Type'] = 'application/json';
-  const r = await fetch(path, o);
+  let r;
+  try { r = await fetch(path, o); }
+  catch (_) {
+    // Rete giu' o server spento: niente pagine ferme su "Caricamento..." o
+    // pulsanti bloccati. Chi chiama vede ok=false e mostra il suo messaggio.
+    avvisoRete();
+    return {status: 0, ok: false, data: {error: 'Server non raggiungibile: controlla la rete e riprova.'}};
+  }
   let d = {}; try { d = await r.json(); } catch (_) {}
+  if (r.status >= 500) avvisoRete('Errore del server: riprova tra poco.');
   return {status: r.status, ok: r.ok, data: d};
+}
+let _ultimoAvvisoRete = 0;
+function avvisoRete(t) {
+  if (Date.now() - _ultimoAvvisoRete < 8000) return;   // uno solo, non una raffica
+  _ultimoAvvisoRete = Date.now();
+  FT.toast(t || 'Server non raggiungibile: controlla la rete e riprova.', 'err');
 }
 
 // Un valore che finisce come argomento dentro un attributo onclick: stringa
@@ -535,8 +549,18 @@ async function corrSalva(){
   if(r.ok&&r.data.success){ msg('msg-corr','Correzione salvata.','ok');
     FT.evidenzia(document.getElementById('card-correzione'),'ft-flash-ok');
     CORR.revisione=r.data.giornata.revisione; caricaAnomalie(); }
-  else if(r.status===409){ msg('msg-corr','Modificata nel frattempo: ricarico i dati aggiornati.','warn');
-    apriCorrezione(CORR.op,CORR.data,CORR.nome); }
+  else if(r.status===409){
+    // Qualcuno (il tablet o un collega) l'ha salvata nel frattempo: si mostrano
+    // i dati nuovi, ma la correzione appena fatta resta recuperabile.
+    const mie=CORR.righe.map(x=>({...x}));
+    await apriCorrezione(CORR.op,CORR.data,CORR.nome);
+    const e=document.getElementById('msg-corr');
+    e.className='ft-alert uo-msg warn'; e.hidden=false;
+    e.innerHTML='Questa giornata è stata salvata da qualcun altro mentre la correggevi: qui sopra ci sono i dati aggiornati. '+
+      '<button class="ft-btn sm" type="button">Rimetti la mia correzione</button>';
+    e.querySelector('button').onclick=()=>{ CORR.righe=mie; renderCorr();
+      msg('msg-corr','Rimessa la tua correzione: premi Salva correzione per sostituire i dati.','warn'); };
+  }
   else msg('msg-corr',(r.data&&r.data.error)||'Salvataggio non riuscito.','err');
 }
 async function corrEccezione(){
@@ -570,7 +594,7 @@ async function caricaRiepilogo(){
            if(t==='mese') p.set('mese',document.getElementById('ri-mese').value); }
   const c=document.getElementById('ri-cliente').value; if(c) p.set('cliente',c);
   const r=await api('/api/ore/riepilogo?'+p.toString());
-  if(!r.ok) return;
+  if(!r.ok){ FT.toast((r.data&&r.data.error)||'Riepilogo non disponibile.','err'); return; }
   const d=r.data.riepilogo;
   document.getElementById('card-dettaglio').hidden=true;
 
@@ -585,6 +609,8 @@ async function caricaRiepilogo(){
 
   const av=[];
   if(d.avvisi.tariffa_assente) av.push(['err','Costo orario non impostato: il costo delle ore non è calcolabile']);
+  else if(d.avvisi.giorni_senza_tariffa&&d.avvisi.giorni_senza_tariffa.length)
+    av.push(['warn',`Ore in giorni senza costo orario (dal ${dataIt(d.avvisi.giorni_senza_tariffa[0])}): il costo delle ore è incompleto e il residuo totale sovrastimato`]);
   if(d.avvisi.giornate_mancanti) av.push(['warn',`${d.avvisi.giornate_mancanti} giornate ancora da dichiarare nel periodo`]);
   if(d.avvisi.clienti_senza_fatturato.length) av.push(['',`Fatturato non inserito per ${d.avvisi.clienti_senza_fatturato.length} clienti`]);
   if(d.materiali_non_attribuiti) av.push(['',`Materiali non attribuiti: ${eur(d.materiali_non_attribuiti)}`]);
@@ -596,7 +622,7 @@ async function caricaRiepilogo(){
   else { b.innerHTML=d.clienti.map(c=>`<tr>
       <td><b>${esc(c.cliente)}</b></td>
       <td class="n">${esc(String(c.ore).replace('.',','))} h</td>
-      <td class="n">${c.costo_ore==null?'<span class="assente">non calcolabile</span>':eur(c.costo_ore)}</td>
+      <td class="n">${c.costo_ore==null?'<span class="assente">non calcolabile</span>':eur(c.costo_ore)}${c.costo_ore_incompleto&&c.costo_ore!=null?'<span class="uo-parz" title="Alcune ore cadono in giorni senza costo orario: costo incompleto"> *</span>':''}</td>
       <td class="n">${c.materiali_assente?'<span class="assente">assente</span>':eur(c.materiali)}</td>
       <td class="n">${c.fatturato_assente?'<span class="assente">assente</span>':eur(c.fatturato)}</td>
       <td class="n"><span class="ft-money">${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</span>${c.residuo_parziale?'<span class="uo-parz" title="Materiali non inseriti: il residuo è sovrastimato"> *</span>':''}</td>
@@ -624,7 +650,7 @@ async function dettaglio(cliente){
   else { p.set('anno',document.getElementById('ri-anno').value);
          if(t==='mese') p.set('mese',document.getElementById('ri-mese').value); }
   const r=await api('/api/ore/riepilogo/dettaglio?'+p.toString());
-  if(!r.ok) return;
+  if(!r.ok){ FT.toast((r.data&&r.data.error)||'Dettaglio non disponibile.','err'); return; }
   const d=r.data.dettaglio;
   document.getElementById('det-titolo').textContent='Dettaglio — '+cliente;
   document.getElementById('det-sub').textContent=d.nota_fonti;
@@ -658,8 +684,14 @@ async function salvaDato(){
     importo:document.getElementById('in-importo').value};
   if(tipo==='fatturato'){ body.riferimento=document.getElementById('in-rif').value; }
   else { body.descrizione=document.getElementById('in-rif').value; }
-  const r=await api('/api/ore/'+(tipo==='fatturato'?'fatturato':'materiale'),
-    {method:'POST',body:JSON.stringify(body)});
+  // un doppio clic registrava il materiale due volte (i materiali si sommano)
+  const btn=document.getElementById('btn-registra');
+  if(btn.disabled) return;
+  btn.disabled=true;
+  let r;
+  try { r=await api('/api/ore/'+(tipo==='fatturato'?'fatturato':'materiale'),
+    {method:'POST',body:JSON.stringify(body)}); }
+  finally { btn.disabled=false; }
   if(r.ok&&r.data.success){ nascondi('msg-ins'); msg('msg-ins','Registrato.','ok');
     document.getElementById('in-importo').value=''; document.getElementById('in-rif').value='';
     caricaRiepilogo(); }
