@@ -2584,6 +2584,7 @@ def extract_pdf_data():
                 'valore_ordine': letto.get('valore_ordine'),
                 'lettura_prezzi': {
                     'formato': letto['formato'], 'n_righe': len(letto['righe']),
+                    'generico': bool(letto.get('generico')),
                     'somma_righe': letto['somma_righe'],
                     'totale_stampato': letto['totale_stampato'], 'quadra': letto['quadra'],
                 },

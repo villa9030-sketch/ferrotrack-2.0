@@ -52,6 +52,10 @@ LETTURE = [
      'valore_ordine': None,
      'lettura_prezzi': {'formato': 'Poliform - Ordine Fornitore', 'n_righe': 7, 'somma_righe': 5000.0,
                         'totale_stampato': 5770.3, 'quadra': False}},
+    {'pdf_filename': 'x_3.pdf', 'numero_ordine': None, 'cliente': None, 'data_consegna': None,
+     'valore_ordine': 769.0,
+     'lettura_prezzi': {'formato': 'Lettura automatica (formato nuovo)', 'generico': True, 'n_righe': 3,
+                        'somma_righe': 769.0, 'totale_stampato': 769.0, 'quadra': True}},
 ]
 
 with sync_playwright() as p:
@@ -104,6 +108,15 @@ with sync_playwright() as p:
     pg.click('#co-submit')
     pg.wait_for_timeout(500)
     check('importo non valido: errore sul campo', 'importo' in pg.inner_text('#err-valore'), pg.inner_text('#err-valore'))
+    # terzo PDF: cliente con un formato nuovo, lettura automatica
+    pg.evaluate('resetCaricaForm(); rimuoviPdf()')
+    pg.set_input_files('#panel-carica input[type=file]', files=[{'name': '3.pdf', 'mimeType': 'application/pdf', 'buffer': PDF_FINTO}])
+    pg.wait_for_timeout(1200)
+    check('formato nuovo: valore proposto', pg.input_value('#mod-valore') == '769,00', pg.input_value('#mod-valore'))
+    check('e avviso "lettura automatica, controlla bene"',
+          'Lettura automatica' in pg.inner_text('#hint-valore') and 'Controlla bene' in pg.inner_text('#hint-valore'),
+          pg.inner_text('#hint-valore'))
+    check('numero e cliente lasciati a chi carica', pg.input_value('#mod-numero') == '' and pg.input_value('#mod-cliente') == '')
     check('nessun errore JavaScript', not errori, errori[:1])
     b.close()
 

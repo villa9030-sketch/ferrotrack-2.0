@@ -16,6 +16,15 @@ Formati riconosciuti (testo del PDF, nessuna AI):
       ...
       Totale EUR 1.107,75
 
+Formato non riconosciuto -> LETTURA GENERICA (_generico): in ogni riga si
+cerca quantita' x prezzo = importo (anche con uno sconto in mezzo), oppure,
+se l'importo non e' stampato, quantita' e prezzo unitario (3-5 decimali). La
+somma delle righe deve essere un numero stampato FUORI dalle righe (il
+totale): solo allora si propone il valore. Cosi' un cliente nuovo funziona
+senza scrivere regole. Su 400 PDF dell'archivio (disegni, ordini DECA...)
+nessun valore inventato; l'unica proposta era un ordine vero (FOR-ORDINE
+2041, 769,00). Numero, cliente e consegna in questo caso restano a mano.
+
 Regola di sicurezza: il valore si propone SOLO se la somma delle righe torna
 col totale stampato sull'ordine. Se non torna (riga letta male, sconti, spese)
 le righe restano ma il totale no: l'ufficio lo scrive a mano. Un formato che
@@ -141,6 +150,87 @@ def _bebitalia(pagine: list[str]) -> dict | None:
     }
 
 
+# Numeri all'italiana in una riga: 1.234,50  47,3300  300
+_NUM = re.compile(r'(?<![\d/.,])(\d{1,3}(?:\.\d{3})+,\d{2,5}|\d+,\d{2,5}|\d+)(?![\d/,]|\.\d)')
+
+
+def _numeri(riga: str) -> list:
+    return [(_num(m.group(1)) if ',' in m.group(1) else float(m.group(1)), m.group(1))
+            for m in _NUM.finditer(riga)]
+
+
+def _riga_con_importo(ns: list, riga: str = ''):
+    """(qta, prezzo, importo) se nella riga c'e' q x p (- sconto %) = importo."""
+    trovata = None
+    for i in range(len(ns)):
+        q = ns[i][0]
+        if q <= 0:
+            continue
+        for j in range(i + 1, len(ns)):
+            p, ps = ns[j]
+            if p <= 0 or ',' not in ps:
+                continue
+            for k in range(j + 1, len(ns)):
+                imp, ks = ns[k]
+                if imp <= 0 or not re.search(r',\d{2}$', ks):
+                    continue
+                if abs(q * p - imp) <= 0.011:
+                    trovata = (q, p, imp)
+                    continue
+                # uno sconto % stampato fra prezzo e importo
+                for d, _ds in ns[j + 1:k]:
+                    if 0 < d < 100 and abs(q * p * (1 - d / 100) - imp) <= 0.011:
+                        trovata = (q, p, imp)
+    return trovata
+
+
+_UM_QTA = re.compile(r'\b(?:NR|Nr|nr|PZ|Pz|pz|N\.|KG|Kg|kg|MT|ML|CAD)\s+\d')
+# Il totale sta accanto a una di queste parole (sulla sua riga o nelle 3 sopra:
+# "Totale EUR 1.107,75", "Importo Netto / Net amount" e sotto i numeri)
+_PAROLA_TOTALE = re.compile(r'total|imponibile|netto|importo|amount', re.I)
+
+
+def _riga_senza_importo(ns: list, riga: str = ''):
+    """(qta, prezzo, importo calcolato): prezzo con 3-5 decimali, la quantita'
+    e' il numero subito prima (B&B: "NR 5,00 29,3900 26/10/2026"). Serve
+    l'unita' di misura davanti alla quantita': senza, il peso "6,601" di un
+    disegno (47PA00170) sembrava un prezzo."""
+    if not _UM_QTA.search(riga):
+        return None
+    for j in range(1, len(ns)):
+        if re.search(r',\d{3,5}$', ns[j][1]) and ns[j - 1][0] > 0 and ns[j][0] > 0:
+            q, p = ns[j - 1][0], ns[j][0]
+            return (q, p, round(q * p, 2))
+    return None
+
+
+def _generico(pagine: list[str]) -> dict | None:
+    linee = [r.strip() for t in pagine for r in t.splitlines() if r.strip()]
+    for leggi_riga in (_riga_con_importo, _riga_senza_importo):
+        righe, usate = [], set()
+        for n, r in enumerate(linee):
+            x = leggi_riga(_numeri(r), r)
+            if x:
+                q, p, imp = x
+                tok = r.split()
+                righe.append({'pos': len(righe) + 1, 'codice': tok[0] if tok else '', 'descrizione': r[:80],
+                              'quantita': q, 'prezzo_unitario': p, 'importo': imp,
+                              'consegna': None, 'sconti': None})
+                usate.add(n)
+        if not righe:
+            continue
+        somma = round(sum(r['importo'] for r in righe), 2)
+        fuori = [v for n, r in enumerate(linee) if n not in usate
+                 and any(_PAROLA_TOTALE.search(x) for x in linee[max(0, n - 3):n + 1])
+                 for v, vs in _numeri(r) if ',' in vs]
+        totale = next((v for v in fuori if _quadra(somma, v)), None)
+        if somma > 0 and totale is not None:
+            return {'formato': 'Lettura automatica (formato nuovo)', 'generico': True,
+                    'cliente': None, 'numero_ordine': None, 'data_ordine': None, 'data_consegna': None,
+                    'righe': righe, 'totale_stampato': totale}
+    return None
+
+
 def leggi_ordine_prezzato(pdf_bytes: bytes) -> dict | None:
     """Ordine gia' prezzato del cliente, oppure None se il formato non e' noto.
 
@@ -154,7 +244,7 @@ def leggi_ordine_prezzato(pdf_bytes: bytes) -> dict | None:
     except Exception as e:
         logger.info('ordine_prezzi: PDF non leggibile come testo: %s', e)
         return None
-    for lettore in (_poliform, _bebitalia):
+    for lettore in (_poliform, _bebitalia, _generico):
         try:
             d = lettore(pagine)
         except Exception:

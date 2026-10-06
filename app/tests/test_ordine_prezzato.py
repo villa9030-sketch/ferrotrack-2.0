@@ -131,6 +131,38 @@ def main():
     print('\n3) Formato sconosciuto')
     check('nessuna proposta', leggi_ordine_prezzato(pdf(['Ordine qualsiasi', 'riga 1 10 pezzi'])) is None)
 
+    print('\n3b) Cliente nuovo, senza regole: lettura automatica')
+    nuovo = pdf([
+        'Spett.le L.S. SRL', 'ORDINE FORNITORE N. 777 del 01/10/2026',
+        'Codice Descrizione Data Qta Prezzo Sconto Importo IVA',
+        f'AB-100 STAFFA DI PROVA {C10} PZ 4,00 12,50 50,00 22',
+        f'AB-200 TELAIO DI PROVA {C10} PZ 2,00 100,00 10,00 180,00 22',
+        'CAUSALE TRASPORTO TOTALE IMPONIBILE',
+        'ACQUISTO 230,00',
+    ])
+    g = leggi_ordine_prezzato(nuovo)
+    check('formato nuovo letto da solo: 2 righe (una con sconto 10%), valore 230,00',
+          g and g.get('generico') and len(g['righe']) == 2 and g['valore_ordine'] == 230.0, g)
+    check('per un formato nuovo numero e cliente restano a mano', g and g['numero_ordine'] is None and g['cliente'] is None)
+    senza_imp = pdf([
+        'ORDINE DI ACQUISTO 55',
+        f'1 XY900 PEZZO UNO NR 3,00 10,5000 {C10}',
+        f'2 XY901 PEZZO DUE NR 2,00 4,2500 {C10}',
+        'Totale ordine EUR 40,00',
+    ])
+    g2 = leggi_ordine_prezzato(senza_imp)
+    check('senza importo per riga: q.ta x prezzo, totale 40,00', g2 and g2['valore_ordine'] == 40.0, g2)
+    disegno = pdf([
+        'PARTICOLARE PRIVO DI BAVE E DIFETTI SUPERFICIALI', '001 6,601', '6,601',
+        'Materiale Peso Kg AISI 304 6,601', 'SCALA 1:5 FOGLIO 1 DI 1',
+    ])
+    check('un disegno (peso 6,601) non diventa un ordine', leggi_ordine_prezzato(disegno) is None)
+    coincidenza = pdf([
+        'Elenco articoli', 'PZ 2,00 5,00 10,00', 'Nota: lunghezza 10,00 mm',
+    ])
+    check('un numero uguale alla somma ma senza "totale" vicino: niente valore',
+          leggi_ordine_prezzato(coincidenza) is None)
+
     print('\n4) Caricamento dall\'ufficio')
     from tests.accesso_aiuto import postazioni, persona, entra, modalita
     modalita('protetto')

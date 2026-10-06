@@ -1185,7 +1185,9 @@ async function caricaPdfOrdine(files) {
     if (lp) {
       if (d.valore_ordine != null && !$('mod-valore').value) $('mod-valore').value = String(d.valore_ordine.toFixed(2)).replace('.', ',');
       $('hint-valore').innerHTML = lp.quadra
-        ? `Letto dal PDF (${esc(lp.formato)}): ${lp.n_righe} righe, la somma torna col totale ${FT.euro(lp.totale_stampato)}. Controlla e conferma.`
+        ? (lp.generico
+            ? `<b>Lettura automatica</b> (cliente con un formato nuovo): ${lp.n_righe} righe con quantità × prezzo, la somma torna col totale ${FT.euro(lp.totale_stampato)}. Controlla bene col PDF; numero, cliente e consegna scrivili tu.`
+            : `Letto dal PDF (${esc(lp.formato)}): ${lp.n_righe} righe, la somma torna col totale ${FT.euro(lp.totale_stampato)}. Controlla e conferma.`)
         : `<span style="color:var(--ft-warn)">Letto dal PDF (${esc(lp.formato)}) ma la somma delle righe (${FT.euro(lp.somma_righe)}) non torna col totale${lp.totale_stampato != null ? ' ' + FT.euro(lp.totale_stampato) : ''}: scrivilo tu.</span>`;
     }
     zona.style.display = 'none';

@@ -165,8 +165,15 @@ with sync_playwright() as p:
     print()
     check('in officina compare "Lavorabile"', 'Lavorabile' in testo)
     check('e "In taglio"', 'In taglio' in testo)
-    check('e cio\' che il laser non ha guardato resta "Da smistare"',
-          'Da smistare' in testo)
+    # Solo se resta un ordine ancora in lavorazione da smistare: uno gia'
+    # "da fatturare" (lavoro finito) giustamente sul tablet non c'e' piu'.
+    restano = [o for o in ordini() if o.get('taglio_richiesto') is None
+               and o.get('status') in ('RICEVUTO', 'IN_LAVORAZIONE')]
+    if restano:
+        check('e cio\' che il laser non ha guardato resta "Da smistare"',
+              'Da smistare' in testo, [o.get('numero_ordine') for o in restano])
+    else:
+        print('  (nessun ordine in lavorazione rimasto da smistare: controllo "Da smistare" saltato)')
     check('lo scartato dice che non passa dal laser',
           'non passa dal laser' in testo)
     check('nessun errore sul tablet', not err2, err2[:1])
