@@ -1200,6 +1200,11 @@ async function lvQuantitaLantek(o, tok) {
       : `<span class="lv-lt-n" title="${esc(lt.errore || '')}">Lantek non raggiungibile: il file usa i dati di FerroTrack</span>`}
     <a class="ft-btn sm primary" href="${esc(url)}" download title="File da importare in Lantek con iErp: codici, quantità, materiale, spessore, consegna, commessa ${esc(d.commessa || '')}"><i data-lucide="file-spreadsheet"></i> Quantità per iErp</a>`;
   box.prepend(bar);
+  // Lo stesso pulsante in alto, accanto al cliente: con il PDF aperto
+  // l'elenco dei pezzi (e la barra) non si vede.
+  const act = document.querySelector('.lv-dh-act');
+  if (act && !act.querySelector('.lv-lt-btn')) act.insertAdjacentHTML('afterbegin',
+    `<a class="ft-btn lg lv-lt-btn" href="${esc(url)}" download title="File delle quantità da importare in Lantek con iErp (${d.n_codici} codici${d.n_nuovi ? ', ' + d.n_nuovi + ' nuovi da importare prima' : ''})"><i data-lucide="file-spreadsheet"></i> Quantità per iErp</a>`);
   if (lt.disponibile) {
     const per = new Map(d.righe.map(r => [String(r.codice_ft || r.codice).toLowerCase(), r]));
     box.querySelectorAll('.lv-pz').forEach(el => {
