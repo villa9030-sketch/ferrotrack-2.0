@@ -157,11 +157,6 @@
     background:var(--ft-ok-dot); box-shadow:0 0 0 3px rgba(16,185,129,.15)}
   .bacheca{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px}
 
-  /* Aggiungere una persona: un gesto, non una procedura. */
-  .btn-aggiungi{margin-top:16px; width:100%; min-height:var(--touch); padding:16px; font:600 17px var(--ft-font);
-    color:var(--ft-ink-3); background:transparent; border:1.5px dashed #CBD2DC; border-radius:var(--ft-r-xl); cursor:pointer;
-    transition:border-color .15s, color .15s, background .15s}
-  .btn-aggiungi:hover{border-color:var(--ft-accent); color:var(--ft-accent-ink); background:var(--ft-accent-bg)}
   .persona{
     position:relative; display:flex; flex-direction:column; align-items:stretch;
     justify-content:flex-start; width:100%; text-align:left; cursor:pointer; font:inherit; color:inherit;
@@ -223,15 +218,6 @@
     .totale span{font-size:28px}
     .btn-salva{padding:0 26px; font-size:19px}
   }
-/* finestra per scrivere un nome (al posto di prompt del browser) */
-.ore-chiedi-testo { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 16px; background: rgba(11, 18, 32, .45); }
-.ore-chiedi-testo .box { width: min(520px, 100%); background: #fff; border-radius: 18px; padding: 24px; box-shadow: 0 24px 60px rgba(0,0,0,.25); }
-.ore-chiedi-testo h3 { margin: 0 0 6px; font-size: 22px; }
-.ore-chiedi-testo p { margin: 0 0 14px; color: #667085; font-size: 15px; }
-.ore-chiedi-testo input { width: 100%; height: 60px; border: 2px solid #D0D5DD; border-radius: 14px; padding: 0 16px; font: 600 20px inherit; font-family: inherit; }
-.ore-chiedi-testo input:focus { outline: none; border-color: var(--ft-accent); }
-.ore-chiedi-testo .az { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-.ore-chiedi-testo .az button { min-height: 56px; padding: 0 22px; font-size: 17px; }
 </style>
 </head>
 <body class="ft ft-touch">
@@ -273,7 +259,7 @@
     </div>
     <p class="hint">Tocca il tuo nome per registrare o correggere le tue ore.</p>
     <div class="bacheca" id="griglia-operai"></div>
-    <button class="btn-aggiungi" onclick="chiediNome()">+ Aggiungi una persona</button>
+    <p class="hint">Manca qualcuno? Le persone le aggiunge l'ufficio.</p>
     <div class="msg err" id="msg-nome" hidden></div>
   </section>
 
@@ -458,7 +444,7 @@ function renderOperai() {
   }
   if (!OPERAI.length) {
     g.innerHTML = '<div class="vuoto">Nessuno sulla bacheca. '
-                + 'Aggiungi una persona qui sotto.</div>';
+                + "Le persone le aggiunge l'ufficio.</div>";
     return;
   }
   const conta = [];
@@ -520,25 +506,6 @@ function renderOperai() {
   else OPERAI.filter(o => !VISTI.has(o.id)).forEach(o => FT.evidenzia(scheda(o.id)));
   VISTI = new Set(OPERAI.map(o => o.id));
   if (APPENA_SALVATO) { FT.evidenzia(scheda(APPENA_SALVATO), 'ft-flash-ok'); APPENA_SALVATO = null; }
-}
-
-/** Aggiunge una persona alla bacheca: si scrive il nome, e basta.
-    Niente ruoli, niente identificativi, niente fasi: e' un nome su una lista.
-    Chi arriva oggi non si trova addosso le mancanze dei giorni in cui non
-    c'era — di quello si occupa il server. */
-async function chiediNome() {
-  const nome = await chiediTesto('Aggiungi una persona', 'Nome e cognome, come lo conoscono tutti in officina.');
-  if (!nome) return;
-  const r = await api('/api/ore/operai', {
-    method: 'POST',
-    body: JSON.stringify({ nome: nome }),
-  });
-  if (r.ok) {
-    await aggiornaBacheca();
-    return;
-  }
-  const d = r.data || {};
-  mostra('msg-nome', d.error || 'Non sono riuscito ad aggiungere il nome.');
 }
 
 async function scegliOperaio(id) {
@@ -883,28 +850,6 @@ function mostra(id, testo, tipo, conRiprova) {
 function nascondi(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
 const esc = s => FT.esc(s);
 let MIE_RIGHE = [];   // ore scritte sul tablet quando l'ufficio le ha cambiate nel frattempo
-
-/** Chiede un testo con una finestra grande da tablet (al posto di prompt()). */
-function chiediTesto(titolo, sotto) {
-  return new Promise(risolvi => {
-    const bg = document.createElement('div');
-    bg.className = 'ore-chiedi-testo';
-    bg.innerHTML = `<div class="box" role="dialog" aria-modal="true">
-      <h3>${esc(titolo)}</h3><p>${esc(sotto || '')}</p>
-      <input type="text" autocomplete="off" autocapitalize="words" maxlength="60">
-      <div class="az"><button class="btn-sec" data-v="0">Annulla</button><button class="btn-salva" data-v="1">Aggiungi</button></div></div>`;
-    document.body.appendChild(bg);
-    const inp = bg.querySelector('input');
-    setTimeout(() => inp.focus(), 50);
-    const chiudi = v => { bg.remove(); risolvi(v); };
-    bg.addEventListener('click', e => {
-      if (e.target === bg) return chiudi('');
-      const b = e.target.closest('button[data-v]');
-      if (b) chiudi(b.dataset.v === '1' ? inp.value.trim() : '');
-    });
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter') chiudi(inp.value.trim()); if (e.key === 'Escape') chiudi(''); });
-  });
-}
 
 window.addEventListener('beforeunload', e => {
   if (sporco) { e.preventDefault(); e.returnValue = ''; }

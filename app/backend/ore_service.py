@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover - fallback estremo
 from .database import get_session
 from .orario import iso_utc
 from .models import RUOLI_OPERAI, RUOLO_OPERAIO, User
-from .models_ore import Cliente, GiornataOre, RigaOre
+from .models_ore import Cliente, GiornataOre, RigaOre, VersioneGiornataOre
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +279,44 @@ def elenco_clienti() -> list:
 # ---------------------------------------------------------------------------
 # Lettura giornata
 # ---------------------------------------------------------------------------
+def _fotografa(session, g: GiornataOre, righe: list, quando=None):
+    """Aggiunge allo storico la versione attuale di una giornata."""
+    righe = [{'cliente': r.get('cliente'), 'attivita_interna': bool(r.get('attivita_interna')),
+              'minuti': int(r.get('minuti') or 0)} for r in righe]
+    session.add(VersioneGiornataOre(
+        id=str(uuid.uuid4()), giornata_id=g.id, operatore_id=g.operatore_id,
+        data=g.data, revisione=int(g.revisione or 1),
+        salvata_il=quando or datetime.utcnow(), origine=g.origine,
+        salvata_da=g.modificata_da or g.device_label,
+        righe=righe, totale_minuti=sum(r['minuti'] for r in righe),
+        scostamento_confermato=bool(g.scostamento_confermato)))
+
+
+def storico_giornata(operatore_id: str, data) -> list:
+    """Tutte le versioni salvate di una giornata, dalla piu' recente."""
+    d = parse_data(data)
+    if not d:
+        return []
+    session = get_session()
+    try:
+        vv = (session.query(VersioneGiornataOre)
+              .filter(VersioneGiornataOre.operatore_id == operatore_id,
+                      VersioneGiornataOre.data == d)
+              .order_by(VersioneGiornataOre.revisione.desc(),
+                        VersioneGiornataOre.salvata_il.desc()).all())
+        out = []
+        for v in vv:
+            righe = sorted(v.righe or [], key=lambda r: (bool(r.get('attivita_interna')),
+                                                         (r.get('cliente') or '').lower()))
+            out.append({'revisione': v.revisione, 'salvata_il': iso_utc(v.salvata_il),
+                        'origine': v.origine, 'salvata_da': v.salvata_da,
+                        'righe': righe, 'totale_minuti': int(v.totale_minuti or 0),
+                        'scostamento_confermato': bool(v.scostamento_confermato)})
+        return out
+    finally:
+        session.close()
+
+
 def _serializza(g: GiornataOre) -> dict:
     righe = [{
         'cliente': r.cliente,
@@ -524,6 +562,16 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
                         'codice': 'conflitto', 'giornata': stato}
 
         ora = datetime.utcnow()
+        # Storico: una giornata salvata prima che lo storico esistesse non ha
+        # versioni; la si fotografa com'era, prima di sostituirne le righe.
+        if g is not None and not session.query(VersioneGiornataOre.id).filter(
+                VersioneGiornataOre.giornata_id == g.id).first():
+            _fotografa(session, g, [{'cliente': r.cliente,
+                                     'attivita_interna': bool(r.attivita_interna),
+                                     'minuti': int(r.minuti or 0)}
+                                    for r in session.query(RigaOre).filter(
+                                        RigaOre.giornata_id == g.id).all()],
+                       quando=g.aggiornata_il or g.dichiarata_il)
         if g is None:
             g = GiornataOre(
                 id=str(uuid.uuid4()), operatore_id=operatore_id, data=d,
@@ -557,6 +605,7 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
                 cliente=r['cliente'], attivita_interna=r['attivita_interna'],
                 minuti=r['minuti'],
             ))
+        _fotografa(session, g, pulite, quando=ora)
 
         session.commit()
         session.refresh(g)

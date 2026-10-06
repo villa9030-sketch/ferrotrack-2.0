@@ -86,13 +86,12 @@ def api_clienti():
 
 
 @bp_ore.route('/operai', methods=['POST'])
-@require_scope('ore', 'ufficio')
+@require_scope('ufficio')
 def api_aggiungi_operaio():
     """Aggiunge un nome alla bacheca. Serve solo il nome.
 
-    Si fa dal tablet perche' e' li' che serve: un operaio nuovo arriva in
-    officina, non in ufficio, e se per segnare le sue ore bisogna prima che
-    qualcuno vada al computer, il primo giorno non le segna.
+    Solo dall'ufficio (decisione di Stefano, 10/2026): dal tablet chiunque
+    poteva aggiungere un nome, e ogni nome nuovo genera mancanze da controllare.
     """
     dati = request.get_json(silent=True) or {}
     dev = device_corrente()
@@ -239,6 +238,17 @@ def api_salva_giornata():
     if codice == 'errore_server':
         return jsonify({'success': False, **res}), 500
     return jsonify({'success': False, **res}), 400
+
+
+@bp_ore.route('/giornata/storico', methods=['GET'])
+@require_scope('ufficio')
+def api_storico_giornata():
+    """Le versioni salvate di una giornata: chi ha scritto cosa, e quando."""
+    op = (request.args.get('operatore_id') or '').strip()
+    giorno = (request.args.get('data') or '').strip()
+    if not op or not svc.parse_data(giorno):
+        return jsonify({'success': False, 'error': 'operatore_id e data obbligatori'}), 400
+    return jsonify({'success': True, 'versioni': svc.storico_giornata(op, giorno)}), 200
 
 
 # ===========================================================================

@@ -162,6 +162,30 @@ class RigaOre(Base):
     giornata = relationship('GiornataOre', back_populates='righe')
 
 
+class VersioneGiornataOre(Base):
+    """Storico: com'era la giornata a ogni salvataggio (mai modificata o cancellata).
+
+    Le righe della giornata si sostituiscono a ogni salvataggio; qui resta una
+    fotografia per ogni revisione, con chi l'ha salvata e da dove, cosi' si vede
+    cosa aveva scritto l'operaio e cosa ha corretto l'ufficio.
+    """
+    __tablename__ = 'versioni_giornata_ore'
+    __table_args__ = (
+        Index('ix_versioni_giornata', 'operatore_id', 'data'),
+    )
+    id = Column(String, primary_key=True)
+    giornata_id = Column(String, nullable=False, index=True)
+    operatore_id = Column(String, nullable=False)
+    data = Column(Date, nullable=False)
+    revisione = Column(Integer, nullable=False)
+    salvata_il = Column(DateTime, nullable=False)
+    origine = Column(String, nullable=True)          # 'tablet' | 'ufficio'
+    salvata_da = Column(String, nullable=True)       # postazione (e persona, in ufficio)
+    righe = Column(JSON, nullable=False)             # [{cliente, attivita_interna, minuti}]
+    totale_minuti = Column(Integer, nullable=False, default=0)
+    scostamento_confermato = Column(Boolean, default=False)
+
+
 # ---------------------------------------------------------------------------
 # Configurazione ore attese + eccezioni (assenze / giornate ridotte)
 # ---------------------------------------------------------------------------

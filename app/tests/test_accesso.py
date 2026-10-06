@@ -150,6 +150,9 @@ TABELLA = [
     ('GET', '/api/laser/banco', None, {'laser', 'ufficio'}),
     ('GET', '/api/ore/operai', None, {'ore', 'ufficio'}),
     ('GET', '/api/ore/riepilogo', None, {'ufficio'}),
+    # le persone le aggiunge solo l'ufficio (non il tablet)
+    ('POST', '/api/ore/operai', {'nome': ''}, {'ufficio'}),
+    ('GET', '/api/ore/giornata/storico', None, {'ufficio'}),
     ('GET', '/api/notifications', None, {'commerciale', 'ufficio', 'laser'}),
     ('PUT', '/api/admin/config', {}, set()),
     ('GET', '/api/admin/persone', None, set()),

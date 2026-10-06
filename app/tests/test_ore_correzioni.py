@@ -9,6 +9,7 @@
  4. Le anomalie aperte si chiudono quando la giornata non e' piu' dovuta
     (persona messa "non tenuta").
  5. Una notifica non arrivata non si perde: si riprova al passo dopo.
+ 6. Storico: ogni salvataggio resta, con chi l'ha fatto.
 
 Gira su DATABASE TEMPORANEO. Esecuzione: python app/tests/test_ore_correzioni.py
 """
@@ -160,6 +161,31 @@ def main():
     check('le anomalie restano da notificare', ancora > 0, ancora)
     n2 = an.notifica_anomalie()
     check('al passo dopo arrivano', n2 > 0, n2)
+
+    print('\n6) Storico delle modifiche')
+    G3 = date(ANNO, MESE, 21)
+    t = svc.salva_giornata('op2', G3.isoformat(), [{'cliente': 'Cliente Y', 'minuti': 480}],
+                           origine='ufficio', device_label='Tablet', modificata_da='Tablet officina')
+    u = svc.salva_giornata('op2', G3.isoformat(), [{'cliente': 'Cliente Y', 'minuti': 360},
+                                                   {'attivita_interna': True, 'minuti': 120}],
+                           origine='ufficio', modificata_da='PC Ufficio (Elena)',
+                           revisione_attesa=t['giornata']['revisione'])
+    st = svc.storico_giornata('op2', G3.isoformat())
+    check('due versioni, dalla piu\' recente', [v['revisione'] for v in st] == [2, 1], st)
+    check('la vecchia ha le 8 h scritte prima', st[-1]['totale_minuti'] == 480
+          and st[-1]['righe'][0]['minuti'] == 480, st[-1:])
+    check('si sa chi ha corretto', st[0]['salvata_da'] == 'PC Ufficio (Elena)', st[:1])
+    # giornata salvata "prima dello storico": si tolgono a mano le versioni
+    s = sessione()
+    s.query(models_ore.VersioneGiornataOre).filter(
+        models_ore.VersioneGiornataOre.data == G3).delete()
+    s.commit(); s.close()
+    svc.salva_giornata('op2', G3.isoformat(), [{'cliente': 'Cliente Y', 'minuti': 300}],
+                       origine='ufficio', modificata_da='PC Ufficio (Elena)',
+                       revisione_attesa=u['giornata']['revisione'])
+    st = svc.storico_giornata('op2', G3.isoformat())
+    check('giornata vecchia: fotografata com\'era prima della modifica',
+          [v['totale_minuti'] for v in st] == [300, 480], st)
 
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     return 0 if not KO else 1

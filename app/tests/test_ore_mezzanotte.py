@@ -26,7 +26,7 @@ try:
 except ImportError:
     print('Playwright non installato: test saltato.')
     sys.exit(0)
-from tests.accesso_server import contesto_stazione  # noqa: E402
+from tests.accesso_server import Sessione, contesto_stazione  # noqa: E402
 
 B = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
 esiti = []
@@ -64,20 +64,20 @@ with sync_playwright() as p:
     domani = (date.fromisoformat(oggi) + timedelta(days=1)).isoformat()
     check('la pagina si apre', not errori, errori[:1])
 
-    # "Aggiungi persona": finestra dell'app, non prompt del browser
-    pg.evaluate('chiediNome(), 0')
-    pg.wait_for_timeout(300)
-    check('aggiungi persona: finestra dell\'app', pg.locator('.ore-chiedi-testo input').count() == 1 and not finestre, finestre)
-    pg.locator('.ore-chiedi-testo button[data-v="0"]').click()
+    # Le persone le aggiunge solo l'ufficio: sul tablet niente pulsante, e il
+    # server rifiuta la richiesta anche se fatta a mano
+    check('sul tablet non c\'e\' "Aggiungi persona"', pg.locator('text=Aggiungi una persona').count() == 0)
+    r = ctx.request.post(B + '/api/ore/operai', data={'nome': 'Intruso Tablet'})
+    check('il server rifiuta l\'aggiunta dal tablet', r.status in (401, 403), r.status)
 
     persone = pg.locator('#griglia-operai .persona')
     if not persone.count():
-        # copia del database senza operai: se ne aggiunge uno dalla finestra
+        # copia del database senza operai: lo aggiunge l'ufficio
         # (scrive solo nella copia del server di prova)
-        pg.evaluate('chiediNome(), 0')
-        pg.fill('.ore-chiedi-testo input', 'Prova Mezzanotte')
-        pg.locator('.ore-chiedi-testo button[data-v="1"]').click()
-        pg.wait_for_selector('#griglia-operai .persona', timeout=8000)
+        c, d = Sessione(B, 'ufficio').post('/api/ore/operai', {'nome': 'Prova Mezzanotte'})
+        check('l\'ufficio aggiunge la persona', c in (201, 409), (c, d))
+        pg.reload()
+        pg.wait_for_selector('#griglia-operai .persona', timeout=15000)
     check('c\'e\' almeno una persona sulla bacheca', persone.count() > 0)
     if persone.count():
         persone.first.click()

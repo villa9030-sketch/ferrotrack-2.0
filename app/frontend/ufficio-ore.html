@@ -28,6 +28,17 @@
 .uo-view:not([hidden]) { animation: ftIn .22s var(--ft-ease); }
 .uo-in { animation: ftSale .32s var(--ft-ease) both; }
 /* scrollIntoView non deve infilare la scheda sotto la testata fissa. */
+/* Storico della giornata: una riga per ogni salvataggio */
+.uo-storico { margin-top: 18px; border-top: 1px solid var(--ft-line); padding-top: 14px; }
+.uo-storico ol { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.uo-storico li { display: grid; grid-template-columns: 150px 280px 60px 1fr; gap: 12px; align-items: baseline;
+  padding: 8px 12px; border-radius: 10px; background: var(--ft-bg-2, #F6F7F9); font-size: 13px; }
+.uo-storico li.attuale { background: var(--ft-accent-bg, #E9F5EE); }
+.uo-storico .chi b { font-weight: 700; }
+.uo-storico .tot { font-weight: 700; text-align: right; }
+.uo-storico .cosa { color: var(--ft-ink-2, #475467); }
+.uo-storico .cosa .cambio { color: var(--ft-ink, #101828); font-weight: 600; }
+@media (max-width: 900px) { .uo-storico li { grid-template-columns: 1fr 1fr; } }
 #card-correzione, #card-dettaglio { scroll-margin-top: calc(var(--ft-topbar-h) + 16px); }
 .uo-view > .ft-card + .ft-card { margin-top: 16px; }
 .uo-view > .ft-kpis { margin-bottom: 16px; }
@@ -217,6 +228,7 @@
             <input class="ft-input" type="number" id="corr-ecc-ore" step="0.5" min="0" value="4" style="width:110px"></label>
           <button class="ft-btn" onclick="corrEccezione()">Registra eccezione</button>
         </div>
+        <div id="corr-storico"></div>
       </div>
     </div>
   </section>
@@ -515,8 +527,42 @@ async function apriCorrezione(op,data,nome){
     `${nome} — ${data.split('-').reverse().join('/')}${g.dichiarata?'':' (mai dichiarata)'}`;
   const card=document.getElementById('card-correzione');
   mostra(card);
-  nascondi('msg-corr'); renderCorr();
+  nascondi('msg-corr'); renderCorr(); caricaStorico();
   card.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+/** Storico: com'era la giornata a ogni salvataggio, chi l'ha salvata e cosa e' cambiato. */
+async function caricaStorico(){
+  const box=document.getElementById('corr-storico');
+  if(!CORR){ box.innerHTML=''; return; }
+  const r=await api(`/api/ore/giornata/storico?operatore_id=${encodeURIComponent(CORR.op)}&data=${encodeURIComponent(CORR.data)}`);
+  if(!r.ok){ box.innerHTML=''; return; }
+  const vv=r.data.versioni||[];
+  if(!vv.length){ box.innerHTML='<div class="uo-storico"><div class="ft-section-title">Storico</div><div class="vuoto">Nessun salvataggio per questa giornata.</div></div>'; return; }
+  const nome=x=>x.attivita_interna?'Attività interne':(x.cliente||'?');
+  const mappa=v=>{const m={}; (v.righe||[]).forEach(x=>{m[nome(x)]=(m[nome(x)]||0)+x.minuti;}); return m;};
+  const righe=vv.map((v,i)=>{
+    const prima=vv[i+1];
+    let cosa;
+    if(!prima) cosa=(v.righe||[]).map(x=>`${esc(nome(x))} ${h(x.minuti)} h`).join(' · ')||'nessuna ora';
+    else {
+      const a=mappa(prima), b=mappa(v), cambi=[];
+      new Set([...Object.keys(a),...Object.keys(b)]).forEach(k=>{
+        if((a[k]||0)===(b[k]||0)) return;
+        if(!a[k]) cambi.push(`<span class="cambio">+ ${esc(k)} ${h(b[k])} h</span>`);
+        else if(!b[k]) cambi.push(`<span class="cambio">tolto ${esc(k)} (${h(a[k])} h)</span>`);
+        else cambi.push(`<span class="cambio">${esc(k)} ${h(a[k])} → ${h(b[k])} h</span>`);
+      });
+      cosa=cambi.join(' · ')||'nessuna differenza';
+    }
+    const dove=v.origine==='ufficio'?'Ufficio':'Tablet';
+    return `<li class="${i===0?'attuale':''}">
+      <span>${esc(FT.fmtDataOra(v.salvata_il))}${i===0?' · <b>attuale</b>':''}</span>
+      <span class="chi"><b>${dove}</b>${v.salvata_da?' — '+esc(v.salvata_da):''}</span>
+      <span class="tot">${h(v.totale_minuti)} h</span>
+      <span class="cosa">${cosa}</span></li>`;
+  }).join('');
+  box.innerHTML=`<div class="uo-storico"><div class="ft-section-title">Storico — ${vv.length} salvataggi${vv.length>1?', dal più recente':''}</div><ol>${righe}</ol></div>`;
 }
 
 function renderCorr(){
@@ -548,7 +594,7 @@ async function corrSalva(){
   btn.disabled=false;
   if(r.ok&&r.data.success){ msg('msg-corr','Correzione salvata.','ok');
     FT.evidenzia(document.getElementById('card-correzione'),'ft-flash-ok');
-    CORR.revisione=r.data.giornata.revisione; caricaAnomalie(); }
+    CORR.revisione=r.data.giornata.revisione; caricaAnomalie(); caricaStorico(); }
   else if(r.status===409){
     // Qualcuno (il tablet o un collega) l'ha salvata nel frattempo: si mostrano
     // i dati nuovi, ma la correzione appena fatta resta recuperabile.
