@@ -218,6 +218,11 @@
     .totale span{font-size:28px}
     .btn-salva{padding:0 26px; font-size:19px}
   }
+  /* uscita dalla timbratrice: discreta, in fondo alla bacheca */
+  .piede-disp{margin-top:28px; text-align:center}
+  .btn-disp{background:none; border:0; color:var(--ft-ink-4, #98A2B3); font:500 14px var(--ft-font);
+    padding:12px 18px; border-radius:10px; cursor:pointer; text-decoration:underline; text-underline-offset:3px}
+  .btn-disp:hover{color:var(--ft-ink-2, #3A4556); background:rgba(0,0,0,.04)}
 </style>
 </head>
 <body class="ft ft-touch">
@@ -261,6 +266,12 @@
     <div class="bacheca" id="griglia-operai"></div>
     <p class="hint">Manca qualcuno? Le persone le aggiunge l'ufficio.</p>
     <div class="msg err" id="msg-nome" hidden></div>
+    <!-- Uscire dalla timbratrice (usare questo dispositivo per altro): serve il
+         PIN dell'amministratore, quindi dal tablet in officina non si cambia
+         niente per sbaglio. Prima mancava: una volta registrato non si usciva. -->
+    <div class="piede-disp">
+      <button type="button" class="btn-disp" onclick="FTA.cambiaDispositivo()">Impostazioni del tablet</button>
+    </div>
   </section>
 
   <!-- ============ 2. GIORNATA ============ -->

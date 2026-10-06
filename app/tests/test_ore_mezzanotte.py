@@ -70,6 +70,22 @@ with sync_playwright() as p:
     r = ctx.request.post(B + '/api/ore/operai', data={'nome': 'Intruso Tablet'})
     check('il server rifiuta l\'aggiunta dal tablet', r.status in (401, 403), r.status)
 
+    # Uscire dalla timbratrice: pulsante discreto, porta al cambio del
+    # dispositivo che chiede il PIN dell'amministratore (prima non c'era)
+    bd = pg.locator('button.btn-disp', has_text='Impostazioni del tablet')
+    check('c\'e\' "Impostazioni del tablet"', bd.count() == 1)
+    if bd.count():
+        bd.click()
+        pg.wait_for_url('**/?cambia=1*', timeout=8000)
+        pg.wait_for_selector('#setup-t', timeout=8000)
+        pg.wait_for_timeout(800)
+        check('porta a "Cambia cosa e\' questo dispositivo"', 'Cambia cosa' in pg.inner_text('#setup-t'), pg.inner_text('#setup-t'))
+        check('e serve il PIN dell\'amministratore', 'PIN' in pg.inner_text('#setup-sotto'))
+        pg.locator('#annulla-cambia').click()
+        pg.wait_for_url('**/ore.html*', timeout=8000)
+        pg.wait_for_selector('#vista-nome:not([hidden])', timeout=15000)
+        check('Annulla riporta alla timbratrice', '/ore.html' in pg.url, pg.url)
+
     persone = pg.locator('#griglia-operai .persona')
     if not persone.count():
         # copia del database senza operai: lo aggiunge l'ufficio
