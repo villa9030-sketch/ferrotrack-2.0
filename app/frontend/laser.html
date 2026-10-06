@@ -20,7 +20,7 @@
    Come la lista lavori dei software di produzione: una riga densa per
    ordine (consegna, lamiere, ore di laser, giorno di taglio, azione) e a
    destra l'ordine con disegno o PDF grande e i pezzi per lamiera. */
-.lv { display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 41vw, 800px); height: calc(100vh - var(--ft-topbar-h)); }
+.lv { display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 41vw, 800px); height: calc(100vh - var(--ft-topbar-h) - var(--ft-fascia-h, 0px)); }
 .lv-list { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .lv-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 18px 8px; }
 .lv-fasi { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 14px 18px 2px; }
@@ -309,7 +309,11 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 /* I pezzi da tagliare di tutti gli ordini, raggruppati per lamiera
    (materiale + spessore) e disposti per ingombro sui fogli. La pagina deve
    rispondere a una domanda sola: quanta lamiera preparo? Prefisso "lb-". */
-.lb-wrap { display: grid; grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - var(--ft-topbar-h)); }
+.lb-wrap { display: grid; grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - var(--ft-topbar-h) - var(--ft-fascia-h, 0px)); }
+/* Cambio scheda: solo dissolvenza, breve. Lo scivolamento verticale comune
+   (ftIn) su pagine alte quanto lo schermo faceva muovere tutto. */
+body.ft #panel-lavoro.active, body.ft #panel-lamiere.active, body.ft #panel-calendario.active { animation: lzScheda .16s ease-out; }
+@keyframes lzScheda { from { opacity: 0; } to { opacity: 1; } }
 
 /* Striscia di riepilogo: una riga, non quattro riquadri */
 .lb-bar {
@@ -487,8 +491,8 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
   #panel-calendario .ft-kpis { margin-bottom: 12px; }
   #panel-calendario .ft-kpi { padding: 10px 14px; }
   #panel-calendario .ft-kpi-val { font-size: 24px; }
-  .lz-cal-grid:not(.week) .lz-day { min-height: calc((100vh - 430px) / 6); }
-  .lz-cal-grid.week .lz-day { min-height: calc(100vh - 560px); }
+  .lz-cal-grid:not(.week) .lz-day { min-height: calc((100vh - 430px - var(--ft-fascia-h, 0px)) / 6); }
+  .lz-cal-grid.week .lz-day { min-height: calc(100vh - 560px - var(--ft-fascia-h, 0px)); }
   .lz-ev { font-size: 12px; padding: 3px 7px; }
   .lz-sat { font-size: 11.5px; }
   .lz-sat-bar { height: 8px; }

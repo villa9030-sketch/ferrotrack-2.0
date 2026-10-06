@@ -127,6 +127,10 @@
     f.innerHTML = 'Questo dispositivo non è registrato: chiedi all’amministrazione. <small>(Funziona ancora per il periodo di passaggio.)</small>';
     document.body.appendChild(f);
     document.body.style.paddingBottom = (f.offsetHeight + 4) + 'px';
+    // le pagine alte quanto lo schermo (laser) la sottraggono: senza, la fascia
+    // aggiungeva 40 px, compariva la barra di scorrimento e cambiando scheda
+    // il contenuto saltava
+    document.documentElement.style.setProperty('--ft-fascia-h', (f.offsetHeight + 4) + 'px');
   }
 
   // ── tastierino del PIN (amministratore) ───────────────────────────

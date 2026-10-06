@@ -198,6 +198,35 @@
 
   function icone() { try { if (window.lucide) window.lucide.createIcons(); } catch (_) {} }
 
+  // Segno sotto la scheda attiva che scorre alla nuova scheda (invece di
+  // spegnersi su una e accendersi sull'altra). Segue la classe "active",
+  // quindi funziona con ogni pagina senza toccarne il codice.
+  function segnoSchede() {
+    document.querySelectorAll('.ft-tabs').forEach(nav => {
+      if (nav._ftSegno) return;
+      const segno = document.createElement('span');
+      segno.className = 'ft-tab-segno';
+      nav.appendChild(segno);
+      nav._ftSegno = segno;
+      nav.classList.add('ft-segno');
+      let primo = true;
+      const sposta = () => {
+        const a = nav.querySelector('.ft-tab.active');
+        if (!a) { segno.style.width = '0'; return; }
+        if (primo) segno.style.transition = 'none';
+        segno.style.width = a.offsetWidth + 'px';
+        segno.style.transform = `translateX(${a.offsetLeft}px)`;
+        if (primo) { segno.getBoundingClientRect(); segno.style.transition = ''; primo = false; }
+      };
+      new MutationObserver(sposta).observe(nav, { subtree: true, attributes: true, attributeFilter: ['class'] });
+      window.addEventListener('resize', sposta);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(sposta);
+      sposta();
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', segnoSchede);
+  else segnoSchede();
+
   // ── Effetti comuni (vedi "Effetti comuni" in ft-ui.css) ─────────────
   const MUOVI = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 

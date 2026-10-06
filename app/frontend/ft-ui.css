@@ -88,6 +88,12 @@ body.ft [data-lucide] { width: 16px; height: 16px; stroke-width: 2; }
 }
 .ft-tab:hover { color: var(--ft-ink); }
 .ft-tab.active { color: var(--ft-ink); border-bottom-color: var(--ft-ink); }
+/* Segno della scheda attiva che scorre da una voce all'altra (ft-ui.js):
+   quando c'e', il bordo della singola scheda si spegne. */
+.ft-tabs { position: relative; }
+.ft-tabs.ft-segno .ft-tab.active { border-bottom-color: transparent; }
+.ft-tab-segno { position: absolute; bottom: 0; left: 0; height: 2px; width: 0; background: var(--ft-ink); border-radius: 2px;
+  transition: transform .28s var(--ft-ease), width .28s var(--ft-ease); pointer-events: none; }
 .ft-tab .ft-count {
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--ft-line-2); color: var(--ft-ink-2); font: 700 11px/18px var(--ft-font); text-align: center;
