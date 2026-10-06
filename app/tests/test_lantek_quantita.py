@@ -191,10 +191,41 @@ def main():
 
     print('\n6) Nella cartella dell\'ordine')
     os.makedirs(os.path.join(A.DRAWINGS_FOLDER, oid), exist_ok=True)
-    open(os.path.join(A.DRAWINGS_FOLDER, oid, 'A1-00.dxf'), 'w').write('0\nEOF\n')
+    import ezdxf as _ez
+    _d = _ez.new()
+    _d.modelspace().add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
+    _d.saveas(os.path.join(A.DRAWINGS_FOLDER, oid, 'A1-00.dxf'))
     e = A._esporta_disegni_per_officina(oid)
     check('file delle quantita nella cartella', e.get('quantita_lantek') and os.path.exists(
         os.path.join(e['percorso'], e['quantita_lantek'])), e)
+
+    print('\n7) Scritte dentro i DXF per l\'importatore di Lantek')
+    t = L.testi_dati({'quantita': 4, 'materiale': 'FERRO', 'spessore': 1.5}, '1252', ',', 'DECA S.r.l.', '2030-11-06')
+    check('formato provato in Lantek: etichetta, spazio, una parola',
+          t == ['QTA 4', 'MAT FERRO', 'SP 1,5', 'ORD 1252', 'CLI DECA_S.r.l.', 'CONS 06/11/2030'], t)
+    import ezdxf
+    from shapely.geometry import Point, Polygon
+    pdxf = os.path.join(_CARTELLE, 'pezzo.dxf')
+    doc = ezdxf.new(); doc.header['$INSUNITS'] = 4
+    # pezzo a L: il centro dell'ingombro cade FUORI dal pezzo
+    forma = [(0, 0), (300, 0), (300, 40), (40, 40), (40, 300), (0, 300)]
+    doc.modelspace().add_lwpolyline(forma, close=True)
+    doc.saveas(pdxf)
+    prima = open(pdxf, 'rb').read()
+    out = L.dxf_con_dati(pdxf, t)
+    import io as _io
+    d2 = ezdxf.read(_io.StringIO(out.decode('utf-8', 'replace')))
+    testi = [e for e in d2.modelspace().query('TEXT')]
+    check('le scritte ci sono', [e.dxf.text for e in testi] == t, [e.dxf.text for e in testi])
+    check('la prima scritta e\' dentro il pezzo (anche a L)',
+          Polygon(forma).contains(Point(testi[0].dxf.insert[0], testi[0].dxf.insert[1])), testi[0].dxf.insert)
+    check('il file d\'origine non si tocca', open(pdxf, 'rb').read() == prima)
+    dati = {'25ab1979': ('25AB1979-00', ['QTA 2'])}
+    check('nome del file col codice di Lantek', A._voce_per_lantek('X/S235 - 3 mm/25AB1979.dxf', dati)
+          == ('X/S235 - 3 mm/25AB1979-00.dxf', ['QTA 2']))
+    check('originali e da preparare non si toccano',
+          A._voce_per_lantek('X/_DISEGNI ORIGINALI/25AB1979.dxf', dati) is None
+          and A._voce_per_lantek('X/_DA PREPARARE/S235 - 3 mm/25AB1979.dxf', dati) is None)
 
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     return 0 if not KO else 1

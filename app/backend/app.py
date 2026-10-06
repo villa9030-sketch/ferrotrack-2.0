@@ -1283,16 +1283,28 @@ def api_ordine_disegni_zip(order_id):
             logger.warning('distinta per lo zip non letta', exc_info=True)
             righe = []
         voci = _struttura_zip(radice, os.path.join(DRAWINGS_FOLDER, order_id), disegni, righe)
+        try:
+            q = _quantita_lantek(order, righe)
+            dati_lt = _dati_lantek_per_disegno(order, righe, q)
+        except Exception:
+            logger.warning('dati Lantek per i disegni non letti', exc_info=True)
+            q, dati_lt = None, {}
+        from . import lantek as _lt
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             for percorso, arcname in voci:
+                v = _voce_per_lantek(arcname, dati_lt)
+                if v:
+                    try:
+                        zf.writestr(v[0], _lt.dxf_con_dati(percorso, v[1]))
+                        continue
+                    except Exception:
+                        logger.warning('scritte Lantek non aggiunte a %s', arcname, exc_info=True)
                 zf.write(percorso, arcname=arcname)
             # le quantita' da importare in Lantek con iErp, accanto ai disegni
             try:
-                q = _quantita_lantek(order, righe)
-                if q['righe']:
+                if q and q['righe']:
                     xb = io.BytesIO()
-                    from . import lantek as _lt
                     _lt.scrivi_excel(xb, q['righe'], q['consegna'], q['commessa'])
                     zf.writestr(f"{radice}/{q['nome_file']}", xb.getvalue())
             except Exception:
@@ -6994,11 +7006,26 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordin
             righe = _distinta_ordine(order)[0] if order else []
         except Exception:
             righe = []
+        try:
+            dati_lt = _dati_lantek_per_disegno(order, righe) if order else {}
+        except Exception:
+            logger.warning('dati Lantek per i disegni non letti', exc_info=True)
+            dati_lt = {}
+        from . import lantek as _lt
         n = 0
         for percorso, arc in _struttura_zip('X', sorgente, disegni, righe):
-            rel = arc.split('/', 1)[1]
+            v = _voce_per_lantek(arc, dati_lt)
+            rel = (v[0] if v else arc).split('/', 1)[1]
             dst = os.path.join(destinazione, *rel.split('/'))
             os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if v:
+                try:
+                    with open(dst, 'wb') as fh:
+                        fh.write(_lt.dxf_con_dati(percorso, v[1]))
+                    n += 1
+                    continue
+                except Exception:
+                    logger.warning('scritte Lantek non aggiunte a %s', arc, exc_info=True)
             shutil.copy2(percorso, dst)
             n += 1
         try:
@@ -7019,6 +7046,54 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordin
         esito['error'] = str(e)
         logger.exception('export disegni in cartella di rete fallito')
     return esito
+
+
+def _dati_lantek_per_disegno(order, righe, q=None) -> dict:
+    """{nome base del disegno (minuscolo): (codice Lantek, [scritte])} per i
+    DXF pronti per Lantek: dentro il pezzo FerroTrack scrive "QTA 4",
+    "MAT FERRO", "SP 3", "ORD 1252" e l'importatore DXF di Lantek compila da
+    solo la griglia (configurazione provata con Stefano il 06/10/2026)."""
+    from . import lantek as _lt
+    if q is None:
+        q = _quantita_lantek(order, righe)
+    cfg = ((ConfigManager.load_config() or {}).get('lantek_db') or {})
+    if isinstance(cfg, dict) and cfg.get('scritte_nei_dxf') is False:
+        return {}
+    decimale = (cfg.get('decimale') if isinstance(cfg, dict) else None) or ','
+    per_cod = {r['codice_ft'].lower(): r for r in q['righe']}
+    out = {}
+    for r in righe or []:
+        if r.get('tipo') != 'lamiera' or not r.get('codice'):
+            continue
+        x = per_cod.get(str(r['codice']).strip().lower())
+        if not x:
+            continue
+        val = (x['codice'], _lt.testi_dati(x, q['commessa'], decimale,
+                                           getattr(order, 'cliente', '') or '', q['consegna']))
+        out[str(r['codice']).strip().lower()] = val
+        if r.get('disegno'):
+            out[_nome_base_disegno(r['disegno']).rsplit('.', 1)[0].lower()] = val
+    return out
+
+
+def _voce_per_lantek(arc: str, dati: dict):
+    """(nuovo nome nello zip/cartella, scritte) se `arc` e' un DXF pronto per
+    Lantek di cui si conoscono i dati; altrimenti None. Gli originali e quelli
+    da preparare non si toccano."""
+    parti = arc.split('/')
+    if len(parti) < 2 or not parti[-1].lower().endswith('.dxf'):
+        return None
+    if any(p in (CARTELLA_ORIGINALI, CARTELLA_DA_PREPARARE) for p in parti[:-1]):
+        return None
+    base = parti[-1].rsplit('.', 1)[0]
+    x = dati.get(base.lower())
+    if not x:
+        return None
+    codice, testi = x
+    # il file col codice di Lantek (25NDSPA1979 -> 25NDSPA1979-00): cosi'
+    # Lantek riconosce il pezzo che ha gia' invece di crearne un altro
+    parti[-1] = codice + '.dxf'
+    return '/'.join(parti), testi
 
 
 def _quantita_lantek(order, righe=None) -> dict:

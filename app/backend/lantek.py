@@ -230,6 +230,89 @@ def commessa_lantek(numero: str) -> str:
     return m.group(1) if m else n
 
 
+# ---------------------------------------------------------------------------
+# Dati del pezzo scritti DENTRO il DXF, letti dall'importatore DXF di Lantek
+# ---------------------------------------------------------------------------
+# Provato con Stefano il 06/10/2026: in Lantek Expert, importatore DXF,
+# Configura -> Altri -> Testi: Quantita' "QTA", Materiale "MAT", Spessore "SP",
+# Ordine "ORD" e spuntato "Importare le proprieta' dei testi". Una scritta
+# "QTA 8" (etichetta, spazio, valore) dentro il contorno del pezzo compila la
+# griglia di importazione. "QTA=8", "QTA:8", "QTA8" o etichetta e valore in
+# due scritte separate NON funzionano.
+LAYER_DATI = '0'
+
+
+def _num_lantek(v, decimale: str = ',') -> str:
+    s = f'{float(v):g}'
+    return s.replace('.', decimale)
+
+
+def _una_parola(v) -> str:
+    """Lantek legge UNA parola dopo l'etichetta: gli spazi diventano "_"."""
+    return '_'.join(str(v).split())
+
+
+def testi_dati(riga: dict, commessa: str = '', decimale: str = ',',
+               cliente: str = '', consegna=None) -> list:
+    """Le scritte per un pezzo, nell'ordine dei campi di Altri -> Testi:
+    ["QTA 4", "MAT FERRO", "SP 1,5", "ORD 1252", "CLI DECA_S.r.l.", "CONS 09/10/2026"].
+    CLI e CONS vanno in User data 1 e 2 (Lantek non ha un testo per Cliente
+    e Data consegna); ordine e cliente veri Stefano li mette dopo, in Lantek.
+    Spessore: 1,5 e 1.5 li legge tutti e due (prova del 06/10/2026)."""
+    out = [f"QTA {int(riga['quantita'])}"]
+    if riga.get('materiale'):
+        out.append(f"MAT {_una_parola(riga['materiale'])}")
+    if riga.get('spessore') not in (None, ''):
+        out.append(f"SP {_num_lantek(riga['spessore'], decimale)}")
+    if commessa:
+        out.append(f"ORD {_una_parola(commessa)}")
+    if cliente:
+        out.append(f"CLI {_una_parola(cliente)}")
+    if consegna:
+        d = consegna
+        if isinstance(d, str):
+            try:
+                d = datetime.strptime(d[:10], '%Y-%m-%d')
+            except ValueError:
+                d = None
+        if d:
+            out.append(f"CONS {d.strftime('%d/%m/%Y')}")
+    return out
+
+
+def dxf_con_dati(sorgente: str, testi: list) -> bytes:
+    """Il DXF `sorgente` con le scritte dei dati aggiunte dentro il contorno
+    del pezzo (punto interno al contorno esterno; se il contorno non si trova,
+    il centro del disegno). Il file d'origine non si tocca."""
+    import io
+    import ezdxf
+    from ezdxf import bbox
+    doc = ezdxf.readfile(sorgente)
+    msp = doc.modelspace()
+    e = bbox.extents(msp)
+    cx = (e.extmin.x + e.extmax.x) / 2 if e.has_data else 0.0
+    cy = (e.extmin.y + e.extmax.y) / 2 if e.has_data else 0.0
+    lato = min(e.size.x, e.size.y) if e.has_data else 100.0
+    try:
+        from .preventivi.dxf_polygon_detector_v3 import contorno_pezzo_mm, scala_unita_mm
+        outer = contorno_pezzo_mm(doc)
+        if outer is not None:
+            sc = scala_unita_mm(doc)[0] or 1.0
+            p = outer.representative_point()
+            cx, cy = p.x / sc, p.y / sc
+            b = outer.bounds
+            lato = min(b[2] - b[0], b[3] - b[1]) / sc
+    except Exception:
+        logger.debug('contorno per le scritte Lantek non trovato', exc_info=True)
+    h = max(1.0, min(5.0, lato / 12))
+    for i, t in enumerate(testi):
+        msp.add_text(t, dxfattribs={'layer': LAYER_DATI, 'height': h,
+                                    'insert': (cx, cy - i * h * 1.6)})
+    buf = io.StringIO()
+    doc.write(buf)
+    return buf.getvalue().encode(doc.output_encoding or 'cp1252', errors='replace')
+
+
 def scrivi_excel(percorso_o_file, righe: list, data_consegna=None, commessa: str = '') -> None:
     """Il file nel formato del modello iErp "ImportProduzione" (Foglio1, prima
     riga d'intestazione, una riga per codice)."""
