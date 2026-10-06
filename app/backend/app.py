@@ -2595,6 +2595,130 @@ def extract_pdf_data():
         logging.error(f"[ERROR] extract_pdf_data: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 400
 
+# ============ SEGNALA ERRORE ============
+# Pulsante su ogni pagina (frontend/ft-segnala.js). Chi trova un problema
+# scrive due parole; il resto (pagina, postazione, persona, ora, ultimi errori
+# della pagina) parte da solo. Finisce nel database, in logs/segnalazioni.log
+# e come avviso all'amministrazione.
+_SEGNALAZIONI_RECENTI = {}          # dispositivo -> [istanti]: non piu' di 10 l'ora
+SEGNALAZIONI_LOG = os.path.join(os.path.dirname(__file__), '..', 'logs', 'segnalazioni.log')
+_LOCK_SEGNALAZIONI = threading.Lock()
+
+
+@app.route('/api/segnalazioni-errore', methods=['POST'])
+@richiede(*accesso.TUTTE)
+def api_segnala_errore():
+    from .models_ore import SegnalazioneErrore
+    import json as _json
+    import time as _time
+    data = request.get_json(silent=True) or {}
+    testo = str(data.get('testo') or '').strip()
+    if len(testo) < 3:
+        return jsonify({'success': False, 'error': 'Scrivi in due parole cosa non va.'}), 400
+    testo = testo[:2000]
+    dettagli = data.get('dettagli') if isinstance(data.get('dettagli'), dict) else {}
+    try:
+        if len(_json.dumps(dettagli)) > 30000:
+            dettagli = {'troncati': True}
+    except (TypeError, ValueError):
+        dettagli = {}
+    ident = identita()
+    disp = (ident.dispositivo or {}).get('id') or request.remote_addr or '?'
+    adesso = _time.time()
+    with _LOCK_SEGNALAZIONI:
+        recenti = [t for t in _SEGNALAZIONI_RECENTI.get(disp, []) if adesso - t < 3600]
+        if len(recenti) >= 10:
+            return jsonify({'success': False, 'error': "Troppe segnalazioni in un'ora da questo dispositivo."}), 429
+        recenti.append(adesso)
+        _SEGNALAZIONI_RECENTI[disp] = recenti
+    pagina = str(data.get('pagina') or '')[:300]
+    seg = SegnalazioneErrore(
+        id=str(uuid.uuid4()), creata_il=datetime.utcnow(), stazione=ident.stazione,
+        dispositivo=(ident.dispositivo or {}).get('label') or (ident.vecchio or {}).get('nome'),
+        persona=(ident.persona or {}).get('nome'), pagina=pagina, testo=testo,
+        dettagli=dettagli, stato='aperta')
+    session = get_session()
+    try:
+        session.add(seg)
+        session.commit()
+        sid = seg.id
+    except Exception as e:
+        session.rollback()
+        logger.exception('segnalazione non salvata')
+        return jsonify({'success': False, 'error': 'Segnalazione non salvata: ' + str(e)}), 500
+    finally:
+        session.close()
+    chi = (ident.persona or {}).get('nome') or (ident.dispositivo or {}).get('label') or ident.stazione or '?'
+    logger.warning('SEGNALAZIONE %s da %s su %s: %s', sid[:8], chi, pagina, testo[:200])
+    try:
+        os.makedirs(os.path.dirname(SEGNALAZIONI_LOG), exist_ok=True)
+        with open(SEGNALAZIONI_LOG, 'a', encoding='utf-8') as fh:
+            fh.write(_json.dumps({'id': sid, 'quando': iso_utc(datetime.utcnow()), 'chi': chi,
+                                  'stazione': ident.stazione, 'pagina': pagina, 'testo': testo,
+                                  'dettagli': dettagli}, ensure_ascii=False) + '\n')
+    except Exception:
+        logger.exception('segnalazioni.log non scritto')
+    try:
+        NotificationManager.create_notification(
+            'postazione-amministrazione', None, 'Segnalato un errore',
+            f'{chi} ({pagina or "pagina?"}): {testo[:180]}',
+            notification_type='alert', notification_category='attiva')
+    except Exception:
+        pass
+    return jsonify({'success': True, 'id': sid}), 201
+
+
+def _segnalazione_dict(x):
+    return {'id': x.id, 'creata_il': iso_utc(x.creata_il), 'stazione': x.stazione,
+            'dispositivo': x.dispositivo, 'persona': x.persona, 'pagina': x.pagina,
+            'testo': x.testo, 'dettagli': x.dettagli or {}, 'stato': x.stato,
+            'risolta_il': iso_utc(x.risolta_il) if x.risolta_il else None,
+            'risolta_da': x.risolta_da, 'nota': x.nota}
+
+
+@app.route('/api/segnalazioni-errore', methods=['GET'])
+@richiede('ufficio', ADMIN)
+def api_elenco_segnalazioni():
+    from .models_ore import SegnalazioneErrore
+    stato = request.args.get('stato')
+    session = get_session()
+    try:
+        q = session.query(SegnalazioneErrore)
+        if stato in ('aperta', 'risolta'):
+            q = q.filter(SegnalazioneErrore.stato == stato)
+        righe = q.order_by(SegnalazioneErrore.creata_il.desc()).limit(200).all()
+        aperte = session.query(SegnalazioneErrore).filter(SegnalazioneErrore.stato == 'aperta').count()
+        return jsonify({'success': True, 'segnalazioni': [_segnalazione_dict(x) for x in righe],
+                        'aperte': aperte}), 200
+    finally:
+        session.close()
+
+
+@app.route('/api/segnalazioni-errore/<sid>', methods=['PUT'])
+@richiede('ufficio', ADMIN)
+def api_aggiorna_segnalazione(sid):
+    """{stato: 'risolta'|'aperta', nota?}"""
+    from .models_ore import SegnalazioneErrore
+    data = request.get_json(silent=True) or {}
+    stato = data.get('stato')
+    if stato not in ('aperta', 'risolta'):
+        return jsonify({'success': False, 'error': 'stato non valido'}), 400
+    session = get_session()
+    try:
+        x = session.query(SegnalazioneErrore).filter(SegnalazioneErrore.id == sid).first()
+        if not x:
+            return jsonify({'success': False, 'error': 'Segnalazione non trovata'}), 404
+        x.stato = stato
+        x.risolta_il = datetime.utcnow() if stato == 'risolta' else None
+        x.risolta_da = _chi_nome() if stato == 'risolta' else None
+        if 'nota' in data:
+            x.nota = str(data.get('nota') or '')[:1000] or None
+        session.commit()
+        return jsonify({'success': True, 'segnalazione': _segnalazione_dict(x)}), 200
+    finally:
+        session.close()
+
+
 # ============ HEALTH CHECK ============
 
 @app.route('/api/health', methods=['GET'])

@@ -237,15 +237,41 @@
     return r;
   }
 
+  // ── diario della pagina (per "Segnala errore") ────────────────────
+  // Gli ultimi errori JavaScript e le ultime chiamate al server andate male:
+  // partono con la segnalazione, cosi' si ritrova il momento nei registri.
+  const DIARIO = [];
+  function annota(tipo, testo) {
+    DIARIO.push({ t: new Date().toISOString(), tipo, testo: String(testo || '').slice(0, 300) });
+    if (DIARIO.length > 30) DIARIO.shift();
+  }
+  window.addEventListener('error', e => {
+    if (e && e.message) annota('js', e.message + ' @ ' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || ''));
+  });
+  window.addEventListener('unhandledrejection', e => {
+    const r = e && e.reason;
+    annota('js', 'promessa: ' + ((r && (r.message || r)) || '?'));
+  });
+  function percorso(url) {
+    try { return new URL(url, location.href).pathname; } catch (_) { return String(url); }
+  }
+
   window.fetch = function (input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || String(input);
     if (!eApi(url)) return fetchVero(input, init);
     const opz = Object.assign({}, init || {});
     opz.credentials = 'same-origin';
     opz.headers = intestazioni(opz.headers || (input instanceof Request ? input.headers : undefined));
+    const metodo = (opz.method || (input instanceof Request ? input.method : 'GET') || 'GET').toUpperCase();
     const prova = () => fetchVero(input, opz);
     // Dopo il PIN dell'amministratore la stessa richiesta si ripete una volta.
-    return prova().then(r => gestisci(r, url, prova));
+    return prova().then(r => {
+      if (r.status >= 400) annota('server', metodo + ' ' + percorso(url) + ' -> ' + r.status);
+      return gestisci(r, url, prova);
+    }, err => {
+      annota('rete', metodo + ' ' + percorso(url) + ' -> ' + ((err && err.message) || 'nessuna risposta'));
+      throw err;
+    });
   };
 
   const xhrOpen = XMLHttpRequest.prototype.open;
@@ -336,14 +362,27 @@
       }
       if (io.serve_pin) { vaiAllIngresso('serve_pin'); return; }
       try { localStorage.removeItem('currentUser'); } catch (_) {}
+      caricaSegnala();
       return;
     }
     if (io.modalita === 'transizione' && io.vecchio) {
       quandoBody(fasciaGialla);
+      caricaSegnala();
       return;
     }
     vaiAllIngresso('non_registrato');
   });
+
+  /** Il pulsante "Segnala errore" (ft-segnala.js), su ogni pagina in cui si
+      e' entrati. Si carica qui per non toccare le pagine una per una. */
+  function caricaSegnala() {
+    if (document.getElementById('ft-segnala-js')) return;
+    const s = document.createElement('script');
+    s.id = 'ft-segnala-js';
+    s.src = '/ft-segnala.js';
+    s.defer = true;
+    (document.head || document.documentElement).appendChild(s);
+  }
 
   async function esci() {
     try { await fetchVero('/api/accesso/esci', { method: 'POST', credentials: 'same-origin' }); } catch (_) {}
@@ -372,5 +411,6 @@
     pronto,
     get io() { return IO; },
     nome, esci, avviso, chiediPinAdmin, cambiaDispositivo, tastierino,
+    diario: () => DIARIO.slice(),
   };
 })();

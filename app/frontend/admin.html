@@ -65,6 +65,7 @@ body.ft { font-size: 14px; }
     <button class="ft-tab" data-t="impostazioni">Impostazioni</button>
     <button class="ft-tab" data-t="backup">Backup</button>
     <button class="ft-tab" data-t="registro">Registro attività</button>
+    <button class="ft-tab" data-t="segnalazioni">Segnalazioni <span id="seg-n" hidden style="display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:#F59E0B;color:#fff;font-size:11px;font-weight:700"></span></button>
   </nav>
   <div class="ft-topbar-end">
     <span class="adm-who" id="chi" hidden></span>
@@ -219,6 +220,23 @@ body.ft { font-size: 14px; }
     <tbody id="reg-tb"><tr><td colspan="4" class="ft-muted">Caricamento…</td></tr></tbody>
   </table></div></div>
 </section>
+
+<!-- ═══════════ SEGNALAZIONI ═══════════ -->
+<section class="ft-view" id="v-segnalazioni">
+  <div class="ft-head"><div>
+    <h1 class="ft-title">Segnalazioni</h1>
+    <p class="ft-subtitle">Gli errori segnalati col pulsante "Segnala errore" delle pagine. Con ognuna ci sono pagina, postazione, ora e gli ultimi errori tecnici: chi sistema il programma li ritrova nei registri.</p>
+  </div>
+  <div class="ft-actions">
+    <select class="ft-input" id="seg-filtro" onchange="caricaSegnalazioni()" style="width:auto">
+      <option value="aperta">Da guardare</option><option value="risolta">Risolte</option><option value="">Tutte</option>
+    </select>
+    <button class="ft-btn" onclick="caricaSegnalazioni()">Aggiorna</button></div></div>
+  <div class="ft-card"><div class="ft-table-wrap"><table class="ft-table">
+    <thead><tr><th>Quando</th><th>Chi / dove</th><th>Cosa non va</th><th>Errori tecnici</th><th></th></tr></thead>
+    <tbody id="seg-tb"><tr><td colspan="5" class="ft-muted">Caricamento…</td></tr></tbody>
+  </table></div></div>
+</section>
 </main>
 
 <!-- Modifica persona -->
@@ -297,7 +315,7 @@ function vai(t) {
   document.querySelectorAll('#tabs .ft-tab').forEach(b => b.classList.toggle('active', b.dataset.t === t));
   document.querySelectorAll('.ft-view').forEach(v => v.classList.toggle('active', v.id === 'v-' + t));
   ({ persone: caricaPersone, dispositivi: caricaDispositivi, impostazioni: caricaImpostazioni,
-     backup: caricaBackup, registro: caricaRegistro })[t]();
+     backup: caricaBackup, registro: caricaRegistro, segnalazioni: caricaSegnalazioni })[t]();
 }
 
 // ── persone ─────────────────────────────────────────────────────────
@@ -519,6 +537,43 @@ async function caricaRegistro() {
   if (l.length) entra('reg-tb');
 }
 
+// ── segnalazioni ────────────────────────────────────────────────────
+const NOME_STAZIONE = { commerciale: 'Commerciale', ufficio: 'Ufficio', laser: 'Laser', reparto: 'Tablet officina', ore: 'Timbratrice' };
+async function caricaSegnalazioni() {
+  const f = $('seg-filtro').value;
+  const r = await api('/api/segnalazioni-errore' + (f ? '?stato=' + f : ''));
+  if (!r.ok) { $('seg-tb').innerHTML = `<tr><td colspan="5" class="ft-muted">${esc(r.d.error || 'Non disponibile')}</td></tr>`; return; }
+  contaSegnalazioni(r.d.aperte);
+  const l = r.d.segnalazioni || [];
+  $('seg-tb').innerHTML = l.length ? l.map(x => {
+    const diario = ((x.dettagli || {}).diario || []).filter(d => d.tipo !== 'info');
+    const tecnici = diario.length
+      ? diario.slice(-4).map(d => `<div class="adm-mono" style="font-size:12px">${esc(d.tipo)}: ${esc(d.testo)}</div>`).join('')
+      : '<span class="ft-muted">nessuno</span>';
+    const chi = [x.persona, x.dispositivo, NOME_STAZIONE[x.stazione] || x.stazione].filter(Boolean).join(' · ');
+    const az = x.stato === 'aperta'
+      ? `<button class="ft-btn sm" onclick="segnaSegnalazione('${esc(x.id)}','risolta')">Risolta</button>`
+      : `<span class="ft-muted" style="font-size:12px">risolta${x.risolta_da ? ' da ' + esc(x.risolta_da) : ''}</span><br>
+         <button class="ft-btn sm ghost" onclick="segnaSegnalazione('${esc(x.id)}','aperta')">Riapri</button>`;
+    return `<tr><td style="white-space:nowrap">${esc(quando(x.creata_il))}</td>
+      <td><b>${esc(chi || '—')}</b><div class="ft-muted adm-mono" style="font-size:12px">${esc(x.pagina || '')}</div></td>
+      <td style="max-width:420px;white-space:pre-wrap">${esc(x.testo)}</td>
+      <td style="max-width:360px">${tecnici}</td><td>${az}</td></tr>`;
+  }).join('') : `<tr><td colspan="5" class="ft-muted">${f === 'aperta' ? 'Nessuna segnalazione da guardare.' : 'Nessuna segnalazione.'}</td></tr>`;
+  if (l.length) entra('seg-tb');
+}
+function contaSegnalazioni(n) {
+  const b = $('seg-n');
+  b.textContent = n || '';
+  b.hidden = !n;
+}
+async function segnaSegnalazione(id, stato) {
+  const r = await api('/api/segnalazioni-errore/' + encodeURIComponent(id), 'PUT', { stato });
+  if (!r.ok) { FT.toast(r.d.error || 'Non aggiornata', 'err'); return; }
+  FT.toast(stato === 'risolta' ? 'Segnata come risolta' : 'Riaperta', 'ok');
+  caricaSegnalazioni();
+}
+
 // ── avvio ───────────────────────────────────────────────────────────
 async function aggiornaChi() {
   const r = await fetch('/api/accesso/io').then(x => x.json()).catch(() => null);
@@ -544,6 +599,8 @@ async function avvia() {
   $('gate').hidden = true; $('tabs').hidden = false;
   aggiornaChi();
   vai(SCHEDA);
+  // quante segnalazioni aspettano, sulla scheda, anche senza aprirla
+  api('/api/segnalazioni-errore?stato=aperta').then(x => { if (x.ok) contaSegnalazioni(x.d.aperte); });
 }
 avvia();
 </script>

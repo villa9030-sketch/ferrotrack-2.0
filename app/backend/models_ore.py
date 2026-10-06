@@ -300,3 +300,25 @@ class CostoMaterialeCliente(Base):
     riferimento = Column(String, nullable=True)
     inserito_il = Column(DateTime, default=datetime.utcnow)
     inserito_da = Column(String, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Segnalazioni d'errore (pulsante "Segnala errore" su ogni pagina)
+# ---------------------------------------------------------------------------
+class SegnalazioneErrore(Base):
+    """Chi trova un problema lo segnala dalla pagina dove l'ha visto: con il
+    suo testo partono da soli pagina, postazione, persona, ora e gli ultimi
+    errori tecnici della pagina, cosi' si ritrova il momento nei registri."""
+    __tablename__ = 'segnalazioni_errore'
+    id = Column(String, primary_key=True)
+    creata_il = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    stazione = Column(String, nullable=True)
+    dispositivo = Column(String, nullable=True)
+    persona = Column(String, nullable=True)
+    pagina = Column(String, nullable=True)
+    testo = Column(Text, nullable=False)
+    dettagli = Column(JSON, nullable=True)       # diario della pagina, browser, schermo
+    stato = Column(String, default='aperta', nullable=False)   # 'aperta' | 'risolta'
+    risolta_il = Column(DateTime, nullable=True)
+    risolta_da = Column(String, nullable=True)
+    nota = Column(Text, nullable=True)
