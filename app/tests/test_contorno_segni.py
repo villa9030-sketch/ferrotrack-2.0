@@ -107,6 +107,16 @@ def main():
     r = d.detect_pezzo_geometry_v3(p2)
     check('la cornice interna non e\' il pezzo', r['bbox_width_mm'] < 1000, (r['bbox_width_mm'], r['bbox_height_mm']))
 
+    print('\n3) Vista di DETTAGLIO: la sua scala non vale per il pezzo (33PP00086)')
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    msp.add_circle((2170, 1780), 189)                       # cerchio del dettaglio
+    msp.add_text('DETTAGLIO A', dxfattribs={'insert': (2164, 1501), 'height': 20})
+    check('scritta "DETTAGLIO A" sotto la vista: riconosciuta',
+          d._etichetta_dettaglio_vicina(doc, (1981, 1592, 2359, 1970)))
+    check('lontano dalla scritta: non e\' un dettaglio',
+          not d._etichetta_dettaglio_vicina(doc, (100, 100, 400, 300)))
+
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     return 0 if not KO else 1
 

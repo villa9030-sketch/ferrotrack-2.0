@@ -243,6 +243,29 @@ def _punti_quota(d) -> list:
     return out
 
 
+_RE_DETTAGLIO = re.compile(r'\b(DETTAGLIO|DETAIL|PARTICOLARE\s+[A-Z]\b)', re.IGNORECASE)
+
+
+def _etichetta_dettaglio_vicina(doc, bounds, f_unita: float = 1.0) -> bool:
+    """C'e' una scritta "DETTAGLIO ..." (SolidWorks: "DETTAGLIO A", sotto la
+    vista) dentro o appena attorno al riquadro? Allora e' una vista di
+    dettaglio, disegnata in un'altra scala, non il pezzo."""
+    x1, y1, x2, y2 = bounds
+    m = 0.3 * max(x2 - x1, y2 - y1)
+    for t in doc.modelspace().query('TEXT MTEXT'):
+        try:
+            testo = t.plain_text() if t.dxftype() == 'MTEXT' else t.dxf.text
+            if not _RE_DETTAGLIO.search(testo or ''):
+                continue
+            p = t.dxf.insert
+            px, py = float(p[0]) * f_unita, float(p[1]) * f_unita
+        except Exception:
+            continue
+        if x1 - m <= px <= x2 + m and y1 - m <= py <= y2 + m:
+            return True
+    return False
+
+
 _SCALA_VISTA_CACHE: dict = {}
 
 
@@ -295,6 +318,23 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
         if idx < 0:
             return dubbio
         x1, y1, x2, y2 = candidati[idx].bounds
+        if _etichetta_dettaglio_vicina(doc, (x1, y1, x2, y2), f_unita):
+            # Il contorno scelto e' un DETTAGLIO ingrandito (33PP00086-00: foglio
+            # 1:10, "DETTAGLIO A" 10:1 con l'unica quota a DIMLFAC 0,1): la sua
+            # scala non e' quella del pezzo. Prima tutto il disegno veniva
+            # ridotto di 10 volte e il pezzo non si ritrovava piu'. Vale la
+            # scala delle viste principali: quella della maggior parte delle
+            # quote (25NDSPA0105-02 esportato 1:6 -> 6, come le altre copie).
+            conta = {}
+            for v, _d in quote:
+                conta[v] = conta.get(v, 0) + 1
+            k, n = max(conta.items(), key=lambda kv: kv[1])
+            if n < 0.6 * len(quote) or not (0.05 <= k <= 200):
+                return dubbio
+            if abs(k - 1.0) < 1e-6:
+                return 1.0, None
+            rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
+            return k, f'Disegno in scala {rapporto}: misure riportate al vero (x{k:g})'
         m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
         sul_pezzo = []
         for v, d in quote:
