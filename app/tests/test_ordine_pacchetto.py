@@ -413,9 +413,9 @@ def main():
               for b, _d, fs in os.walk(ex.get('percorso') or _RETE) for f in fs]
     check('copia nella cartella di rete, divisa per lamiera',
           (ex.get('percorso') or '').endswith('4521') and len([x for x in albero if x.startswith('_DISEGNI ORIGINALI/')]) == 3
-          and len([x for x in albero if not x.startswith('_DISEGNI ORIGINALI/') and not x.endswith('.xlsx')]) == 3, (ex, albero))
-    check('e il file delle quantita per Lantek (iErp)',
-          'QUANTITA LANTEK - 4521.xlsx' in albero, albero)
+          and len([x for x in albero if not x.startswith('_DISEGNI ORIGINALI/')]) == 3, (ex, albero))
+    check('niente Excel delle quantita (iErp non si usa)',
+          not any(x.endswith('.xlsx') for x in albero), albero)
     check('file temporanei puliti',
           not os.path.exists(os.path.join(A.UPLOAD_FOLDER, 'preventivi_tmp', pid)) and not d.get('avviso'))
     dis = c.get(f'/api/orders/{oid}/distinta').get_json()

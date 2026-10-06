@@ -1301,14 +1301,6 @@ def api_ordine_disegni_zip(order_id):
                     except Exception:
                         logger.warning('scritte Lantek non aggiunte a %s', arcname, exc_info=True)
                 zf.write(percorso, arcname=arcname)
-            # le quantita' da importare in Lantek con iErp, accanto ai disegni
-            try:
-                if q and q['righe']:
-                    xb = io.BytesIO()
-                    _lt.scrivi_excel(xb, q['righe'], q['consegna'], q['commessa'])
-                    zf.writestr(f"{radice}/{q['nome_file']}", xb.getvalue())
-            except Exception:
-                logger.warning('quantita Lantek non aggiunte allo zip', exc_info=True)
         buf.seek(0)
         return send_file(buf, mimetype='application/zip', as_attachment=True,
                          download_name=radice + '.zip')
@@ -7028,17 +7020,6 @@ def _esporta_disegni_per_officina(order_id: str, cliente: str = '', numero_ordin
                     logger.warning('scritte Lantek non aggiunte a %s', arc, exc_info=True)
             shutil.copy2(percorso, dst)
             n += 1
-        try:
-            q = _quantita_lantek(order, righe) if order else None
-            if q and q['righe']:
-                from . import lantek as _lt
-                os.makedirs(destinazione, exist_ok=True)
-                _lt.scrivi_excel(os.path.join(destinazione, q['nome_file']), q['righe'],
-                                 q['consegna'], q['commessa'])
-                n += 1
-                esito['quantita_lantek'] = q['nome_file']
-        except Exception as _e:
-            logger.warning('quantita Lantek non scritte nella cartella: %s', _e)
         esito['esportati'] = n
         esito['percorso'] = os.path.normpath(destinazione)
         logger.info('Disegni ordine %s esportati in %s (%d file)', order_id, destinazione, n)

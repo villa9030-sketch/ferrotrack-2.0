@@ -196,8 +196,9 @@ def main():
     _d.modelspace().add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)
     _d.saveas(os.path.join(A.DRAWINGS_FOLDER, oid, 'A1-00.dxf'))
     e = A._esporta_disegni_per_officina(oid)
-    check('file delle quantita nella cartella', e.get('quantita_lantek') and os.path.exists(
-        os.path.join(e['percorso'], e['quantita_lantek'])), e)
+    fatti = [f for _b, _d2, fs in os.walk(e.get('percorso') or '') for f in fs]
+    check('nella cartella niente Excel delle quantita',
+          not any(f.endswith('.xlsx') for f in fatti) and 'quantita_lantek' not in e, (e, fatti))
 
     print('\n7) Scritte dentro i DXF per l\'importatore di Lantek')
     t = L.testi_dati({'quantita': 4, 'materiale': 'FERRO', 'spessore': 1.5}, '1252', ',', 'DECA S.r.l.', '2030-11-06')
