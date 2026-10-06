@@ -1003,12 +1003,32 @@ def _separa_cartiglio(all_polys: list, testi: list | None = None) -> tuple[list,
     if not cornici:
         return _via_celle_di_testo(list(all_polys), 0, testi)
     ids_cornici = {id(c) for c in cornici}
+    # Un riquadro preso per cornice perche' ha dei FORI TONDI attaccati al bordo,
+    # e che sta dentro un altro contorno staccato dal suo bordo, non e' una cella
+    # del cartiglio: e' un segno disegnato sul pezzo (13PA00680: rettangolini
+    # 100x15 attorno alle coppie di fori svasati, a 0,1 mm dal bordo). Il segno
+    # non si taglia, ma non deve far scartare il pezzo che lo contiene (prima lo
+    # sviluppo intero finiva scartato come "contorno che contiene una cornice")
+    # ne' i fori che racchiude. Le celle del cartiglio e le viste racchiudono
+    # rettangoli e pezzi, non solo cerchi: per loro non cambia niente.
+    def _solo_fori_tondi(c):
+        pc = _prep_buf(c)
+        dentro = [o for o in all_polys if o is not c and _contiene(c, o, pc)]
+        return bool(dentro) and all(
+            o.length > 0 and 4 * math.pi * o.area / (o.length ** 2) >= 0.85 for o in dentro)
+
+    def _segno_sul_pezzo(c):
+        return _solo_fori_tondi(c) and any(
+            id(q) not in ids_cornici and q.area > c.area and _contiene(q, c)
+            and q.exterior.distance(c.exterior) > CORNICE_TOCCO_MM
+            for q in all_polys)
+    vere = [c for c in cornici if not _segno_sul_pezzo(c)]
     candidati = []
     n = len(cornici)
     for p in all_polys:
         if id(p) in ids_cornici:
             continue
-        if any(c.exterior.distance(p) <= CORNICE_TOCCO_MM for c in cornici):
+        if any(c.exterior.distance(p) <= CORNICE_TOCCO_MM for c in vere):
             n += 1
             continue
         candidati.append(p)
@@ -1845,9 +1865,11 @@ def compute_geometry_from_point(path: str, x_mm: float, y_mm: float,
         outer = min(contengono_click, key=lambda p: p.area)
         strategia = 'contains-fallback'
 
-    # Inner: tutti i poligoni contenuti nell'outer (fori, dettagli, sub-contorni)
+    # Inner: i poligoni contenuti nell'outer (fori, dettagli, sub-contorni), con
+    # lo stesso filtro dell'import: i segni scambiati per celle del cartiglio
+    # (13PA00680, rettangolini attorno ai fori) non si contano come tagli.
     pp = _prep_buf(outer)
-    inners = [p for p in all_polys if p is not outer and _contiene(outer, p, pp)]
+    inners = [p for p in non_cartiglio if p is not outer and _contiene(outer, p, pp)]
     inners, _n_svas = _riduci_fori_annidati(inners)
 
     mis = _misure(outer, inners, scala)

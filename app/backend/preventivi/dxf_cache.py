@@ -85,7 +85,7 @@ _INITIALIZED = False
 #                  riportati al vero: prima aree fino a 64 volte piu' piccole.
 # v14 (2026-10-05): fogli con viste in scale diverse: vale la scala delle
 #                  quote sul pezzo (191700612-00, sviluppo 2:1: area 4 volte).
-PARSER_VERSION = 14
+PARSER_VERSION = 15
 
 
 def _init_db() -> None:
