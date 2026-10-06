@@ -3,1209 +3,549 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LS FerroTrack — Impostazioni</title>
+<meta name="theme-color" content="#0B1220">
+<title>FerroTrack — Amministrazione</title>
+<script src="/ft-accesso.js" data-stazioni="*"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
+<!--
+  Amministrazione: persone e PIN, dispositivi, impostazioni, backup,
+  registro attivita'. Ogni cosa qui chiede il PIN di un amministratore,
+  digitato adesso (vale qualche minuto): anche al laser, dove non si entra
+  col PIN. Il controllo vero lo fa il server (backend/accesso.py).
+-->
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; }
-body { animation: pageIn 0.3s ease-out; }
-@keyframes pageIn { from { opacity: 0; } to { opacity: 1; } }
-
-:root {
-  --bg: #fafafa;
-  --white: #ffffff;
-  --black: #000000;
-  --green: #1a7a48;
-  --green-light: #22a060;
-  --gray-text: #666666;
-  --gray-muted: #999999;
-  --border: #e5e5e5;
-  --blue: #1e40af;
-  --blue-bg: #e0eaff;
-  --red: #991b1b;
-  --red-bg: #ffe4e4;
-  --orange: #92400e;
-  --orange-bg: #fff4d6;
-  --green-badge: #166534;
-  --green-badge-bg: #e2fce9;
-  --shadow-sm: 0 0 0 1px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 0 0 1px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
-  --shadow-lg: 0 0 0 1px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.05), 0 8px 24px rgba(0,0,0,0.08), 0 24px 48px rgba(0,0,0,0.06);
-  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px;
-}
-
-body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--black); font-variant-numeric: tabular-nums; }
-
-/* TOPBAR */
-.topbar {
-  position: fixed; top: 0; left: 0; right: 0; height: 64px;
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 48px; z-index: 1000;
-}
-.logo-section { display: flex; align-items: center; gap: 12px; }
-.logo-icon { width: 36px; height: 36px; background: var(--green); color: white; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; font-family: 'Geist'; }
-.logo-main { font-family: 'Geist'; font-weight: 900; font-size: 18px; letter-spacing: -0.4px; }
-.logo-sub  { font-family: 'Inter'; font-weight: 500; font-size: 12px; color: var(--gray-text); margin-top: -2px; }
-.topbar-actions { display: flex; align-items: center; gap: 12px; }
-.user-pill {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 14px 6px 6px; border: 1px solid var(--border); border-radius: 100px; background: var(--white);
-}
-.user-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--green); color: white;
-  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
-.user-name { font-size: 13px; font-weight: 600; }
-.user-role { font-size: 11px; color: var(--gray-text); }
-.btn-tb {
-  padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--white);
-  font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
-}
-.btn-tb:hover { background: var(--bg); }
-.btn-tb.primary { background: var(--green); color: white; border-color: var(--green); }
-.btn-tb.primary:hover { background: var(--green-light); }
-.btn-tb.danger { color: var(--red); border-color: var(--red-bg); }
-
-/* TAB BAR */
-.tab-bar {
-  position: fixed; top: 64px; left: 0; right: 0; height: 56px;
-  background: var(--white); border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; padding: 0 48px; gap: 4px; z-index: 999;
-}
-.tab-item {
-  padding: 18px 22px; font-size: 14px; font-weight: 600; color: var(--gray-text);
-  cursor: pointer; transition: all 0.15s; border-bottom: 2px solid transparent; height: 56px;
-  display: flex; align-items: center;
-}
-.tab-item.active { color: var(--green); border-bottom-color: var(--green); }
-.tab-item:hover:not(.active) { color: var(--black); background: rgba(26,122,72,0.03); }
-
-/* PANELS */
-.panel { display: none; margin-top: 140px; padding: 0 48px 48px; }
-.panel.active { display: block; animation: tabFade 0.18s ease-out; }
-@keyframes tabFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-.page-title { font-family: 'Geist'; font-weight: 900; font-size: 22px; letter-spacing: -0.5px; margin-bottom: 6px; }
-.page-sub   { font-size: 13px; color: var(--gray-text); margin-bottom: 20px; }
-
-/* CARDS */
-.card {
-  background: var(--white); border: 1px solid var(--border); border-radius: 14px;
-  margin-bottom: 20px; overflow: hidden; box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.2s ease;
-}
-.card:hover { box-shadow: var(--shadow-md); }
-.card-header {
-  padding: 14px 18px; border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-}
-.card-header h3 {
-  font-size: 13px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.4px; color: var(--gray-text); margin: 0;
-}
-.card-meta { font-size: 12px; color: var(--gray-muted); font-weight: 600; }
-.card-body { padding: 18px; }
-.card-body.no-pad { padding: 0; }
-
-/* FORM */
-.form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
-.form-field { display: flex; flex-direction: column; flex: 1; min-width: 180px; }
-.form-field label {
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
-  color: var(--gray-text); margin-bottom: 6px;
-}
-.form-field input, .form-field select, .form-field textarea {
-  padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
-  font-family: 'Inter', sans-serif; background: var(--white); color: var(--black);
-}
-.form-field input:focus, .form-field select:focus, .form-field textarea:focus {
-  outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(26,122,72,0.1);
-}
-.form-hint { font-size: 11px; color: var(--gray-muted); margin-top: 4px; }
-.form-msg { font-size: 13px; min-height: 18px; margin-top: 8px; }
-.btn-primary {
-  padding: 9px 16px; background: var(--green); color: white; border: none; border-radius: 8px;
-  font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.15s;
-}
-.btn-primary:hover { background: var(--green-light); }
-.btn-secondary {
-  padding: 9px 14px; background: var(--white); color: var(--black); border: 1px solid var(--border); border-radius: 8px;
-  font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
-}
-.btn-secondary:hover { background: var(--bg); }
-.btn-danger {
-  padding: 6px 10px; background: var(--white); color: var(--red); border: 1px solid var(--red-bg); border-radius: 6px;
-  font-size: 12px; font-weight: 600; cursor: pointer;
-}
-.btn-danger:hover { background: var(--red-bg); }
-.btn-mini {
-  padding: 5px 10px; background: var(--white); color: var(--black); border: 1px solid var(--border); border-radius: 6px;
-  font-size: 12px; font-weight: 600; cursor: pointer; margin-right: 4px;
-}
-.btn-mini:hover { background: var(--bg); }
-
-/* TABLE */
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl thead th {
-  text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.4px; color: var(--gray-text); padding: 10px 18px;
-  border-bottom: 1px solid var(--border); background: #fafbfc;
-}
-.tbl tbody td { padding: 11px 18px; border-bottom: 1px solid #f1f3f5; vertical-align: middle; }
-.tbl tbody tr:last-child td { border-bottom: none; }
-.tbl tbody tr:hover { background: #fafbfc; }
-.tbl .n { text-align: right; font-variant-numeric: tabular-nums; }
-.tbl code { font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; color: var(--gray-text); }
-
-.badge {
-  display: inline-flex; align-items: center; padding: 3px 9px;
-  border-radius: 100px; font-size: 11px; font-weight: 700;
-}
-.badge.green { background: var(--green-badge-bg); color: var(--green-badge); }
-.badge.blue  { background: var(--blue-bg); color: var(--blue); }
-.badge.orange{ background: var(--orange-bg); color: var(--orange); }
-.badge.red   { background: var(--red-bg); color: var(--red); }
-.badge.gray  { background: #eef0f2; color: var(--gray-text); }
-
-.empty { padding: 32px; text-align: center; color: var(--gray-muted); font-size: 13px; }
-
-/* MODAL */
-.modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(250, 250, 250, 0.55);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  display: none; align-items: center; justify-content: center;
-  z-index: 2000; animation: fadeIn 0.2s ease-out;
-}
-.modal-overlay.active { display: flex; }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.modal {
-  background: var(--white); border-radius: var(--r-xl); padding: 0;
-  width: 90%; max-width: 520px; max-height: 80vh; overflow: hidden;
-  display: flex; flex-direction: column;
-  border: 1px solid var(--border); box-shadow: var(--shadow-lg);
-  animation: modalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-.modal-head { padding: 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-.modal-head h3 { font-family: 'Geist'; font-weight: 800; font-size: 18px; margin: 0; }
-.modal-body { padding: 18px; overflow-y: auto; }
-.modal-foot { padding: 14px 18px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
-.modal-close {
-  width: 32px; height: 32px; border-radius: 8px; border: none;
-  background: var(--bg); cursor: pointer; font-size: 16px; font-weight: 700;
-}
-.modal-close:hover { background: var(--red-bg); color: var(--red); }
+body.ft { font-size: 14px; }
+.adm-gate { max-width: 520px; margin: 64px auto; padding: 36px 32px 32px; text-align: center; display: grid; gap: 14px; justify-items: center;
+  background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: var(--ft-r-xl); box-shadow: var(--ft-elev-2);
+  animation: ftPop .24s var(--ft-ease); }
+.adm-gate .ft-logo { width: 44px; height: 44px; border-radius: 11px; font-size: 18px; }
+.adm-gate h1 { margin: 0; font: 800 24px var(--ft-display); letter-spacing: -.4px; }
+.adm-gate p { margin: 0; color: var(--ft-ink-3); }
+.adm-who { font-size: 12.5px; color: var(--ft-ink-3); }
+.adm-who b { color: var(--ft-ink); }
+.adm-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
+@media (max-width: 1100px) { .adm-grid { grid-template-columns: 1fr; } }
+/* Avvisi: .ft-alert della base; qui solo lo spazio sotto. */
+#avviso-admin .ft-alert { margin-bottom: 16px; font-size: 14px; }
+/* I suggerimenti sotto un campo restano testo leggero, non etichette. */
+.ft-field > span.ft-hint { font-weight: 400; color: var(--ft-ink-3); }
+.adm-row-off td { opacity: .55; }
+.adm-st { display: grid; gap: 8px; }
+.adm-st div { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border: 1px solid var(--ft-line-2); border-radius: 9px; background: var(--ft-well); }
+.adm-mod { font: 800 18px var(--ft-display); }
+.adm-mod.prot { color: var(--ft-ok); }
+.adm-mod.trans { color: var(--ft-warn); }
+.adm-check { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.adm-check input { width: 18px; height: 18px; accent-color: var(--ft-accent); }
+.ft-table td .ft-btn + .ft-btn { margin-left: 6px; }
+.adm-filtro { display: flex; gap: 12px; align-items: center; }
+.adm-msg { min-height: 20px; font-size: 13px; font-weight: 600; }
+.adm-msg.err { color: var(--ft-err); } .adm-msg.ok { color: var(--ft-ok); }
+.adm-mono { font-family: var(--ft-mono); font-size: 12px; color: var(--ft-ink-3); }
+/* Le schede di una vista hanno la stessa altezza di testata del preventivatore. */
+.adm-grid > .ft-card, .ft-stack > .ft-card { overflow: hidden; }
+.ft-card-head .ft-card-sub { max-width: 560px; }
+/* Il pulsante "Fine" della testata e il nome dell'amministratore entrano piano. */
+#chi:not([hidden]), #fine:not([hidden]) { animation: ftFade .2s ease-out; }
 </style>
 </head>
-<body>
+<body class="ft">
 
-<!-- TOPBAR -->
-<div class="topbar">
-  <div class="logo-section">
-    <div class="logo-icon">LS</div>
-    <div>
-      <div class="logo-main">FerroTrack</div>
-      <div class="logo-sub">Impostazioni</div>
-    </div>
+<header class="ft-topbar">
+  <a class="ft-brand" href="#" onclick="torna(); return false;" title="Torna alla tua postazione">
+    <div class="ft-logo">LS</div>
+    <div><div class="ft-brand-name">FerroTrack</div><div class="ft-brand-area">Amministrazione</div></div>
+  </a>
+  <nav class="ft-tabs" id="tabs" hidden>
+    <button class="ft-tab active" data-t="persone">Persone</button>
+    <button class="ft-tab" data-t="dispositivi">Dispositivi</button>
+    <button class="ft-tab" data-t="impostazioni">Impostazioni</button>
+    <button class="ft-tab" data-t="backup">Backup</button>
+    <button class="ft-tab" data-t="registro">Registro attività</button>
+  </nav>
+  <div class="ft-topbar-end">
+    <span class="adm-who" id="chi" hidden></span>
+    <button class="ft-btn sm" onclick="torna()">Torna</button>
+    <button class="ft-btn sm" id="fine" onclick="fine()" hidden title="Chiude il PIN dell'amministratore su questo dispositivo">Fine</button>
   </div>
-  <div class="topbar-actions">
-    <div class="user-pill">
-      <div class="user-avatar" id="user-pill-avatar">?</div>
-      <div>
-        <div class="user-name" id="user-pill-name">Admin</div>
-        <div class="user-role">Amministratore</div>
-      </div>
-    </div>
-    <button class="btn-tb" onclick="window.location.href='/capo-officina.html'">
-      <i data-lucide="arrow-left" style="width:14px;height:14px;vertical-align:-2px;"></i> Pannello Capo
-    </button>
-    <button class="btn-tb danger" onclick="logout()">
-      <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;"></i> Esci
-    </button>
-  </div>
-</div>
+</header>
 
-<!-- TAB BAR -->
-<div class="tab-bar">
-  <div class="tab-item active" data-tab="utenti"  onclick="switchTab('utenti')">Utenti</div>
-  <div class="tab-item"        data-tab="soglie"  onclick="switchTab('soglie')">Soglie sistema</div>
-  <div class="tab-item"        data-tab="backup"  onclick="switchTab('backup')">Backup</div>
-  <div class="tab-item"        data-tab="audit"   onclick="switchTab('audit')">Audit log</div>
-</div>
+<main class="ft-page">
 
-<!-- ===================== PANEL: UTENTI ===================== -->
-<div class="panel active" id="panel-utenti">
-  <h2 class="page-title">Utenti</h2>
-  <p class="page-sub">Operai, capi, impiegate e amministratori. Le pistole barcode sono dismesse (vedi <b>Impostazioni &rarr; Rilevazione delle ore</b>): gli operai dichiarano le ore dal tablet.</p>
+<!-- Senza PIN dell'amministratore non si vede niente -->
+<section class="adm-gate" id="gate" hidden>
+  <div class="ft-logo">LS</div>
+  <h1>Serve il PIN di un amministratore</h1>
+  <p>Qui si gestiscono persone, PIN e dispositivi. Il PIN vale qualche minuto, poi si richiede.</p>
+  <button class="ft-btn primary lg" onclick="sblocca()">Inserisci il PIN</button>
+</section>
 
-  <!-- Aggiungi una persona alla bacheca -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Aggiungi una persona</h3>
-      <span class="card-meta">Bacheca della timbratrice</span>
-    </div>
-    <div class="card-body">
-      <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
-        Serve solo il nome. La persona compare subito fra i pulsanti del tablet e
-        pu&ograve; registrare le sue ore. Non le si chiede conto dei giorni prima
-        di oggi. <b>Lo stesso si pu&ograve; fare dal tablet</b>, che &egrave; dove
-        di solito serve: un operaio nuovo arriva in officina, non in ufficio.
-      </p>
-      <div class="form-row">
-        <div class="form-field">
-          <label>Nome</label>
-          <input type="text" id="new-user-name" placeholder="es. Mario Rossi">
-        </div>
-        <div class="form-field" style="flex:0 0 auto; min-width:auto;">
-          <label>&nbsp;</label>
-          <button class="btn-primary" onclick="createUser()">+ Aggiungi</button>
+<!-- ═══════════ PERSONE ═══════════ -->
+<section class="ft-view" id="v-persone">
+  <div class="ft-head"><div>
+    <h1 class="ft-title">Persone</h1>
+    <p class="ft-subtitle">Chi entra in <b>Commerciale</b> e <b>Ufficio</b> col suo PIN, chi è <b>amministratore</b>,
+      e gli operai della bacheca della timbratrice. Un PIN dimenticato lo rimette un amministratore.</p>
+  </div></div>
+  <div id="avviso-admin"></div>
+  <div class="adm-grid">
+    <div class="ft-card">
+      <div class="ft-card-head" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div><h2 class="ft-card-title">Elenco</h2><p class="ft-card-sub" id="persone-meta">—</p></div>
+        <div class="adm-filtro">
+          <label class="adm-check"><input type="checkbox" id="mostra-operai" onchange="disegnaPersone()"> Anche gli operai della bacheca</label>
+          <label class="adm-check"><input type="checkbox" id="mostra-spenti" onchange="disegnaPersone()"> Anche le disattivate</label>
         </div>
       </div>
-      <div class="form-msg" id="new-user-msg"></div>
-    </div>
-  </div>
-
-  <!-- Lista utenti -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Utenti registrati</h3>
-      <span class="card-meta" id="users-meta">&mdash;</span>
-    </div>
-    <div class="card-body no-pad">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>Nome</th>
-            <th>ID</th>
-            <th>Ruolo</th>
-            <th>Fase</th>
-            <th>Permessi</th>
-            <th>Stato</th>
-            <th style="text-align:right;">Azioni</th>
-          </tr>
-        </thead>
-        <tbody id="users-tbody">
-          <tr><td colspan="7" class="empty">Caricamento&hellip;</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- ===================== PANEL: SOGLIE ===================== -->
-<div class="panel" id="panel-soglie">
-  <h2 class="page-title">Soglie sistema</h2>
-  <p class="page-sub">Configurazione dell'app. Solo capi e amministratori possono modificare questi valori.</p>
-
-  <!-- Tablet di officina -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Tablet di officina</h3>
-      <span class="card-meta">Postazione fissa vicino alla timbratrice</span>
-    </div>
-    <div class="card-body">
-      <p style="font-size:13px; color:var(--gray-text); margin-bottom:14px;">
-        Il tablet appeso in officina <b>non ha login</b>: si abilita una volta sola e resta
-        sempre sulla pagina delle ore. L'operaio, quando timbra, tocca il proprio nome,
-        indica per quale cliente ha lavorato e quante ore, e salva. Poi la pagina torna
-        da sola all'elenco dei nomi per il collega successivo.
-      </p>
-      <div class="form-row">
-        <div class="form-field">
-          <label>Nome del tablet</label>
-          <input type="text" id="disp-label" placeholder="Es. Tablet timbratrice" maxlength="60">
-          <div class="form-hint">Serve solo a riconoscerlo qui, se un domani va revocato.</div>
-        </div>
-        <div class="form-field">
-          <label>A cosa serve</label>
-          <select id="disp-scope">
-            <option value="ore">Registrazione ore (timbratrice)</option>
-            <option value="reparto">Sola consultazione ordini</option>
-          </select>
-          <div class="form-hint">I tablet d'ufficio si abilitano da riga di comando.</div>
-        </div>
-      </div>
-      <button class="btn-primary" onclick="creaDispositivo()">Abilita tablet</button>
-      <div id="disp-msg" style="margin-top:10px; font-size:13px; min-height:18px;"></div>
-
-      <!-- Istruzioni + QR mostrati UNA sola volta, subito dopo la creazione -->
-      <div id="disp-nuovo" style="display:none; margin-top:18px; padding:18px;
-           border:2px solid var(--green); border-radius:12px; background:#f6fbf8;">
-        <div style="font-weight:800; font-size:15px; margin-bottom:10px;">
-          Tablet abilitato &mdash; segui questi 3 passaggi <b>adesso</b>
-        </div>
-        <ol style="font-size:13px; line-height:1.9; padding-left:20px; margin-bottom:14px;">
-          <li>Prendi il tablet dell'officina e apri il browser.</li>
-          <li>Inquadra questo QR con la fotocamera, oppure digita l'indirizzo qui sotto.</li>
-          <li>Quando compare l'elenco dei nomi, aggiungi la pagina alla schermata Home.</li>
-        </ol>
-        <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
-          <img id="disp-qr" alt="QR di abilitazione" width="220" height="220"
-               style="border:1px solid var(--border); border-radius:10px; background:#fff;">
-          <div style="flex:1; min-width:260px;">
-            <label style="font-size:12px; font-weight:700; color:var(--gray-text);">Indirizzo da aprire</label>
-            <textarea id="disp-url" readonly rows="3"
-              style="width:100%; font-family:monospace; font-size:12px; padding:10px;
-                     border:1px solid var(--border); border-radius:8px; resize:vertical;"></textarea>
-            <button class="btn-secondary" style="margin-top:8px" onclick="copiaUrlDispositivo()">Copia indirizzo</button>
-            <div style="margin-top:12px; font-size:12px; color:var(--gray-text); line-height:1.5;">
-              <b>Questo indirizzo non verr&agrave; pi&ugrave; mostrato.</b> Contiene il codice del tablet:
-              se lo perdi, revoca il dispositivo e abilitane uno nuovo.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style="margin-top:22px;">
-        <label style="font-size:12px; font-weight:700; color:var(--gray-text);">Tablet gi&agrave; abilitati</label>
-        <table class="tbl" style="margin-top:8px;">
-          <thead><tr><th>Nome</th><th>Tipo</th><th>Stato</th><th>Abilitato il</th><th></th></tr></thead>
-          <tbody id="disp-tbody"><tr><td colspan="5" class="empty">Caricamento&hellip;</td></tr></tbody>
+      <div class="ft-table-wrap">
+        <table class="ft-table">
+          <thead><tr><th>Nome</th><th>Ruolo</th><th>Entra negli uffici</th><th>Amministratore</th><th>Ultimo ingresso</th><th class="r"></th></tr></thead>
+          <tbody id="persone-tb"><tr><td colspan="6" class="ft-muted">Caricamento…</td></tr></tbody>
         </table>
       </div>
     </div>
-  </div>
-
-  <!-- Da dove arrivano le ore -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Rilevazione delle ore</h3>
-      <span class="card-meta">Pistole barcode / dichiarazioni da tablet</span>
-    </div>
-    <div class="card-body">
-      <p style="font-size:13px; color:var(--gray-text); margin-bottom:14px;">
-        Dal 2026 gli operai <b>dichiarano le ore dal tablet</b> (chi sei, per quale cliente, quante ore):
-        una sola registrazione al giorno. Le pistole barcode restano spente perch&eacute; sarebbero un
-        passaggio in pi&ugrave; che non alimenta pi&ugrave; nulla. Lo <b>storico delle scansioni non viene
-        cancellato</b> e torna visibile riattivandole.
-      </p>
-      <label style="display:flex; align-items:center; gap:10px; font-size:14px; font-weight:600; cursor:pointer;">
-        <input type="checkbox" id="cfg-pistole-attive" style="width:18px; height:18px; cursor:pointer;">
-        Riattiva la rilevazione con pistola barcode
-      </label>
-      <div class="form-hint" style="margin-top:6px;">
-        Se riattivata, le pistole tornano a registrare i tempi per ordine e i KPI del capo tornano
-        a leggere le scansioni invece delle dichiarazioni.
+    <div class="ft-card">
+      <div class="ft-card-head"><div><h2 class="ft-card-title">Aggiungi una persona</h2>
+        <p class="ft-card-sub">Il PIN si può dare anche dopo.</p></div></div>
+      <div class="ft-card-body" style="display:grid;gap:12px">
+        <label class="ft-field"><span>Nome e cognome</span><input class="ft-input" id="np-nome" maxlength="60" autocomplete="off"></label>
+        <label class="ft-field"><span>Ruolo</span>
+          <select class="ft-input" id="np-ruolo">
+            <option value="Amministrazione">Amministrazione (Ufficio)</option>
+            <option value="Commerciale">Commerciale</option>
+            <option value="Laser">Laser</option>
+            <option value="Operaio">Operaio (bacheca della timbratrice)</option>
+          </select></label>
+        <label class="adm-check"><input type="checkbox" id="np-admin" checked> Amministratore</label>
+        <label class="ft-field"><span>PIN (da 4 a 8 cifre, facoltativo)</span>
+          <input class="ft-input" id="np-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></label>
+        <button class="ft-btn primary" onclick="creaPersona()">Aggiungi</button>
+        <div class="adm-msg" id="np-msg" role="status"></div>
       </div>
     </div>
   </div>
+</section>
 
-  <!-- Soglie sospetti finiti -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Ordini "probabilmente finiti"</h3>
-      <span class="card-meta">Sezione rossa Pannello Capo / Impiegata</span>
-    </div>
-    <div class="card-body">
-      <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
-        <span id="cfg-testo-pistole" style="display:none;">Con le pistole attive un ordine compare nella sezione rossa "ordini sospetti finiti" se il <b>taglio &egrave; completato da almeno N giorni</b> E <b>nessuna scansione officina da almeno M giorni</b>.</span>
-        <span id="cfg-testo-dichiarazioni">Senza pistole non esiste il segnale "ultima scansione": un ordine compare nella sezione rossa se &egrave; <b>aperto da almeno N giorni</b> e l'ufficio <b>non ne ha ancora registrato il completamento</b>.</span>
-      </p>
-      <div class="form-row" id="cfg-riga-apertura">
-        <div class="form-field">
-          <label>Giorni di apertura</label>
-          <input type="number" id="cfg-giorni-apertura" min="1" max="120">
-          <div class="form-hint">Dopo quanti giorni dall'arrivo dell'ordine chiedersi se non sia gi&agrave; finito.</div>
-        </div>
+<!-- ═══════════ DISPOSITIVI ═══════════ -->
+<section class="ft-view" id="v-dispositivi">
+  <div class="ft-head"><div>
+    <h1 class="ft-title">Dispositivi</h1>
+    <p class="ft-subtitle">Ogni PC o tablet è registrato una volta come una stazione. Un dispositivo perso o rubato
+      si <b>revoca</b>: smette subito di entrare. Per registrarne uno nuovo apri FerroTrack su quel dispositivo.</p>
+  </div>
+  <div class="ft-actions"><button class="ft-btn" onclick="registraQuesto()" id="btn-questo">Registra questo dispositivo</button></div></div>
+  <div class="adm-grid">
+    <div class="ft-card">
+      <div class="ft-table-wrap">
+        <table class="ft-table">
+          <thead><tr><th>Nome</th><th>Stazione</th><th>Stato</th><th>Registrato</th><th>Ultimo uso</th><th class="r"></th></tr></thead>
+          <tbody id="disp-tb"><tr><td colspan="6" class="ft-muted">Caricamento…</td></tr></tbody>
+        </table>
       </div>
-      <div class="form-row" id="cfg-riga-scan">
-        <div class="form-field">
-          <label>Giorni dal taglio</label>
-          <input type="number" id="cfg-giorni-taglio" min="1" max="60">
-          <div class="form-hint">Quanti giorni dopo "taglio fatto" considerare l'ordine potenzialmente finito.</div>
-        </div>
-        <div class="form-field">
-          <label>Giorni dall'ultima scansione</label>
-          <input type="number" id="cfg-giorni-scan" min="1" max="30">
-          <div class="form-hint">Quanti giorni di inattivit&agrave; (nessuna scan in officina) per considerarlo sospetto.</div>
-        </div>
+    </div>
+    <div class="ft-card">
+      <div class="ft-card-head"><div><h2 class="ft-card-title">Modalità di accesso</h2>
+        <p class="ft-card-sub">Nel periodo di passaggio i dispositivi non registrati entrano ancora col vecchio modo (con la fascia gialla).</p></div></div>
+      <div class="ft-card-body" style="display:grid;gap:14px">
+        <div>Adesso: <span class="adm-mod" id="mod-ora">—</span></div>
+        <div class="adm-st" id="mod-stazioni"></div>
+        <div id="mod-avviso"></div>
+        <button class="ft-btn primary" id="mod-btn" onclick="cambiaModalita()">—</button>
       </div>
     </div>
   </div>
+</section>
 
-  <!-- Orario di lavoro (per calcolo automatico ore) -->
-  <div class="card" id="card-orario-lavoro">
-    <div class="card-header">
-      <h3>Orario di lavoro</h3>
-      <span class="card-meta">Scorpora automaticamente pausa pranzo dai conteggi</span>
-    </div>
-    <div class="card-body">
-      <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
-        Serve al calcolo dei tempi ricavati dalle <b>scansioni con la pistola</b>: le durate
-        venivano contate solo dentro queste finestre, scorporando pausa pranzo e notti.
-        Con le pistole dismesse le ore sono quelle <b>dichiarate dall'operaio</b> e queste
-        finestre non incidono sul conteggio: restano per rileggere lo storico.
-      </p>
-      <div class="form-row">
-        <div class="form-field" style="max-width:160px;">
-          <label>Mattina &mdash; inizio</label>
-          <input type="text" id="cfg-orario-mat-inizio" placeholder="07:30">
-        </div>
-        <div class="form-field" style="max-width:160px;">
-          <label>Mattina &mdash; fine</label>
-          <input type="text" id="cfg-orario-mat-fine" placeholder="12:00">
-        </div>
-        <div class="form-field" style="max-width:160px;">
-          <label>Pomeriggio &mdash; inizio</label>
-          <input type="text" id="cfg-orario-pom-inizio" placeholder="13:30">
-        </div>
-        <div class="form-field" style="max-width:160px;">
-          <label>Pomeriggio &mdash; fine</label>
-          <input type="text" id="cfg-orario-pom-fine" placeholder="17:00">
-        </div>
-      </div>
-      <div class="form-hint" style="margin-top:10px;">
-        Formato 24h, es. <code>07:30</code>. Esempio default: 07:30&ndash;12:00 (mattina, 4h30) + 13:30&ndash;17:00 (pomeriggio, 3h30) = <b>8h al giorno</b>.
-      </div>
+<!-- ═══════════ IMPOSTAZIONI ═══════════ -->
+<section class="ft-view" id="v-impostazioni">
+  <div class="ft-head"><div>
+    <h1 class="ft-title">Impostazioni</h1>
+    <p class="ft-subtitle">I prezzi e i coefficienti dei preventivi si cambiano dal preventivatore: anche lì serve il PIN
+      di un amministratore.</p>
+  </div></div>
+  <div class="ft-card" style="max-width:720px">
+    <div class="ft-card-body" style="display:grid;gap:16px">
+      <label class="ft-field"><span>Ordini “probabilmente finiti”: dopo quanti giorni dall’arrivo</span>
+        <input class="ft-input" type="number" id="cfg-giorni" min="1" max="120" style="max-width:140px">
+        <span class="ft-hint">Un ordine aperto da più giorni di così, senza lavoro finito registrato, viene segnalato all’Ufficio.</span></label>
+      <label class="ft-field"><span>Le ore valgono dal</span>
+        <input class="ft-input" type="date" id="cfg-ore" style="max-width:200px">
+        <span class="ft-hint">Il giorno in cui gli operai hanno cominciato a usare la timbratrice. Vuoto: si controlla tutto lo storico.</span></label>
+      <div class="ft-field"><span>Cartella dei disegni per Lantek</span>
+        <div class="adm-mono" id="cfg-cartella">—</div>
+        <span class="ft-hint" id="cfg-consentite"></span></div>
+      <div style="display:flex;gap:10px;align-items:center"><button class="ft-btn primary" onclick="salvaImpostazioni()">Salva</button>
+        <span class="adm-msg" id="cfg-msg" role="status"></span></div>
     </div>
   </div>
+</section>
 
-  <!-- Chiusura turno automatica -->
-  <div class="card" id="card-fine-turno">
-    <div class="card-header">
-      <h3>Chiusura automatica fine turno</h3>
-      <span class="card-meta">Cron giornaliero</span>
-    </div>
-    <div class="card-body">
-      <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
-        Ogni giorno a quest'ora il sistema chiude automaticamente le scansioni rimaste aperte (operai che dimenticano di scansionare a fine giornata). Conviene impostare qualche minuto dopo il fine orario pomeridiano. Motivo registrato: <code>fine_turno</code>.
-      </p>
-      <div class="form-row">
-        <div class="form-field" style="max-width:200px;">
-          <label>Orario chiusura (HH:MM)</label>
-          <input type="text" id="cfg-fine-turno" placeholder="17:30">
-          <div class="form-hint">Formato 24h, es. 17:30.</div>
-        </div>
-      </div>
-    </div>
+<!-- ═══════════ BACKUP ═══════════ -->
+<section class="ft-view" id="v-backup">
+  <div class="ft-head"><div>
+    <h1 class="ft-title">Backup</h1>
+    <p class="ft-subtitle">Copie del database fatte da sole a intervalli, più quelle fatte a mano.</p>
   </div>
-
-  <div class="card">
-    <div class="card-head">
-      <h3>Da quando valgono le ore</h3>
-      <span class="card-meta">Controllo delle giornate mancanti</span>
-    </div>
-    <div class="card-body">
-      <p style="font-size: 13px; color: var(--gray-text); margin-bottom: 16px;">
-        Il controllo segnala le giornate che un operaio doveva dichiarare e non ha
-        dichiarato. Guarda fino a 30 giorni indietro: senza una data di partenza,
-        il primo giorno di uso vero comparirebbero decine di segnalazioni per
-        giornate in cui a nessuno era stato chiesto niente, e le mancanze vere si
-        perderebbero nel mucchio.
-        <b>Metti il giorno in cui gli operai hanno cominciato a usare il tablet.</b>
-      </p>
-      <div class="form-row">
-        <div class="form-field" style="max-width:220px;">
-          <label>Le ore valgono dal</label>
-          <input type="date" id="cfg-ore-attive-dal">
-          <div class="form-hint">Vuoto: si controlla tutto lo storico.</div>
-        </div>
-      </div>
-    </div>
+  <div class="ft-actions"><button class="ft-btn primary" onclick="backupOra()">Fai una copia adesso</button></div></div>
+  <div class="ft-stack">
+    <div class="ft-card"><div class="ft-card-body ft-form-grid">
+      <label class="ft-field"><span>Copie automatiche</span>
+        <select class="ft-input" id="bk-on"><option value="true">Sì</option><option value="false">No</option></select></label>
+      <label class="ft-field"><span>Ogni quante ore</span><input class="ft-input" type="number" id="bk-ore" min="1" max="168"></label>
+      <label class="ft-field"><span>Quante copie tenere</span><input class="ft-input" type="number" id="bk-max" min="5" max="100"></label>
+      <label class="ft-field"><span>Cartella (vuota = quella del programma)</span><input class="ft-input" id="bk-path"></label>
+      <div class="span-2" style="display:flex;gap:10px;align-items:center"><button class="ft-btn" onclick="salvaBackup()">Salva</button>
+        <span class="adm-msg" id="bk-msg" role="status"></span></div>
+    </div></div>
+    <div class="ft-card"><div class="ft-table-wrap"><table class="ft-table">
+      <thead><tr><th>Copia</th><th>Quando</th><th class="r">Dimensione</th></tr></thead>
+      <tbody id="bk-tb"><tr><td colspan="3" class="ft-muted">Caricamento…</td></tr></tbody>
+    </table></div></div>
   </div>
+</section>
 
-  <div style="display: flex; gap: 12px; align-items: center; margin-top: 24px;">
-    <button class="btn-primary" onclick="saveConfig()">Salva impostazioni</button>
-    <button class="btn-secondary" onclick="loadConfig()">Ripristina</button>
-    <span class="form-msg" id="cfg-msg"></span>
+<!-- ═══════════ REGISTRO ═══════════ -->
+<section class="ft-view" id="v-registro">
+  <div class="ft-head"><div>
+    <h1 class="ft-title">Registro attività</h1>
+    <p class="ft-subtitle">Chi ha fatto cosa e quando: col nome della persona entrata col PIN, o della postazione.</p>
+  </div>
+  <div class="ft-actions"><button class="ft-btn" onclick="caricaRegistro()">Aggiorna</button></div></div>
+  <div class="ft-card"><div class="ft-table-wrap"><table class="ft-table">
+    <thead><tr><th>Quando</th><th>Chi</th><th>Cosa</th><th>Dettaglio</th></tr></thead>
+    <tbody id="reg-tb"><tr><td colspan="4" class="ft-muted">Caricamento…</td></tr></tbody>
+  </table></div></div>
+</section>
+</main>
+
+<!-- Modifica persona -->
+<div class="ft-modal-bg" id="m-persona">
+  <div class="ft-modal" role="dialog" aria-modal="true" aria-labelledby="mp-t">
+    <div class="ft-modal-head"><div><h3 class="ft-modal-title" id="mp-t">Persona</h3><p class="ft-modal-sub adm-mono" id="mp-id"></p></div></div>
+    <div class="ft-modal-body" style="display:grid;gap:12px">
+      <label class="ft-field"><span>Nome e cognome</span><input class="ft-input" id="mp-nome" maxlength="60"></label>
+      <label class="ft-field"><span>Ruolo</span><select class="ft-input" id="mp-ruolo"></select></label>
+      <label class="adm-check"><input type="checkbox" id="mp-admin"> Amministratore</label>
+      <label class="adm-check"><input type="checkbox" id="mp-attivo"> Attiva</label>
+      <div class="adm-msg" id="mp-msg" role="status"></div>
+    </div>
+    <div class="ft-modal-foot"><button class="ft-btn" onclick="FT.chiudi('m-persona')">Annulla</button>
+      <button class="ft-btn primary" onclick="salvaPersona()">Salva</button></div>
   </div>
 </div>
 
-<!-- ===================== PANEL: BACKUP ===================== -->
-<div class="panel" id="panel-backup">
-  <h2 class="page-title">Backup database</h2>
-  <p class="page-sub">Snapshot automatici e manuali del database SQLite. I backup automatici girano in background.</p>
-
-  <div class="card">
-    <div class="card-header">
-      <h3>Backup automatico</h3>
+<!-- PIN di una persona -->
+<div class="ft-modal-bg" id="m-pin">
+  <div class="ft-modal" role="dialog" aria-modal="true" aria-labelledby="mpin-t">
+    <div class="ft-modal-head"><div><h3 class="ft-modal-title" id="mpin-t">PIN</h3>
+      <p class="ft-modal-sub">Da 4 a 8 cifre, non tutte uguali e non in fila (1234). Dillo alla persona a voce.</p></div></div>
+    <div class="ft-modal-body" style="display:grid;gap:12px">
+      <label class="ft-field"><span>PIN nuovo</span><input class="ft-input" id="mpin-1" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></label>
+      <label class="ft-field"><span>Ripeti</span><input class="ft-input" id="mpin-2" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></label>
+      <div class="adm-msg" id="mpin-msg" role="status"></div>
     </div>
-    <div class="card-body">
-      <div class="form-row">
-        <div class="form-field" style="max-width:160px;">
-          <label>Attivo</label>
-          <select id="bk-enabled">
-            <option value="true">S&igrave;</option>
-            <option value="false">No</option>
-          </select>
-        </div>
-        <div class="form-field" style="max-width:160px;">
-          <label>Intervallo (ore)</label>
-          <input type="number" id="bk-interval" min="1" max="168">
-        </div>
-        <div class="form-field" style="max-width:160px;">
-          <label>Max copie</label>
-          <input type="number" id="bk-max" min="5" max="100">
-        </div>
-        <div class="form-field">
-          <label>Percorso locale</label>
-          <input type="text" id="bk-path" placeholder="es. C:/backup/ferrotrack">
-        </div>
-        <div class="form-field" style="flex:0 0 auto; min-width:auto;">
-          <label>&nbsp;</label>
-          <button class="btn-primary" onclick="saveBackupSettings()">Salva</button>
-        </div>
-      </div>
-      <div class="form-msg" id="bk-settings-msg"></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header">
-      <h3>Backup manuale</h3>
-      <button class="btn-primary" onclick="runManualBackup()" style="font-size:12px; padding:6px 14px;">Esegui ora</button>
-    </div>
-    <div class="card-body">
-      <div class="form-msg" id="bk-manual-msg" style="margin-top:0;">Pronto.</div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header">
-      <h3>Copie esistenti</h3>
-      <span class="card-meta" id="bk-list-meta">&mdash;</span>
-    </div>
-    <div class="card-body no-pad">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Data</th>
-            <th class="n">Dimensione</th>
-          </tr>
-        </thead>
-        <tbody id="bk-tbody">
-          <tr><td colspan="3" class="empty">Caricamento&hellip;</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- ===================== PANEL: AUDIT LOG ===================== -->
-<div class="panel" id="panel-audit">
-  <h2 class="page-title">Audit log</h2>
-  <p class="page-sub">Storico delle azioni amministrative: chi ha fatto cosa e quando.</p>
-
-  <div class="card">
-    <div class="card-header">
-      <h3>Eventi recenti</h3>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <input type="text" id="audit-filter-user" placeholder="Filtra per ID utente&hellip;" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px;">
-        <select id="audit-limit" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:12px;">
-          <option value="50">50</option>
-          <option value="100" selected>100</option>
-          <option value="250">250</option>
-          <option value="500">500</option>
-        </select>
-        <button class="btn-secondary" onclick="loadAudit()" style="padding:6px 12px; font-size:12px;">Aggiorna</button>
-      </div>
-    </div>
-    <div class="card-body no-pad">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>Quando</th>
-            <th>Utente</th>
-            <th>Azione</th>
-            <th>Entit&agrave;</th>
-            <th>Dettaglio</th>
-          </tr>
-        </thead>
-        <tbody id="audit-tbody">
-          <tr><td colspan="5" class="empty">Caricamento&hellip;</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL: modifica utente -->
-<div class="modal-overlay" id="edit-user-modal" onclick="if(event.target===this)closeEditUser()">
-  <div class="modal">
-    <div class="modal-head">
-      <h3>Modifica utente</h3>
-      <button class="modal-close" onclick="closeEditUser()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div style="font-size: 13px; color: var(--gray-text); margin-bottom: 4px;" id="edit-user-display">&mdash;</div>
-      <div style="font-family: monospace; font-size: 11px; color: var(--gray-muted); margin-bottom: 18px;" id="edit-user-id">&mdash;</div>
-
-      <div class="form-field" style="margin-bottom: 14px;">
-        <label>Nome</label>
-        <input type="text" id="edit-user-name">
-      </div>
-      <div class="form-field" style="margin-bottom: 14px;">
-        <label>Ruolo</label>
-        <select id="edit-user-role">
-          <option value="Impiegata">Impiegata</option>
-          <option value="Commerciale">Commerciale</option>
-          <option value="Capo Officina">Capo Officina</option>
-          <option value="Operaio Laser">Operaio Laser</option>
-          <option value="Operaio Officina">Operaio Officina</option>
-          <option value="Amministratore">Amministratore</option>
-        </select>
-      </div>
-      <div class="form-field" style="margin-bottom: 14px;">
-        <label>Fase</label>
-        <select id="edit-user-phase">
-          <option value="">&mdash; Nessuna &mdash;</option>
-          <option value="LASER">LASER</option>
-          <option value="OFFICINA">OFFICINA</option>
-          <option value="ALL">ALL</option>
-        </select>
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600;">
-          <input type="checkbox" id="edit-user-active" style="accent-color: var(--green);">
-          Utente attivo
-        </label>
-      </div>
-
-      <div class="form-msg" id="edit-user-msg"></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn-secondary" onclick="closeEditUser()">Annulla</button>
-      <button class="btn-primary" onclick="submitEditUser()">Salva</button>
-    </div>
+    <div class="ft-modal-foot">
+      <button class="ft-btn danger" id="mpin-togli" onclick="togliPin()">Togli il PIN</button>
+      <span style="flex:1"></span>
+      <button class="ft-btn" onclick="FT.chiudi('m-pin')">Annulla</button>
+      <button class="ft-btn primary" onclick="salvaPin()">Imposta</button></div>
   </div>
 </div>
 
 <script>
-const API_URL = '';
-let currentUser = null;
-/** Chi sta usando la pagina: il server lo chiede per backup, audit e dispositivi. */
-function hdrUtente(extra) { return Object.assign({ 'X-User-Id': (currentUser && currentUser.id) || '' }, extra || {}); }
-let _editingUserId = null;
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => FT.esc(s);
+let PERSONE = [], RUOLI = [], N_ADMIN = 0, IN_MODIFICA = null, MODALITA = null;
 
-// ---------- session / topbar ----------
-/** Dove sta di casa una postazione.
-    Ripetuta in ogni pagina perche' le pagine sono indipendenti: e' la stessa
-    funzione ovunque, e va tenuta allineata. */
-function paginaDiCasa(u) {
-  const r = (u && u.role) || '';
-  if (r === 'Timbratrice') return '/ore.html';
-  if (r === 'Visione') return '/operaio-info.html';
-  if (r === 'Laser' || r === 'Operaio Laser') return '/laser.html';
-  if (r === 'Amministrazione' || r === 'Impiegata') return '/impiegata.html';
-  if (r === 'Commerciale') return '/preventivi.html';
-  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
-    return '/capo-officina.html';
-  }
-  return '/operaio-info.html';
+/** fetch che non lancia: {ok, status, d}. Il PIN dell'amministratore, se
+    serve, lo chiede ft-accesso.js e ripete la richiesta. */
+async function api(url, metodo, corpo) {
+  const opz = { method: metodo || 'GET', headers: {} };
+  if (corpo !== undefined) { opz.headers['Content-Type'] = 'application/json'; opz.body = JSON.stringify(corpo); }
+  try {
+    const r = await fetch(url, opz);
+    let d = {};
+    try { d = await r.json(); } catch (_) {}
+    return { ok: r.ok, status: r.status, d };
+  } catch (_) { return { ok: false, status: 0, d: { error: 'Il server non risponde.' } }; }
+}
+function msg(id, testo, tipo) { const e = $(id); e.textContent = testo || ''; e.className = 'adm-msg ' + (tipo || ''); }
+function quando(v) { return v ? FT.fmtDataOra(v) : '—'; }
+// Le tabelle entrano in sequenza solo la prima volta che si riempiono.
+const PRIMA = {};
+function entra(id) { if (PRIMA[id]) return; PRIMA[id] = true; FT.sequenza($(id)); }
+
+function torna() {
+  const io = FTA.io;
+  location.href = (io && (io.pagina || (io.vecchio ? '/' : null))) || '/';
+}
+async function fine() {
+  await fetch('/api/accesso/admin', { method: 'DELETE' });
+  torna();
+}
+function registraQuesto() { location.href = (FTA.io && FTA.io.registrato) ? '/?cambia=1' : '/'; }
+
+// ── schede ──────────────────────────────────────────────────────────
+let SCHEDA = 'persone';
+document.querySelectorAll('#tabs .ft-tab').forEach(b => b.addEventListener('click', () => vai(b.dataset.t)));
+function vai(t) {
+  SCHEDA = t;
+  document.querySelectorAll('#tabs .ft-tab').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+  document.querySelectorAll('.ft-view').forEach(v => v.classList.toggle('active', v.id === 'v-' + t));
+  ({ persone: caricaPersone, dispositivi: caricaDispositivi, impostazioni: caricaImpostazioni,
+     backup: caricaBackup, registro: caricaRegistro })[t]();
 }
 
-window.addEventListener('load', () => {
-  
-
-const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  if (!user.id) { window.location.href = '/login.html'; return; }
-  currentUser = user;
-  const perms = user.permissions || [];
-  const isAuth = user.is_capo || user.role === 'Amministratore' || perms.includes('supervisione');
-  if (!isAuth) {
-    window.location.href = paginaDiCasa(user);
-    return;
-  }
-  const initials = (user.name || '').split(' ').map(w => w[0]).join('').toUpperCase() || '?';
-  const avatarEl = document.getElementById('user-pill-avatar');
-  avatarEl.textContent = initials;
-  avatarEl.style.background = colorFromName(user.name);
-  document.getElementById('user-pill-name').textContent = user.name || 'Admin';
-  if (window.lucide) lucide.createIcons();
-  switchTab('utenti');
+// ── persone ─────────────────────────────────────────────────────────
+async function caricaPersone() {
+  const r = await api('/api/admin/persone');
+  if (!r.ok) { $('persone-tb').innerHTML = `<tr><td colspan="6" class="ft-muted">${esc(r.d.error || 'Non disponibile')}</td></tr>`; return; }
+  PERSONE = r.d.persone || []; RUOLI = r.d.ruoli || []; N_ADMIN = r.d.amministratori || 0;
+  avvisoAdmin();
+  disegnaPersone();
+}
+function avvisoAdmin() {
+  const box = $('avviso-admin');
+  if (N_ADMIN >= 2) { box.innerHTML = ''; return; }
+  box.innerHTML = N_ADMIN === 1
+    ? '<div class="ft-alert warn" role="status"><span><b>C’è un solo amministratore.</b> Se dimentica il PIN nessuno potrà rimetterlo dalle pagine: nominane almeno un altro.</span></div>'
+    : '<div class="ft-alert err" role="status"><span><b>Nessun amministratore con il PIN.</b> Dagli un PIN e segnalo come amministratore.</span></div>';
+}
+function disegnaPersone() {
+  const operai = $('mostra-operai').checked, spenti = $('mostra-spenti').checked;
+  const lista = PERSONE.filter(p => (operai || p.ruolo !== 'Operaio' && p.ruolo !== 'Operaio Officina' || p.ha_pin)
+                                    && (spenti || p.attivo));
+  $('persone-meta').textContent = `${lista.length} di ${PERSONE.length} · amministratori con PIN: ${N_ADMIN}`;
+  if (!lista.length) { $('persone-tb').innerHTML = '<tr><td colspan="6" class="ft-muted">Nessuna persona.</td></tr>'; return; }
+  $('persone-tb').innerHTML = lista.map(p => `
+    <tr class="${p.attivo ? '' : 'adm-row-off'}" data-id="${esc(p.id)}">
+      <td><b>${esc(p.nome)}</b>${p.attivo ? '' : ' <span class="ft-chip">disattivata</span>'}</td>
+      <td>${esc(p.ruolo || '—')}</td>
+      <td>${p.ha_pin ? '<span class="ft-chip ok">Sì, col PIN</span>' : '<span class="ft-chip">No</span>'}</td>
+      <td>${p.admin ? '<span class="ft-chip accent">Sì</span>' : '—'}</td>
+      <td>${esc(quando(p.ultimo_ingresso))}</td>
+      <td class="r" style="white-space:nowrap">
+        <button class="ft-btn sm" onclick="apriPin('${esc(p.id)}')">${p.ha_pin ? 'Rimetti PIN' : 'Dai il PIN'}</button>
+        <button class="ft-btn sm" onclick="apriPersona('${esc(p.id)}')">Modifica</button></td>
+    </tr>`).join('');
+  entra('persone-tb');
+}
+$('np-ruolo').addEventListener('change', () => {
+  $('np-admin').checked = ['Amministrazione', 'Laser'].includes($('np-ruolo').value);
 });
-
-// Genera colore HSL deterministico dal nome
-function colorFromName(name) {
-  if (!name) return '#1a7a48';
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return `hsl(${h % 360}, 58%, 42%)`;
+async function creaPersona() {
+  const corpo = { nome: $('np-nome').value.trim(), ruolo: $('np-ruolo').value, admin: $('np-admin').checked };
+  const pin = $('np-pin').value.trim();
+  if (pin) corpo.pin = pin;
+  const r = await api('/api/admin/persone', 'POST', corpo);
+  if (!r.ok) { msg('np-msg', r.d.error || 'Non sono riuscito ad aggiungerla.', 'err'); return; }
+  msg('np-msg', '');
+  FT.toast(`${r.d.persona.nome} aggiunta.`, 'ok');
+  $('np-nome').value = ''; $('np-pin').value = '';
+  await caricaPersone();
+  // La riga nuova si accende un attimo (se il filtro la mostra).
+  const id = r.d.persona.id;
+  if (id) FT.evidenzia(document.querySelector(`#persone-tb tr[data-id="${CSS.escape(id)}"]`));
+}
+function apriPersona(id) {
+  const p = PERSONE.find(x => x.id === id); if (!p) return;
+  IN_MODIFICA = id;
+  $('mp-t').textContent = p.nome; $('mp-id').textContent = p.id;
+  $('mp-nome').value = p.nome;
+  const ruoli = RUOLI.includes(p.ruolo) ? RUOLI : RUOLI.concat([p.ruolo]);
+  $('mp-ruolo').innerHTML = ruoli.map(r => `<option ${r === p.ruolo ? 'selected' : ''}>${esc(r)}</option>`).join('');
+  $('mp-admin').checked = p.admin; $('mp-attivo').checked = p.attivo;
+  msg('mp-msg', '');
+  FT.apri('m-persona');
+}
+async function salvaPersona() {
+  const corpo = { nome: $('mp-nome').value.trim(), ruolo: $('mp-ruolo').value,
+                  admin: $('mp-admin').checked, attivo: $('mp-attivo').checked };
+  const r = await api(`/api/admin/persone/${encodeURIComponent(IN_MODIFICA)}`, 'PUT', corpo);
+  if (!r.ok) { msg('mp-msg', r.d.error || 'Non salvato.', 'err'); return; }
+  FT.chiudi('m-persona'); FT.toast('Salvato', 'ok');
+  caricaPersone();
+}
+function apriPin(id) {
+  const p = PERSONE.find(x => x.id === id); if (!p) return;
+  IN_MODIFICA = id;
+  $('mpin-t').textContent = (p.ha_pin ? 'Rimetti il PIN di ' : 'Dai il PIN a ') + p.nome;
+  $('mpin-1').value = ''; $('mpin-2').value = '';
+  $('mpin-togli').hidden = !p.ha_pin;
+  msg('mpin-msg', '');
+  FT.apri('m-pin');
+  setTimeout(() => $('mpin-1').focus(), 50);
+}
+async function salvaPin() {
+  const a = $('mpin-1').value.trim();
+  if (a !== $('mpin-2').value.trim()) { msg('mpin-msg', 'I due PIN non coincidono.', 'err'); return; }
+  const r = await api(`/api/admin/persone/${encodeURIComponent(IN_MODIFICA)}/pin`, 'PUT', { pin: a });
+  if (!r.ok) { msg('mpin-msg', r.d.error || 'PIN non impostato.', 'err'); return; }
+  FT.chiudi('m-pin'); FT.toast('PIN impostato: chi era entrato col PIN vecchio deve rientrare.', 'ok');
+  caricaPersone();
+}
+async function togliPin() {
+  if (!await FT.conferma({ titolo: 'Togliere il PIN?', testo: 'La persona non potrà più entrare negli uffici finché non le dai un PIN nuovo.', ok: 'Togli', pericolo: true })) return;
+  const r = await api(`/api/admin/persone/${encodeURIComponent(IN_MODIFICA)}/pin`, 'DELETE');
+  if (!r.ok) { msg('mpin-msg', r.d.error || 'Non riuscito.', 'err'); return; }
+  FT.chiudi('m-pin'); FT.toast('PIN tolto', 'ok'); caricaPersone();
 }
 
-function logout() {
-  localStorage.removeItem('currentUser');
-  window.location.href = '/login.html';
-}
-
-function escapeHtml(s) {
-  return (s == null ? '' : String(s))
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function showMsg(elId, text, color) {
-  const el = document.getElementById(elId);
-  if (!el) return;
-  el.style.color = color || 'var(--gray-text)';
-  el.textContent = text;
-  if (color === 'var(--green)' || color === 'green') {
-    setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 3500);
-  }
-}
-
-// ---------- tab switching ----------
-function switchTab(tabId) {
-  document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.tab-item[data-tab="${tabId}"]`).classList.add('active');
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  document.getElementById(`panel-${tabId}`).classList.add('active');
-
-  if (tabId === 'utenti') loadUsers();
-  if (tabId === 'soglie') loadConfig();
-  if (tabId === 'backup') { loadBackupSettings(); loadBackupList(); }
-  if (tabId === 'audit')  loadAudit();
-}
-
-// ============================================================
-//  UTENTI — CRUD
-// ============================================================
-async function loadUsers() {
-  const tbody = document.getElementById('users-tbody');
-  const meta = document.getElementById('users-meta');
-  try {
-    const r = await fetch(`${API_URL}/api/users?include_inactive=true`);
-    const d = await r.json();
-    const users = d.users || [];
-    meta.textContent = `${users.length} utenti`;
-    if (!users.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty">Nessun utente. Creane uno qui sopra.</td></tr>';
-      return;
-    }
-    let html = '';
-    for (const u of users) {
-      const isActive = u.is_active !== false;
-      const perms = (u.permissions || []).join(', ') || '—';
-      const isCapo = u.is_capo || u.role === 'Capo Officina' || u.role === 'Amministratore';
-      html += `<tr>
-        <td><b>${escapeHtml(u.name || '')}</b>${isCapo ? ' <span class="badge green">Capo</span>' : ''}</td>
-        <td><code>${escapeHtml(u.id || '')}</code></td>
-        <td>${escapeHtml(u.role || '—')}</td>
-        <td><span class="badge gray">${escapeHtml(u.phase || '—')}</span></td>
-        <td style="font-size:11px; color:var(--gray-text);">${escapeHtml(perms)}</td>
-        <td>${isActive ? '<span class="badge green">Attivo</span>' : '<span class="badge red">Disattivo</span>'}</td>
-        <td style="text-align:right; white-space:nowrap;">
-          <button class="btn-mini" onclick="openEditUser('${u.id}')">Modifica</button>
-          <button class="btn-danger" onclick="deleteUser('${u.id}', '${escapeHtml(u.name || u.id)}')">Disattiva</button>
-        </td>
-      </tr>`;
-    }
-    tbody.innerHTML = html;
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty">Errore: ${escapeHtml(e.message)}</td></tr>`;
-  }
-}
-
-/** Aggiunge una persona alla bacheca. Serve solo il nome.
-    Usa lo stesso comando del tablet, cosi' la regola su chi c'e' gia' e da
-    quando risponde delle giornate mancanti resta UNA: due copie della stessa
-    regola, col tempo, finiscono per non tornare. */
-async function createUser() {
-  const name = document.getElementById('new-user-name').value.trim();
-  if (!name) {
-    showMsg('new-user-msg', 'Scrivi il nome della persona.', 'var(--red)');
-    return;
-  }
-  // Le ore sono protette dal token del dispositivo, come sul tablet.
-  const tok = localStorage.getItem('ufficio_device_token');
-  if (!tok) {
-    showMsg('new-user-msg',
-      'Questo computer non e\u0300 ancora abilitato alle ore. '
-      + 'Abilitalo dalla pagina "Ore e riepilogo", oppure aggiungi la persona '
-      + 'dal tablet della timbratrice.', 'var(--red)');
-    return;
-  }
-  try {
-    const r = await fetch(`${API_URL}/api/ore/operai`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-Device-Token': tok},
-      body: JSON.stringify({ nome: name })
-    });
-    const d = await r.json();
-    if (r.ok && d.success) {
-      showMsg('new-user-msg',
-        `\u2713 "${name}" e\u0300 sulla bacheca della timbratrice`, 'var(--green)');
-      document.getElementById('new-user-name').value = '';
-      loadUsers();
-    } else {
-      showMsg('new-user-msg', d.error || 'Non sono riuscito ad aggiungerla.',
-              'var(--red)');
-    }
-  } catch (e) {
-    showMsg('new-user-msg', `Errore: ${e.message}`, 'var(--red)');
-  }
-}
-
-async function deleteUser(userId, name) {
-  if (!confirm(`Disattivare "${name}"? L'utente non potrà più accedere ma resta nel DB.`)) return;
-  try {
-    const r = await fetch(`${API_URL}/api/users/${encodeURIComponent(userId)}`, {
-      method: 'DELETE',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ deleted_by: currentUser ? currentUser.id : '' })
-    });
-    const d = await r.json();
-    if (r.ok && d.success) loadUsers();
-    else alert(`Errore: ${d.error || 'operazione fallita'}`);
-  } catch (e) { alert(`Errore: ${e.message}`); }
-}
-
-async function openEditUser(userId) {
-  try {
-    const r = await fetch(`${API_URL}/api/users?include_inactive=true`);
-    const d = await r.json();
-    const u = (d.users || []).find(x => x.id === userId);
-    if (!u) { alert('Utente non trovato'); return; }
-    _editingUserId = userId;
-    document.getElementById('edit-user-display').textContent = u.name || '';
-    document.getElementById('edit-user-id').textContent = u.id;
-    document.getElementById('edit-user-name').value = u.name || '';
-    document.getElementById('edit-user-role').value = u.role || '';
-    document.getElementById('edit-user-phase').value = u.phase || '';
-    document.getElementById('edit-user-active').checked = u.is_active !== false;
-    document.getElementById('edit-user-msg').textContent = '';
-    document.getElementById('edit-user-modal').classList.add('active');
-  } catch (e) { alert(`Errore: ${e.message}`); }
-}
-
-function closeEditUser() {
-  document.getElementById('edit-user-modal').classList.remove('active');
-  _editingUserId = null;
-}
-
-async function submitEditUser() {
-  if (!_editingUserId) return;
-  const payload = {
-    name: document.getElementById('edit-user-name').value.trim(),
-    role: document.getElementById('edit-user-role').value,
-    phase: document.getElementById('edit-user-phase').value || null,
-    is_active: document.getElementById('edit-user-active').checked,
-    updated_by: currentUser ? currentUser.id : ''
-  };
-  try {
-    const r = await fetch(`${API_URL}/api/users/${encodeURIComponent(_editingUserId)}`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
-    const d = await r.json();
-    if (r.ok && d.success) {
-      showMsg('edit-user-msg', '✓ Salvato', 'var(--green)');
-      setTimeout(() => { closeEditUser(); loadUsers(); }, 500);
-    } else {
-      showMsg('edit-user-msg', `Errore: ${d.error || 'operazione fallita'}`, 'var(--red)');
-    }
-  } catch (e) { showMsg('edit-user-msg', `Errore: ${e.message}`, 'var(--red)'); }
-}
-
-// ============================================================
-//  SOGLIE / CONFIG
-// ============================================================
-const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-function _hhmmToMinutes(s) {
-  const [h, m] = s.split(':').map(x => parseInt(x, 10));
-  return h * 60 + m;
-}
-
-// ---------- Tablet di officina ----------
+// ── dispositivi ─────────────────────────────────────────────────────
 async function caricaDispositivi() {
-  const tb = document.getElementById('disp-tbody');
-  if (!tb) return;
-  try {
-    const r = await fetch(`${API_URL}/api/admin/dispositivi`, { headers: hdrUtente() });
-    const d = await r.json();
-    const righe = d.dispositivi || [];
-    if (!righe.length) {
-      tb.innerHTML = '<tr><td colspan="5" class="empty">Nessun tablet abilitato.</td></tr>';
-      return;
-    }
-    const tipo = { ore: 'Registrazione ore', reparto: 'Consultazione', ufficio: 'Ufficio' };
-    tb.innerHTML = righe.map(x => `
-      <tr style="${x.is_active ? '' : 'opacity:.5'}">
-        <td>${escapeHtml(x.label || '')}</td>
-        <td>${tipo[x.scope] || escapeHtml(x.scope)}</td>
-        <td>${x.is_active ? '<span style="color:var(--green); font-weight:700;">attivo</span>'
-                          : 'revocato'}</td>
-        <td style="font-size:12px; color:var(--gray-text);">
-          ${x.created_at ? new Date(x.created_at).toLocaleDateString('it-IT') : '-'}</td>
-        <td>${x.is_active ? `<button class="btn-secondary" onclick="revocaDispositivo('${x.id}', '${escapeHtml(x.label || '')}')">Revoca</button>` : ''}</td>
-      </tr>`).join('');
-  } catch (e) {
-    tb.innerHTML = `<tr><td colspan="5" class="empty">Errore: ${escapeHtml(e.message)}</td></tr>`;
+  const [r, m] = await Promise.all([api('/api/admin/dispositivi'), api('/api/admin/accesso')]);
+  if (r.ok) {
+    const righe = r.d.dispositivi || [];
+    $('disp-tb').innerHTML = righe.length ? righe.map(x => `
+      <tr class="${x.attivo ? '' : 'adm-row-off'}">
+        <td><b>${esc(x.nome)}</b>${x.questo ? ' <span class="ft-chip accent">questo</span>' : ''}</td>
+        <td>${esc(x.stazione_nome)}</td>
+        <td>${x.attivo ? '<span class="ft-status ok">attivo</span>' : '<span class="ft-status err">revocato</span>'}</td>
+        <td>${esc(quando(x.registrato_il))}</td>
+        <td>${esc(quando(x.ultimo_uso))}</td>
+        <td class="r" style="white-space:nowrap">${x.attivo ? `
+          <button class="ft-btn sm" onclick="rinomina('${esc(x.id)}', ${esc(JSON.stringify(x.nome))})">Rinomina</button>
+          <button class="ft-btn sm danger" onclick="revoca('${esc(x.id)}', ${esc(JSON.stringify(x.nome))})">Revoca</button>` : ''}</td>
+      </tr>`).join('') : '<tr><td colspan="6" class="ft-muted">Nessun dispositivo registrato.</td></tr>';
+    if (righe.length) entra('disp-tb');
+  }
+  if (m.ok) {
+    MODALITA = m.d.modalita;
+    const prot = MODALITA === 'protetto';
+    $('mod-ora').textContent = prot ? 'Protetto' : 'Periodo di passaggio';
+    $('mod-ora').className = 'adm-mod ' + (prot ? 'prot' : 'trans');
+    $('mod-stazioni').innerHTML = m.d.stazioni.map(s => `<div><span>${esc(s.nome)}</span>${s.dispositivi
+      ? `<span class="ft-chip ok">${s.dispositivi} registrat${s.dispositivi === 1 ? 'o' : 'i'}</span>`
+      : '<span class="ft-chip">nessuno</span>'}</div>`).join('');
+    const mancano = m.d.stazioni.filter(s => !s.dispositivi).map(s => s.nome);
+    $('mod-avviso').innerHTML = !prot && mancano.length
+      ? `<div class="ft-alert warn"><span>Prima di passare a <b>protetto</b> registra: ${esc(mancano.join(', '))}. In protetto un dispositivo non registrato non entra.</span></div>`
+      : '';
+    $('mod-btn').textContent = prot ? 'Torna al periodo di passaggio' : 'Passa a protetto';
   }
 }
-
-async function creaDispositivo() {
-  const label = document.getElementById('disp-label').value.trim();
-  const scope = document.getElementById('disp-scope').value;
-  if (!label) { showMsg('disp-msg', 'Dai un nome al tablet', 'var(--red)'); return; }
-  try {
-    const r = await fetch(`${API_URL}/api/admin/dispositivi`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ label, scope, admin_id: currentUser ? currentUser.id : '' })
-    });
-    const d = await r.json();
-    if (!r.ok) { showMsg('disp-msg', d.error || 'Operazione fallita', 'var(--red)'); return; }
-    const url = d.dispositivo.url;
-    document.getElementById('disp-url').value = url;
-    document.getElementById('disp-qr').src =
-      `${API_URL}/api/admin/dispositivi/qr?testo=${encodeURIComponent(url)}`;
-    document.getElementById('disp-nuovo').style.display = 'block';
-    document.getElementById('disp-label').value = '';
-    showMsg('disp-msg', 'Tablet abilitato: segui le istruzioni qui sotto', 'var(--green)');
-    caricaDispositivi();
-  } catch (e) { showMsg('disp-msg', `Errore: ${e.message}`, 'var(--red)'); }
-}
-
-function copiaUrlDispositivo() {
-  const t = document.getElementById('disp-url');
-  t.select();
-  try { document.execCommand('copy'); showMsg('disp-msg', 'Indirizzo copiato', 'var(--green)'); }
-  catch (_) { showMsg('disp-msg', 'Copialo a mano dal riquadro', 'var(--red)'); }
-}
-
-async function revocaDispositivo(id, label) {
-  const avviso = 'Revocare "' + label + '"?\n\nDa quel momento il tablet non potra\' piu\' ' +
-                 'salvare ore finche non lo riabiliti con un nuovo indirizzo.';
-  if (!confirm(avviso)) return;
-  try {
-    const admin = encodeURIComponent(currentUser ? currentUser.id : '');
-    const r = await fetch(`${API_URL}/api/admin/dispositivi/${id}?admin_id=${admin}`,
-                          { method: 'DELETE' });
-    const d = await r.json();
-    if (r.ok) { showMsg('disp-msg', 'Tablet revocato', 'var(--green)'); caricaDispositivi(); }
-    else showMsg('disp-msg', d.error || 'Revoca fallita', 'var(--red)');
-  } catch (e) { showMsg('disp-msg', `Errore: ${e.message}`, 'var(--red)'); }
-}
-
-async function loadConfig() {
+async function rinomina(id, nome) {
+  const nuovo = prompt('Nuovo nome del dispositivo', nome);
+  if (!nuovo || nuovo.trim() === nome) return;
+  const r = await api(`/api/admin/dispositivi/${encodeURIComponent(id)}`, 'PUT', { nome: nuovo.trim() });
+  if (!r.ok) FT.toast(r.d.error || 'Non rinominato', 'err'); else FT.toast('Dispositivo rinominato', 'ok');
   caricaDispositivi();
-  try {
-    const r = await fetch(`${API_URL}/api/admin/config`);
-    const d = await r.json();
-    const cfg = d.config || {};
-    document.getElementById('cfg-giorni-taglio').value = cfg.sospetto_giorni_dal_taglio ?? 5;
-    document.getElementById('cfg-giorni-scan').value   = cfg.sospetto_giorni_da_ultima_scan ?? 3;
-    document.getElementById('cfg-giorni-apertura').value = cfg.sospetto_giorni_apertura ?? 10;
-    const attive = !!cfg.pistole_attive;
-    document.getElementById('cfg-pistole-attive').checked = attive;
-    _mostraSezioniPistole(attive);
-    document.getElementById('cfg-fine-turno').value    = cfg.fine_turno_hhmm || '17:30';
-    document.getElementById('cfg-ore-attive-dal').value = cfg.ore_attive_dal || '';
-    const ol = cfg.orario_lavoro || [['07:30','12:00'], ['13:30','17:00']];
-    document.getElementById('cfg-orario-mat-inizio').value = (ol[0] && ol[0][0]) || '07:30';
-    document.getElementById('cfg-orario-mat-fine').value   = (ol[0] && ol[0][1]) || '12:00';
-    document.getElementById('cfg-orario-pom-inizio').value = (ol[1] && ol[1][0]) || '13:30';
-    document.getElementById('cfg-orario-pom-fine').value   = (ol[1] && ol[1][1]) || '17:00';
-    showMsg('cfg-msg', '', '');
-  } catch (e) { showMsg('cfg-msg', `Errore: ${e.message}`, 'var(--red)'); }
+}
+async function revoca(id, nome) {
+  if (!await FT.conferma({ titolo: `Revocare “${nome}”?`, testo: 'Da subito non entra più, e chi era entrato da lì esce. Per riusarlo va registrato di nuovo.', ok: 'Revoca', pericolo: true })) return;
+  const r = await api(`/api/admin/dispositivi/${encodeURIComponent(id)}`, 'DELETE');
+  if (!r.ok) FT.toast(r.d.error || 'Non revocato', 'err'); else FT.toast('Dispositivo revocato', 'ok');
+  caricaDispositivi();
+}
+async function cambiaModalita() {
+  const verso = MODALITA === 'protetto' ? 'transizione' : 'protetto';
+  const ok = await FT.conferma(verso === 'protetto'
+    ? { titolo: 'Passare a protetto?', testo: 'I dispositivi non registrati non entreranno più, nemmeno col vecchio ingresso.', ok: 'Passa a protetto' }
+    : { titolo: 'Tornare al periodo di passaggio?', testo: 'I dispositivi non registrati potranno di nuovo entrare col vecchio modo.', ok: 'Torna', pericolo: true });
+  if (!ok) return;
+  const r = await api('/api/admin/accesso', 'PUT', { modalita: verso });
+  if (!r.ok) FT.toast(r.d.error || 'Non cambiata', 'err'); else FT.toast('Modalità cambiata', 'ok');
+  caricaDispositivi();
 }
 
-// Mostra i criteri coerenti con la modalita' scelta: chi legge non deve chiedersi
-// quale delle due regole sia quella in vigore.
-function _mostraSezioniPistole(attive) {
-  // Le impostazioni che agiscono solo sulle scansioni non hanno senso da spente:
-  // lasciarle visibili farebbe credere di poter regolare le ore dichiarate.
-  for (const id of ['card-orario-lavoro', 'card-fine-turno']) {
-    const el = document.getElementById(id);
-    if (el) el.style.display = attive ? '' : 'none';
+// ── impostazioni ────────────────────────────────────────────────────
+async function caricaImpostazioni() {
+  const [r, c] = await Promise.all([api('/api/admin/config'), api('/api/laser/cartella-disegni')]);
+  if (r.ok) {
+    $('cfg-giorni').value = r.d.config.sospetto_giorni_apertura ?? 10;
+    $('cfg-ore').value = r.d.config.ore_attive_dal || '';
   }
-  document.getElementById('cfg-testo-pistole').style.display = attive ? '' : 'none';
-  document.getElementById('cfg-testo-dichiarazioni').style.display = attive ? 'none' : '';
-  document.getElementById('cfg-riga-scan').style.display = attive ? '' : 'none';
-  document.getElementById('cfg-riga-apertura').style.display = attive ? 'none' : '';
-}
-document.addEventListener('change', (e) => {
-  if (e.target && e.target.id === 'cfg-pistole-attive') _mostraSezioniPistole(e.target.checked);
-});
-
-async function saveConfig() {
-  const giorniTaglio = parseInt(document.getElementById('cfg-giorni-taglio').value, 10);
-  const giorniApertura = parseInt(document.getElementById('cfg-giorni-apertura').value, 10);
-  const pistoleAttive = document.getElementById('cfg-pistole-attive').checked;
-  const giorniScan   = parseInt(document.getElementById('cfg-giorni-scan').value, 10);
-  const fineTurno    = document.getElementById('cfg-fine-turno').value.trim();
-  const oreAttiveDal = document.getElementById('cfg-ore-attive-dal').value.trim();
-  const matIn  = document.getElementById('cfg-orario-mat-inizio').value.trim();
-  const matFi  = document.getElementById('cfg-orario-mat-fine').value.trim();
-  const pomIn  = document.getElementById('cfg-orario-pom-inizio').value.trim();
-  const pomFi  = document.getElementById('cfg-orario-pom-fine').value.trim();
-
-  if (isNaN(giorniTaglio) || giorniTaglio < 1 || giorniTaglio > 60) {
-    showMsg('cfg-msg', 'Giorni dal taglio: 1-60', 'var(--red)'); return;
-  }
-  if (isNaN(giorniScan) || giorniScan < 1 || giorniScan > 30) {
-    showMsg('cfg-msg', 'Giorni dall\'ultima scan: 1-30', 'var(--red)'); return;
-  }
-  if (isNaN(giorniApertura) || giorniApertura < 1 || giorniApertura > 120) {
-    showMsg('cfg-msg', 'Giorni di apertura: 1-120', 'var(--red)'); return;
-  }
-  if (!HHMM_RE.test(fineTurno)) {
-    showMsg('cfg-msg', 'Orario fine turno: formato HH:MM (es. 17:30)', 'var(--red)'); return;
-  }
-  for (const [n, v] of [['Mattina inizio',matIn],['Mattina fine',matFi],['Pomeriggio inizio',pomIn],['Pomeriggio fine',pomFi]]) {
-    if (!HHMM_RE.test(v)) { showMsg('cfg-msg', `${n}: formato HH:MM (es. 07:30)`, 'var(--red)'); return; }
-  }
-  if (_hhmmToMinutes(matFi) <= _hhmmToMinutes(matIn)) {
-    showMsg('cfg-msg', 'Mattina: fine deve essere dopo l\'inizio', 'var(--red)'); return;
-  }
-  if (_hhmmToMinutes(pomFi) <= _hhmmToMinutes(pomIn)) {
-    showMsg('cfg-msg', 'Pomeriggio: fine deve essere dopo l\'inizio', 'var(--red)'); return;
-  }
-  if (_hhmmToMinutes(pomIn) < _hhmmToMinutes(matFi)) {
-    showMsg('cfg-msg', 'Pomeriggio deve iniziare dopo la fine mattina', 'var(--red)'); return;
-  }
-
-  try {
-    const r = await fetch(`${API_URL}/api/admin/config`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        admin_id: currentUser ? currentUser.id : '',
-        sospetto_giorni_dal_taglio: giorniTaglio,
-        sospetto_giorni_da_ultima_scan: giorniScan,
-        sospetto_giorni_apertura: giorniApertura,
-        pistole_attive: pistoleAttive,
-        fine_turno_hhmm: fineTurno,
-        ore_attive_dal: oreAttiveDal,
-        orario_lavoro: [[matIn, matFi], [pomIn, pomFi]]
-      })
-    });
-    const d = await r.json();
-    if (r.ok && d.success) {
-      // Il server dice cosa non ha potuto applicare: un "salvato" su
-      // un'impostazione rimasta com'era e' peggio di un errore dichiarato.
-      const scartate = (d.config && d.config._ignorati) || [];
-      if (scartate.length) {
-        showMsg('cfg-msg', 'Salvate, tranne: ' + scartate.join('; '), '#b45309');
-      } else {
-        showMsg('cfg-msg', '✓ Impostazioni salvate', 'var(--green)');
-      }
-    } else {
-      showMsg('cfg-msg', `Errore: ${d.error || 'operazione fallita'}`, 'var(--red)');
-    }
-  } catch (e) { showMsg('cfg-msg', `Errore: ${e.message}`, 'var(--red)'); }
-}
-
-// ============================================================
-//  BACKUP
-// ============================================================
-async function loadBackupSettings() {
-  try {
-    const r = await fetch(`${API_URL}/api/admin/backup/settings`, { headers: hdrUtente() });
-    const d = await r.json();
-    const s = d.settings || {};
-    document.getElementById('bk-enabled').value  = s.backup_enabled ? 'true' : 'false';
-    document.getElementById('bk-interval').value = s.interval_hours ?? 6;
-    document.getElementById('bk-max').value      = s.max_backups ?? 30;
-    document.getElementById('bk-path').value     = s.backup_path || '';
-  } catch (e) { showMsg('bk-settings-msg', `Errore: ${e.message}`, 'var(--red)'); }
-}
-
-async function saveBackupSettings() {
-  try {
-    const r = await fetch(`${API_URL}/api/admin/backup/settings`, {
-      method: 'PUT',
-      headers: hdrUtente({'Content-Type': 'application/json'}),
-      body: JSON.stringify({
-        backup_enabled: document.getElementById('bk-enabled').value === 'true',
-        interval_hours: parseInt(document.getElementById('bk-interval').value, 10),
-        max_backups:    parseInt(document.getElementById('bk-max').value, 10),
-        backup_path:    document.getElementById('bk-path').value.trim()
-      })
-    });
-    const d = await r.json();
-    if (r.ok && d.success) showMsg('bk-settings-msg', '✓ Impostazioni salvate', 'var(--green)');
-    else showMsg('bk-settings-msg', `Errore: ${d.error || 'operazione fallita'}`, 'var(--red)');
-  } catch (e) { showMsg('bk-settings-msg', `Errore: ${e.message}`, 'var(--red)'); }
-}
-
-async function runManualBackup() {
-  showMsg('bk-manual-msg', 'Backup in corso…', 'var(--gray-text)');
-  try {
-    const r = await fetch(`${API_URL}/api/admin/backup`, { method: 'POST', headers: hdrUtente() });
-    const d = await r.json();
-    if (r.ok && d.success) {
-      showMsg('bk-manual-msg', `✓ Creato: ${d.backup_path}${d.integrity_ok === false ? ' (integrity check fallito!)' : ''}`, d.integrity_ok === false ? 'var(--orange)' : 'var(--green)');
-      loadBackupList();
-    } else {
-      showMsg('bk-manual-msg', `Errore: ${d.error || 'backup fallito'}`, 'var(--red)');
-    }
-  } catch (e) { showMsg('bk-manual-msg', `Errore: ${e.message}`, 'var(--red)'); }
-}
-
-async function loadBackupList() {
-  const tbody = document.getElementById('bk-tbody');
-  const meta = document.getElementById('bk-list-meta');
-  try {
-    const r = await fetch(`${API_URL}/api/admin/backup/list`, { headers: hdrUtente() });
-    const d = await r.json();
-    const backups = d.backups || [];
-    meta.textContent = `${d.count ?? backups.length} file`;
-    if (!backups.length) {
-      tbody.innerHTML = '<tr><td colspan="3" class="empty">Nessun backup esistente.</td></tr>';
-      return;
-    }
-    let html = '';
-    for (const b of backups) {
-      const sizeKb = (b.size_bytes || b.size) ? ((b.size_bytes || b.size) / 1024).toFixed(1) + ' KB' : '—';
-      const ts = b.created_at || b.modified || b.timestamp || '';
-      const dt = ts ? new Date(ts).toLocaleString('it-IT') : '—';
-      html += `<tr>
-        <td><code>${escapeHtml(b.filename || b.name || '')}</code></td>
-        <td style="color:var(--gray-text); font-size:12px;">${dt}</td>
-        <td class="n">${sizeKb}</td>
-      </tr>`;
-    }
-    tbody.innerHTML = html;
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty">Errore: ${escapeHtml(e.message)}</td></tr>`;
+  if (c.ok) {
+    $('cfg-cartella').textContent = c.d.percorso || 'non impostata';
+    $('cfg-consentite').textContent = (c.d.consentite || []).length
+      ? 'Si sceglie dal Laser, dentro: ' + c.d.consentite.join('; ')
+      : 'Nessuna cartella consentita: si aggiunge sul server con tools\\persone.py cartella aggiungi "D:\\Commesse".';
   }
 }
+async function salvaImpostazioni() {
+  const g = parseInt($('cfg-giorni').value, 10);
+  if (isNaN(g) || g < 1 || g > 120) { msg('cfg-msg', 'Giorni: da 1 a 120.', 'err'); return; }
+  const r = await api('/api/admin/config', 'PUT', { sospetto_giorni_apertura: g, ore_attive_dal: $('cfg-ore').value });
+  if (!r.ok) { msg('cfg-msg', r.d.error || 'Non salvato.', 'err'); return; }
+  const scartate = (r.d.config && r.d.config._ignorati) || [];
+  if (scartate.length) msg('cfg-msg', 'Salvate, tranne: ' + scartate.join('; '), 'err');
+  else { msg('cfg-msg', ''); FT.toast('Impostazioni salvate', 'ok'); }
+}
 
-// ============================================================
-//  AUDIT LOG
-// ============================================================
-async function loadAudit() {
-  const tbody = document.getElementById('audit-tbody');
-  const userFilter = document.getElementById('audit-filter-user').value.trim();
-  const limit = document.getElementById('audit-limit').value;
-  let url = `${API_URL}/api/admin/audit?limit=${encodeURIComponent(limit)}`;
-  if (userFilter) url += `&user_id=${encodeURIComponent(userFilter)}`;
-  try {
-    const r = await fetch(url, { headers: hdrUtente() });
-    const d = await r.json();
-    const logs = d.logs || [];
-    if (!logs.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty">Nessun evento.</td></tr>';
-      return;
-    }
-    let html = '';
-    for (const l of logs) {
-      const ts = l.timestamp || l.created_at || '';
-      const dt = ts ? new Date(ts).toLocaleString('it-IT') : '—';
-      html += `<tr>
-        <td style="color:var(--gray-text); font-size:12px; white-space:nowrap;">${dt}</td>
-        <td><b>${escapeHtml(l.user_name || l.user_id || '—')}</b></td>
-        <td><span class="badge blue">${escapeHtml(l.action || '—')}</span></td>
-        <td style="font-size:12px; color:var(--gray-text);">${escapeHtml(l.entity_type || '')}${l.entity_id ? ' / ' + escapeHtml(l.entity_id) : ''}</td>
-        <td style="font-size:12px; color:var(--gray-text); max-width:340px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(l.detail || '')}</td>
-      </tr>`;
-    }
-    tbody.innerHTML = html;
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty">Errore: ${escapeHtml(e.message)}</td></tr>`;
+// ── backup ──────────────────────────────────────────────────────────
+async function caricaBackup() {
+  const [s, l] = await Promise.all([api('/api/admin/backup/settings'), api('/api/admin/backup/list')]);
+  if (s.ok) {
+    const x = s.d.settings || {};
+    $('bk-on').value = x.backup_enabled ? 'true' : 'false';
+    $('bk-ore').value = x.interval_hours ?? 6; $('bk-max').value = x.max_backups ?? 30; $('bk-path').value = x.backup_path || '';
+  }
+  if (l.ok) {
+    const b = l.d.backups || [];
+    $('bk-tb').innerHTML = b.length ? b.map(x => `<tr><td class="adm-mono">${esc(x.filename || x.name || '')}</td>
+      <td>${esc(quando(x.created_at || x.modified || x.timestamp))}</td>
+      <td class="r">${((x.size_bytes || x.size || 0) / 1048576).toFixed(1).replace('.', ',')} MB</td></tr>`).join('')
+      : '<tr><td colspan="3" class="ft-muted">Nessuna copia.</td></tr>';
+    if (b.length) entra('bk-tb');
   }
 }
+async function salvaBackup() {
+  const r = await api('/api/admin/backup/settings', 'PUT', {
+    backup_enabled: $('bk-on').value === 'true', interval_hours: parseInt($('bk-ore').value, 10),
+    max_backups: parseInt($('bk-max').value, 10), backup_path: $('bk-path').value.trim() });
+  if (r.ok) { msg('bk-msg', ''); FT.toast('Impostazioni dei backup salvate', 'ok'); }
+  else msg('bk-msg', r.d.error || 'Non salvate.', 'err');
+}
+async function backupOra() {
+  FT.toast('Copia in corso…');
+  const r = await api('/api/admin/backup', 'POST');
+  FT.toast(r.ok ? 'Copia fatta.' : (r.d.error || 'Copia non riuscita.'), r.ok ? 'ok' : 'err');
+  caricaBackup();
+}
+
+// ── registro attivita' ──────────────────────────────────────────────
+async function caricaRegistro() {
+  const r = await api('/api/admin/audit?limit=200');
+  if (!r.ok) { $('reg-tb').innerHTML = `<tr><td colspan="4" class="ft-muted">${esc(r.d.error || 'Non disponibile')}</td></tr>`; return; }
+  const l = r.d.logs || [];
+  $('reg-tb').innerHTML = l.length ? l.map(x => `<tr><td style="white-space:nowrap">${esc(quando(x.timestamp))}</td>
+    <td><b>${esc(x.user_name || x.user_id || '—')}</b></td><td>${esc(x.action || '')}</td>
+    <td class="ft-muted" style="max-width:520px">${esc((x.detail || '').slice(0, 240))}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="ft-muted">Nessuna attività.</td></tr>';
+  if (l.length) entra('reg-tb');
+}
+
+// ── avvio ───────────────────────────────────────────────────────────
+async function aggiornaChi() {
+  const r = await fetch('/api/accesso/io').then(x => x.json()).catch(() => null);
+  if (r && r.admin) {
+    $('chi').innerHTML = `Amministratore: <b>${esc(r.admin.nome)}</b>`;
+    $('chi').hidden = false; $('fine').hidden = false;
+  }
+}
+async function sblocca() {
+  const ok = await FTA.chiediPinAdmin('Per aprire l’amministrazione.');
+  if (ok) avvia();
+}
+async function avvia() {
+  const io = await FTA.pronto;
+  // Senza un PIN di amministratore ancora valido lo si chiede subito; se
+  // scade mentre si lavora, ci pensa ft-accesso.js alla prima richiesta.
+  if (io && !io.admin) {
+    const ok = await FTA.chiediPinAdmin('Per aprire l’amministrazione.');
+    if (!ok) { $('gate').hidden = false; $('tabs').hidden = true; return; }
+  }
+  const r = await api('/api/admin/persone');
+  if (!r.ok) { $('gate').hidden = false; $('tabs').hidden = true; return; }
+  $('gate').hidden = true; $('tabs').hidden = false;
+  aggiornaChi();
+  vai(SCHEDA);
+}
+avvia();
 </script>
-<script src="https://unpkg.com/lucide@latest"></script>
-<script>if (window.lucide) lucide.createIcons();</script>
-
 </body>
 </html>

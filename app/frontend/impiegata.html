@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-accesso.js" data-stazioni="ufficio"></script>
 <script src="/ft-ui.js"></script>
 <script src="/carico-laser.js"></script>
 <style>
@@ -125,7 +126,7 @@ body.ft [hidden] { display: none !important; }
 .ft-drawer-foot .spacer { flex: 1; }
 #ord-drawer { width: min(660px, 100vw); }
 
-/* ── Finestra con anteprima (PDF, cartellino, disegno) ── */
+/* ── Finestra con anteprima (PDF, stampa ordine, disegno) ── */
 .ft-modal.xl { width: min(1080px, 100%); height: calc(100vh - 48px); }
 .ft-modal.xl .ft-modal-body { flex: 1; padding: 0 20px 16px; display: flex; }
 .ft-frame { flex: 1; width: 100%; min-height: 300px; border: 1px solid var(--ft-line); border-radius: 10px; background: var(--ft-well); }
@@ -447,7 +448,18 @@ body.ft [hidden] { display: none !important; }
 .imp-storia b { font-size: 13.5px; }
 .imp-storia small { display: block; font-size: 12px; color: var(--ft-ink-3); }
 .imp-storia .q { font-size: 13px; color: var(--ft-ink-2); text-align: right; font-variant-numeric: tabular-nums; }
-@media (max-width: 1400px) { .og-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .og-grid { grid-template-columns: minmax(0, 1fr); } .imp-cerca input { width: 220px; } }
+@media (max-width: 1400px) { .og-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .og-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Nove schede + ricerca: sotto i 1680 px la ricerca e' corta e si allarga
+   quando la usi, le schede si stringono. Prima Archivio, Ore e Backup
+   finivano fuori dallo schermo a 1440 px. */
+.imp-cerca input { transition: width .2s var(--ft-ease), border-color .15s, box-shadow .15s; }
+@media (max-width: 1680px) {
+  .imp-cerca input { width: 190px; }
+  .imp-cerca input:focus { width: 320px; }
+  .imp-cerca kbd { display: none; }
+  .ft-topbar .ft-tab { padding: 0 9px; font-size: 13px; }
+}
+@media (max-width: 1360px) { .imp-cerca input { width: 150px; } }
 </style>
 </head>
 <body class="ft">
@@ -534,7 +546,7 @@ body.ft [hidden] { display: none !important; }
   <div class="ft-head imp-narrow">
     <div>
       <h1 class="ft-title">Carica ordine</h1>
-      <p class="ft-subtitle">Carica il PDF dell'ordine del cliente, oppure <b>tutta la cartella con i disegni</b>: l'ordine va in produzione con i suoi pezzi e si apre il <b>cartellino A6</b> da stampare e incollare sul faldone.</p>
+      <p class="ft-subtitle">Carica il PDF dell'ordine del cliente, oppure <b>tutta la cartella con i disegni</b>: l'ordine va in produzione con i suoi pezzi. Per l'officina si stampa l'ordine con <b>Stampa ordine</b>, dal pannello dell'ordine.</p>
     </div>
   </div>
 
@@ -644,7 +656,7 @@ body.ft [hidden] { display: none !important; }
   <div class="ft-head">
     <div>
       <h1 class="ft-title">Da confermare</h1>
-      <p class="ft-subtitle">Preventivi inviati ai clienti in attesa di risposta. Quando il cliente conferma, premi <b>Conferma ordine</b>: parte la produzione e si apre il cartellino da stampare.</p>
+      <p class="ft-subtitle">Preventivi inviati ai clienti in attesa di risposta. Quando il cliente conferma, premi <b>Conferma ordine</b>: parte la produzione e si apre l'ordine, da stampare con <b>Stampa ordine</b>.</p>
     </div>
   </div>
   <div class="ft-card">
@@ -932,20 +944,18 @@ body.ft [hidden] { display: none !important; }
   </div>
 </div>
 
-<!-- Cartellino -->
-<div class="ft-modal-bg" id="cartellino-modal" onclick="if(event.target===this)closeCartellinoModal()">
-  <div class="ft-modal lg" role="dialog" aria-modal="true" aria-labelledby="cart-t" style="height:calc(100vh - 48px);">
+<!-- Stampa ordine: il PDF del cliente o, se manca, il foglio d'ordine -->
+<div class="ft-modal-bg" id="stampa-modal" onclick="if(event.target===this)chiudiStampaOrdine()">
+  <div class="ft-modal xl" role="dialog" aria-modal="true" aria-labelledby="stampa-t">
     <div class="ft-modal-head"><div>
-      <h3 class="ft-modal-title" id="cart-t">Cartellino da stampare</h3>
-      <p class="ft-modal-sub"><span id="cartellino-subtitle"></span> · formato A6, da incollare sul faldone: in officina si riconosce l'ordine a colpo d'occhio.</p>
-    </div><button class="ft-icon-btn ft-modal-x" onclick="closeCartellinoModal()" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
-    <div class="ft-modal-body" style="flex:1; display:flex; padding-bottom:16px;">
-      <iframe class="ft-frame" id="cartellino-iframe" title="Cartellino"></iframe>
-    </div>
+      <h3 class="ft-modal-title" id="stampa-t">Stampa ordine</h3>
+      <p class="ft-modal-sub"><span id="stampa-subtitle"></span> · da mettere nel faldone: in officina l'ordine si riconosce da questo foglio.</p>
+    </div><button class="ft-icon-btn ft-modal-x" onclick="chiudiStampaOrdine()" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
+    <div class="ft-modal-body"><iframe class="ft-frame" id="stampa-iframe" title="Ordine da stampare"></iframe></div>
     <div class="ft-modal-foot">
-      <button class="ft-btn ghost" onclick="closeCartellinoModal()">Stampa dopo</button>
-      <button class="ft-btn" onclick="downloadCartellino()"><i data-lucide="download"></i> Scarica PDF</button>
-      <button class="ft-btn primary" onclick="printCartellino()"><i data-lucide="printer"></i> Stampa</button>
+      <button class="ft-btn ghost" onclick="chiudiStampaOrdine()">Chiudi</button>
+      <a class="ft-btn" id="stampa-apri" target="_blank" rel="noopener"><i data-lucide="external-link"></i> Apri in una scheda</a>
+      <button class="ft-btn primary" onclick="stampaOrdine()"><i data-lucide="printer"></i> Stampa</button>
     </div>
   </div>
 </div>
@@ -980,7 +990,6 @@ const esc = s => FT.esc(s);
 function escapeHtml(s) { return FT.esc(s); }
 /** Testo libero dentro un onclick="...": stringa JS, poi escape HTML. */
 const jsq = s => FT.esc(JSON.stringify(String(s == null ? '' : s)));
-function utenteId() { return (currentUser && currentUser.id) || ''; }
 
 /** Avvisi brevi: sempre con i toast della casa. */
 function showMessage(text, type) {
@@ -990,11 +999,8 @@ function showMessage(text, type) {
 /** fetch che non lancia mai: {ok, status, data, rete}. */
 async function api(url, opt) {
   try {
-    // chi sta usando l'Ufficio: il server lo chiede per backup, eliminazione
-    // e modifica degli ordini (audit)
-    opt = Object.assign({}, opt || {});
-    opt.headers = Object.assign({}, opt.headers || {});
-    if (currentUser && currentUser.id && !opt.headers['X-User-Id']) opt.headers['X-User-Id'] = currentUser.id;
+    // Chi sta usando l'Ufficio lo sa il server (dispositivo + PIN): qui non
+    // si manda nessuna identita'.
     const r = await fetch(API_URL + url, opt);
     let data = null;
     if ((r.headers.get('content-type') || '').includes('json')) {
@@ -1062,34 +1068,9 @@ function dueHtml(v, finito) {
 // ═══════════════════════════════════════════════════════════════
 //  SESSIONE E TESTATA
 // ═══════════════════════════════════════════════════════════════
-/** La sessione salvata nel browser vale ancora? Non e' un permesso: quelli
-    li decide il server a ogni richiesta. Serve a non aprire una pagina che
-    poi rifiuterebbe ogni salvataggio senza dire perche'. */
-async function _sessioneAncoraValida() {
-  const u = FT.utente();
-  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
-  try {
-    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
-    if (!r.ok) return true;
-    const d = await r.json();
-    if (!d.valida) {
-      localStorage.removeItem('currentUser');
-      window.location.href = '/login.html';
-      return false;
-    }
-    const nuovo = { ...u, ...d.utente };
-    localStorage.setItem('currentUser', JSON.stringify(nuovo));
-    currentUser = nuovo;
-    FT.mostraUtente(nuovo, 'Ufficio');
-  } catch (_) { /* rete assente: si prosegue */ }
-  return true;
-}
-
 /** Giornate di ore da controllare, accanto alla scheda "Ore e riepilogo". */
 async function _contaOreDaControllare() {
-  const tok = localStorage.getItem('ufficio_device_token');
-  if (!tok) return;
-  const res = await api('/api/ore/anomalie?stato=aperta', { headers: { 'X-Device-Token': tok } });
+  const res = await api('/api/ore/anomalie?stato=aperta');
   if (res.ok && res.data) setCount('ore-badge', (res.data.anomalie || []).length);
 }
 
@@ -1098,16 +1079,9 @@ function updateConnBadge(online) {
   if (b) b.classList.toggle('off', !online);
 }
 
-async function logout() {
-  if (currentUser) {
-    await fetch(`${API_URL}/api/auth/logout`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser.id })
-    }).catch(() => {});
-  }
-  localStorage.removeItem('currentUser');
-  window.location.href = '/login.html';
-}
+/** "Esci": chiude la sessione di chi e' entrato col PIN. Il PC resta
+    l'Ufficio; il prossimo che arriva digita il suo PIN. */
+function logout() { FTA.esci(); }
 
 // ═══════════════════════════════════════════════════════════════
 //  SCHEDE
@@ -1242,15 +1216,15 @@ async function submitOrder() {
   const btn = $('co-submit'); btn.disabled = true;
   const res = await inviaJson('/api/orders', {
     cliente, numero_ordine: numero, data_consegna: data, note,
-    pdf_filename: pdfData.pdf_filename, operatore_id: utenteId()
+    pdf_filename: pdfData.pdf_filename
   });
   btn.disabled = false;
   if (riuscita(res) && res.data && res.data.success) {
-    FT.toast(`Ordine ${numero} creato`, 'ok');
+    FT.toast(`Ordine ${numero} creato: per l\u2019officina usa \u201cStampa ordine\u201d`, 'ok');
     resetCaricaForm();
     loadCalendar();
-    if (res.data.order_id) openCartellinoModal(res.data.order_id, `${numero} · ${cliente}`, 'ordini');
-    else switchTab('ordini', 'aperto');
+    switchTab('ordini', 'aperto');
+    if (res.data.order_id) apriOrdine(res.data.order_id);
   } else {
     const box = $('status-message');
     box.textContent = 'Ordine non creato: ' + msgErrore(res);
@@ -1325,7 +1299,6 @@ function pkgMostra(attivo) {
 
 async function avviaPacchetto(files) {
   setErr('err-pdf', ''); $('pdf-upload-btn').classList.remove('invalid');
-  if (!utenteId()) { FT.toast('Utente non riconosciuto: esci e rientra.', 'err'); return; }
   const peso = files.reduce((a, f) => a + (f.size || 0), 0);
   if (peso > PKG_MAX_BYTE) {
     setErr('err-pdf', `Il pacchetto pesa ${kb(peso)}: il massimo è 50 MB. Togli i file che non servono (foto, STEP pesanti) e riprova.`);
@@ -1359,7 +1332,6 @@ async function avviaPacchetto(files) {
   const fd = new FormData();
   if (zip) fd.append('zip', files[0]);
   else for (const f of files) { fd.append('files', f); fd.append('paths', f._relPath || f.webkitRelativePath || f.name); }
-  fd.append('user_id', utenteId());
   const res = await api('/api/orders/da-pacchetto/analizza', { method: 'POST', body: fd });
   clearInterval(timer);
   if (!PKG || PKG.files !== files) return;   // annullato nel frattempo
@@ -1658,7 +1630,7 @@ async function pkgAnnulla() {
   const id = PKG.id;
   pkgChiudi();
   if (id) {
-    const res = await inviaJson(`/api/orders/da-pacchetto/${encodeURIComponent(id)}`, { user_id: utenteId() }, 'DELETE');
+    const res = await inviaJson(`/api/orders/da-pacchetto/${encodeURIComponent(id)}`, {}, 'DELETE');
     if (!riuscita(res) && res.status !== 404) FT.toast('Caricamento annullato (i file verranno ripuliti più tardi).', 'warn');
   }
 }
@@ -1688,7 +1660,7 @@ async function pkgCrea(forza) {
   btn.disabled = true;
   btn.innerHTML = '<i data-lucide="loader-circle"></i> Creo l’ordine…'; FT.icone();
   const corpo = {
-    user_id: utenteId(), numero_ordine: t.numero.trim(), cliente: t.cliente.trim(), data_consegna: t.data, note: t.note.trim(),
+    numero_ordine: t.numero.trim(), cliente: t.cliente.trim(), data_consegna: t.data, note: t.note.trim(),
     forza: !!forza,
     righe: PKG.righe.map(r => ({ id: r.id, quantita: pkgNum(r.q), materiale: r.mat.trim(), spessore_mm: pkgNum(r.sp) })),
   };
@@ -1696,15 +1668,15 @@ async function pkgCrea(forza) {
   btn.innerHTML = '<i data-lucide="check"></i> Crea ordine';
   const r = res.data || {};
   if (riuscita(res) && r.order_id) {
-    const etichetta = `${t.numero.trim()} · ${t.cliente.trim()}`;
-    FT.toast(`Ordine ${t.numero.trim()} creato con ${r.n_pezzi === 1 ? '1 pezzo' : (r.n_pezzi || 0) + ' pezzi'}`, 'ok');
+    FT.toast(`Ordine ${t.numero.trim()} creato con ${r.n_pezzi === 1 ? '1 pezzo' : (r.n_pezzi || 0) + ' pezzi'}: per l\u2019officina usa \u201cStampa ordine\u201d`, 'ok');
     if (r.avviso) FT.toast(r.avviso, 'warn', null, 8000);
     pkgChiudi();
     resetCaricaForm();
     loadCalendar();
     caricaViste(true);
-    openCartellinoModal(r.order_id, etichetta, 'ordini');
-    $('cartellino-modal').dataset.apri = r.order_id;
+    // Si va dritti all'ordine, sulla distinta: la stampa la decide l'ufficio.
+    switchTab('ordini', 'aperto');
+    apriOrdine(r.order_id, 'distinta');
     return;
   }
   pkgAggiorna();
@@ -1729,40 +1701,26 @@ async function pkgCrea(forza) {
   }
 }
 
-// ── Cartellino ──
-function openCartellinoModal(orderId, label, dopo) {
-  apriCartellinoUrl(`${API_URL}/api/orders/${orderId}/cartellino`, label, dopo);
+// ── Stampa ordine ──
+// In officina l'ordine si riconosce dal PDF d'ordine stampato: quello del
+// cliente se c'e', altrimenti il foglio d'ordine generato dalla distinta.
+// Decide il server (/api/orders/<id>/stampa): qui non si deve sapere da dove
+// e' nato l'ordine.
+function apriStampaOrdine(orderId, label) {
+  const url = `${API_URL}/api/orders/${encodeURIComponent(orderId)}/stampa`;
+  $('stampa-iframe').src = url;
+  $('stampa-apri').href = url;
+  $('stampa-subtitle').textContent = label || '';
+  FT.apri('stampa-modal');
 }
-function apriCartellinoUrl(url, label, dopo) {
-  const modal = $('cartellino-modal');
-  $('cartellino-iframe').src = url + '#toolbar=0&navpanes=0&zoom=page-fit';
-  $('cartellino-subtitle').textContent = label || '';
-  modal.dataset.url = url;
-  modal.dataset.dopo = dopo || '';
-  FT.apri('cartellino-modal');
+function chiudiStampaOrdine() {
+  FT.chiudi('stampa-modal');
+  $('stampa-iframe').src = 'about:blank';
 }
-function closeCartellinoModal() {
-  const modal = $('cartellino-modal');
-  FT.chiudi('cartellino-modal');
-  $('cartellino-iframe').src = 'about:blank';
-  if (modal.dataset.dopo) {
-    const v = modal.dataset.dopo, apri = modal.dataset.apri;
-    modal.dataset.dopo = ''; modal.dataset.apri = '';
-    // Ordine dal pacchetto: si apre anche il suo pannello, sulla distinta.
-    setTimeout(() => { switchTab(v, 'aperto'); if (apri) apriOrdine(apri, 'distinta'); }, 150);
-  }
-}
-function printCartellino() {
-  const iframe = $('cartellino-iframe');
+function stampaOrdine() {
+  const iframe = $('stampa-iframe');
   try { iframe.contentWindow.focus(); iframe.contentWindow.print(); }
-  catch (_) { const url = $('cartellino-modal').dataset.url; if (url) window.open(url, '_blank'); }
-}
-function downloadCartellino() {
-  const url = $('cartellino-modal').dataset.url;
-  if (!url) return;
-  const a = document.createElement('a');
-  a.href = url; a.download = 'cartellino.pdf';
-  document.body.appendChild(a); a.click(); a.remove();
+  catch (_) { window.open($('stampa-apri').href, '_blank', 'noopener'); }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1802,7 +1760,6 @@ function rfqMessaggio(tipo, html) {
 async function submitRichiestaPreventivo(force) {
   const btn = $('rfq-submit-btn');
   if (!rfqFiles.length) return;
-  if (!utenteId()) { rfqMessaggio('err', 'Utente non riconosciuto: esci e rientra.'); return; }
   const isZip = rfqFiles.length === 1 && /\.zip$/i.test(rfqFiles[0].name);
   if (!isZip && !rfqFiles.some(f => /\.pdf$/i.test(f.name))) {
     rfqMessaggio('err', 'Manca il PDF della richiesta: aggiungi anche il PDF, non solo i disegni.');
@@ -1813,7 +1770,6 @@ async function submitRichiestaPreventivo(force) {
   btn.disabled = true;
   const fd = new FormData();
   for (const f of rfqFiles) fd.append('files', f);
-  fd.append('admin_id', utenteId());
   if (force) fd.append('force', '1');
   const res = await api('/api/preventivi/import-rfq-package', { method: 'POST', body: fd });
   const r = res.data || {};
@@ -1895,19 +1851,18 @@ async function confermaPreventivo(id, btn) {
   const p = _confermeItems.find(x => x.id === id) || {};
   const ok = await FT.conferma({
     titolo: `Confermare l'ordine di ${p.cliente || 'questo cliente'}?`,
-    testo: 'Parte la produzione: cartellino e disegni vanno all\u2019officina e i capi vengono avvisati. Subito dopo si apre il cartellino da stampare.',
+    testo: 'Parte la produzione: i disegni vanno al laser e i capi vengono avvisati. Subito dopo si apre l\u2019ordine: per l\u2019officina stampalo con \u201cStampa ordine\u201d.',
     ok: 'Conferma ordine'
   });
   if (!ok) return;
   if (btn) btn.disabled = true;
-  const res = await inviaJson(`/api/preventivi/${id}/accetta`, { user_id: utenteId() });
+  const res = await inviaJson(`/api/preventivi/${id}/accetta`, {});
   if (riuscita(res) && res.data && res.data.success) {
-    FT.toast('Ordine creato: stampa il cartellino per l\u2019officina', 'ok');
+    FT.toast('Ordine creato: per l\u2019officina usa \u201cStampa ordine\u201d', 'ok');
     loadConferme();
     const d = res.data;
     const oid = d.order_id || (d.ordine && d.ordine.id);
-    if (d.cartellino_url) apriCartellinoUrl(d.cartellino_url, p.cliente || '');
-    else if (oid) openCartellinoModal(oid, p.cliente || '');
+    if (oid) { switchTab('ordini', 'aperto'); apriOrdine(oid); }
   } else {
     if (btn) btn.disabled = false;
     FT.toast('Conferma non riuscita: ' + msgErrore(res), 'err');
@@ -1923,7 +1878,7 @@ async function rifiutaPreventivoImp(id, btn) {
   });
   if (!ok) return;
   if (btn) btn.disabled = true;
-  const res = await inviaJson(`/api/preventivi/${id}/rifiuta`, { user_id: utenteId() });
+  const res = await inviaJson(`/api/preventivi/${id}/rifiuta`, {});
   if (riuscita(res)) { FT.toast('Preventivo segnato come rifiutato', 'ok'); loadConferme(); }
   else { if (btn) btn.disabled = false; FT.toast('Operazione non riuscita: ' + msgErrore(res), 'err'); }
 }
@@ -2196,6 +2151,7 @@ function renderOggi() {
   $('og-kpi').innerHTML = kpi.map(([c, t, n, sub, fn]) =>
     `<button type="button" class="og-k ${c}${n ? '' : ' zero'}" onclick="${fn}"><span class="t">${t}</span><b>${n}</b><small>${sub}</small></button>`).join('')
     .replace('<small>da preparare</small>', `<small>${nConf ? `+ ${nConf} preventiv${nConf === 1 ? 'o' : 'i'} da confermare` : 'da preparare'}</small>`);
+  $('og-kpi').querySelectorAll('.og-k b').forEach((b, i) => FT.contaDa('og-k-' + i, b, kpi[i][2]));
   setCount('oggi-badge', ritardo.length + prossime.length || '');
 
   // ── Da fare ──
@@ -2213,6 +2169,7 @@ function renderOggi() {
     <div class="og-r" onclick="switchTab('conferme')" role="button"><span></span><div class="c"><b>${nConf} preventiv${nConf === 1 ? 'o inviato' : 'i inviati'} al cliente</b><small>aspettano la risposta</small></div><div class="s">Quando il cliente accetta, confermalo: diventa un ordine.</div><div class="a">${btn('Apri', "switchTab('conferme')", '', 'arrow-right')}</div></div>`
     + (html ? '<div class="og-sp"></div>' + html : '');
   $('og-dafare').innerHTML = html || `<div class="og-vuoto"><b>Tutto in ordine</b>Niente in ritardo, niente da registrare.</div>`;
+  if (!renderOggi.visto) { renderOggi.visto = true; FT.sequenza($('og-kpi')); FT.sequenza($('og-dafare')); }
   const nFare = ritardo.length + prossime.length + ddt.length + daCons.length + daFatt.length;
   $('og-dafare-n').textContent = nFare ? `${nFare} ${nFare === 1 ? 'ordine' : 'ordini'}` : '';
 
@@ -2338,7 +2295,7 @@ function storiaHtml(o, d, complet, dd, f) {
 
 /** Cartella dell'ordine per Lantek (stessa del bottone della pagina laser). */
 async function creaCartellaLantek(id) {
-  const res = await api(`/api/orders/${id}/crea-cartella`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: utenteId() }) });
+  const res = await api(`/api/orders/${id}/crea-cartella`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   const d = res.data || {};
   if (d.codice === 'non_impostata') { FT.toast('Prima va scelta la cartella dei disegni: dalla pagina laser (⚙) o dalle Impostazioni del preventivatore', 'warn', null, 9000); return; }
   if (!riuscita(res)) { FT.toast('Cartella non creata: ' + msgErrore(res), 'err', null, 8000); return; }
@@ -2423,6 +2380,7 @@ function renderKpiViste() {
       <span class="ft-kpi-val" id="n-${esc(f)}">${n}</span>
       <span class="ft-kpi-sub">${sub}</span></button>`;
   }).join('');
+  box.querySelectorAll('.ft-kpi-val').forEach(el => FT.contaDa(el.id, el, Number(el.textContent)));
 }
 
 function cambiaVista(fase) {
@@ -2469,9 +2427,24 @@ function renderVista() {
     tb.innerHTML = `<tr><td colspan="${col.length}" style="padding:0;">${vuoto(v[0], v[1], v[2])}</td></tr>`;
   } else {
     tb.innerHTML = righe.map(rigaVista).join('');
+    effettiRighe(tb);
   }
   $('vista-count').textContent = righe.length === 1 ? '1 ordine' : `${righe.length} ordini`;
   FT.icone();
+}
+
+/** Prima volta: le righe entrano in sequenza. Dopo: solo gli ordini arrivati
+    nel frattempo si accendono (aggiornamento automatico). Cambiare vista o
+    cercare non e' "arrivare": la memoria e' per vista. */
+const RIGHE_VISTE = {};
+function effettiRighe(tb) {
+  const ids = Array.from(tb.querySelectorAll('tr[data-id]')).map(r => r.dataset.id);
+  const prima = RIGHE_VISTE[VISTA];
+  if (!prima) FT.sequenza(tb);
+  else if (!($('vista-cerca').value || '').trim()) {
+    tb.querySelectorAll('tr[data-id]').forEach(r => { if (!prima.has(r.dataset.id)) FT.evidenzia(r); });
+  }
+  RIGHE_VISTE[VISTA] = new Set([...(prima || []), ...ids]);
 }
 
 function btn(testo, fn, cls, icona, titolo) {
@@ -2482,7 +2455,7 @@ function rigaVista(o) {
   const id = esc(o.id);
   const ordine = `<div class="ft-cell-main"><b>${esc(o.cliente || '—')}</b><code>${esc(numOrd(o))}</code></div>`;
   const sel = drawerId === o.id ? ' sel' : '';
-  const tr = celle => `<tr class="click${sel}" onclick="apriOrdine('${id}')">${celle}</tr>`;
+  const tr = celle => `<tr class="click${sel}" data-id="${id}" onclick="apriOrdine('${id}')">${celle}</tr>`;
   const d = ddtDi(o);
   switch (o.fase) {
     case 'aperto':
@@ -2521,8 +2494,7 @@ function rigaVista(o) {
 async function chiamaAzione(url, metodo, corpo, riuscito, annulla) {
   let u = url;
   const opt = { method: metodo, headers: { 'Content-Type': 'application/json' } };
-  if (metodo === 'DELETE') u += (u.includes('?') ? '&' : '?') + 'user_id=' + encodeURIComponent(utenteId());
-  else opt.body = JSON.stringify({ ...(corpo || {}), user_id: utenteId() });
+  if (metodo !== 'DELETE') opt.body = JSON.stringify(corpo || {});
   const res = await api(u, opt);
   if (!riuscita(res)) return { ok: false, errore: msgErrore(res) };
   if (riuscito) FT.toast(riuscito, 'ok', annulla);
@@ -2755,7 +2727,7 @@ async function renderDrawer() {
       ${d.pdf_file ? `<button class="ft-btn sm" onclick="openPdfModal('${esc(id)}', ${jsq((d.numero_ordine || '') + ' · ' + (d.cliente || ''))})"><i data-lucide="file-text"></i> PDF ordine</button>` : ''}
       <label class="ft-btn sm" title="Carica un PDF al posto di quello attuale"><i data-lucide="file-up"></i> ${d.pdf_file ? 'Sostituisci PDF' : 'Carica PDF'}
         <input type="file" accept=".pdf" hidden onchange="sostituisciPdf('${esc(id)}', this)"></label>
-      <button class="ft-btn sm" onclick="openCartellinoModal('${esc(id)}', ${jsq((d.numero_ordine || '') + ' · ' + (d.cliente || ''))})"><i data-lucide="printer"></i> Cartellino</button>
+      <button class="ft-btn sm primary" onclick="apriStampaOrdine('${esc(id)}', ${jsq((d.numero_ordine || '') + ' · ' + (d.cliente || ''))})" title="${d.pdf_file ? 'Il PDF d\u2019ordine del cliente' : 'Il foglio d\u2019ordine con i pezzi per lamiera'}, da mettere nel faldone per l\u2019officina"><i data-lucide="printer"></i> Stampa ordine</button>
       ${(d.dxf_files || []).length || d.origine !== 'PDF' ? `<a class="ft-btn sm" href="/api/orders/${esc(id)}/disegni.zip" download title="Disegni divisi per lamiera, col nome del cliente e del numero"><i data-lucide="archive"></i> Disegni (ZIP)</a>
       <button class="ft-btn sm" onclick="creaCartellaLantek('${esc(id)}')" title="Crea la cartella dell'ordine (divisa per lamiera) nella cartella dei disegni per Lantek"><i data-lucide="folder-output"></i> Cartella Lantek</button>` : ''}
       <span class="spacer"></span>
@@ -3210,7 +3182,7 @@ async function loadNotifs() {
   if (!currentUser) return;
   const body = $('notif-panel-body');
   if (!body.children.length) body.innerHTML = '<div style="padding:14px;"><div class="ft-skel" style="height:40px;"></div></div>';
-  const res = await api(`/api/notifications?user_id=${encodeURIComponent(currentUser.id)}&limit=50`);
+  const res = await api('/api/notifications?limit=50');
   if (!res.ok || !res.data || !res.data.success) {
     body.innerHTML = '<div class="ft-empty" style="padding:28px 16px;"><p>Notifiche non disponibili.</p></div>'; return;
   }
@@ -3246,12 +3218,12 @@ async function markNotifRead(id, el, orderId) {
 async function deleteNotif(id) { await api(`/api/notifications/${id}`, { method: 'DELETE' }); loadNotifs(); }
 async function clearAllNotifs() {
   if (!currentUser) return;
-  await api(`/api/notifications/clear-all?user_id=${encodeURIComponent(currentUser.id)}`, { method: 'DELETE' });
+  await api('/api/notifications/clear-all', { method: 'DELETE' });
   loadNotifs();
 }
 async function pollNotifCount() {
   if (!currentUser) return;
-  const res = await api(`/api/notifications?user_id=${encodeURIComponent(currentUser.id)}&limit=1`);
+  const res = await api('/api/notifications?limit=1');
   if (res.ok && res.data && res.data.success) updateNotifBadge(res.data.data.unread_count || 0);
 }
 
@@ -3322,12 +3294,14 @@ function showBackupStatus(msg, tipo) {
 // ═══════════════════════════════════════════════════════════════
 //  AVVIO
 // ═══════════════════════════════════════════════════════════════
-(function avvio() {
+(async function avvio() {
+  // Chi e' entrato lo dice il server: se serve il PIN, ft-accesso.js
+  // riporta alla pagina iniziale.
+  await FTA.pronto;
   const user = FT.utente();
-  if (!user || !user.id) { window.location.href = '/login.html'; return; }
+  if (!user) return;
   currentUser = user;
   FT.mostraUtente(user, 'Ufficio');
-  _sessioneAncoraValida();
 
   collegaDropzone($('pdf-upload-btn'), $('pdf-input'), smistaFileOrdine, true);
   $('pkg-dir-input').addEventListener('change', () => {

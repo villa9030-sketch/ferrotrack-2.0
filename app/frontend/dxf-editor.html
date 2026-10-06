@@ -4,124 +4,176 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CAD interno — Identificazione pezzo</title>
+<script src="/ft-accesso.js" data-stazioni="commerciale"></script>
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
 <style>
+  /* CAD interno. Base grafica (bottoni, campi, segmenti) da ft-ui.css:
+     qui solo l'impaginazione del visore e i colori del disegno. */
   :root {
-    /* Palette CHIARA come il resto dell'app: disegno bianco/nero, leggibile */
-    --bg: #F5F6F8; --panel: #ffffff; --border: #E2E5EA; --text: #1f2430;
-    --text-2: #6b7280; --accent: #16a34a; --accent-2: #4F46E5; --red: #dc2626;
-    --amber: #b45309; --geo: #1f2937; --annot: #8a93a3; --outer: #16a34a; --hole: #2563eb;
-    --canvas-bg: #ffffff;
+    /* Disegno: linee in inchiostro, selezione in indaco (accento) */
+    --geo: var(--ft-ink); --annot: var(--ft-ink-4);
+    --sel: var(--ft-accent); --sel-fill: rgba(79, 70, 229, .12);
+    --hole-fill: rgba(79, 70, 229, .26);
+    --canvas-bg: #ffffff; --cad-bar-h: 52px;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
-         display: flex; flex-direction: column; overflow: hidden; }
-  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px;
-           background: var(--panel); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  header .title { font-weight: 600; font-size: 15px; }
-  header .file { color: var(--text-2); font-size: 13px; font-family: monospace; }
-  header .spacer { flex: 1; }
-  .btn { background: var(--panel); color: var(--text); border: 1px solid var(--border);
-         border-radius: 6px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
-  .btn:hover { border-color: var(--accent); }
-  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
-  .btn.primary:disabled { opacity: .4; cursor: not-allowed; }
+  body.ft { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Barra comandi */
+  .cad-bar { display: flex; align-items: center; gap: 10px; height: var(--cad-bar-h); padding: 0 14px;
+             background: var(--ft-panel); border-bottom: 1px solid var(--ft-line); flex-shrink: 0; min-width: 0; }
+  .cad-bar .ft-logo { width: 28px; height: 28px; border-radius: 7px; font-size: 12.5px; }
+  body.cad-embed .cad-bar .ft-logo { display: none; }
+  .cad-title { font: 700 14px var(--ft-display); letter-spacing: -.2px; white-space: nowrap; }
+  .cad-title small { font: 500 12.5px var(--ft-font); color: var(--ft-ink-3); margin-left: 6px; }
+  .cad-file { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+              font-family: var(--ft-mono); font-weight: 500; }
+  .cad-spacer { flex: 1; min-width: 8px; }
+  .cad-sep { width: 1px; height: 22px; background: var(--ft-line); flex-shrink: 0; }
+  .cad-bar .ft-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+  /* lo script segna la modalita' con .active */
+  .ft-seg button.active { background: var(--ft-panel); color: var(--ft-ink); box-shadow: 0 1px 2px rgba(15, 23, 42, .08); }
+  @media (max-width: 1100px) { .cad-title small, .cad-btn-lbl { display: none; } }
+
   main { flex: 1; display: flex; min-height: 0; }
   .canvas-wrap { flex: 1; position: relative; overflow: hidden; background: var(--canvas-bg); cursor: crosshair; }
   #svg { width: 100%; height: 100%; display: block;
          shape-rendering: geometricPrecision; text-rendering: geometricPrecision; }
-  .side { width: 300px; background: var(--panel); border-left: 1px solid var(--border);
+  /* Disegno pronto: entra con una breve dissolvenza */
+  #svg.cad-pronto { animation: cadEntra .42s var(--ft-ease) both; transform-origin: 50% 50%; }
+  @keyframes cadEntra { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+
+  /* Pannello laterale */
+  .side { width: 300px; background: var(--ft-panel); border-left: 1px solid var(--ft-line);
           padding: 16px; overflow-y: auto; flex-shrink: 0; }
-  .side h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-2);
-             margin-bottom: 12px; }
-  .stat { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); }
-  .stat .lbl { color: var(--text-2); font-size: 13px; }
-  .stat .val { font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; }
-  .stat .val.big { color: var(--accent); font-size: 17px; }
-  .field { margin: 10px 0; }
-  .field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 4px; }
-  .field select, .field input { width: 100%; padding: 8px 10px; background: #ffffff; color: var(--text);
-        border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
-  .field select:focus, .field input:focus { outline: none; border-color: var(--accent-2); }
-  .field .mini { display:block; font-size: 11px; color: var(--text-2); margin-top: 4px; line-height:1.4; }
-  .check { display:flex; align-items:center; gap:8px; font-size:12px; color: var(--text-2); margin:10px 0; cursor:pointer; }
-  .hint { margin-top: 16px; padding: 12px; background: #F1F5F9; border-radius: 8px;
-          font-size: 12px; color: var(--text-2); line-height: 1.5; }
-  #help-pop { position: fixed; top: 52px; right: 12px; z-index: 50; width: 320px; max-width: calc(100vw - 24px);
-          padding: 14px 16px; background: #fff; border: 1px solid var(--border); border-radius: 10px;
-          box-shadow: 0 8px 30px rgba(0,0,0,.16); font-size: 12.5px; color: var(--text-2); line-height: 1.55; }
-  #help-pop b { color: var(--text); }
-  .status { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; display: none; }
-  .status.ok { background: rgba(34,197,94,.12); color: var(--accent); display: block; }
-  .status.err { background: rgba(239,68,68,.12); color: var(--red); display: block; }
-  .status.info { background: #EEF2FF; color: #3538CD; display: block; }
+  .side .ft-section-title { margin-bottom: 8px; }
+  .geo-card { border: 1px solid var(--ft-line); border-radius: var(--ft-r-l); padding: 2px 12px; background: var(--ft-panel); }
+  .stat { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--ft-line-2); }
+  .stat:last-child { border-bottom: 0; }
+  .stat .lbl { color: var(--ft-ink-3); font-size: 12.5px; }
+  .stat .val { font: 600 13.5px var(--ft-display); color: var(--ft-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat .val.big { font-size: 19px; font-weight: 800; letter-spacing: -.4px; }
+  .side-sez { margin-top: 20px; }
+  .side .ft-field { margin: 10px 0; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ft-ink-2); margin: 12px 0; cursor: pointer; }
+  .check input { width: 16px; height: 16px; accent-color: var(--ft-accent); cursor: pointer; flex-shrink: 0; }
+
+  /* Guida (popover) */
+  #help-pop { position: fixed; top: calc(var(--cad-bar-h) + 8px); right: 12px; z-index: 50; width: 320px; max-width: calc(100vw - 24px);
+          padding: 14px 16px; background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: var(--ft-r-l);
+          box-shadow: var(--ft-elev-3); font-size: 12.5px; color: var(--ft-ink-2); line-height: 1.6;
+          animation: ftPop .16s var(--ft-ease); }
+  #help-pop b { color: var(--ft-ink); }
+  #help-pop .help-tit { display: block; font: 700 13.5px var(--ft-font); margin-bottom: 4px; }
+
+  /* Messaggi del pannello */
+  .status { margin-top: 14px; padding: 10px 12px; border-radius: 10px; font-size: 12.5px; line-height: 1.45;
+            display: none; border: 1px solid var(--ft-line); animation: ftIn .22s var(--ft-ease); }
+  .status.ok { background: var(--ft-ok-bg); border-color: var(--ft-ok-line); color: #05603A; display: block; }
+  .status.err { background: var(--ft-err-bg); border-color: var(--ft-err-line); color: #912018; display: block; }
+  .status.info { background: var(--ft-accent-bg); border-color: #C7D2FE; color: var(--ft-accent-ink); display: block; }
+
   /* Lavoro in corso: barra che scorre in cima al disegno + avviso col tempo.
      Si vede solo se l'attesa supera un attimo (niente lampeggi sui file piccoli). */
   .canvas-wrap.busy { cursor: progress; }
   .busy-bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; overflow: hidden; z-index: 5;
               opacity: 0; transition: opacity .15s; pointer-events: none; }
-  .busy-bar::before { content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent-2);
+  .busy-bar::before { content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: var(--ft-accent);
               border-radius: 3px; animation: busy-scorri 1.1s ease-in-out infinite; }
   @keyframes busy-scorri { from { left: -35%; } to { left: 100%; } }
   .busy-tip { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5;
-              display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px;
-              background: rgba(17,24,39,.88); color: #fff; font-size: 13px; font-weight: 600;
-              box-shadow: 0 6px 20px rgba(0,0,0,.18); opacity: 0; transition: opacity .15s; pointer-events: none;
+              display: flex; align-items: center; gap: 10px; padding: 8px 15px; border-radius: 999px;
+              background: var(--ft-ink); color: #fff; font-size: 12.5px; font-weight: 600;
+              box-shadow: var(--ft-elev-3); opacity: 0; transition: opacity .15s; pointer-events: none;
               white-space: nowrap; }
   .busy-tip small { font-weight: 500; opacity: .7; font-variant-numeric: tabular-nums; }
-  .busy-spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3);
+  .busy-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3);
                border-top-color: #fff; animation: busy-giro .7s linear infinite; }
   @keyframes busy-giro { to { transform: rotate(360deg); } }
   .canvas-wrap.busy-on .busy-bar, .canvas-wrap.busy-on .busy-tip { opacity: 1; }
-  /* prima apertura: il disegno non c'e' ancora, l'avviso sta al centro */
-  .canvas-wrap.vuoto .busy-tip { top: 50%; transform: translate(-50%, -50%); padding: 14px 22px; font-size: 14px;
-              background: #fff; color: var(--text); border: 1px solid var(--border); }
-  .canvas-wrap.vuoto .busy-spin { border-color: #E2E5EA; border-top-color: var(--accent-2); }
-  .xcheck { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
-  .xcheck.ok { background: rgba(34,197,94,.10); color: var(--accent); border: 1px solid rgba(34,197,94,.3); }
-  .xcheck.warn { background: rgba(245,158,11,.12); color: #fbbf24; border: 1px solid rgba(245,158,11,.4); }
-  .xcheck-fix { margin-top: 8px; padding: 6px 12px; border-radius: 7px; border: none; cursor: pointer;
-                font-size: 12px; font-weight: 700; background: #f59e0b; color: #1a1a1a; }
-  .xcheck-fix:hover { filter: brightness(1.08); }
-  .zoominfo { position: absolute; bottom: 10px; left: 12px; font-size: 11px; color: var(--text-2);
-              background: rgba(0,0,0,.4); padding: 4px 8px; border-radius: 5px; font-family: monospace; }
+  /* prima apertura: il disegno non c'e' ancora, al suo posto un foglio
+     "in arrivo" che luccica e l'avviso al centro */
+  .canvas-wrap.vuoto { background: var(--ft-canvas); }
+  .canvas-wrap.vuoto .busy-tip { top: 50%; transform: translate(-50%, -50%); padding: 12px 20px; font-size: 13.5px;
+              background: var(--ft-panel); color: var(--ft-ink); border: 1px solid var(--ft-line); }
+  .canvas-wrap.vuoto .busy-spin { border-color: var(--ft-line); border-top-color: var(--ft-accent); }
+  .cad-skel { position: absolute; inset: 28px; display: none; z-index: 1; pointer-events: none;
+              background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: var(--ft-r-xl); padding: 28px; }
+  .canvas-wrap.vuoto.busy .cad-skel { display: block; animation: ftFade .2s ease-out; }
+  .cad-skel .ft-skel { position: absolute; }
+  .cad-skel .k1 { left: 12%; top: 16%; width: 46%; height: 52%; border-radius: 10px; }
+  .cad-skel .k2 { left: 62%; top: 16%; width: 24%; height: 24%; border-radius: 10px; }
+  .cad-skel .k3 { left: 62%; top: 46%; width: 24%; height: 22%; border-radius: 10px; }
+  .cad-skel .k4 { right: 28px; bottom: 28px; width: 34%; height: 13%; }
+  .cad-skel .k5 { left: 12%; bottom: 28px; width: 22%; height: 10px; }
+  /* Disegno che non si apre */
+  .cad-empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; z-index: 2; }
+  .canvas-wrap.vuoto.errore .cad-empty { display: flex; animation: ftIn .22s var(--ft-ease); }
+  .cad-empty .ft-empty-icon { background: var(--ft-err-bg); color: var(--ft-err); }
+  .cad-empty .ft-empty-icon svg { width: 20px; height: 20px; }
+
+  /* Controllo del peso */
+  .xcheck { margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.5;
+            background: var(--ft-well); border: 1px solid var(--ft-line); color: var(--ft-ink-2); animation: ftIn .22s var(--ft-ease); }
+  .xcheck b { color: inherit; }
+  .xcheck.ok { background: var(--ft-ok-bg); color: #05603A; border-color: var(--ft-ok-line); }
+  .xcheck.warn { background: var(--ft-warn-bg); color: #93370D; border-color: var(--ft-warn-line); }
+  .xcheck-fix { display: inline-flex; align-items: center; height: 28px; margin-top: 8px; padding: 0 11px; border-radius: var(--ft-r-m);
+                border: 1px solid var(--ft-warn-line); cursor: pointer; font: 600 12px var(--ft-font);
+                background: var(--ft-panel); color: var(--ft-warn); transition: background .15s, border-color .15s, transform .08s; }
+  .xcheck-fix:hover { background: #FFF4DB; border-color: var(--ft-warn-dot); }
+  .xcheck-fix:active { transform: translateY(1px); }
+  .zoominfo { position: absolute; bottom: 12px; left: 12px; font: 500 11px var(--ft-mono); color: var(--ft-ink-3);
+              background: rgba(255,255,255,.88); border: 1px solid var(--ft-line); padding: 4px 9px; border-radius: 999px;
+              backdrop-filter: blur(6px); box-shadow: var(--ft-elev-1); pointer-events: none; }
+  .canvas-wrap.vuoto .zoominfo { display: none; }
   /* SVG element styles */
-  .pl-geo { stroke: var(--geo); stroke-width: 1.3; fill: none; vector-effect: non-scaling-stroke; }
+  .pl-geo { stroke: var(--geo); stroke-width: 1.3; fill: none; vector-effect: non-scaling-stroke; transition: stroke .1s; }
   .pl-annot { stroke: var(--annot); stroke-width: 1; fill: none; vector-effect: non-scaling-stroke; }
   /* Testo del disegno (cartiglio + quote): leggibile, non cliccabile */
-  .pl-text { fill: var(--text); pointer-events: none; font-family: 'Segoe UI', system-ui, sans-serif; }
-  .pl-geo:hover { stroke: var(--amber); stroke-width: 2; }
-  #outer-overlay { stroke: var(--outer); stroke-width: 2.5; fill: rgba(34,197,94,.14);
-                   vector-effect: non-scaling-stroke; pointer-events: none; }
-  .hole-overlay { stroke: var(--hole); stroke-width: 2; fill: rgba(59,130,246,.22);
-                  vector-effect: non-scaling-stroke; pointer-events: none; }
-  .wp-dot { fill: var(--amber); stroke: #000; stroke-width: .5; vector-effect: non-scaling-stroke; pointer-events: none; }
-  .wp-line { stroke: var(--amber); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3;
+  .pl-text { fill: var(--ft-ink-2); pointer-events: none; font-family: var(--ft-font); }
+  .pl-geo:hover { stroke: var(--ft-accent-hover); stroke-width: 2.2; }
+  #outer-overlay { stroke: var(--sel); stroke-width: 2.5; fill: var(--sel-fill);
+                   vector-effect: non-scaling-stroke; pointer-events: none; animation: cadSel .35s var(--ft-ease); }
+  .hole-overlay { stroke: var(--ft-accent-ink); stroke-width: 2; fill: var(--hole-fill);
+                  vector-effect: non-scaling-stroke; pointer-events: none; animation: cadSel .35s var(--ft-ease); }
+  @keyframes cadSel { from { opacity: 0; } to { opacity: 1; } }
+  .wp-dot { fill: var(--ft-accent); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+  .wp-line { stroke: var(--ft-accent); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3;
              vector-effect: non-scaling-stroke; pointer-events: none; }
-  .btn.active { background: var(--accent-2); color: #fff; border-color: var(--accent-2); }
 </style>
 </head>
-<body>
-<header>
-  <span class="title">CAD interno · Identificazione pezzo</span>
-  <span class="file" id="hdr-file">—</span>
-  <span class="spacer"></span>
-  <span style="display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-    <button class="btn" id="mode-auto" style="border:none; border-radius:0;" onclick="setMode('auto')">Auto</button>
-    <button class="btn" id="mode-wp" style="border:none; border-radius:0;" onclick="setMode('wp')">Guidato</button>
+<body class="ft">
+<header class="cad-bar">
+  <span class="ft-logo" aria-hidden="true">LS</span>
+  <span class="cad-title">CAD interno<small>Identificazione pezzo</small></span>
+  <span class="ft-chip cad-file" id="hdr-file">—</span>
+  <span class="cad-spacer"></span>
+  <span class="ft-seg" role="group" aria-label="Modalità">
+    <button type="button" id="mode-auto" onclick="setMode('auto')" title="Un clic sul bordo del pezzo">Auto</button>
+    <button type="button" id="mode-wp" onclick="setMode('wp')" title="Punti lungo il contorno">Guidato</button>
   </span>
-  <button class="btn" id="btn-undo-wp" style="display:none;" onclick="undoWaypoint()">Annulla ultimo</button>
-  <button class="btn" id="btn-close-wp" style="display:none;" onclick="closeWaypoints()">Chiudi contorno</button>
-  <button class="btn" onclick="zoomFit()">Adatta (F)</button>
-  <button class="btn" onclick="resetTrace()">Pulisci</button>
-  <button class="btn primary" id="btn-confirm" disabled onclick="confermaPezzo()">Conferma pezzo</button>
-  <button class="btn" id="btn-help" onclick="toggleHelp(event)" title="Come si usa">? Guida</button>
-  <button class="btn" onclick="closeCad()">Chiudi</button>
+  <button class="ft-btn sm" id="btn-undo-wp" style="display:none;" onclick="undoWaypoint()" title="Annulla l'ultimo punto">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span class="cad-btn-lbl">Annulla ultimo</span></button>
+  <button class="ft-btn sm" id="btn-close-wp" style="display:none;" onclick="closeWaypoints()" title="Chiudi il contorno guidato">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8z"/></svg><span class="cad-btn-lbl">Chiudi contorno</span></button>
+  <span class="cad-sep"></span>
+  <button class="ft-btn sm ghost" onclick="zoomFit()" title="Adatta il foglio alla finestra (F)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span class="cad-btn-lbl">Adatta</span> <kbd>F</kbd></button>
+  <button class="ft-btn sm ghost" onclick="resetTrace()" title="Togli il contorno tracciato">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><span class="cad-btn-lbl">Pulisci</span></button>
+  <button class="ft-icon-btn" id="btn-help" onclick="toggleHelp(event)" title="Come si usa" aria-label="Guida">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></button>
+  <button class="ft-btn sm accent" id="btn-confirm" disabled onclick="confermaPezzo()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Conferma pezzo</button>
+  <button class="ft-icon-btn" onclick="closeCad()" title="Chiudi il CAD" aria-label="Chiudi">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
 </header>
 
-<!-- Popover guida: appare solo al click su "? Guida", non occupa il pannello -->
+<!-- Popover guida: appare solo al click su "Guida", non occupa il pannello -->
 <div id="help-pop" style="display:none;">
-  <b>Come si usa</b><br>
+  <span class="help-tit">Come si usa</span>
   1. Rotella = zoom, trascina = sposta.<br>
   2. <b>Clicca sul contorno del pezzo</b> (il bordo esterno). Il sistema segue il profilo e calcola area/perimetro.<br>
   3. Se traccia il pezzo sbagliato (disegni con più pezzi/viste), clicca sul contorno di quello giusto.<br>
@@ -129,22 +181,35 @@
 </div>
 <main>
   <div class="canvas-wrap vuoto" id="wrap">
+    <div class="cad-skel" aria-hidden="true">
+      <span class="ft-skel k1"></span><span class="ft-skel k2"></span><span class="ft-skel k3"></span>
+      <span class="ft-skel k4"></span><span class="ft-skel k5"></span>
+    </div>
+    <div class="cad-empty" role="alert">
+      <div class="ft-empty">
+        <div class="ft-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v3"/><path d="M12 18h.01"/></svg></div>
+        <b>Il disegno non si apre</b>
+        <p id="cad-empty-msg"></p>
+      </div>
+    </div>
     <div class="busy-bar" aria-hidden="true"></div>
     <div class="busy-tip" id="busy-tip" role="status" aria-live="polite"><span class="busy-spin"></span><span id="busy-txt"></span><small id="busy-sec"></small></div>
     <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
     <div class="zoominfo" id="zoominfo">—</div>
   </div>
   <aside class="side">
-    <h3>Geometria pezzo</h3>
-    <div class="stat"><span class="lbl">Area netta</span><span class="val big" id="s-area">—</span></div>
-    <div class="stat"><span class="lbl">Perimetro taglio</span><span class="val" id="s-perim">—</span></div>
-    <div class="stat"><span class="lbl">N. fori</span><span class="val" id="s-fori">—</span></div>
-    <div class="stat"><span class="lbl">Ingombro</span><span class="val" id="s-bbox">—</span></div>
+    <h3 class="ft-section-title">Geometria pezzo</h3>
+    <div class="geo-card" id="geo-card">
+      <div class="stat"><span class="lbl">Area netta</span><span class="val big" id="s-area">—</span></div>
+      <div class="stat"><span class="lbl">Perimetro taglio</span><span class="val" id="s-perim">—</span></div>
+      <div class="stat"><span class="lbl">N. fori</span><span class="val" id="s-fori">—</span></div>
+      <div class="stat"><span class="lbl">Ingombro</span><span class="val" id="s-bbox">—</span></div>
+    </div>
 
-    <h3 style="margin-top:22px;">Dati pezzo (obbligatori)</h3>
-    <div class="field">
-      <label for="f-materiale">Materiale *</label>
-      <select id="f-materiale" onchange="onDatiChange()">
+    <h3 class="ft-section-title side-sez">Dati pezzo (obbligatori)</h3>
+    <label class="ft-field">
+      <span>Materiale <span class="req">*</span></span>
+      <select class="ft-select" id="f-materiale" onchange="onDatiChange()">
         <option value="">— scegli —</option>
         <option value="S235">S235 (acciaio)</option>
         <option value="ZINCATO">Acciaio zincato</option>
@@ -157,18 +222,18 @@
         <option value="C45">C45</option>
         <option value="ALTRO">Altro</option>
       </select>
-    </div>
-    <div class="field">
-      <label for="f-spessore">Spessore (mm) *</label>
-      <input type="number" id="f-spessore" step="0.1" min="0" placeholder="es. 3" oninput="onDatiChange()">
-    </div>
+    </label>
+    <label class="ft-field">
+      <span>Spessore (mm) <span class="req">*</span></span>
+      <input class="ft-input" type="number" id="f-spessore" step="0.1" min="0" placeholder="es. 3" oninput="onDatiChange()">
+    </label>
     <label class="check"><input type="checkbox" id="f-piega" onchange="onPiegaToggle()">
       Pezzo piegato — area = sviluppo stimato</label>
-    <div class="field" id="wrap-area-override" style="display:none;">
-      <label for="f-area-override">Area sviluppo piatto (dm²) *</label>
-      <input type="number" id="f-area-override" step="0.001" min="0" placeholder="stima a esperienza" oninput="onDatiChange()">
-      <span class="mini">Il disegno mostra il pezzo piegato: inserisci l'area del piatto tagliato (come stimi oggi).</span>
-    </div>
+    <label class="ft-field" id="wrap-area-override" style="display:none;">
+      <span>Area sviluppo piatto (dm²) <span class="req">*</span></span>
+      <input class="ft-input" type="number" id="f-area-override" step="0.001" min="0" placeholder="stima a esperienza" oninput="onDatiChange()">
+      <span class="ft-hint">Il disegno mostra il pezzo piegato: inserisci l'area del piatto tagliato (come stimi oggi).</span>
+    </label>
     <div class="xcheck" id="xcheck" style="display:none;"></div>
     <div class="status" id="status"></div>
   </aside>
@@ -208,6 +273,7 @@ function _notifyHost(msg) {
   if (host) host.postMessage(msg, window.location.origin);
 }
 function closeCad() { if (EMBED) _notifyHost({ type: 'cad-close' }); else window.close(); }
+if (EMBED) document.body.classList.add('cad-embed');   // nel preventivo: niente logo, c'e' gia' la testata
 document.getElementById('hdr-file').textContent = FILE || '(nessun file)';
 
 const svg = document.getElementById('svg');
@@ -248,17 +314,26 @@ function _geoBBox(polylines) {
   return n > 2 ? [x0, y0, x1, y1] : null;
 }
 
+// Apertura fallita: il messaggio nel pannello e, al posto del disegno, lo
+// stato vuoto con lo stesso testo.
+function erroreApertura(msg) {
+  setStatus('err', msg);
+  document.getElementById('cad-empty-msg').textContent = msg;
+  document.getElementById('wrap').classList.add('errore');
+}
+
 async function load() {
-  if (!PREV || !FILE) { setStatus('err', 'Parametri mancanti: ?prev=<id>&file=<nome.dxf>'); return; }
+  if (!PREV || !FILE) { erroreApertura('Parametri mancanti: ?prev=<id>&file=<nome.dxf>'); return; }
   let d;
   try {
     d = await inLavoro('Leggo il disegno…', async () => {
       const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/geometry-json`);
       return r.json();
     }, 0);
-  } catch (e) { setStatus('err', 'Il disegno non si apre: ' + e.message); return; }
-  if (d.error || !d.extents) { setStatus('err', 'Errore geometria: ' + (d.error || 'vuota')); return; }
+  } catch (e) { erroreApertura('Il disegno non si apre: ' + e.message); return; }
+  if (d.error || !d.extents) { erroreApertura('Errore geometria: ' + (d.error || 'vuota')); return; }
   document.getElementById('wrap').classList.remove('vuoto');
+  svg.classList.add('cad-pronto');   // breve entrata del disegno
   EXT = d.extents;
   pesoCartiglio = (d.peso_cartiglio_kg && d.peso_cartiglio_conf >= 0.5) ? d.peso_cartiglio_kg : null;
   TEXTS = d.texts || [];
@@ -554,7 +629,8 @@ function drawCandidates(cands) {
   clearOverlayPolys();
   const g = document.getElementById('overlay-group');
   g.querySelectorAll('.cand,.cand-lbl').forEach(e => e.remove());
-  const cols = ['#3b82f6', '#a855f7', '#f59e0b', '#ec4899', '#14b8a6'];
+  // indaco, ambra, inchiostro, grigio, indaco chiaro: distinguibili senza nuovi colori
+  const cols = ['#4F46E5', '#F59E0B', '#0B1220', '#667085', '#818CF8'];
   cands.forEach((c, i) => {
     const el = document.createElementNS(SVGNS, 'polygon');
     el.setAttribute('class', 'cand');
@@ -668,6 +744,7 @@ function updateStats(d) {
   document.getElementById('s-fori').textContent = nFori(d);
   document.getElementById('s-bbox').textContent =
     `${d.bbox_width_mm.toFixed(0)}×${d.bbox_height_mm.toFixed(0)} mm`;
+  if (window.FT) FT.evidenzia(document.getElementById('geo-card'));   // numeri appena calcolati
   proponiSpessoreDaPeso(d);
 }
 
@@ -816,6 +893,7 @@ async function confermaPezzo() {
     payload.articolo_id = ARTICOLO_ID;
     _notifyHost({ type: 'cad-confirm', payload });
     setStatus('ok', EMBED ? 'Pezzo confermato ✓' : 'Pezzo confermato e inviato al preventivo. Puoi chiudere.');
+    if (window.FT) FT.toast('Pezzo confermato', 'ok');
   } else {
     setStatus('ok', `Pezzo confermato: ${mat} sp.${sp}mm, area ${areaEff.toFixed(3)} dm²`
       + (piega ? ' (sviluppo stimato)' : '') + '. (Apri dal preventivo per salvare)');

@@ -390,6 +390,38 @@ body.ft.ft-touch .ft-tab { font-size: 14.5px; padding: 0 16px; }
 body.ft.ft-touch .ft-input, body.ft.ft-touch .ft-select { height: 44px; font-size: 15px; }
 body.ft.ft-touch .ft-icon-btn { width: 42px; height: 42px; }
 
+/* ── Effetti comuni ──────────────────────────────────────────────────
+   Pochi, uguali in tutta l'app, e solo quando succede qualcosa:
+   - la pagina entra in dissolvenza ed esce in dissolvenza (FT, link interni);
+   - .ft-stagger: i figli entrano uno dopo l'altro (liste, schede, KPI);
+   - .ft-lift: scheda cliccabile che si alza sotto il mouse;
+   - .ft-new: riga/scheda appena arrivata, alone indaco che si spegne;
+   - .ft-flash-ok: salvato, alone verde che si spegne;
+   - FT.conta(): i numeri scorrono fino al valore (ft-ui.js).
+   Con "riduci movimento" nel sistema restano fermi. */
+body.ft { animation: ftPagina .28s ease-out both; }
+body.ft.ft-esce { opacity: 0; transition: opacity .14s ease-in; }
+@keyframes ftPagina { from { opacity: 0; } to { opacity: 1; } }
+.ft-stagger > * { animation: ftSale .38s var(--ft-ease) both; animation-delay: calc(var(--i, 0) * 35ms); }
+@keyframes ftSale { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.ft-lift { transition: border-color .15s, box-shadow .2s, transform .2s var(--ft-ease); }
+.ft-lift:hover { border-color: #CBD2DC; box-shadow: var(--ft-elev-2); transform: translateY(-2px); }
+.ft-new { animation: ftNuovo 1.8s ease-out; }
+@keyframes ftNuovo { 0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, .45); background-color: var(--ft-accent-bg); } 100% { box-shadow: 0 0 0 12px rgba(79, 70, 229, 0); } }
+tr.ft-new { animation: ftNuovoRiga 1.8s ease-out; }
+@keyframes ftNuovoRiga { 0% { background-color: var(--ft-accent-bg); } 100% { background-color: transparent; } }
+.ft-flash-ok { animation: ftOk 1.4s ease-out; }
+@keyframes ftOk { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .5); } 100% { box-shadow: 0 0 0 12px rgba(16, 185, 129, 0); } }
+/* Toast "fatto": la spunta si disegna */
+.ft-toast.ok.ft-spunta::before { content: none; }
+.ft-toast .ft-check { width: 18px; height: 18px; flex-shrink: 0; }
+.ft-toast .ft-check circle { fill: var(--ft-ok-dot); }
+.ft-toast .ft-check path { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 14; stroke-dashoffset: 14; animation: ftTraccia .35s var(--ft-ease) .12s forwards; }
+@keyframes ftTraccia { to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  body.ft, body.ft *, body.ft *::before, body.ft *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
+}
+
 /* ── Schermi stretti ─────────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .ft-kpis, .ft-kpis.k5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

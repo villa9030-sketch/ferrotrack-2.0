@@ -3,2587 +3,639 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#1a7a48">
+<meta name="theme-color" content="#F2F4F7">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
-<title>LS FerroTrack — Login</title>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<title>FerroTrack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/ft-ui.css">
+<!--
+  Pagina iniziale (vedi PROGETTO_STAZIONI.md, "Pagina iniziale").
+
+  Chi e' questo dispositivo lo sa il SERVER (cookie HttpOnly che qui non si
+  legge): la pagina chiede /api/accesso/io e mostra una delle tre cose.
+   a) dispositivo nuovo     -> "Cosa e' questo dispositivo?" + PIN amministratore
+   b) Commerciale / Ufficio -> PIN personale (vale fino alle 3 di notte)
+   c) Laser, Tablet officina, Timbratrice -> si entra subito nella stazione
+  Cambiare stazione: link discreto in basso, sempre col PIN di un amministratore.
+
+  Grafica: la stessa del preventivatore (colori e caratteri da ft-ui.css).
+  Effetti: luce indaco che si muove piano sullo sfondo, schede che entrano
+  in sequenza e seguono il mouse, puntini del PIN che scattano, e all'ingresso
+  i puntini diventano una spunta prima di aprire la stazione. Chi ha
+  "riduci movimento" nel sistema li vede fermi.
+-->
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-html,body { height:100%; overflow:hidden; -webkit-overflow-scrolling: touch; }
-@media (max-width: 1024px) {
-  html,body { height:auto; overflow:auto; }
-}
-body { animation: pageIn 0.3s ease-out; }
-@keyframes pageIn { from { opacity: 0; } to { opacity: 1; } }
-
-:root {
-  --ls-green: #1a7a48;
-  --ls-green-light: #22a060;
-  --ls-gray: #c8c2b8;
-  --ls-gray-light: #e2ddd5;
-  --bg-light: #fafafa;
-  --text-primary: #000000;
-  --text-secondary: #666666;
-  --border: #e5e5e5;
-  --shadow-sm: 0 0 0 1px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 0 0 1px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
-  --shadow-lg: 0 0 0 1px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.05), 0 8px 24px rgba(0,0,0,0.08), 0 24px 48px rgba(0,0,0,0.06);
-  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px;
-}
-
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-height: 100%; }
 body {
-  font-family: 'Inter', sans-serif;
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
-  color: var(--text-primary);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── LOGIN PAGE ── */
-.login-container {
-  display: flex;
-  min-height: 100vh;
-}
-
-.login-left {
-  flex: 1;
-  background: linear-gradient(135deg, var(--ls-green) 0%, #0f5c35 100%);
-  color: white;
-  padding: 80px 60px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.login-left::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-  animation: float 20s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(30px, -30px); }
-}
-
-.login-left-content {
-  position: relative;
-  z-index: 1;
-}
-
-.login-logo {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 48px;
-}
-
-.login-logo-icon {
-  width: 60px;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.login-logo-icon img {
-  width: 60px; height: 60px;
-  object-fit: contain;
-}
-
-.login-logo-text h1 {
-  font-family: 'Geist', sans-serif;
-  font-size: 28px;
-  font-weight: 900;
-  letter-spacing: -0.5px;
-}
-
-.login-logo-text p {
-  font-size: 14px;
-  opacity: 0.8;
-  margin-top: 4px;
-}
-
-.login-title {
-  font-family: 'Geist', sans-serif;
-  font-size: 48px;
-  font-weight: 900;
-  line-height: 1.1;
-  margin-bottom: 24px;
-  letter-spacing: -1px;
-}
-
-.login-subtitle {
-  font-size: 16px;
-  line-height: 1.6;
-  opacity: 0.9;
-  margin-bottom: 48px;
-  max-width: 400px;
-}
-
-.login-features {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.feature {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  font-size: 14px;
-}
-
-.feature-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.login-right {
-  flex: 1;
-  padding: 80px 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.login-form {
-  width: 100%;
-  max-width: 400px;
-}
-
-.login-form h2 {
-  font-family: 'Geist', sans-serif;
-  font-size: 32px;
-  font-weight: 900;
-  margin-bottom: 12px;
-  letter-spacing: -0.5px;
-}
-
-.login-form p {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin-bottom: 32px;
-}
-
-.demo-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.btn-demo {
-  width: 100%;
-  padding: 16px 20px;
-  border: 1px solid var(--border);
-  background: white;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 600;
-  font-family: 'Inter', sans-serif;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-}
-
-.btn-demo:hover {
-  background: var(--ls-gray-light);
-  border-color: var(--ls-green);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-
-.btn-demo:active {
-  transform: scale(0.98);
-}
-
-.btn-demo-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--ls-green), var(--ls-green-light));
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.btn-demo-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.btn-demo-name {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.btn-demo-role {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-/* ── DASHBOARD HIDDEN ── */
-.dashboard {
-  display: none;
-}
-
-.dashboard.active {
-  display: flex;
-}
-
-/* ── TOPBAR ── */
-.topbar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 72px;
-  background: white;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 48px;
-  z-index: 1000;
-  backdrop-filter: blur(10px);
-}
-
-.logo-section {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.logo-icon {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.logo-icon img {
-  width: 40px; height: 40px;
-  object-fit: contain;
-}
-
-.logo-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.logo-main {
-  font-family: 'Geist', sans-serif;
-  font-size: 16px;
-  font-weight: 900;
-  letter-spacing: -0.5px;
-}
-
-.logo-sub {
-  font-family: 'Inter', sans-serif;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--ls-green);
-}
-
-.status-bar {
-  display: flex;
-  gap: 32px;
-  align-items: center;
-}
-
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ls-green);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-.user-menu {
-  position: relative;
-}
-
-.user-profile {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  border-radius: 40px;
-  background: var(--ls-gray-light);
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid var(--border);
-}
-
-.user-profile:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-}
-
-.user-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--ls-green), var(--ls-green-light));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: white;
-}
-
-.user-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.user-name {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.user-role {
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.user-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  min-width: 180px;
-  margin-top: 8px;
-  box-shadow: var(--shadow-lg);
-  display: none;
-  flex-direction: column;
-  z-index: 1001;
-}
-
-.user-dropdown.active {
-  display: flex;
-}
-
-.dropdown-item {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  transition: background 0.2s;
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
-.dropdown-item:last-child {
-  border-bottom: none;
-}
-
-.dropdown-item:hover {
-  background: var(--ls-gray-light);
-}
-
-.dropdown-item.logout {
-  color: #ef4444;
-  font-weight: 600;
-}
-
-/* ── NOTIFICATION BELL (WhatsApp-like) ── */
-.notification-bell {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.bell-button {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 50%;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.bell-button:hover {
-  background: rgba(26, 122, 72, 0.1);
-  transform: scale(1.1);
-}
-
-.notification-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: #ef4444;
-  color: white;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  animation: badgePulse 2s ease-in-out infinite;
-}
-
-@keyframes badgePulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.15); }
-}
-
-/* Notification Panel (Drawer) */
-.notification-panel {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: 360px;
-  max-height: 500px;
-  margin-top: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-  display: none;
-  flex-direction: column;
-  z-index: 1001;
-  overflow: hidden;
-}
-
-.notification-panel.active {
-  display: flex;
-}
-
-.notification-panel-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.notification-panel-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.close-panel {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: var(--text-secondary);
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  transition: background 0.2s;
-}
-
-.close-panel:hover {
-  background: var(--ls-gray-light);
-}
-
-.notification-panel-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-}
-
-.no-notifications {
-  padding: 24px 20px;
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-/* Notification Item (WhatsApp bubble style) */
-.notification-item {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--ls-gray-light);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  transition: background 0.2s;
-  cursor: pointer;
-}
-
-.notification-item:hover {
-  background: rgba(26, 122, 72, 0.05);
-}
-
-.notification-item.unread {
-  background: rgba(26, 122, 72, 0.08);
-  border-left: 4px solid var(--ls-green);
-}
-
-.notification-content {
-  flex: 1;
-}
-
-.notification-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-
-.notification-message {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-  word-wrap: break-word;
-  margin-bottom: 4px;
-}
-
-.notification-time {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.notification-delete {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: #ef4444;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  transition: background 0.2s;
-}
-
-.notification-delete:hover {
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.notification-panel-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  justify-content: center;
-}
-
-.clear-all-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: all 0.2s;
-}
-
-.clear-all-btn:hover {
-  background: var(--ls-gray-light);
-  border-color: var(--text-secondary);
-}
-
-/* ── DASHBOARD LAYOUT ── */
-.dashboard-container {
-  position: fixed;
-  top: 72px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  overflow: hidden;
-}
-
-.sidebar {
-  width: 280px;
-  background: #0f0f0f;
-  color: white;
-  padding: 48px 24px;
-  overflow-y: auto;
-  border-right: 1px solid rgba(255,255,255,0.08);
-}
-
-.sidebar::-webkit-scrollbar { width: 4px; }
-.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-
-.nav-title {
-  font-family: 'Geist', sans-serif;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.3);
-  margin-bottom: 16px;
-  margin-top: 24px;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.3s;
-  margin-bottom: 8px;
-  color: rgba(255,255,255,0.5);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.nav-item:hover {
-  background: rgba(255,255,255,0.1);
-  color: white;
-  transform: translateX(8px);
-}
-
-.nav-item.active {
-  background: var(--ls-green);
-  color: white;
-  font-weight: 600;
-}
-
-.nav-item.disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-
-.content {
-  flex: 1;
-  overflow-y: auto;
-  background: var(--bg-light);
-  padding: 48px 64px;
-}
-
-.content::-webkit-scrollbar { width: 4px; }
-.content::-webkit-scrollbar-thumb { background: var(--border); }
-
-.screen {
-  display: none;
-}
-
-.screen.active {
-  display: block;
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.section-title {
-  font-family: 'Geist', sans-serif;
-  font-size: 32px;
-  font-weight: 900;
-  margin-bottom: 32px;
-  letter-spacing: -0.5px;
-}
-
-.role-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  background: rgba(26, 122, 72, 0.1);
-  color: var(--ls-green);
-  margin-bottom: 16px;
-}
-
-.access-denied {
-  padding: 32px;
-  border: 2px dashed var(--border);
-  border-radius: 12px;
-  text-align: center;
-  color: var(--text-secondary);
-}
-
-.access-denied h3 {
-  font-family: 'Geist', sans-serif;
-  font-size: 20px;
-  margin-bottom: 8px;
-  color: var(--text-primary);
-}
-
-.error-message {
-  color: #ef4444;
-  font-size: 13px;
-  margin-top: 8px;
-  display: none;
-}
-
-.error-message.show {
-  display: block;
-}
-
-/* ── MODAL STYLES ── */
-.modal-overlay {
-  display: none;
-  position: fixed;
-  z-index: 2000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(250, 250, 250, 0.55);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  animation: fadeIn 0.2s ease both;
-}
-
-.modal-overlay.show {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-content {
-  background: white;
-  border-radius: 12px;
-  padding: 32px;
-  width: 90%;
-  max-width: 520px;
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3);
-  animation: fadeInUp 0.3s ease both;
-  position: relative;
-  overflow: hidden;
-}
-
-.modal-content::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, var(--ls-green), transparent);
-}
-
-.modal-title {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-  font-family: 'Geist', sans-serif;
-}
-
-.modal-subtitle {
-  color: var(--text-secondary);
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-
-.modal-checkboxes {
-  background: #f9f9f9;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
-  margin-bottom: 24px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.modal-checkbox-item {
-  padding: 12px;
-  margin-bottom: 6px;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  transition: all 0.2s;
-  cursor: pointer;
-}
-
-.modal-checkbox-item:last-child {
-  margin-bottom: 0;
-}
-
-.modal-checkbox-item:hover {
-  background: #f9f9f9;
-  border-color: var(--ls-green);
-}
-
-.modal-checkbox-item input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--ls-green);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.modal-checkbox-item label {
-  flex: 1;
-  cursor: pointer;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.modal-checkbox-item label .qty-tag {
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.modal-checkbox-item label .completed-tag {
-  color: var(--ls-green);
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(26, 122, 72, 0.1);
-  padding: 2px 8px;
-  border-radius: 4px;
-  margin-left: auto;
-}
-
-.modal-checkbox-item.is-completed {
-  opacity: 0.6;
-}
-
-.modal-checkbox-item.is-completed label {
-  font-weight: 700;
-}
-
-.modal-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.btn-modal-cancel {
-  flex: 1;
-  background: #f5f5f5;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  padding: 12px 20px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-
-.btn-modal-cancel:hover {
-  background: #e5e5e5;
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
-}
-
-.btn-modal-confirm {
-  flex: 1;
-  background: var(--ls-green);
-  color: white;
-  border: none;
-  padding: 12px 20px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-
-.btn-modal-confirm:hover {
-  box-shadow: 0 0 20px rgba(26, 122, 72, 0.3);
-  transform: translateY(-1px);
-}
-
-.btn-modal-all {
-  flex: 1;
-  background: #0891b2;
-  color: white;
-  border: none;
-  padding: 12px 20px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-  font-family: inherit;
-  transition: all 0.2s;
-}
-
-.btn-modal-all:hover {
-  box-shadow: 0 0 20px rgba(8, 145, 178, 0.3);
-  transform: translateY(-1px);
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* ── RESPONSIVE ── */
-@media (max-width: 1024px) {
-  .login-left { padding: 60px 40px; }
-  .login-right { padding: 60px 40px; }
-  .content { padding: 32px; }
-}
-
-@media (max-width: 768px) {
-  .login-container { flex-direction: column; min-height: auto; }
-  .login-left { padding: 30px 24px; min-height: auto; }
-  .login-right { padding: 30px 24px; min-height: auto; }
-  .login-title { font-size: 28px; }
-  .login-subtitle { margin-bottom: 24px; }
-  .login-logo { margin-bottom: 24px; }
-  .login-form h2 { font-size: 24px; }
-  .login-form p { margin-bottom: 20px; }
-}
-
-/* ── TOAST NOTIFICATIONS ── */
-.toast-container {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 3000;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  pointer-events: none;
-}
-
-.toast {
-  background: white;
-  padding: 16px 20px;
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-  border-left: 4px solid var(--ls-green);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  animation: slideInRight 0.3s ease-out;
-  pointer-events: all;
-  max-width: 350px;
-}
-
-.toast.success { border-left-color: #22c55e; }
-.toast.error { border-left-color: #ef4444; }
-.toast.info { border-left-color: var(--ls-green); }
-.toast.warning { border-left-color: #f59e0b; }
-
-.toast-icon {
-  font-size: 20px;
-  font-weight: bold;
-  min-width: 24px;
-  text-align: center;
-}
-
-.toast.success .toast-icon { color: #22c55e; }
-.toast.error .toast-icon { color: #ef4444; }
-.toast.warning .toast-icon { color: #f59e0b; }
-
-.toast-content {
-  flex: 1;
-  font-size: 14px;
-  color: var(--text-primary);
-  line-height: 1.4;
-}
-
-.toast-title {
-  font-weight: 600;
-  margin-bottom: 2px;
-}
-
-.toast-message {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.toast-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #999;
-  font-size: 18px;
-  padding: 0;
-  margin-left: 8px;
-  transition: color 0.2s;
-}
-
-.toast-close:hover { color: #666; }
-
-@keyframes slideInRight {
-  from {
-    opacity: 0;
-    transform: translateX(100px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes slideOutRight {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateX(100px);
-  }
-}
-
-/* NOTIFICATION BADGE */
-.notification-badge {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  background: #ef4444;
-  color: white;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  border: 2px solid white;
+  background: var(--ft-canvas); color: var(--ft-ink);
+  font: 14px/1.5 var(--ft-font); font-variant-numeric: tabular-nums;
+  display: grid; place-items: center; min-height: 100vh; padding: 88px 16px 72px;
+  -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ft-accent); outline-offset: 2px; }
+
+/* ── sfondo: griglia a puntini + luce indaco che si sposta ───────── */
+.sfondo { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.sfondo::before {
+  content: ''; position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(11, 18, 32, .09) 1px, transparent 1px); background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+          mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+}
+.luce { position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%; filter: blur(70px); opacity: .5; will-change: transform; }
+.luce.a { background: #A5B4FC; left: -12vmax; top: -16vmax; animation: deriva1 22s ease-in-out infinite alternate; }
+.luce.b { background: #C7D2FE; right: -14vmax; bottom: -18vmax; animation: deriva2 26s ease-in-out infinite alternate; }
+.luce.c { background: #DDD6FE; left: 40%; top: 55%; width: 30vmax; height: 30vmax; opacity: .35; animation: deriva1 30s ease-in-out infinite alternate-reverse; }
+@keyframes deriva1 { to { transform: translate(14vmax, 10vmax) scale(1.15); } }
+@keyframes deriva2 { to { transform: translate(-12vmax, -8vmax) scale(1.1); } }
+
+/* ── testata: marchio e orologio ─────────────────────────────────── */
+.testa { position: fixed; top: 0; left: 0; right: 0; height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
+.marchio { display: flex; align-items: center; gap: 10px; }
+.ft-logo { position: relative; overflow: hidden; }
+.ft-logo::after {
+  content: ''; position: absolute; top: -40%; bottom: -40%; left: -60%; width: 40%; transform: skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .55), transparent);
+  animation: lampo 1.2s var(--ft-ease) .5s 1 both;
+}
+@keyframes lampo { from { left: -60%; } to { left: 140%; } }
+.orologio { text-align: right; line-height: 1.1; }
+.orologio b { display: block; font: 800 20px var(--ft-display); letter-spacing: -.5px; }
+.orologio span { font-size: 12px; color: var(--ft-ink-3); }
+
+/* ── pannello ─────────────────────────────────────────────────────── */
+.pannello {
+  width: min(640px, 100%); background: rgba(255, 255, 255, .82); border: 1px solid var(--ft-line);
+  border-radius: 20px; padding: 32px; display: grid; gap: 22px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 24px 60px rgba(15, 23, 42, .10);
+  backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%);
+  animation: entra .55s var(--ft-ease) both;
+}
+@keyframes entra { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+.pannello h1 { margin: 0; font: 800 28px/1.15 var(--ft-display); letter-spacing: -.7px; }
+.pannello p.sotto { margin: 6px 0 0; color: var(--ft-ink-3); font-size: 14px; }
+.occhiello { font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ft-accent); margin-bottom: 6px; }
+
+/* ── a) cosa e' questo dispositivo ─────────────────────────────── */
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .opts { grid-template-columns: 1fr; } .pannello { padding: 22px; } }
+.opt {
+  --mx: 50%; --my: 50%;
+  position: relative; overflow: hidden; text-align: left; background: var(--ft-panel);
+  border: 1px solid var(--ft-line); border-radius: var(--ft-r-xl); padding: 14px 16px;
+  display: grid; grid-template-columns: 38px 1fr; column-gap: 12px; align-items: center; cursor: pointer; min-height: 70px;
+  transition: border-color .15s, box-shadow .2s, transform .15s var(--ft-ease);
+  animation: sale .45s var(--ft-ease) both; animation-delay: calc(var(--i, 0) * 55ms + 120ms);
+}
+@keyframes sale { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.opt::before {
+  content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity .2s; pointer-events: none;
+  background: radial-gradient(220px circle at var(--mx) var(--my), var(--ft-accent-glow), transparent 65%);
+}
+.opt:hover { border-color: #C7CDF9; transform: translateY(-1px); box-shadow: var(--ft-elev-2); }
+.opt:hover::before { opacity: 1; }
+.opt > * { position: relative; }
+.opt .ico {
+  grid-row: span 2; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--ft-well); border: 1px solid var(--ft-line); color: var(--ft-ink-2); transition: background .2s, color .2s, border-color .2s;
+}
+.opt .ico svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.opt b { font: 700 15px var(--ft-display); letter-spacing: -.2px; }
+.opt span.d { font-size: 13px; color: var(--ft-ink-3); }
+.opt.officina b::after { content: ' · officina'; font: 600 12px var(--ft-font); color: var(--ft-warn); }
+.opt[aria-pressed="true"] { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-bg), var(--ft-elev-2); }
+.opt[aria-pressed="true"] .ico { background: var(--ft-accent); border-color: var(--ft-accent); color: #fff; }
+
+.campo { display: grid; gap: 6px; }
+.campo label { font-weight: 600; font-size: 13px; color: var(--ft-ink-2); }
+.campo label small { font-weight: 400; color: var(--ft-ink-3); font-size: 13px; }
+.campo input {
+  height: 42px; border-radius: var(--ft-r-m); border: 1px solid var(--ft-line); padding: 0 12px;
+  font: 14px var(--ft-font); background: var(--ft-panel); color: var(--ft-ink); transition: border-color .15s, box-shadow .15s;
+}
+.campo input:focus { outline: none; border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
+.azioni { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.btn {
+  height: 42px; padding: 0 20px; border-radius: 10px; border: 1px solid var(--ft-accent);
+  background: var(--ft-accent); color: #fff; font: 600 14px var(--ft-font); cursor: pointer;
+  box-shadow: 0 6px 20px rgba(79, 70, 229, .28); transition: background .15s, box-shadow .15s, transform .08s, opacity .15s;
+}
+.btn:hover:not(:disabled) { background: var(--ft-accent-hover); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .4; cursor: default; box-shadow: none; }
+.btn.sec { background: var(--ft-panel); color: var(--ft-ink); border-color: var(--ft-line); box-shadow: var(--ft-elev-1); }
+.btn.sec:hover:not(:disabled) { background: #FAFBFC; border-color: #CBD2DC; }
+.link { background: none; border: 0; color: var(--ft-accent); font-weight: 600; cursor: pointer; padding: 6px 2px; }
+.link:hover { color: var(--ft-accent-hover); text-decoration: underline; }
+.nota {
+  background: var(--ft-well); border: 1px solid var(--ft-line); border-radius: var(--ft-r-l); padding: 12px 14px;
+  color: var(--ft-ink-2); font-size: 13px;
+}
+.nota.gialla { background: var(--ft-warn-bg); border-color: var(--ft-warn-line); color: #7A2E0E; }
+.nota code { font-family: var(--ft-mono); font-size: 12px; background: var(--ft-panel); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--ft-line); }
+.vecchie { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+
+/* ── b) PIN ────────────────────────────────────────────────────── */
+.pannello.pin { width: min(420px, 100%); justify-items: center; text-align: center; gap: 16px; padding: 32px 28px 26px; }
+.pin .stazione {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 100px;
+  background: var(--ft-accent-bg); color: var(--ft-accent-ink); font-size: 12px; font-weight: 600;
+}
+.pin .stazione::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ft-accent); }
+.pin .stazione:empty { display: none; }
+.pin h1 { margin: 2px 0 0; }
+.pin p.sotto { margin: 0; }
+.dots-box { position: relative; height: 34px; display: grid; place-items: center; }
+.dots { display: flex; gap: 14px; }
+.dots i {
+  width: 14px; height: 14px; border-radius: 50%; border: 2px solid #C9CFDA; background: transparent;
+  transition: border-color .15s, background .15s, transform .3s var(--ft-ease), opacity .3s;
+}
+.dots i.f { background: var(--ft-accent); border-color: var(--ft-accent); animation: pop .35s cubic-bezier(.3, 1.8, .5, 1); box-shadow: 0 0 0 5px var(--ft-accent-glow); }
+@keyframes pop { from { transform: scale(.4); } }
+.pin.errato .dots i { border-color: var(--ft-err-dot); }
+.spunta { position: absolute; width: 34px; height: 34px; opacity: 0; }
+.spunta circle { fill: var(--ft-ok-dot); transform-origin: center; }
+.spunta path { fill: none; stroke: #fff; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 24; stroke-dashoffset: 24; }
+.pin.ok .dots i { transform: translateX(var(--dx, 0)) scale(.3); opacity: 0; }
+.pin.ok .spunta { opacity: 1; transition: opacity .1s .22s; }
+.pin.ok .spunta circle { animation: pop .45s cubic-bezier(.3, 1.8, .5, 1) .22s both; }
+.pin.ok .spunta path { transition: stroke-dashoffset .35s var(--ft-ease) .42s; stroke-dashoffset: 0; }
+.err { color: var(--ft-err); font-weight: 600; min-height: 20px; font-size: 13px; }
+.keys { display: grid; grid-template-columns: repeat(3, 80px); gap: 10px; }
+.keys button {
+  position: relative; overflow: hidden; height: 60px; border-radius: 14px; background: var(--ft-panel);
+  border: 1px solid var(--ft-line); font: 600 23px var(--ft-display); color: var(--ft-ink);
+  cursor: pointer; touch-action: manipulation; box-shadow: var(--ft-elev-1);
+  transition: background .12s, border-color .12s, transform .08s;
+}
+.keys button:hover:not(:disabled) { border-color: #CBD2DC; background: #FAFBFC; }
+.keys button:active:not(:disabled) { transform: scale(.95); }
+.keys button.ok { background: var(--ft-accent); border-color: var(--ft-accent); color: #fff; box-shadow: 0 6px 20px rgba(79, 70, 229, .28); }
+.keys button.ok:hover:not(:disabled) { background: var(--ft-accent-hover); }
+.keys button.del { color: var(--ft-ink-3); font-size: 20px; }
+.keys button:disabled { opacity: .4; cursor: default; }
+.onda { position: absolute; border-radius: 50%; background: var(--ft-accent-glow); transform: scale(0); animation: onda .5s ease-out forwards; pointer-events: none; }
+.keys button.ok .onda { background: rgba(255, 255, 255, .35); }
+@keyframes onda { to { transform: scale(2.6); opacity: 0; } }
+@keyframes scuoti { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); } 40%, 60% { transform: translateX(7px); } }
+.scuoti { animation: scuoti .4s; }
+
+/* ingresso riuscito: il pannello si allontana, la stazione si apre */
+.via .pannello { transition: transform .5s var(--ft-ease), opacity .5s, filter .5s; transform: scale(1.04); opacity: 0; filter: blur(6px); }
+.via .testa, .via .angolo { transition: opacity .4s; opacity: 0; }
+
+/* ── angolo: questo dispositivo ────────────────────────────────── */
+.angolo {
+  position: fixed; right: 16px; bottom: 14px; font-size: 12px; color: var(--ft-ink-3);
+  display: flex; gap: 6px; align-items: center; background: rgba(255, 255, 255, .7); border: 1px solid var(--ft-line);
+  border-radius: 100px; padding: 4px 6px 4px 12px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.angolo b { color: var(--ft-ink-2); }
+.angolo button { background: none; border: 0; color: var(--ft-accent); font-weight: 600; cursor: pointer; padding: 3px 8px; font-size: 12px; border-radius: 100px; }
+.angolo button:hover { background: var(--ft-accent-bg); }
+.caricamento { color: var(--ft-ink-3); display: flex; align-items: center; gap: 10px; }
+.caricamento::before { content: ''; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ft-line); border-top-color: var(--ft-accent); animation: gira .8s linear infinite; }
+@keyframes gira { to { transform: rotate(360deg); } }
+
+@media (max-width: 420px) { .keys { grid-template-columns: repeat(3, 72px); } .testa { padding: 0 16px; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0s !important; }
 }
 </style>
 </head>
 <body>
 
-<!-- TOAST NOTIFICATIONS CONTAINER -->
-<div class="toast-container" id="toastContainer"></div>
+<div class="sfondo" aria-hidden="true"><i class="luce a"></i><i class="luce b"></i><i class="luce c"></i></div>
 
-<!-- LOGIN PAGE -->
-<div class="login-container" id="loginPage">
-  <div class="login-left">
-    <div class="login-left-content">
-      <div class="login-logo">
-        <div class="login-logo-icon"><img src="/assets/logo.svg" alt="LS"></div>
-        <div class="login-logo-text">
-          <h1>FerroTrack</h1>
-          <p>LS s.r.l.</p>
-        </div>
-      </div>
+<header class="testa">
+  <div class="marchio"><div class="ft-logo">LS</div><div><div class="ft-brand-name">FerroTrack</div><div class="ft-brand-area">Officina LS</div></div></div>
+  <div class="orologio" aria-hidden="true"><b id="ora">--:--</b><span id="giorno"></span></div>
+</header>
 
-      <h2 class="login-title">Gestione della Produzione</h2>
-      <p class="login-subtitle">Sistema integrato per il controllo in tempo reale di ordini, macchine e operai nelle fasi di produzione.</p>
+<main id="carica" class="caricamento" aria-live="polite">Un momento…</main>
 
-      <div class="login-features">
-        <div class="feature">
-          <div class="feature-icon">✓</div>
-          <span>Monitoring real-time di ordini e macchine</span>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">✓</div>
-          <span>Accesso basato su ruolo e autorizzazioni</span>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">✓</div>
-          <span>Ore dichiarate dagli operai sul tablet</span>
-        </div>
-        <div class="feature">
-          <div class="feature-icon">✓</div>
-          <span>Tracciamento completo delle fasi di lavorazione</span>
-        </div>
-      </div>
-    </div>
+<!-- a) Dispositivo nuovo (o "cambia") -->
+<section id="v-setup" class="pannello" hidden aria-labelledby="setup-t">
+  <div>
+    <div class="occhiello" id="setup-occhiello">Primo avvio di questo dispositivo</div>
+    <h1 id="setup-t">Cosa è questo dispositivo?</h1>
+    <p class="sotto" id="setup-sotto">Lo scegli una volta. Per cambiarlo serve il PIN dell’amministratore.</p>
   </div>
-
-  <div class="login-right">
-    <div class="login-form" id="loginForm">
-      <h2>Login</h2>
-      <p>Scegli la postazione da cui stai lavorando</p>
-
-      <div class="error-message" id="loginError"></div>
-
-      <div class="demo-buttons" id="demoButtons">
-        <p style="font-size: 12px; color: var(--text-secondary);">Caricamento...</p>
-      </div>
-    </div>
+  <div class="opts" id="opts" role="group" aria-label="Stazioni"></div>
+  <div class="campo">
+    <label for="nome-disp">Nome del dispositivo <small>(facoltativo, es. “PC di Elena”, “Tablet piega”)</small></label>
+    <input id="nome-disp" maxlength="60" autocomplete="off">
   </div>
-</div>
-
-<!-- DASHBOARD PAGE -->
-<div class="dashboard" id="dashboard">
-  <!-- TOPBAR -->
-  <header class="topbar">
-    <div class="logo-section">
-      <div class="logo-icon"><img src="/assets/logo.svg" alt="LS"></div>
-      <div class="logo-text">
-        <div class="logo-main">FerroTrack</div>
-        <div class="logo-sub">LS s.r.l.</div>
-      </div>
-    </div>
-
-    <div class="status-bar">
-      <div class="status-item">
-        <div class="status-dot"></div>
-        Impianto Attivo
-      </div>
-      <div class="status-item" id="clock">--:--:--</div>
-
-      <!-- Notification Bell (WhatsApp-like) -->
-      <div class="notification-bell">
-        <button class="bell-button" onclick="toggleNotificationPanel()">🔔</button>
-        <div class="notification-badge" id="notificationBadge" style="display: none;">0</div>
-        <div class="notification-panel" id="notificationPanel">
-          <div class="notification-panel-header">
-            <h3>Notifiche</h3>
-            <button class="close-panel" onclick="toggleNotificationPanel()">&times;</button>
-          </div>
-          <div class="notification-panel-content" id="notificationPanelContent">
-            <div class="no-notifications">Nessuna notifica</div>
-          </div>
-          <div class="notification-panel-footer" id="notificationPanelFooter" style="display: none;">
-            <button class="clear-all-btn" onclick="clearAllNotifications()">Cancella Tutto</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="user-menu">
-        <div class="user-profile" onclick="toggleUserDropdown()">
-          <div class="user-avatar" id="userInitials">--</div>
-          <div class="user-info">
-            <div class="user-name" id="userName">Nome Operaio</div>
-            <div class="user-role" id="userRole">Ruolo</div>
-          </div>
-        </div>
-        <div class="user-dropdown" id="userDropdown">
-          <div class="dropdown-item" onclick="openProfile()">Profilo</div>
-          <div class="dropdown-item logout" onclick="logout()">Logout</div>
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <!-- DASHBOARD LAYOUT -->
-  <div class="dashboard-container">
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <div>
-        <div class="nav-title">Dashboard</div>
-        <div class="nav-item active" onclick="switchScreen('overview')">📊 Overview</div>
-        <div class="nav-item" id="navSupervisione" onclick="switchScreen('supervisione')">📋 Supervisione</div>
-        <div class="nav-item" id="navLavorazione" onclick="switchScreen('lavorazione')">👷 Lavorazione</div>
-        <div class="nav-item" id="navCalendario" onclick="switchScreen('calendario')">📅 Calendario Ordini</div>
-        <div class="nav-item" id="navArchivio" onclick="switchScreen('archive')">🗄 Archivio</div>
-        <div class="nav-item" id="navAdmin" style="margin-top: 24px;" onclick="goToAdmin()">⚙️ Admin</div>
-
-        <div class="nav-title" style="margin-top: 48px;">Mie Macchine</div>
-        <div class="nav-item" id="mioMachines">Caricamento...</div>
-      </div>
-    </aside>
-
-    <!-- CONTENT -->
-    <div class="content">
-      <!-- Overview Screen -->
-      <div class="screen active" id="screen-overview">
-        <div class="role-badge" id="roleBadge">OPERAIO</div>
-        <h1 class="section-title">Dashboard Personale</h1>
-        <p>Benvenuto! Visualizzi i dati in base al tuo ruolo e autorizzazioni.</p>
-        <div style="margin-top: 32px; padding: 24px; border: 1px solid #e5e5e5; border-radius: 12px; background: #f9f9f9;">
-          <h3 style="margin-bottom: 16px; font-family: 'Geist', sans-serif; font-weight: 700;">Info Sessione</h3>
-          <p><strong>Operaio:</strong> <span id="infoName">--</span></p>
-          <p><strong>Ruolo:</strong> <span id="infoRole">--</span></p>
-          <p><strong>Macchine Assegnate:</strong> <span id="infoMachines">--</span></p>
-          <p><strong>Autorizzazioni:</strong> <span id="infoPermissions">--</span></p>
-        </div>
-      </div>
-
-      <!-- Supervisione Screen -->
-      <div class="screen" id="screen-supervisione">
-        <div class="role-badge">SUPERVISORE</div>
-        <h1 class="section-title">Supervisione Ordini</h1>
-        <div class="access-denied" id="supervisioneContent">
-          <h3>Accesso Negato</h3>
-          <p>Solo supervisori e amministratori possono accedere a questa sezione.</p>
-        </div>
-      </div>
-
-      <!-- Lavorazione Screen -->
-      <div class="screen" id="screen-lavorazione">
-        <div class="role-badge">OPERAIO</div>
-        <h1 class="section-title">La Mia Lavorazione</h1>
-        <div id="lavorazioneContent">
-          <p>Caricamento dati...</p>
-        </div>
-      </div>
-
-      <!-- Calendario Ordini Screen -->
-      <div class="screen" id="screen-calendario">
-        <div class="role-badge">CALENDARIO</div>
-        <h1 class="section-title">Calendario Ordini</h1>
-        <div style="display: flex; gap: 20px; margin-bottom: 32px;">
-          <button onclick="prevMonth()" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #e5e5e5; border-radius: 6px; cursor: pointer; font-weight: 600;">← Precedente</button>
-          <div style="flex: 1; text-align: center; padding: 8px 16px; background: #f5f5f5; border-radius: 6px; font-weight: 600;" id="calendarTitle">Marzo 2026</div>
-          <button onclick="nextMonth()" style="padding: 8px 16px; background: #f5f5f5; border: 1px solid #e5e5e5; border-radius: 6px; cursor: pointer; font-weight: 600;">Prossimo →</button>
-        </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-          <!-- Calendar Grid -->
-          <div style="border: 1px solid #e5e5e5; border-radius: 12px; background: white; padding: 20px;">
-            <div id="calendarGrid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;">
-              <!-- Calendar generated by JS -->
-            </div>
-          </div>
-
-          <!-- Orders Sidebar -->
-          <div style="border: 1px solid #e5e5e5; border-radius: 12px; background: white; padding: 20px; overflow-y: auto; max-height: 600px;">
-            <h3 style="margin-bottom: 16px; font-weight: 700;">Ordini in Evidenza</h3>
-            <div id="calendarOrdersList" style="display: flex; flex-direction: column; gap: 12px;">
-              <p style="color: #999;">Caricamento ordini...</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Archive Screen -->
-      <div class="screen" id="screen-archive">
-        <div class="role-badge">ARCHIVIO</div>
-        <h1 class="section-title">Archivio Ordini</h1>
-        <div class="access-denied" id="archiveContent">
-          <h3>Accesso Negato</h3>
-          <p>Solo supervisori e amministratori possono accedere all'archivio.</p>
-        </div>
-        <div id="archiveReportContainer" style="display:none;">
-          <!-- Filtri -->
-          <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:20px;padding:16px;background:white;border-radius:8px;border:1px solid var(--border);">
-            <div style="flex:1;min-width:150px;">
-              <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Cliente</label>
-              <input type="text" id="archFilterCliente" placeholder="Cerca cliente..."
-                     style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:Inter,sans-serif;">
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Data da</label>
-              <input type="date" id="archFilterDateFrom"
-                     style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:Inter,sans-serif;">
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Data a</label>
-              <input type="date" id="archFilterDateTo"
-                     style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:Inter,sans-serif;">
-            </div>
-            <button onclick="loadArchiveReport()" style="padding:8px 16px;background:var(--ls-green);color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Filtra</button>
-            <button onclick="exportArchiveCSV()" style="padding:8px 16px;background:white;color:var(--text-primary);border:1px solid var(--border);border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Esporta CSV</button>
-          </div>
-
-          <!-- Tabella report -->
-          <div style="background:white;border-radius:8px;border:1px solid var(--border);overflow:hidden;">
-            <div style="overflow-x:auto;">
-              <table id="archiveTable" style="width:100%;border-collapse:collapse;font-size:13px;">
-                <thead>
-                  <tr style="background:var(--bg-light);border-bottom:2px solid var(--border);">
-                    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">Ordine</th>
-                    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">Cliente</th>
-                    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">PIEGA</th>
-                    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">SALDATURA</th>
-                    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">PULIZIA</th>
-                    <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">Totale</th>
-                    <th style="padding:10px 12px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">Quotato</th>
-                    <th style="padding:10px 12px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">Costo</th>
-                    <th style="padding:10px 12px;text-align:right;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;color:var(--text-secondary);">Margine</th>
-                  </tr>
-                </thead>
-                <tbody id="archiveTableBody">
-                  <tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text-secondary);">Caricamento...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Paginazione -->
-          <div id="archivePagination" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;"></div>
-        </div>
-      </div>
-    </div>
+  <div class="azioni">
+    <button class="btn" id="avanti" disabled>Avanti</button>
+    <button class="btn sec" id="annulla-cambia" hidden>Annulla</button>
   </div>
-</div>
-
-<!-- MODALE PDF VIEWER -->
-<div id="pdfViewerModal" class="modal-overlay" onclick="if(event.target===this)closePdfModal()">
-  <div style="background:white;border-radius:12px;width:90%;max-width:900px;height:85vh;display:flex;flex-direction:column;box-shadow:0 25px 60px rgba(0,0,0,0.3);animation:fadeInUp 0.3s ease both;position:relative;overflow:hidden;">
-    <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,var(--ls-green),transparent);"></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--border);">
-      <div>
-        <div id="pdfModalTitle" style="font-family:'Geist',sans-serif;font-size:16px;font-weight:700;"></div>
-        <div id="pdfModalMeta" style="font-size:12px;color:var(--text-secondary);margin-top:2px;"></div>
-      </div>
-      <button onclick="closePdfModal()" style="background:none;border:none;font-size:24px;cursor:pointer;opacity:0.5;transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'">&times;</button>
-    </div>
-    <iframe id="pdfModalFrame" style="flex:1;border:none;"></iframe>
+  <div class="nota gialla" id="nota-transizione" hidden>
+    <b>Periodo di passaggio.</b> Finché l’amministrazione non registra questo dispositivo puoi
+    ancora entrare come prima.
+    <div style="margin-top:6px"><button class="link" id="mostra-vecchie">Entra come prima (provvisorio)</button></div>
+    <div class="vecchie" id="vecchie" hidden style="margin-top:10px"></div>
   </div>
-</div>
+  <div class="nota" id="nota-primo" hidden></div>
+</section>
 
-<!-- MODALE COMPLETAMENTO PARZIALE -->
-<div id="partialCompleteModal" class="modal-overlay">
-  <div class="modal-content">
-    <div class="modal-title" id="modalTitle">Completa Fase</div>
-    <p class="modal-subtitle">Seleziona gli articoli completati per questa fase:</p>
-
-    <div id="articlesCheckboxes" class="modal-checkboxes">
-      <!-- Checkbox articoli generati dinamicamente -->
-    </div>
-
-    <div class="modal-buttons">
-      <button class="btn-modal-cancel" onclick="closePartialModal()">
-        Annulla
-      </button>
-      <button class="btn-modal-confirm" onclick="submitPartialComplete()">
-        Completa Selezionati
-      </button>
-      <button class="btn-modal-all" onclick="completeAllPartialModal()" title="Completa tutti gli articoli per questa fase">
-        Completa Tutti
-      </button>
-    </div>
+<!-- b) PIN (personale negli uffici, oppure dell'amministratore) -->
+<section id="v-pin" class="pannello pin" hidden aria-labelledby="pin-t">
+  <span class="stazione" id="pin-stazione"></span>
+  <h1 id="pin-t">Buongiorno</h1>
+  <p class="sotto" id="pin-sotto">Inserisci il PIN per entrare</p>
+  <div class="dots-box">
+    <div class="dots" id="dots" aria-hidden="true"></div>
+    <svg class="spunta" viewBox="0 0 34 34" aria-hidden="true"><circle cx="17" cy="17" r="17"></circle><path d="M10 17.5l4.6 4.6L24 12.6"></path></svg>
   </div>
-</div>
+  <div class="err" id="pin-err" role="alert" aria-live="assertive"></div>
+  <div class="keys" id="keys"></div>
+  <button class="link" id="pin-indietro" hidden>Indietro</button>
+</section>
+
+<!-- Primo amministratore (solo dal PC del server, solo se non ce n'e' nessuno) -->
+<section id="v-primo" class="pannello" hidden aria-labelledby="primo-t">
+  <div>
+    <div class="occhiello">Configurazione iniziale</div>
+    <h1 id="primo-t">Il primo amministratore</h1>
+    <p class="sotto">Non c’è ancora nessun amministratore. Crealo adesso: poi potrà registrare i dispositivi
+      e dare i PIN alle altre persone.</p>
+  </div>
+  <div class="campo"><label for="primo-nome">Nome e cognome</label><input id="primo-nome" autocomplete="off" maxlength="60"></div>
+  <div class="campo"><label for="primo-pin">PIN (da 4 a 8 cifre)</label><input id="primo-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+  <div class="campo"><label for="primo-pin2">Ripeti il PIN</label><input id="primo-pin2" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+  <div class="err" id="primo-err" role="alert"></div>
+  <div class="azioni"><button class="btn" id="primo-crea">Crea amministratore</button>
+    <button class="btn sec" id="primo-annulla">Indietro</button></div>
+</section>
+
+<div class="angolo" id="angolo" hidden>Questo dispositivo: <b id="angolo-st"></b><button id="cambia">cambia</button></div>
 
 <script>
-// AAAA-MM-GG del giorno LOCALE: toISOString() da' il giorno UTC e fra
-// mezzanotte e le 2 spostava calendario e "oggi" al giorno prima.
-function _giornoLocale(d) {
-  const p = n => String(n).padStart(2, '0');
-  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+'use strict';
+const qs = new URLSearchParams(location.search);
+let IO = null;
+let scelta = null;
+
+const $ = id => document.getElementById(id);
+const MUOVI = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Orologio in alto a destra
+function orologio() {
+  const d = new Date();
+  $('ora').textContent = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const g = d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('giorno').textContent = g.charAt(0).toUpperCase() + g.slice(1);
 }
+orologio();
+setInterval(orologio, 10000);
 
-const API_BASE = '';  // Stessa origin (es: http://localhost:5000)
-
-let currentUser = null;
-let allUsers = [];
-
-// ── LOAD USERS FROM API ──
-async function loadUsers() {
-  try {
-    const resp = await fetch(`${API_BASE}/api/users`);
-    if (!resp.ok) throw new Error('Failed to load users');
-    const data = await resp.json();
-    // Solo le postazioni: gli operai non entrano nel programma, dichiarano
-    // le ore dal tablet della timbratrice toccando il proprio nome.
-    allUsers = (data.users || []).filter(u => u.e_postazione);
-    if (!allUsers.length) {
-      // Un database non ancora aggiornato non ha le postazioni: meglio
-      // mostrare quello che c'e' che una schermata vuota.
-      allUsers = (data.users || []).filter(u => u.is_active !== false);
-    }
-
-    const demoButtons = document.getElementById('demoButtons');
-    demoButtons.innerHTML = '';
-    // Cosa si fa da ogni posto. Ripetere il nome ("Laser / Laser") occupa
-    // una riga senza dire niente; questo invece fa capire, a chi si trova
-    // davanti al tablet, se e' quello giusto.
-    const COSA_CI_SI_FA = {
-      'Timbratrice':     'Ore di lavoro di fine giornata',
-      'Visione':         'Ordini in corso, sola lettura',
-      'Amministrazione': 'Ordini, consegne e fatturazione',
-      'Laser':           'Coda di taglio',
-      'Commerciale':     'Preventivi',
-    };
-
-    allUsers.forEach(user => {
-      // Le iniziali sono gia' decise accanto alla postazione: ricalcolarle dal
-      // nome dava "TDV" per "Tablet di visione".
-      const initials = (user.initials
-        || user.name.split(' ').map(w => w[0]).join('')).toUpperCase().slice(0, 2);
-      const sotto = COSA_CI_SI_FA[user.role] || user.role;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn-demo';
-      btn.innerHTML = `<div class="btn-demo-icon">${initials}</div><div class="btn-demo-info"><span class="btn-demo-name">${user.name}</span><span class="btn-demo-role">${sotto}</span></div>`;
-      btn.onclick = () => loginUser(user.id);
-      demoButtons.appendChild(btn);
-    });
-  } catch (e) {
-    console.error('Error loading users:', e);
-    document.getElementById('demoButtons').innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">Errore nel caricamento utenti</p>';
-  }
+// Icone delle stazioni (disegni a linea come quelli del resto dell'app)
+const ICONE = {
+  commerciale: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>',
+  ufficio: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/>',
+  laser: '<circle cx="12" cy="12" r="3"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
+  reparto: '<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M11 18h2"/>',
+  ore: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+};
+function icona(id) {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONE[id] || '<circle cx="12" cy="12" r="8"/>'}</svg>`;
 }
-
-// Ogni postazione apre sulla cosa che da li' si fa. Nessuno deve cercarla.
-//
-// UNA sola funzione, usata sia dal login sia dalla sessione gia' salvata:
-// prima erano due elenchi scritti a mano e quello della sessione salvata era
-// rimasto indietro (Amministrazione e Timbratrice finivano sulla bacheca
-// operai, la postazione laser sul pannello del capo).
-//
-// L'ordine conta: la postazione laser ha la delega del capo, quindi va
-// riconosciuta prima del controllo sul comando, altrimenti finirebbe sul
-// pannello capo invece che davanti ai pezzi da tagliare.
-function paginaDiPartenza(u) {
-  const ruolo = (u && u.role) || '';
-  // Timbratrice: si dichiarano le ore, e basta.
-  if (ruolo === 'Timbratrice') return '/ore.html';
-  // I due tablet in officina: gli ordini in corso, in sola lettura.
-  if (ruolo === 'Visione') return '/operaio-info.html';
-  // Laser: la coda da tagliare. Il pannello del capo e' raggiungibile
-  // da li', ma non e' quello che serve aprendo.
-  if (ruolo === 'Laser' || ruolo === 'Operaio Laser') return '/laser.html';
-  // Amministrazione: ordini, consegne, fatturazione.
-  if (ruolo === 'Amministrazione' || ruolo === 'Impiegata') return '/impiegata.html';
-  // Commerciale: i preventivi.
-  if (ruolo === 'Commerciale') return '/preventivi.html';
-  // Utenze vecchie ancora attive (capi seedati prima delle postazioni).
-  if (u && (u.is_capo || ruolo === 'Capo Officina' || ruolo === 'Amministratore')) {
-    return '/capo-officina.html';
-  }
-  // Chiunque altro: gli ordini in corso, in sola lettura.
-  return '/operaio-info.html';
+/** Piccola onda dal punto toccato (tasti del PIN). */
+function onda(b, e) {
+  if (!MUOVI) return;
+  const r = b.getBoundingClientRect(), s = Math.max(r.width, r.height);
+  const o = document.createElement('span');
+  o.className = 'onda';
+  o.style.width = o.style.height = s + 'px';
+  const x = e && e.clientX ? e.clientX - r.left : r.width / 2, y = e && e.clientY ? e.clientY - r.top : r.height / 2;
+  o.style.left = (x - s / 2) + 'px'; o.style.top = (y - s / 2) + 'px';
+  b.appendChild(o);
+  setTimeout(() => o.remove(), 520);
 }
-
-async function loginUser(userId) {
-  // Entra in fullscreen solo su tablet/mobile (non su PC)
-  const isTouch = 'ontouchstart' in window && window.innerWidth <= 1024;
-  if (isTouch) {
-    try {
-      const el = document.documentElement;
-      if (el.requestFullscreen) el.requestFullscreen();
-      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    } catch(e) {}
-  }
-  try {
-    const errorEl = document.getElementById('loginError');
-    errorEl.classList.remove('show');
-
-    // Login via API
-    const resp = await fetch(`${API_BASE}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId })
-    });
-
-    if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.error || 'Login failed');
-    }
-
-    const userData = await resp.json();
-    currentUser = { id: userId, ...userData };
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
-
-    window.location.href = paginaDiPartenza(currentUser);
-    return;
-
-    // Hide login, show dashboard
-    document.getElementById('loginPage').style.display = 'none';
-    document.getElementById('dashboard').classList.add('active');
-
-    // Update UI
-    await updateDashboardUI();
-    await updatePermissions();
-
-    // Start notification polling for capo/admin
-    if (['Capo Officina', 'Amministratore'].includes(currentUser.role)) {
-      startNotificationPolling();
-    }
-
-    // Update clock
-    updateClock();
-    setInterval(updateClock, 1000);
-  } catch (e) {
-    console.error('Login error:', e);
-    const errorEl = document.getElementById('loginError');
-    errorEl.textContent = e.message;
-    errorEl.classList.add('show');
-  }
-}
-
-function logout() {
-  // Fire-and-forget: non bloccare l'UI aspettando il server
-  if (currentUser) {
-    fetch(`${API_BASE}/api/auth/logout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser.id })
-    }).catch(e => console.error('Logout API error:', e));
-  }
-
-  // Pulizia immediata (non dipende dal server)
-  currentUser = null;
-  localStorage.removeItem('currentUser');
-
-  // Stop notification polling
-  stopNotificationPolling();
-
-  // Chiudi dropdown e mostra login
-  document.getElementById('userDropdown').classList.remove('active');
-  document.getElementById('dashboard').classList.remove('active');
-  document.getElementById('loginPage').style.display = 'flex';
-  // loginForm è un div, non serve reset
-}
-
-async function updateDashboardUI() {
-  document.getElementById('userInitials').textContent = currentUser.initials || currentUser.id.substring(0, 2).toUpperCase();
-  document.getElementById('userName').textContent = currentUser.name || currentUser.id;
-  document.getElementById('userRole').textContent = currentUser.role || 'Operaio';
-
-  document.getElementById('infoName').textContent = currentUser.name || currentUser.id;
-  document.getElementById('infoRole').textContent = currentUser.role || 'Operaio';
-  document.getElementById('infoMachines').textContent = (currentUser.machines || []).join(', ') || 'N/A';
-  document.getElementById('infoPermissions').textContent = (currentUser.permissions || []).join(', ') || 'overview';
-
-  // Update role badge
-  document.getElementById('roleBadge').textContent = (currentUser.role || 'OPERAIO').toUpperCase();
-
-  // Update sidebar
-  if (currentUser.machines && currentUser.machines.length > 0 && currentUser.machines[0] !== 'Tutte') {
-    document.getElementById('mioMachines').textContent = currentUser.machines[0];
-  } else {
-    document.getElementById('mioMachines').textContent = '⚙️ Tutte le Macchine';
-  }
-}
-
-async function updatePermissions() {
-  const perms = currentUser.permissions || ['overview'];
-
-  // Supervisione
-  if (perms.includes('supervisione')) {
-    document.getElementById('navSupervisione').classList.remove('disabled');
-    let supervisionContent = `
-      <h3>Supervisione Ordini</h3>
-      <p>Visualizzi tutti gli ordini del sistema.</p>
-      <p style="margin-top: 16px;"><strong>Macchine in Uso:</strong> ${(currentUser.machines || []).join(', ')}</p>
-    `;
-    // Bottone "Nuovo Ordine" solo per impiegata
-    if (currentUser.role === 'Impiegata') {
-      supervisionContent += `<a href="/impiegata.html" style="display: inline-block; margin-top: 24px; padding: 12px 24px; background: var(--ls-green); color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">+ Nuovo Ordine</a>`;
-    }
-    // Bottone "Dashboard Capo" per capo officina/admin
-    if (currentUser.is_capo || currentUser.role === 'Capo Officina' || currentUser.role === 'Amministratore') {
-      supervisionContent += `<a href="/capo-officina.html" style="display: inline-block; margin-top: 24px; margin-left: 12px; padding: 12px 24px; background: var(--ls-green); color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">Pannello Capo</a>`;
-    }
-    document.getElementById('supervisioneContent').innerHTML = supervisionContent;
-  } else {
-    document.getElementById('navSupervisione').classList.add('disabled');
-  }
-
-  // Archive
-  if (perms.includes('archive')) {
-    document.getElementById('navArchivio').classList.remove('disabled');
-    document.getElementById('archiveContent').style.display = 'none';
-    document.getElementById('archiveReportContainer').style.display = 'block';
-    loadArchiveReport();
-  } else {
-    document.getElementById('navArchivio').classList.add('disabled');
-  }
-
-  // Admin
-  if (perms.includes('supervisione')) {
-    document.getElementById('navAdmin').style.display = 'flex';
-  } else {
-    document.getElementById('navAdmin').style.display = 'none';
-  }
-
-  // Lavorazione - Hide for impiegata (phase === null) and ALL (capo)
-  const phase = currentUser.phase;
-  if (!phase || phase === 'ALL') {
-    document.getElementById('navLavorazione').style.display = 'none';
-  } else {
-    document.getElementById('navLavorazione').style.display = 'flex';
-  }
-  document.getElementById('navCalendario').style.display = 'flex';
-
-  // Cleanup timers
-  Object.keys(activePhaseTimers).forEach(orderId => {
-    clearInterval(activePhaseTimers[orderId]);
+/** PIN giusto: i puntini si stringono in una spunta, poi il pannello sfuma. */
+function entrato(nome) {
+  const box = $('v-pin');
+  const dots = [...$('dots').children], n = dots.length;
+  dots.forEach((d, i) => d.style.setProperty('--dx', ((n - 1) / 2 - i) * 28 + 'px'));
+  if (nome) $('pin-t').textContent = `${saluto()}, ${String(nome).split(/\s+/)[0]}`;
+  $('pin-sotto').textContent = 'Apro la tua postazione…';
+  box.classList.add('ok');
+  return new Promise(res => {
+    if (!MUOVI) return res();
+    setTimeout(() => document.body.classList.add('via'), 850);
+    setTimeout(res, 1250);
   });
-  activePhaseTimers = {};
-
-  if (phase === 'LASER') {
-    await loadLaserView();
-  } else if (phase === 'OFFICINA') {
-    await loadOfficinaView();
-  }
+}
+function vedi(id) {
+  ['carica', 'v-setup', 'v-pin', 'v-primo'].forEach(x => { $(x).hidden = (x !== id); });
+}
+async function api(url, corpo, metodo) {
+  const opz = { method: metodo || (corpo ? 'POST' : 'GET'), credentials: 'same-origin', headers: {} };
+  if (corpo) { opz.headers['Content-Type'] = 'application/json'; opz.body = JSON.stringify(corpo); }
+  const vecchia = postazioneVecchia();
+  if (vecchia) opz.headers['X-User-Id'] = vecchia.id;
+  const r = await fetch(url, opz);
+  let d = {};
+  try { d = await r.json(); } catch (_) { d = {}; }
+  return { ok: r.ok, status: r.status, d };
+}
+function postazioneVecchia() {
+  try { const u = JSON.parse(localStorage.getItem('currentUser') || 'null'); return u && u.id ? u : null; }
+  catch (_) { return null; }
+}
+function saluto() {
+  const h = new Date().getHours();
+  return h < 13 ? 'Buongiorno' : h < 18 ? 'Buon pomeriggio' : 'Buonasera';
+}
+/** Dove andare dopo l'ingresso: la pagina chiesta (se e' di questa stazione,
+    lo controlla quella pagina) oppure la pagina della stazione. */
+function destinazione(paginaStazione) {
+  const t = qs.get('torna') || '';
+  if (t.startsWith('/') && !t.startsWith('//') && !/^\/(\?|$|login\.html)/.test(t)) return t;
+  return paginaStazione || '/';
 }
 
-async function loadLaserView() {
-  document.getElementById('lavorazioneContent').innerHTML = `
-    <p><strong>Fase:</strong> Taglio Laser</p>
-    <div id="orders-list" style="margin-top: 24px;">
-      <p style="color: #666;">Caricamento ordini...</p>
-    </div>
-  `;
-
-  try {
-    const resp = await fetch('/api/phase/LASER/orders');
-    const orders = await resp.json();
-
-    if (!orders || orders.length === 0) {
-      document.getElementById('orders-list').innerHTML = '<p style="color: #666;">Nessun ordine da tagliare</p>';
+// ── tastierino ────────────────────────────────────────────────────
+// Tasti grandi per il dito; si usa anche la tastiera vera (cifre, Invio,
+// Backspace). Il PIN ha da 4 a 8 cifre: si conferma con ✓ o Invio.
+let PIN = '', pinInvia = null, pinOccupato = false, bloccoT = null;
+function preparaTastierino() {
+  const k = $('keys');
+  k.innerHTML = '';
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'].forEach(x => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.k = x;
+    b.textContent = x === 'del' ? '⌫' : x === 'ok' ? '✓' : x;
+    if (x === 'del') { b.className = 'del'; b.setAttribute('aria-label', 'Cancella'); }
+    if (x === 'ok') { b.className = 'ok'; b.setAttribute('aria-label', 'Entra'); }
+    b.addEventListener('click', e => { if (!b.disabled) onda(b, e); premi(x); });
+    k.appendChild(b);
+  });
+  document.addEventListener('keydown', e => {
+    if ($('v-pin').hidden) return;
+    if (/^[0-9]$/.test(e.key)) { premi(e.key); e.preventDefault(); }
+    else if (e.key === 'Backspace') { premi('del'); e.preventDefault(); }
+    else if (e.key === 'Enter') { premi('ok'); e.preventDefault(); }
+    else if (e.key === 'Escape' && !$('pin-indietro').hidden) { $('pin-indietro').click(); }
+  });
+}
+function puntini() {
+  const box = $('dots'), n = Math.max(4, PIN.length);
+  while (box.children.length < n) box.appendChild(document.createElement('i'));
+  while (box.children.length > n) box.lastElementChild.remove();
+  [...box.children].forEach((d, i) => d.classList.toggle('f', i < PIN.length));
+}
+function premi(k) {
+  if (pinOccupato || bloccoT) return;
+  if (k === 'del') { PIN = PIN.slice(0, -1); $('pin-err').textContent = ''; }
+  else if (k === 'ok') { invia(); return; }
+  else if (PIN.length < 8) { PIN += k; $('pin-err').textContent = ''; }
+  puntini();
+}
+async function invia() {
+  if (PIN.length < 4) { $('pin-err').textContent = 'Il PIN ha almeno 4 cifre.'; return; }
+  pinOccupato = true;
+  const pin = PIN;
+  let esito;
+  try { esito = await pinInvia(pin); } catch (_) { esito = { d: { error: 'Il server non risponde. Riprova.' } }; }
+  pinOccupato = false;
+  if (esito && esito.ok) return;
+  PIN = ''; puntini();
+  const d = (esito && esito.d) || {};
+  $('pin-err').textContent = d.error || 'PIN sbagliato.';
+  const box = $('v-pin');
+  box.classList.remove('scuoti'); void box.offsetWidth; box.classList.add('scuoti', 'errato');
+  setTimeout(() => box.classList.remove('errato'), 900);
+  if (d.codice === 'bloccato' && d.riprova_fra_s) blocca(d.riprova_fra_s);
+}
+/** Troppi PIN sbagliati: tasti spenti e conto alla rovescia, in chiaro. */
+function blocca(secondi) {
+  const fine = Date.now() + secondi * 1000;
+  const tasti = $('keys').querySelectorAll('button');
+  tasti.forEach(b => { b.disabled = true; });
+  clearInterval(bloccoT);
+  const passo = () => {
+    const s = Math.max(0, Math.round((fine - Date.now()) / 1000));
+    if (s <= 0) {
+      clearInterval(bloccoT); bloccoT = null;
+      tasti.forEach(b => { b.disabled = false; });
+      $('pin-err').textContent = 'Puoi riprovare.';
       return;
     }
-
-    let html = '<div style="display: grid; gap: 16px;">';
-    orders.forEach(order => {
-      const scadenza = order.data_consegna ? new Date(order.data_consegna).toLocaleDateString('it-IT') : 'N/A';
-      const isUrgent = order.data_consegna && new Date(order.data_consegna) <= new Date(Date.now() + 86400000);
-
-      html += `
-        <div style="border: 1px solid ${isUrgent ? '#ef4444' : '#ddd'}; border-radius: 8px; padding: 16px; background: white;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 16px;">${order.cliente || 'N/A'}</h3>
-            <span style="font-size: 12px; color: ${isUrgent ? '#ef4444' : '#666'}; font-weight: 600;">Scadenza: ${scadenza}</span>
-          </div>
-          ${order.numero_ordine ? `<p style="margin: 0 0 8px; color: #999; font-size: 13px;">Ordine: ${order.numero_ordine}</p>` : ''}
-          <div style="display: flex; gap: 8px; margin-top: 12px;">
-            <button onclick="openPdfModal('${order.id}', '${(order.cliente || '').replace(/'/g, "\\'")}')" style="
-              background: #f5f5f5; color: #333; border: 1px solid #ddd; padding: 8px 16px;
-              border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500;">PDF</button>
-            <button onclick="completeLaser('${order.id}')" style="
-              background: var(--ls-green); color: white; border: none; padding: 8px 16px;
-              border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; flex: 1;">
-              Taglio Completato</button>
-          </div>
-        </div>
-      `;
-    });
-    html += '</div>';
-    document.getElementById('orders-list').innerHTML = html;
-  } catch (e) {
-    console.error('Error loading laser orders:', e);
-    document.getElementById('orders-list').innerHTML = '<p style="color: red;">Errore nel caricamento</p>';
-  }
-}
-
-async function loadOfficinaView() {
-  document.getElementById('lavorazioneContent').innerHTML = `
-    <p><strong>Fase:</strong> Officina</p>
-    <div id="orders-list" style="margin-top: 24px;">
-      <p style="color: #666;">Caricamento ordini...</p>
-    </div>
-  `;
-
-  try {
-    // Carica ordini assegnati a questo operatore (tutte le fasi non completate)
-    const resp = await fetch(`/api/orders?operatore=${currentUser.id}`);
-    const data = await resp.json();
-    const orders = (data.orders || []).filter(o => !['COMPLETATO'].includes(o.fase_corrente));
-
-    if (!orders || orders.length === 0) {
-      document.getElementById('orders-list').innerHTML = '<p style="color: #666;">Nessun ordine assegnato</p>';
-      return;
-    }
-
-    let html = '<div style="display: grid; gap: 16px;">';
-    orders.forEach(order => {
-      const scadenza = order.data_consegna ? new Date(order.data_consegna).toLocaleDateString('it-IT') : 'N/A';
-      const fase = order.fase_corrente || 'N/A';
-
-      // Cerca se c'è un timer attivo (processing step senza fine)
-      const activeStep = (order.processing_steps || []).find(s => s.timestamp_inizio && !s.timestamp_fine);
-      const isWorking = !!activeStep;
-
-      let timerHtml = '';
-      if (isWorking) {
-        const startTime = new Date(activeStep.timestamp_inizio).getTime();
-        const elapsedMs = Date.now() - startTime;
-        const elapsedSecs = Math.floor(elapsedMs / 1000);
-        timerHtml = `
-          <div id="timer-${order.id}" style="
-            margin-bottom: 12px; padding: 12px; background: rgba(34, 197, 94, 0.1);
-            border-left: 3px solid #22c55e; border-radius: 4px;
-            font-size: 14px; font-weight: 600; color: #22c55e;">
-            ${activeStep.fase}: <strong>${formatElapsedTime(elapsedSecs)}</strong>
-          </div>`;
-
-        // Timer interval
-        activePhaseTimers[order.id] = setInterval(() => {
-          const el = document.getElementById('timer-' + order.id);
-          if (el) {
-            const ms = Date.now() - startTime;
-            el.innerHTML = `${activeStep.fase}: <strong>${formatElapsedTime(Math.floor(ms / 1000))}</strong>`;
-          }
-        }, 1000);
-      }
-
-      // Stato badge
-      const faseColors = { LASER: '#3b82f6', PIEGA: '#f59e0b', SALDATURA: '#ef4444', PULIZIA: '#8b5cf6', PARZIALE: '#f97316' };
-      const faseColor = faseColors[fase] || '#666';
-
-      html += `
-        <div style="border: 1px solid #ddd; border-radius: 8px; padding: 16px; background: white;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 16px;">${order.cliente || 'N/A'}</h3>
-            <span style="background: ${faseColor}; color: white; padding: 4px 10px; border-radius: 16px; font-size: 11px; font-weight: 700;">${fase}</span>
-          </div>
-          <p style="margin: 0 0 4px; color: #999; font-size: 13px;">Scadenza: ${scadenza}</p>
-          ${timerHtml}
-          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
-            <button onclick="openPdfModal('${order.id}', '${(order.cliente || '').replace(/'/g, "\\'")}')" style="
-              background: #f5f5f5; color: #333; border: 1px solid #ddd; padding: 8px 12px;
-              border-radius: 4px; cursor: pointer; font-size: 13px;">PDF</button>
-      `;
-
-      if (fase === 'LASER') {
-        html += `
-            <button onclick="sendToLaser('${order.id}')" style="
-              background: #3b82f6; color: white; border: none; padding: 8px 12px;
-              border-radius: 4px; cursor: pointer; font-size: 13px;" disabled>Al Laser</button>`;
-      } else if (!isWorking) {
-        // Non sta lavorando — mostra bottoni per iniziare
-        html += `
-            <button onclick="sendToLaser('${order.id}')" style="
-              background: #3b82f6; color: white; border: none; padding: 8px 12px;
-              border-radius: 4px; cursor: pointer; font-size: 13px;">Manda al Laser</button>
-            <button onclick="startOfficinaPhase('${order.id}', 'PIEGA')" style="
-              background: #f59e0b; color: white; border: none; padding: 8px 12px;
-              border-radius: 4px; cursor: pointer; font-size: 13px;">Inizia Piega</button>
-            <button onclick="startOfficinaPhase('${order.id}', 'SALDATURA')" style="
-              background: #ef4444; color: white; border: none; padding: 8px 12px;
-              border-radius: 4px; cursor: pointer; font-size: 13px;">Inizia Saldatura</button>
-            <button onclick="startOfficinaPhase('${order.id}', 'PULIZIA')" style="
-              background: #8b5cf6; color: white; border: none; padding: 8px 12px;
-              border-radius: 4px; cursor: pointer; font-size: 13px;">Inizia Pulizia</button>`;
-      } else {
-        // Sta lavorando — mostra bottone completa con scelta prossimo passo
-        html += `
-            <button onclick="openCompleteModal('${order.id}', '${activeStep.fase}')" style="
-              background: var(--ls-green); color: white; border: none; padding: 8px 16px;
-              border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; flex: 1;">
-              Completa ${activeStep.fase}</button>`;
-      }
-
-      html += `
-          </div>
-        </div>
-      `;
-    });
-    html += '</div>';
-    document.getElementById('orders-list').innerHTML = html;
-  } catch (e) {
-    console.error('Error loading officina orders:', e);
-    document.getElementById('orders-list').innerHTML = '<p style="color: red;">Errore nel caricamento</p>';
-  }
-}
-
-function openPdfModal(orderId, cliente) {
-  document.getElementById('pdfModalTitle').textContent = cliente || 'PDF Ordine';
-  document.getElementById('pdfModalMeta').textContent = 'Ordine #' + orderId.substring(0, 8);
-  document.getElementById('pdfModalFrame').src = '/api/orders/' + orderId + '/pdf';
-  document.getElementById('pdfViewerModal').classList.add('show');
-}
-
-function closePdfModal() {
-  document.getElementById('pdfViewerModal').classList.remove('show');
-  document.getElementById('pdfModalFrame').src = '';
-}
-
-// === LASER: Completa taglio ===
-async function completeLaser(orderId) {
-  if (!confirm('Confermi che il taglio laser è completato?')) return;
-  try {
-    const resp = await fetch(`/api/orders/${orderId}/complete-laser`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ operatore_id: currentUser.id })
-    });
-    const data = await resp.json();
-    if (data.success) {
-      alert('Taglio completato! Ordine inviato in officina.');
-      await updatePermissions();
-    } else {
-      alert('Errore: ' + (data.error || 'Sconosciuto'));
-    }
-  } catch (e) {
-    alert('Errore: ' + e.message);
-  }
-}
-
-// === OFFICINA: Manda al laser ===
-async function sendToLaser(orderId) {
-  if (!confirm('Rimandare questo ordine al taglio laser?')) return;
-  try {
-    const resp = await fetch(`/api/orders/${orderId}/send-to-laser`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ operatore_id: currentUser.id })
-    });
-    const data = await resp.json();
-    if (data.success) {
-      alert('Ordine inviato al laser.');
-      await updatePermissions();
-    } else {
-      alert('Errore: ' + (data.error || 'Sconosciuto'));
-    }
-  } catch (e) {
-    alert('Errore: ' + e.message);
-  }
-}
-
-// === OFFICINA: Inizia fase ===
-async function startOfficinaPhase(orderId, fase) {
-  try {
-    const resp = await fetch(`/api/orders/${orderId}/phase/${fase}/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ operatore_id: currentUser.id })
-    });
-    if (resp.ok) {
-      await updatePermissions();
-    } else {
-      alert('Errore nell\'avvio della fase');
-    }
-  } catch (e) {
-    alert('Errore: ' + e.message);
-  }
-}
-
-// === OFFICINA: Modale completamento con scelta prossimo passo ===
-let currentCompleteOrderId = null;
-let currentCompletePhase = null;
-
-function openCompleteModal(orderId, fase) {
-  currentCompleteOrderId = orderId;
-  currentCompletePhase = fase;
-  document.getElementById('modalTitle').textContent = `Completa ${fase}`;
-  document.getElementById('articlesCheckboxes').innerHTML = `
-    <p style="margin-bottom: 16px; color: #666;">Scegli il prossimo passo per questo ordine:</p>
-    <div style="display: grid; gap: 8px;">
-      <button onclick="completeWithNext('PIEGA')" style="padding: 12px; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">PIEGA</button>
-      <button onclick="completeWithNext('SALDATURA')" style="padding: 12px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">SALDATURA</button>
-      <button onclick="completeWithNext('PULIZIA')" style="padding: 12px; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">PULIZIA</button>
-      <button onclick="completeWithNext('LASER')" style="padding: 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">MANDA AL LASER</button>
-      <hr style="border: none; border-top: 1px solid #ddd; margin: 4px 0;">
-      <button onclick="completeWithNext('COMPLETATO')" style="padding: 12px; background: var(--ls-green); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 14px;">FINITO</button>
-      <button onclick="completePartial()" style="padding: 12px; background: #f97316; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">PARZIALE + NOTA</button>
-    </div>
-  `;
-  document.getElementById('partialCompleteModal').classList.add('show');
-  // Hide default modal buttons
-  document.querySelector('.modal-buttons').style.display = 'none';
-}
-
-async function completeWithNext(faseSuccessiva) {
-  if (!currentCompleteOrderId) return;
-  try {
-    const resp = await fetch(`/api/orders/${currentCompleteOrderId}/phase/${currentCompletePhase}/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fase_successiva: faseSuccessiva,
-        operatore_id: currentUser.id
-      })
-    });
-    const data = await resp.json();
-    if (data.success) {
-      closePartialModal();
-      const msg = faseSuccessiva === 'COMPLETATO' ? 'Ordine completato!' : `Ordine inviato a ${faseSuccessiva}`;
-      alert(msg);
-      await updatePermissions();
-    } else {
-      alert('Errore: ' + (data.error || 'Sconosciuto'));
-    }
-  } catch (e) {
-    alert('Errore: ' + e.message);
-  }
-}
-
-async function completePartial() {
-  const nota = prompt('Inserisci una nota per il completamento parziale:');
-  if (nota === null) return;
-  try {
-    const resp = await fetch(`/api/orders/${currentCompleteOrderId}/phase/${currentCompletePhase}/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fase_successiva: 'PARZIALE',
-        completamento_parziale: true,
-        note: nota,
-        operatore_id: currentUser.id
-      })
-    });
-    const data = await resp.json();
-    if (data.success) {
-      closePartialModal();
-      alert('Ordine segnato come parziale.');
-      await updatePermissions();
-    } else {
-      alert('Errore: ' + (data.error || 'Sconosciuto'));
-    }
-  } catch (e) {
-    alert('Errore: ' + e.message);
-  }
-}
-
-
-function switchScreen(screenId) {
-  const perms = currentUser.permissions || ['overview'];
-  if (!perms.includes(screenId) && screenId !== 'lavorazione' && screenId !== 'calendario' && screenId !== 'overview') {
-    alert('Non hai i permessi per accedere a questa sezione.');
-    return;
-  }
-
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(`screen-${screenId}`).classList.add('active');
-
-  document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-  if (event && event.target) {
-    const navItem = event.target.closest('.nav-item');
-    if (navItem) navItem.classList.add('active');
-  }
-
-  // Load calendar when switching to calendario screen
-  if (screenId === 'calendario') {
-    loadCalendar();
-  }
-}
-
-function goToAdmin() {
-  window.location.href = '/admin.html';
-}
-
-function toggleUserDropdown() {
-  document.getElementById('userDropdown').classList.toggle('active');
-}
-
-function openProfile() {
-  alert(`Profilo: ${currentUser.name}\nRuolo: ${currentUser.role}`);
-  toggleUserDropdown();
-}
-
-function updateClock() {
-  document.getElementById('clock').textContent = new Date().toLocaleTimeString('it-IT');
-}
-
-// ── TIMER TRACKING ──
-let activePhaseTimers = {}; // Track timers by order ID
-
-function formatElapsedTime(seconds) {
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${secs}s`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  } else {
-    return `${secs}s`;
-  }
-}
-
-function closePartialModal() {
-  document.getElementById('partialCompleteModal').classList.remove('show');
-  document.querySelector('.modal-buttons').style.display = 'flex';
-  currentCompleteOrderId = null;
-  currentCompletePhase = null;
-}
-
-// ── NOTIFICATION PANEL (WhatsApp-like) ──
-
-function toggleNotificationPanel() {
-  const panel = document.getElementById('notificationPanel');
-  panel.classList.toggle('active');
-
-  if (panel.classList.contains('active')) {
-    loadNotifications();
-  }
-}
-
-async function loadNotifications() {
-  if (!currentUser) return;
-
-  try {
-    const response = await fetch(`${API_BASE}/api/notifications?user_id=${currentUser.id}&limit=50`);
-    if (!response.ok) return;
-
-    const data = await response.json();
-    const notifications = data.data.notifications || [];
-    const unreadCount = data.data.unread_count || 0;
-
-    const content = document.getElementById('notificationPanelContent');
-    const footer = document.getElementById('notificationPanelFooter');
-
-    if (notifications.length === 0) {
-      content.innerHTML = '<div class="no-notifications">Nessuna notifica</div>';
-      footer.style.display = 'none';
-      return;
-    }
-
-    // Renderizza notifiche in stile WhatsApp
-    content.innerHTML = notifications.map(notif => {
-      const timeStr = formatNotificationTime(notif.timestamp);
-      return `
-        <div class="notification-item ${notif.is_read ? '' : 'unread'}">
-          <div class="notification-content">
-            <div class="notification-title">${notif.title}</div>
-            <div class="notification-message">${notif.message}</div>
-            <div class="notification-time">${timeStr}</div>
-          </div>
-          <button class="notification-delete" onclick="deleteNotification('${notif.id}')">Cancella</button>
-        </div>
-      `;
-    }).join('');
-
-    footer.style.display = 'flex';
-  } catch (e) {
-    console.error('Error loading notifications:', e);
-  }
-}
-
-async function deleteNotification(notificationId) {
-  try {
-    const response = await fetch(`${API_BASE}/api/notifications/${notificationId}`, {
-      method: 'DELETE'
-    });
-
-    if (response.ok) {
-      loadNotifications(); // Ricarica la lista
-    }
-  } catch (e) {
-    console.error('Error deleting notification:', e);
-  }
-}
-
-async function clearAllNotifications() {
-  if (!currentUser) return;
-
-  try {
-    const response = await fetch(`${API_BASE}/api/notifications/clear-all?user_id=${currentUser.id}`, {
-      method: 'DELETE'
-    });
-
-    if (response.ok) {
-      loadNotifications(); // Ricarica la lista
-    }
-  } catch (e) {
-    console.error('Error clearing notifications:', e);
-  }
-}
-
-function formatNotificationTime(timestamp) {
-  try {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Adesso';
-    if (diffMins < 60) return `${diffMins}m fa`;
-    if (diffHours < 24) return `${diffHours}h fa`;
-    if (diffDays < 7) return `${diffDays}g fa`;
-
-    return date.toLocaleDateString('it-IT', { month: 'short', day: 'numeric' });
-  } catch (e) {
-    return 'Poco fa';
-  }
-}
-
-async function saveNewOrderNotification(orderId, cliente, articoli) {
-  if (!currentUser || !['Supervisore', 'Amministratore'].includes(currentUser.role)) {
-    return; // Only save for supervisore/admin
-  }
-
-  try {
-    const title = 'Nuovo Ordine';
-    const message = `Ordine da ${cliente} con ${articoli.length} articolo${articoli.length > 1 ? 'i' : ''}`;
-
-    const response = await fetch(`${API_BASE}/api/notifications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: currentUser.id,
-        order_id: orderId,
-        title: title,
-        message: message,
-        notification_type: 'order'
-      })
-    });
-
-    if (response.ok) {
-      // Notification saved
-    } else {
-      console.error('[NOTIFICATION] Failed to save:', response.status);
-    }
-  } catch (e) {
-    console.error('Error saving notification:', e);
-  }
-}
-
-// ── INIT ──
-document.addEventListener('DOMContentLoaded', async () => {
-  // Load users
-  await loadUsers();
-
-  // Check if user is already logged in — redirect to proper page
-  const saved = localStorage.getItem('currentUser');
-  if (saved) {
-    try {
-      const userData = JSON.parse(saved);
-      currentUser = userData;
-
-      // Stessa destinazione del login: vedi paginaDiPartenza().
-      window.location.href = paginaDiPartenza(currentUser);
-      return;
-
-      // Fallback: show built-in dashboard
-      document.getElementById('loginPage').style.display = 'none';
-      document.getElementById('dashboard').classList.add('active');
-      await updateDashboardUI();
-      await updatePermissions();
-      updateClock();
-      setInterval(updateClock, 1000);
-    } catch (e) {
-      console.error('Error restoring session:', e);
-      localStorage.removeItem('currentUser');
-    }
-  }
-});
-
-// Close dropdown on outside click
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('.user-menu')) {
-    document.getElementById('userDropdown').classList.remove('active');
-  }
-});
-
-// ── CALENDAR FUNCTIONS ──
-let currentCalendarDate = new Date();
-let allOrders = [];
-
-async function loadCalendar() {
-  try {
-    // Fetch all orders
-    const resp = await fetch('/api/orders');
-    const data = await resp.json();
-    allOrders = (data.orders || data.data?.orders || data || []);
-
-    // Render calendar
-    renderCalendar();
-    updateCalendarOrders();
-  } catch (e) {
-    console.error('Error loading calendar:', e);
-    document.getElementById('calendarOrdersList').innerHTML = '<p style="color: red;">Errore nel caricamento</p>';
-  }
-}
-
-function renderCalendar() {
-  const year = currentCalendarDate.getFullYear();
-  const month = currentCalendarDate.getMonth();
-
-  // Update title
-  const monthNames = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
-  document.getElementById('calendarTitle').textContent = `${monthNames[month]} ${year}`;
-
-  // Get first day of month and number of days
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const daysInPrevMonth = new Date(year, month, 0).getDate();
-
-  let html = '';
-
-  // Day headers (Mon-Sun, but start with Sun)
-  const dayNames = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
-  dayNames.forEach(day => {
-    html += `<div style="font-weight: 700; text-align: center; padding: 8px; background: #f5f5f5; border-radius: 4px; font-size: 12px;">${day}</div>`;
-  });
-
-  // Previous month days (grayed out)
-  for (let i = firstDay - 1; i >= 0; i--) {
-    const day = daysInPrevMonth - i;
-    html += `<div style="padding: 8px; text-align: center; color: #ccc; background: #f9f9f9; border: 1px solid #f0f0f0; border-radius: 4px; min-height: 60px;">${day}</div>`;
-  }
-
-  // Current month days
-  const today = new Date();
-  for (let day = 1; day <= daysInMonth; day++) {
-    const date = new Date(year, month, day);
-    const dateStr = _giornoLocale(date);
-    const ordersOnDay = allOrders.filter(o => {
-      const deliveryDate = o.data_consegna ? o.data_consegna.split('T')[0] : null;
-      return deliveryDate === dateStr;
-    });
-
-    const isToday = date.toDateString() === today.toDateString();
-    const bg = isToday ? 'background: rgba(26, 122, 72, 0.1); border: 2px solid var(--ls-green);' : 'background: white; border: 1px solid #e5e5e5;';
-    const orderCount = ordersOnDay.length;
-    const orderIndicator = orderCount > 0 ? `<div style="margin-top: 4px; font-size: 11px; font-weight: 700; color: var(--ls-green);">${orderCount} ordini</div>` : '';
-
-    html += `<div style="${bg} padding: 8px; border-radius: 4px; min-height: 60px; display: flex; flex-direction: column; cursor: pointer;" onclick="selectCalendarDay('${dateStr}')">
-      <div style="font-weight: 600; margin-bottom: 4px;">${day}</div>
-      ${orderIndicator}
-    </div>`;
-  }
-
-  // Next month days (grayed out)
-  const totalCells = html.split('<div').length - 2;
-  const remainingCells = 42 - totalCells; // 6 rows * 7 days
-  for (let day = 1; day <= remainingCells; day++) {
-    html += `<div style="padding: 8px; text-align: center; color: #ccc; background: #f9f9f9; border: 1px solid #f0f0f0; border-radius: 4px; min-height: 60px;">${day}</div>`;
-  }
-
-  document.getElementById('calendarGrid').innerHTML = html;
-}
-
-function prevMonth() {
-  currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
-  renderCalendar();
-  updateCalendarOrders();
-}
-
-function nextMonth() {
-  currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
-  renderCalendar();
-  updateCalendarOrders();
-}
-
-function selectCalendarDay(dateStr) {
-  const ordersOnDay = allOrders.filter(o => {
-    const deliveryDate = o.data_consegna ? o.data_consegna.split('T')[0] : null;
-    return deliveryDate === dateStr;
-  });
-
-  if (ordersOnDay.length === 0) {
-    document.getElementById('calendarOrdersList').innerHTML = '<p style="color: #999;">Nessun ordine in questa data</p>';
-    return;
-  }
-
-  let html = `<div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 2px solid var(--ls-green);"><strong style="color: var(--ls-green);">${ordersOnDay.length} ordine${ordersOnDay.length > 1 ? 'i' : ''}</strong></div>`;
-  ordersOnDay.forEach(order => {
-    const status = order.status || 'RICEVUTO';
-    const statusColor = status === 'SPEDITO' ? '#22c55e' : '#f59e0b';
-    const statusText = ['COMPLETATO','DA_FATTURARE','CHIUSO'].includes(status) ? '✓ Completato' : status === 'PARZIALE' ? '⚠ Parziale' : '⏳ In Lavorazione';
-    const cliente = order.cliente || 'Cliente N/A';
-
-    html += `
-      <div style="padding: 12px; margin-bottom: 12px; border-left: 3px solid var(--ls-green); background: #f9f9f9; border-radius: 4px;">
-        <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px; color: #000;">${cliente}</div>
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-          <div style="font-size: 12px; color: #666;">
-            <div>${dateStr}</div>
-            <div style="color: #999; margin-top: 2px;">${(order.articles || []).length} articoli</div>
-          </div>
-          <div style="background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 16px; font-size: 10px; font-weight: 700; white-space: nowrap;">${statusText}</div>
-        </div>
-      </div>
-    `;
-  });
-
-  document.getElementById('calendarOrdersList').innerHTML = html;
-}
-
-function updateCalendarOrders() {
-  // Show today's orders or first day with orders
-  const today = _giornoLocale(new Date());
-  const todayOrders = allOrders.filter(o => o.data_consegna && o.data_consegna.split('T')[0] === today);
-
-  if (todayOrders.length > 0) {
-    selectCalendarDay(today);
-  } else {
-    // Show first day with orders
-    const firstDay = allOrders.find(o => o.data_consegna);
-    if (firstDay) {
-      const dateStr = firstDay.data_consegna.split('T')[0];
-      selectCalendarDay(dateStr);
-    } else {
-      document.getElementById('calendarOrdersList').innerHTML = '<p style="color: #999;">Nessun ordine pianificato</p>';
-    }
-  }
-}
-
-// ── NOTIFICATION SYSTEM FOR SUPERVISORE ──
-let lastCheckedOrderCount = 0;
-let notificationInterval = null;
-
-function showToast(type = 'info', title = 'Notifica', message = '') {
-  const container = document.getElementById('toastContainer');
-
-  const icons = {
-    success: '✓',
-    error: '✕',
-    info: 'ℹ',
-    warning: '⚠',
-    orders: '📦'
+    const m = Math.floor(s / 60), r = s % 60;
+    $('pin-err').textContent = `Troppi PIN sbagliati. Riprova fra ${m ? m + ' min ' : ''}${r} s.`;
   };
-
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <div class="toast-icon">${icons[type] || icons.info}</div>
-    <div class="toast-content">
-      <div class="toast-title">${title}</div>
-      ${message ? `<div class="toast-message">${message}</div>` : ''}
-    </div>
-    <button class="toast-close" onclick="this.parentElement.style.animation='slideOutRight 0.3s ease-out'; setTimeout(() => this.parentElement.remove(), 300)">✕</button>
-  `;
-
-  container.appendChild(toast);
-
-  // Auto-remove after 5 seconds
-  setTimeout(() => {
-    if (toast.parentElement) {
-      toast.style.animation = 'slideOutRight 0.3s ease-out';
-      setTimeout(() => toast.remove(), 300);
-    }
-  }, 5000);
-
-  // Play notification sound
-  playNotificationSound();
+  passo();
+  bloccoT = setInterval(passo, 1000);
+}
+function mostraPin(opz) {
+  PIN = ''; puntini();
+  $('pin-err').textContent = '';
+  $('pin-t').textContent = opz.titolo;
+  $('pin-sotto').textContent = opz.sotto;
+  $('pin-stazione').textContent = opz.stazione || '';
+  $('v-pin').classList.remove('ok', 'errato');
+  $('pin-indietro').hidden = !opz.indietro;
+  $('pin-indietro').onclick = opz.indietro || null;
+  pinInvia = opz.invia;
+  vedi('v-pin');
 }
 
-function playNotificationSound() {
-  // Create a simple beep using Web Audio API
-  try {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    oscillator.frequency.value = 800; // Frequency in Hz
-    oscillator.type = 'sine';
-
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5);
-  } catch (e) {
-    // Silently fail if Web Audio not available
+// ── a) cosa e' questo dispositivo ─────────────────────────────────
+function mostraSetup(cambia) {
+  const opts = $('opts');
+  opts.innerHTML = '';
+  scelta = cambia && IO.stazione ? IO.stazione : null;
+  (IO.stazioni || []).forEach(st => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    // "officina" dal server vuol dire "senza PIN": il Laser e' senza PIN ma e' un PC d'ufficio
+    b.className = 'opt' + (st.officina && st.id !== 'laser' ? ' officina' : '');
+    b.dataset.st = st.id;
+    b.setAttribute('aria-pressed', String(st.id === scelta));
+    b.style.setProperty('--i', opts.children.length);
+    b.innerHTML = `<span class="ico">${icona(st.id)}</span><b></b><span class="d"></span>`;
+    b.querySelector('b').textContent = st.nome;
+    b.querySelector('span.d').textContent = st.descrizione;
+    b.addEventListener('pointermove', e => {
+      const r = b.getBoundingClientRect();
+      b.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      b.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    });
+    b.addEventListener('click', () => {
+      scelta = st.id;
+      opts.querySelectorAll('.opt').forEach(o => o.setAttribute('aria-pressed', String(o.dataset.st === scelta)));
+      $('avanti').disabled = false;
+    });
+    opts.appendChild(b);
+  });
+  $('avanti').disabled = !scelta;
+  $('setup-t').textContent = cambia ? 'Cambia cosa è questo dispositivo' : 'Cosa è questo dispositivo?';
+  $('setup-occhiello').textContent = cambia ? 'Impostazioni del dispositivo' : 'Primo avvio di questo dispositivo';
+  $('setup-sotto').textContent = cambia
+    ? `Adesso è: ${IO.stazione_nome}${IO.dispositivo ? ' (' + IO.dispositivo.nome + ')' : ''}. Serve il PIN dell’amministratore.`
+    : 'Lo scegli una volta. Per cambiarlo serve il PIN dell’amministratore.';
+  $('nome-disp').value = cambia && IO.dispositivo ? IO.dispositivo.nome : '';
+  $('annulla-cambia').hidden = !cambia;
+  $('nota-transizione').hidden = cambia || IO.modalita !== 'transizione';
+  // primo amministratore
+  const primo = $('nota-primo');
+  primo.hidden = !IO.nessun_admin;
+  if (IO.nessun_admin) {
+    primo.innerHTML = IO.da_questo_pc
+      ? '<b>Non c’è ancora nessun amministratore.</b> Questo è il PC del server: <button class="link" id="vai-primo">crea il primo amministratore</button>.'
+      : '<b>Non c’è ancora nessun amministratore.</b> Si crea sul PC del server: dalla cartella <code>app</code>, ' +
+        '<code>.venv\\Scripts\\python.exe tools\\persone.py crea "Nome Cognome"</code>.';
+    const v = $('vai-primo');
+    if (v) v.onclick = () => { vedi('v-primo'); $('primo-nome').focus(); };
   }
+  $('angolo').hidden = true;
+  vedi('v-setup');
 }
-
-async function checkNewOrders() {
-  try {
-    if (!currentUser || !['Capo Officina', 'Amministratore', 'Impiegata'].includes(currentUser.role)) {
-      return;
-    }
-
-    // Polling for new orders
-    const response = await fetch(`${API_BASE}/api/orders?status=RICEVUTO`);
-    if (!response.ok) {
-      console.error('[POLLING] Fetch failed:', response.status);
-      return;
-    }
-
-    const data = await response.json();
-    const newOrders = (data.orders || []);
-    const newOrdersCount = newOrders.length;
-
-    if (newOrdersCount > lastCheckedOrderCount) {
-      const newCount = newOrdersCount - lastCheckedOrderCount;
-      showToast('orders', 'Nuovo Ordine!', `${newCount} ordine${newCount > 1 ? 'i' : ''} in attesa di approvazione`);
-
-      // Save notifications for each new order (get the newly arrived ones)
-      const ordersToNotify = newOrders.slice(0, newCount);
-      for (const order of ordersToNotify) {
-        await saveNewOrderNotification(
-          order.id,
-          order.cliente,
-          order.articles || []
-        );
+/** Toglie "?cambia=1" (e la pagina da cui si veniva) dall'indirizzo E da qs:
+    rimasto in qs, avvio() rimostrava "Cosa e' questo dispositivo?" anche
+    dopo un cambio riuscito o un Annulla, e sembrava di non entrare mai. */
+function finitoCambio() {
+  qs.delete('cambia');
+  qs.delete('torna');
+  history.replaceState(null, '', '/');
+}
+$('avanti').addEventListener('click', () => {
+  if (!scelta) return;
+  // Stessa stazione e stesso nome: non c'e' niente da cambiare, niente PIN.
+  if (IO.registrato && scelta === IO.stazione &&
+      $('nome-disp').value.trim() === ((IO.dispositivo && IO.dispositivo.nome) || '')) {
+    finitoCambio(); avvio(); return;
+  }
+  const nomeSt = (IO.stazioni.find(s => s.id === scelta) || {}).nome || '';
+  mostraPin({
+    titolo: 'PIN dell’amministratore',
+    sotto: `Per impostare questo dispositivo come “${nomeSt}”.`,
+    indietro: () => mostraSetup(IO.registrato),
+    invia: async pin => {
+      const r = await api('/api/accesso/registra', { stazione: scelta, pin, nome: $('nome-disp').value.trim() });
+      if (r.ok) {
+        try { localStorage.removeItem('currentUser'); } catch (_) {}
+        finitoCambio();
+        // Rilegge chi e' il dispositivo e prosegue come all'accensione
+        await avvio(true);
       }
+      return r;
+    },
+  });
+});
+$('annulla-cambia').addEventListener('click', () => { finitoCambio(); avvio(); });
 
-      // Update badge
-      updateNotificationBadge(newOrdersCount);
-    }
+// Vecchio modo (solo transizione): le cinque postazioni di sempre
+$('mostra-vecchie').addEventListener('click', () => {
+  const box = $('vecchie');
+  box.hidden = !box.hidden;
+  if (box.innerHTML) return;
+  [['postazione-commerciale', 'Commerciale'], ['postazione-amministrazione', 'Ufficio'],
+   ['postazione-laser', 'Laser'], ['postazione-visione', 'Tablet officina'],
+   ['postazione-timbratrice', 'Timbratrice']].forEach(([id, nome]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn sec'; b.textContent = nome;
+    b.addEventListener('click', async () => {
+      const r = await api('/api/auth/login', { user_id: id });
+      if (!r.ok) { alert(r.d.error || 'Non sono riuscito a entrare.'); return; }
+      const u = { id: r.d.user_id, name: r.d.name, role: r.d.role, phase: r.d.phase,
+                  permissions: r.d.permissions, is_capo: r.d.is_capo, e_postazione: true };
+      localStorage.setItem('currentUser', JSON.stringify(u));
+      // anche nel cookie: i PDF e i disegni aperti in una scheda nuova non portano intestazioni
+      document.cookie = 'ft_postazione=' + encodeURIComponent(u.id) + '; path=/; SameSite=Strict';
+      const st = { 'postazione-commerciale': '/preventivi.html', 'postazione-amministrazione': '/impiegata.html',
+                   'postazione-laser': '/laser.html', 'postazione-visione': '/operaio-info.html',
+                   'postazione-timbratrice': '/ore.html' };
+      location.href = st[id];
+    });
+    box.appendChild(b);
+  });
+});
 
-    lastCheckedOrderCount = newOrdersCount;
-  } catch (e) {
-    console.error('Error checking for new orders:', e);
+// Primo amministratore
+$('primo-annulla').addEventListener('click', () => mostraSetup(false));
+$('primo-crea').addEventListener('click', async () => {
+  const nome = $('primo-nome').value.trim(), pin = $('primo-pin').value.trim();
+  if (pin !== $('primo-pin2').value.trim()) { $('primo-err').textContent = 'I due PIN non coincidono.'; return; }
+  const r = await api('/api/accesso/primo-admin', { nome, pin });
+  if (!r.ok) { $('primo-err').textContent = r.d.error || 'Non sono riuscito a crearlo.'; return; }
+  IO.nessun_admin = false;
+  mostraSetup(false);
+});
+
+// ── angolo ────────────────────────────────────────────────────────
+$('cambia').addEventListener('click', () => mostraSetup(true));
+
+// ── avvio ─────────────────────────────────────────────────────────
+async function avvio(dopoRegistrazione) {
+  // Codice preparato dall'amministratore (riga di comando o QR): diventa il
+  // cookie del dispositivo e sparisce dalla barra degli indirizzi.
+  const codice = qs.get('codice');
+  if (codice && !dopoRegistrazione) {
+    history.replaceState(null, '', '/');
+    qs.delete('codice');
+    const r = await api('/api/accesso/usa-codice', { codice });
+    if (!r.ok) alert(r.d.error || 'Codice non valido.');
+    else { try { localStorage.removeItem('currentUser'); } catch (_) {} }
   }
-}
-
-function updateNotificationBadge(count) {
-  let badge = document.getElementById('notificationBadge');
-  if (badge) {
-    if (count > 0) {
-      badge.textContent = count > 9 ? '9+' : count;
-      badge.style.display = 'flex';
-    } else {
-      badge.style.display = 'none';
-    }
-  }
-}
-
-function startNotificationPolling() {
-  // Initial check
-  checkNewOrders();
-
-  // Then check every 5 seconds
-  if (notificationInterval) clearInterval(notificationInterval);
-  notificationInterval = setInterval(checkNewOrders, 5000);
-}
-
-function stopNotificationPolling() {
-  if (notificationInterval) {
-    clearInterval(notificationInterval);
-    notificationInterval = null;
-  }
-}
-
-// ========== ARCHIVIO REPORT ==========
-
-let archivePage = 1;
-
-async function loadArchiveReport(page = 1) {
-  archivePage = page;
-  const cliente = document.getElementById('archFilterCliente')?.value || '';
-  const dateFrom = document.getElementById('archFilterDateFrom')?.value || '';
-  const dateTo = document.getElementById('archFilterDateTo')?.value || '';
-
-  let url = `${API_URL}/api/archive/orders?page=${page}&limit=15`;
-  if (cliente) url += `&cliente=${encodeURIComponent(cliente)}`;
-  if (dateFrom) url += `&date_from=${dateFrom}`;
-  if (dateTo) url += `&date_to=${dateTo}`;
-
-  try {
-    const response = await fetch(url);
-    const data = await response.json();
-    if (!data.success) return;
-
-    const orders = data.data?.orders || [];
-    const total = data.data?.total || 0;
-    const pages = data.data?.pages || 1;
-
-    renderArchiveTable(orders);
-    renderArchivePagination(page, pages, total);
-  } catch (err) {
-    console.error('Errore caricamento archivio:', err);
-  }
-}
-
-function renderArchiveTable(orders) {
-  const tbody = document.getElementById('archiveTableBody');
-
-  if (orders.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text-secondary);">Nessun ordine trovato</td></tr>';
+  let r;
+  try { r = await api('/api/accesso/io'); } catch (_) { r = null; }
+  if (!r || !r.ok) {
+    $('carica').textContent = 'Il server non risponde. Riprovo fra qualche secondo…';
+    vedi('carica');
+    setTimeout(() => avvio(), 4000);
     return;
   }
-
-  tbody.innerHTML = orders.map(o => {
-    const pt = o.phase_times || {};
-    const margineColor = o.margine_pct !== null ? (o.margine_pct >= 80 ? '#15803d' : o.margine_pct >= 50 ? '#92400e' : '#991b1b') : 'var(--text-secondary)';
-
-    return `
-      <tr style="border-bottom:1px solid var(--border);transition:background 0.2s;cursor:default;"
-          onmouseover="this.style.background='var(--bg-light)'" onmouseout="this.style.background='white'">
-        <td style="padding:10px 12px;font-weight:600;">${escapeHtml(o.numero_ordine || o.id?.substring(0,8))}</td>
-        <td style="padding:10px 12px;">${escapeHtml(o.cliente)}</td>
-        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">${pt.PIEGA || '—'}</td>
-        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">${pt.SALDATURA || '—'}</td>
-        <td style="padding:10px 12px;font-family:monospace;font-size:12px;">${pt.PULIZIA || '—'}</td>
-        <td style="padding:10px 12px;font-weight:600;font-family:monospace;font-size:12px;">${o.tempo_totale || '—'}</td>
-        <td style="padding:10px 12px;text-align:right;">${o.prezzo_quotato ? o.prezzo_quotato.toFixed(2) + ' €' : '—'}</td>
-        <td style="padding:10px 12px;text-align:right;">${o.costo_manodopera ? o.costo_manodopera.toFixed(2) + ' €' : '—'}</td>
-        <td style="padding:10px 12px;text-align:right;font-weight:600;color:${margineColor};">
-          ${o.margine !== null ? o.margine.toFixed(2) + ' € (' + o.margine_pct + '%)' : '—'}
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function renderArchivePagination(currentPage, totalPages, total) {
-  const container = document.getElementById('archivePagination');
-  if (totalPages <= 1) {
-    container.innerHTML = `<span style="font-size:12px;color:var(--text-secondary);">${total} ordini</span>`;
+  IO = r.d;
+  if (!IO.registrato) {
+    // Periodo di passaggio: chi ha gia' scelto la postazione col vecchio
+    // ingresso continua, salvo che sia venuto qui apposta (link "cambia").
+    // IO.vecchio lo dice il server (postazione valida, modalita' transizione):
+    // una memoria vecchia non valida si butta, senza rimbalzi fra le pagine.
+    if (IO.vecchio && qs.get('torna') && !qs.get('cambia')) {
+      location.replace(destinazione('/'));
+      return;
+    }
+    if (!IO.vecchio) { try { localStorage.removeItem('currentUser'); } catch (_) {} }
+    mostraSetup(false);
     return;
   }
-
-  let html = `<span style="font-size:12px;color:var(--text-secondary);margin-right:12px;">${total} ordini</span>`;
-
-  if (currentPage > 1) {
-    html += `<button onclick="loadArchiveReport(${currentPage - 1})" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;font-size:12px;">&laquo; Prec</button>`;
+  if (qs.get('cambia')) { mostraSetup(true); return; }
+  $('angolo-st').textContent = IO.stazione_nome;
+  $('angolo').hidden = false;
+  if (!IO.con_pin || IO.persona) {
+    location.replace(destinazione(IO.pagina));
+    return;
   }
-
-  for (let p = 1; p <= totalPages; p++) {
-    if (p === currentPage) {
-      html += `<button style="padding:6px 12px;border:1px solid var(--ls-green);border-radius:4px;background:var(--ls-green);color:white;font-size:12px;font-weight:600;">${p}</button>`;
-    } else if (Math.abs(p - currentPage) <= 2 || p === 1 || p === totalPages) {
-      html += `<button onclick="loadArchiveReport(${p})" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;font-size:12px;">${p}</button>`;
-    } else if (Math.abs(p - currentPage) === 3) {
-      html += `<span style="padding:0 4px;">...</span>`;
-    }
-  }
-
-  if (currentPage < totalPages) {
-    html += `<button onclick="loadArchiveReport(${currentPage + 1})" style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:white;cursor:pointer;font-size:12px;">Succ &raquo;</button>`;
-  }
-
-  container.innerHTML = html;
+  mostraPin({
+    titolo: saluto(),
+    sotto: 'Inserisci il PIN per entrare',
+    stazione: IO.stazione_nome,
+    invia: async pin => {
+      const r = await api('/api/accesso/entra', { pin });
+      if (r.ok) {
+        await entrato(r.d.persona && r.d.persona.nome);
+        location.replace(destinazione(r.d.pagina));
+      }
+      return r;
+    },
+  });
+  $('angolo').hidden = false;
 }
 
-function exportArchiveCSV() {
-  const cliente = document.getElementById('archFilterCliente')?.value || '';
-  const dateFrom = document.getElementById('archFilterDateFrom')?.value || '';
-  const dateTo = document.getElementById('archFilterDateTo')?.value || '';
-
-  let url = `${API_URL}/api/archive/export/csv?`;
-  if (cliente) url += `cliente=${encodeURIComponent(cliente)}&`;
-  if (dateFrom) url += `date_from=${dateFrom}&`;
-  if (dateTo) url += `date_to=${dateTo}&`;
-
-  window.open(url, '_blank');
-}
+preparaTastierino();
+avvio();
 </script>
-<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
 </body>
 </html>

@@ -7,6 +7,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>LS FerroTrack — Preventivi</title>
+<script src="/ft-accesso.js" data-stazioni="commerciale"></script>
 <script>
 // Deregistra service worker vecchio (bloccava tutte le fetch causando "Failed to fetch")
 if ('serviceWorker' in navigator) {
@@ -4520,8 +4521,9 @@ body { font-size: var(--fs-m); }
     </div>
     <div class="modal-body">
       <p style="font-size:13px; color:var(--gray-text); margin-bottom:14px;">
-        Cliccando <b>Conferma</b>, viene creato un ordine FerroTrack con un cartellino barcode
-        pronto per l'officina. Verranno notificati i capi.
+        Cliccando <b>Conferma</b>, viene creato un ordine FerroTrack e i disegni passano al
+        laser. Verranno notificati i capi. Per l'officina l'ordine si stampa con
+        <b>Stampa ordine</b>.
       </p>
       <div class="card-body no-pad" style="background:#fafbfc; border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:14px;">
         <div style="display:grid; grid-template-columns: 120px 1fr; gap:8px 14px; font-size:13px;">
@@ -4704,37 +4706,17 @@ function _applicaDaCad(a, campo, valore) {
 }
 
 // ---------- session / topbar ----------
-/** Dove sta di casa una postazione.
-    Ripetuta in ogni pagina perche' le pagine sono indipendenti: e' la stessa
-    funzione ovunque, e va tenuta allineata. */
-function paginaDiCasa(u) {
-  const r = (u && u.role) || '';
-  if (r === 'Timbratrice') return '/ore.html';
-  if (r === 'Visione') return '/operaio-info.html';
-  if (r === 'Laser' || r === 'Operaio Laser') return '/laser.html';
-  if (r === 'Amministrazione' || r === 'Impiegata') return '/impiegata.html';
-  if (r === 'Commerciale') return '/preventivi.html';
-  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
-    return '/capo-officina.html';
-  }
-  return '/operaio-info.html';
-}
-
-window.addEventListener('load', () => {
-  // Prima di tutto: la sessione salvata vale ancora? Se no si torna
-  // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
-  _sessioneAncoraValida();
-  
-
-const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  if (!user.id) { window.location.href = '/login.html'; return; }
+window.addEventListener('load', async () => {
+  // Chi e' entrato lo dice il server (dispositivo + PIN, vedi ft-accesso.js):
+  // se manca il PIN o la postazione e' un'altra, ci pensa ft-accesso.js.
+  await FTA.pronto;
+  const io = FTA.io || {};
+  let user = null;
+  if (io.persona) user = { id: io.persona.id, name: io.persona.nome, role: io.stazione_nome };
+  else if (io.vecchio) { try { user = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {} }
+  else if (io.registrato) user = { id: null, name: io.stazione_nome, role: io.stazione_nome };
+  if (!user) return;
   currentUser = user;
-  const perms = user.permissions || [];
-  const isAuth = user.role === 'Commerciale' || user.role === 'Amministratore' || user.is_capo;
-  if (!isAuth) {
-    window.location.href = paginaDiCasa(user);
-    return;
-  }
   const initials = (user.name || '').split(' ').map(w => w[0]).join('').toUpperCase() || '?';
   const av = document.getElementById('user-pill-avatar');
   av.textContent = initials;
@@ -4778,7 +4760,7 @@ async function wbAggiornaTariffe(motivo) {
   try {
     const r = await fetch(`${API_URL}/api/preventivi/${pid}/stima-batch`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ admin_id: currentUser.id, articoli: idx.map(i => currentArticoli[i]) }),
+      body: JSON.stringify({ articoli: idx.map(i => currentArticoli[i]) }),
     });
     const d = await r.json();
     if (gen !== _wbGen || !currentPreventivo || currentPreventivo.id !== pid) return 0;
@@ -5009,7 +4991,6 @@ function _pianifica(tipo, percorso, chiave, lista, delayMs) {
   // fra un secondo e mezzo.
   st.inSospeso = {
     preventivoId: currentPreventivo.id,
-    userId: currentUser.id,
     percorso, chiave,
     dati: _ripulisci(lista),
   };
@@ -5026,7 +5007,7 @@ async function _esegui(tipo) {
   const mio = ++st.seq;
   _mostraStatoSalvataggio('in-corso');
   try {
-    const corpo = { admin_id: lavoro.userId };
+    const corpo = {};
     corpo[lavoro.chiave] = lavoro.dati;
     const r = await fetch(
       `${API_URL}/api/preventivi/${lavoro.preventivoId}/${lavoro.percorso}`,
@@ -5100,7 +5081,6 @@ async function _salvaTestata() {
         margine_pct: parseFloat(val('ed-margine')) || 0,
         sconto_pct: Math.min(90, Math.max(0, parseFloat(val('ed-sconto')) || 0)),
         data_consegna_proposta: val('ed-data-consegna') || null, note: val('ed-note') || '',
-        updated_by: currentUser.id,
       }),
     });
     const d = await r.json().catch(() => ({}));
@@ -5162,10 +5142,8 @@ function colorFromName(name) {
   return `hsl(${h % 360}, 58%, 42%)`;
 }
 
-function logout() {
-  localStorage.removeItem('currentUser');
-  window.location.href = '/login.html';
-}
+/** "Esci": chiude la sessione di chi e' entrato col PIN. */
+function logout() { FTA.esci(); }
 
 function escapeHtml(s) {
   return (s == null ? '' : String(s))
@@ -5528,7 +5506,6 @@ async function saveImpostazioni() {
       delete laserCfg.ricette_taglio;
     }
     const body = {
-      admin_id: (currentUser || {}).id,
       laser_config: laserCfg,
       // Le chiavi nascoste (sconto_quantita, movimentazione, margine su
       // montaggio: nessun calcolo le usa) restano come erano.
@@ -5748,7 +5725,6 @@ async function _rfqUpload(files, force = false) {
       // percorso nella cartella: le sottocartelle sono gli assiemi
       fd.append('paths', f._relPath || f.webkitRelativePath || f.name);
     }
-    fd.append('admin_id', currentUser.id);
     if (force) fd.append('force', '1');
     const r = await fetch(`${API_URL}/api/preventivi/import-rfq-package`, { method: 'POST', body: fd });
     const d = await r.json();
@@ -6181,7 +6157,6 @@ async function duplicaPreventivo() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        created_by: currentUser.id,
         cliente: nuovoCliente.trim() || suggestedCliente,
         copy_articoli: true,
       }),
@@ -6207,7 +6182,7 @@ async function eliminaPreventivo() {
   if (!await appConfirm(`Eliminare il preventivo di "${cliente}" (${status})?\n\nL'eliminazione è recuperabile dal DB ma NON dall'interfaccia.`,
                         {danger: true, title: 'Elimina preventivo', okLabel: 'Elimina'})) return;
   try {
-    const url = `${API_URL}/api/preventivi/${currentPreventivo.id}?deleted_by=${encodeURIComponent(currentUser.id)}`;
+    const url = `${API_URL}/api/preventivi/${currentPreventivo.id}`;
     const r = await fetch(url, { method: 'DELETE' });
     const d = await r.json();
     if (!d.success) { showMsg('msg-base', 'Errore: ' + (d.error || 'delete fallito'), 'var(--red)'); return; }
@@ -6391,7 +6366,6 @@ async function saveBase() {
         body: JSON.stringify({
           cliente, numero_ordine_cliente: numeroCliente, quantita: qty,
           margine_pct: margine, data_consegna_proposta: dataConsegna || null, note,
-          created_by: currentUser.id,
         })
       });
       const d = await r.json();
@@ -6414,7 +6388,6 @@ async function saveBase() {
         body: JSON.stringify({
           cliente, numero_ordine_cliente: numeroCliente, quantita: qty,
           margine_pct: margine, sconto_pct: sconto, data_consegna_proposta: dataConsegna || null, note,
-          updated_by: currentUser.id,
         })
       });
       const d = await r.json();
@@ -7939,7 +7912,6 @@ async function wbLeggiOrdine(src) {
   const codici = [...new Set(currentArticoli.map(a => a.codice || a.dxf_filename_originale || a.dxf_filename)
     .concat(currentAssiemi.map(A => A.codice_assieme)).filter(Boolean))];
   const fd = new FormData();
-  fd.append('admin_id', (currentUser || {}).id || '');
   fd.append('codici', JSON.stringify(codici));
   if (src.file) fd.append('file', src.file); else fd.append('salvato', src.salvato);
   let d;
@@ -10069,7 +10041,7 @@ async function stimaArt(idx, opts = {}) {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/articoli/x/stima-base`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ admin_id: currentUser.id, articolo: a }),
+      body: JSON.stringify({ articolo: a }),
     });
     const d = await r.json();
     if (!d.success) {
@@ -10149,7 +10121,7 @@ async function stimaTutti(indici) {
       const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/articoli/x/stima-base`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ admin_id: currentUser.id, articolo: a }),
+        body: JSON.stringify({ articolo: a }),
       });
       const d = await r.json();
       if (d.success) {
@@ -10900,7 +10872,6 @@ async function _onCandClickPick(e) {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        admin_id: currentUser.id,
         articolo_id: a.id,
         x: dxf.x, y: dxf.y,
       }),
@@ -11077,7 +11048,6 @@ async function _onMarqueeMouseUp(e) {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        admin_id: currentUser.id,
         articolo_id: a.id,
         minx: bbox.minx, miny: bbox.miny, maxx: bbox.maxx, maxy: bbox.maxy,
       }),
@@ -11262,7 +11232,7 @@ async function persistiStepData() {
     try {
       await fetch(`${API_URL}/api/preventivi/${pid}/${kind}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: currentUser.id, [key]: arr }),
+        body: JSON.stringify({ [key]: arr }),
       });
     } catch (e) { console.warn('persist ' + kind + ' fallito', e); }
   };
@@ -11279,7 +11249,7 @@ async function uploadStep(file, suppressMsg) {
   wbProg.apri(`Carico lo STEP ${file.name}`, _mb([file]));
   try {
     const d = await _postConAvanzamento(
-      `${API_URL}/api/preventivi/${currentPreventivo.id}/import-step?admin_id=${encodeURIComponent(currentUser.id)}`, fd,
+      `${API_URL}/api/preventivi/${currentPreventivo.id}/import-step`, fd,
       (fraz, finito) => finito
         // tempo tipico: qualche secondo per MB di STEP
         ? wbProg.fase(`Analizzo il 3D di ${file.name}`, 'Assieme, tubolari, piastre e saldature', { stimaS: 3 + file.size / 1048576 * 4 })
@@ -11382,11 +11352,10 @@ async function uploadXlsx(file, suppressMsg) {
   if (!file || !currentPreventivo) return;
   const fd = new FormData();
   fd.append('file', file);
-  fd.append('admin_id', currentUser.id);
   showMsg('msg-import', 'Parsing XLSX Lantek…', 'var(--gray-text)');
   wbProg.apri(`Importo ${file.name}`, 'Articoli e costi Lantek');
   try {
-    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-xlsx?admin_id=${encodeURIComponent(currentUser.id)}`, {
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-xlsx`, {
       method: 'POST', body: fd
     });
     const d = await r.json();
@@ -11577,7 +11546,7 @@ async function uploadDxf(file, suppressMsg) {
   if (!suppressMsg) showMsg('msg-import', 'Parsing DXF…', 'var(--gray-text)');
   wbProg.apri(`Analizzo ${file.name}`, 'Contorno, fori, lavorazioni, materiale e spessore');
   try {
-    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf?admin_id=${encodeURIComponent(currentUser.id)}`, {
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf`, {
       method: 'POST', body: fd
     });
     const d = await r.json();
@@ -11636,7 +11605,6 @@ async function uploadFolderDxf(fileList) {
 async function uploadDxfBatch(files) {
   if (!files || !files.length || !currentPreventivo) return;
   const fd = new FormData();
-  fd.append('admin_id', currentUser.id);
   // Invia anche il percorso relativo (se caricata una CARTELLA) → riconoscimento
   // assiemi dalle sottocartelle, come per lo ZIP.
   for (const f of files) {
@@ -11651,7 +11619,7 @@ async function uploadDxfBatch(files) {
   wbProg.apri(`Carico ${files.length} disegni`, _mb(files));
   try {
     const d = await _postConAvanzamento(
-      `${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf-batch?admin_id=${encodeURIComponent(currentUser.id)}`, fd,
+      `${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf-batch`, fd,
       (fraz, finito) => {
         if (!finito) wbProg.val(fraz, 1, `Invio al server · ${Math.round(fraz * 100)}% di ${_mb(files)}`);
         // Il server analizza tutti i disegni in una volta e non dice a che
@@ -12101,7 +12069,7 @@ async function sendPreventivoEmail() {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/invia-email`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ user_id: currentUser.id, to, subject, message }),
+      body: JSON.stringify({ to, subject, message }),
     });
     const d = await r.json();
     if (d.success) {
@@ -12140,7 +12108,7 @@ async function _marcaInviatoSenzaEmail() {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/invia`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ user_id: currentUser.id }),
+      body: JSON.stringify({}),
     });
     const d = await r.json();
     if (!d.success) { showMsg('msg-workflow', 'Errore: ' + d.error, 'var(--red)'); return; }
@@ -12186,7 +12154,7 @@ async function _totaliServer() {
   try {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/calcola`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ admin_id: currentUser.id }),
+      body: JSON.stringify({}),
     });
     const d = await r.json();
     return (r.ok && d.success && d.totali) ? d.totali : null;
@@ -12279,14 +12247,9 @@ function vaiAllaRiga(i, tipo) {
 
 async function confermaAccetta() {
   if (!currentPreventivo) return;
-  // Pre-apri la finestra del cartellino NEL gesto del click (evita il blocco
-  // popup dopo await): alla conferma il cartellino si apre da solo per la stampa.
-  let cartWin = window.open('', '_blank');
-  if (cartWin) { try { cartWin.document.write('<p style="font:16px sans-serif;padding:24px;color:#555">Preparazione cartellino…</p>'); } catch (_) {} }
   // Niente accettazione su dati che il server non ha ancora: e' il momento in
   // cui il prezzo viene congelato e nasce l'ordine.
   if (!await salvaSubitoEAttendi()) {
-    if (cartWin) cartWin.close();
     showMsg('msg-accetta',
       'Ci sono modifiche non salvate: riprova il salvataggio prima di accettare.',
       'var(--red)');
@@ -12314,7 +12277,6 @@ async function confermaAccetta() {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        user_id: currentUser.id,
         articoli: currentArticoli,
         assiemi: currentAssiemi,
         tubolari: currentTubolari,
@@ -12328,11 +12290,9 @@ async function confermaAccetta() {
       }),
     });
     const d = await r.json();
-    if (!d.success) { if (cartWin) cartWin.close(); showMsg('msg-accetta', 'Errore: ' + d.error, 'var(--red)'); return; }
-    // Apri il cartellino per la stampa (obbligatorio per l'officina).
-    const _cartUrl = d.cartellino_url ? (window.location.origin + d.cartellino_url) : null;
-    if (cartWin && !cartWin.closed && _cartUrl) cartWin.location.href = _cartUrl;
-    else if (_cartUrl) window.open(_cartUrl, '_blank');
+    if (!d.success) { showMsg('msg-accetta', 'Errore: ' + d.error, 'var(--red)'); return; }
+    // Niente finestre che si aprono da sole: l'ordine si stampa quando serve,
+    // con "Stampa ordine" nel riquadro dello stato del preventivo.
     closeAccettaModal();
     // Ricarica preventivo dal server per status aggiornato + articoli persistiti
     await openPreventivo(currentPreventivo.id);
@@ -12351,10 +12311,9 @@ async function confermaAccetta() {
       dxfNote = ` · DXF officina: ${parts.join(', ')}`;
     }
     showMsg('msg-workflow',
-      `✓ Ordine ${d.numero_ordine} creato. Cartellino aperto: STAMPALO per l'officina.${dxfNote}`,
+      `✓ Ordine ${d.numero_ordine} creato. Per l'officina stampalo con "Stampa ordine".${dxfNote}`,
       (tr.lantek_da_guardare || []).length || tr.missing ? 'var(--orange)' : 'var(--green)');
   } catch (e) {
-    if (cartWin) cartWin.close();
     showMsg('msg-accetta', 'Errore: ' + e.message, 'var(--red)');
   } finally {
     document.getElementById('btn-conferma-accetta').disabled = false;
@@ -12371,7 +12330,7 @@ async function rifiutaPreventivo() {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/rifiuta`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ user_id: currentUser.id }),
+      body: JSON.stringify({}),
     });
     const d = await r.json();
     if (!d.success) { showMsg('msg-workflow', 'Errore: ' + d.error, 'var(--red)'); return; }
@@ -12668,7 +12627,7 @@ function renderStatoBanner() {
   } else if (st === 'ACCETTATO') {
     banner = `<div class="stato-banner accettato"><i data-lucide="check-circle-2"></i><div>
       <div class="sb-title">Accettato dal cliente — Ordine in produzione</div>
-      <div class="sb-msg">È stato creato l'ordine in FerroTrack: cartellino generato e disegni passati al taglio.</div>
+      <div class="sb-msg">È stato creato l'ordine in FerroTrack e i disegni sono passati al taglio.${p.ordine_id ? ` Per l'officina: <a href="/api/orders/${encodeURIComponent(p.ordine_id)}/stampa" target="_blank" rel="noopener" style="font-weight:700;">Stampa ordine</a>.` : ''}</div>
       ${sentLine}
     </div></div>`;
   } else if (rejected) {
@@ -12800,7 +12759,7 @@ async function saveDataConsegnaRiep(value) {
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ data_consegna_proposta: value || null, updated_by: currentUser.id }),
+      body: JSON.stringify({ data_consegna_proposta: value || null }),
     });
     const d = await r.json();
     if (d.success && d.preventivo) {
@@ -15992,10 +15951,9 @@ let _wbDisegniAssieme = new Set();
 async function _wbSalvaPdfAssieme(files) {
   if (!files || !files.length || !currentPreventivo) return;
   const fd = new FormData();
-  fd.append('admin_id', currentUser.id);
   files.forEach(f => fd.append('files', f));
   try {
-    await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf?admin_id=${encodeURIComponent(currentUser.id)}`,
+    await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf`,
                 { method: 'POST', body: fd });
   } catch (e) { console.warn('PDF assieme non salvati', e); }
 }
@@ -16008,13 +15966,12 @@ async function wbCaricaPdf(files) {
   const pdf = Array.from(files || []).filter(f => /\.pdf$/i.test(f.name));
   if (!pdf.length || !currentPreventivo) return 0;
   const fd = new FormData();
-  fd.append('admin_id', currentUser.id);
   pdf.forEach(f => fd.append('files', f));
   let d;
   wbProg.apri(`Carico ${pdf.length} tavole PDF`, _mb(pdf));
   try {
     d = await _postConAvanzamento(
-      `${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf?admin_id=${encodeURIComponent(currentUser.id)}`, fd,
+      `${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf`, fd,
       (fraz, finito) => finito
         ? wbProg.fase(`Abbino ${pdf.length} tavole PDF ai pezzi`, '')
         : wbProg.val(fraz, 1, `Invio al server · ${Math.round(fraz * 100)}% di ${_mb(pdf)}`));
@@ -16053,9 +16010,9 @@ function wbAllegaPdf() {
       const f = inp.files && inp.files[0];
       const i = _splitSelectedIdx;
       if (!f || i == null || !currentPreventivo) return;
-      const fd = new FormData(); fd.append('admin_id', currentUser.id); fd.append('files', f);
+      const fd = new FormData(); fd.append('files', f);
       try {
-        const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf?admin_id=${encodeURIComponent(currentUser.id)}`,
+        const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf`,
                               { method: 'POST', body: fd });
         const d = await r.json();
         if (!d.success || !d.pdf.length) { wbSnack('Il file non e\' un PDF valido', 'err'); return; }
@@ -16107,30 +16064,6 @@ fetch(`${API_URL}/api/preventivi/config`).then(r => r.json()).then(d => {
 </script>
 <script src="https://unpkg.com/lucide@latest"></script>
 <script>if (window.lucide) lucide.createIcons();
-/** La sessione salvata nel browser vale ancora?
-    Passando alle postazioni, una memoria vecchia diventa un'utenza che non
-    esiste piu': la pagina si aprirebbe e poi rifiuterebbe ogni salvataggio,
-    senza dire perche'. Meglio rimandare all'ingresso.
-    Non e' un permesso: quelli li decide il server a ogni richiesta. */
-async function _sessioneAncoraValida() {
-  let u = null;
-  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
-  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
-  try {
-    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
-    if (!r.ok) return true;                 // server irraggiungibile: si prosegue
-    const d = await r.json();
-    if (!d.valida) {
-      localStorage.removeItem('currentUser');
-      window.location.href = '/login.html';
-      return false;
-    }
-    // Ruolo e permessi possono essere cambiati da quando si e' entrati.
-    localStorage.setItem('currentUser', JSON.stringify({ ...u, ...d.utente }));
-  } catch (_) { /* rete assente: si prosegue con quello che c'e' */ }
-  return true;
-}
-
 </script>
 </body>
 </html>

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LS FerroTrack — Archivio Report</title>
+<script src="/ft-accesso.js" data-stazioni="ufficio,commerciale"></script>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -947,7 +948,7 @@ textarea.form-input { resize: vertical; min-height: 80px; padding: 10px 12px; he
 <body>
 
 <div class="topbar">
-  <a class="logo-section" href="/login.html">
+  <a class="logo-section" href="/">
     <div class="logo-icon"><img src="/assets/logo.svg" alt="LS"></div>
     <div class="logo-text">
       <div class="logo-main">FerroTrack</div>
@@ -1021,11 +1022,17 @@ let totalPages = 1;
 const COST_PER_HOUR = 25; // Costo orario per calcolo margine
 
 // === SESSION ===
-window.addEventListener('load', () => {
-  const saved = localStorage.getItem('currentUser');
-  if (!saved) { window.location.href = '/login.html'; return; }
-  currentUser = JSON.parse(saved);
-  if (!currentUser.id) { window.location.href = '/login.html'; return; }
+window.addEventListener('load', async () => {
+  // Chi e' entrato lo dice il server (dispositivo + PIN, vedi ft-accesso.js):
+  // se manca il PIN o la postazione e' un'altra, ci pensa ft-accesso.js.
+  await FTA.pronto;
+  const io = FTA.io || {};
+  let user = null;
+  if (io.persona) user = { id: io.persona.id, name: io.persona.nome, role: io.stazione_nome };
+  else if (io.vecchio) { try { user = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {} }
+  else if (io.registrato) user = { id: null, name: io.stazione_nome, role: io.stazione_nome };
+  if (!user) return;
+  currentUser = user;
 
   // Default date range: inizio anno → oggi
   const today = new Date();
@@ -1212,42 +1219,15 @@ function escapeHtml(str) {
 }
 
 
-/** Dove sta di casa una postazione.
-    Ripetuta in ogni pagina perche' le pagine sono indipendenti: e' la stessa
-    funzione ovunque, e va tenuta allineata. */
-function paginaDiCasa(u) {
-  const r = (u && u.role) || '';
-  if (r === 'Timbratrice') return '/ore.html';
-  if (r === 'Visione') return '/operaio-info.html';
-  if (r === 'Laser' || r === 'Operaio Laser') return '/laser.html';
-  if (r === 'Amministrazione' || r === 'Impiegata') return '/impiegata.html';
-  if (r === 'Commerciale') return '/preventivi.html';
-  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
-    return '/capo-officina.html';
-  }
-  return '/operaio-info.html';
-}
-
 // === LOGOUT ===
+/** Casa = la pagina della stazione di questo dispositivo. */
 function goHome() {
-  const u = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  if (!u.id) { window.location.href = '/login.html'; return; }
-  window.location.href = paginaDiCasa(u);
+  const io = window.FTA && FTA.io;
+  window.location.href = (io && io.pagina) || '/';
 }
 
-async function logout() {
-  try {
-    if (currentUser?.id) {
-      await fetch(`${API_URL}/api/auth/logout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: currentUser.id })
-      });
-    }
-  } catch (_) {}
-  localStorage.removeItem('currentUser');
-  window.location.href = '/login.html';
-}
+/** "Esci": chiude la sessione di chi e' entrato col PIN. */
+function logout() { FTA.esci(); }
 </script>
 
 </body>

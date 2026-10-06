@@ -3,389 +3,208 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LS FerroTrack — Dashboard Live</title>
+<meta name="theme-color" content="#0B1220">
+<title>FerroTrack — Dashboard Live</title>
+<script src="/ft-accesso.js" data-pubblica></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Geist:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
+<!--
+  Schermo TV pubblico (1920x1080, si legge da lontano): solo numeri anonimi
+  da /api/dashboard-live, nessun nome ne' prezzo. Stessa base grafica del
+  resto (ft-ui.css), in grande. Le classi "dl-" sono proprie di questa pagina.
+-->
 <style>
-:root {
-  --bg: #FAFAFA;
-  --surface: #FFFFFF;
-  --border: #E5E7EB;
-  --border-2: #F1F5F9;
-  --text: #0F172A;
-  --text-2: #475569;
-  --text-3: #94A3B8;
-  --accent: #4F46E5;
-  --green: #10B981;
-  --amber: #F59E0B;
-  --red: #EF4444;
+html, body.ft { height: 100%; width: 100%; overflow: hidden; }
+body.ft { font-size: 16px; }
+
+.dl {
+  height: 100vh; display: grid; grid-template-rows: auto 1fr auto; gap: 2.2vh;
+  padding: 3vh 3vw 2.6vh;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body {
-  height: 100%; width: 100%;
-  background: var(--bg); color: var(--text);
-  font-family: 'Inter', sans-serif;
-  overflow: hidden;
+/* ═══ Testata ═══ */
+.dl-head { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.dl-brand { display: flex; align-items: center; gap: 20px; }
+.dl-brand .ft-logo { width: 72px; height: 72px; border-radius: 16px; font-size: 30px; letter-spacing: -1px; }
+.dl-brand-name { font: 800 44px/1 var(--ft-display); letter-spacing: -1.4px; color: var(--ft-ink); }
+.dl-brand-sub { margin-top: 6px; font-size: 17px; font-weight: 500; color: var(--ft-ink-3); }
+.dl-clock { text-align: right; }
+.dl-ora { font: 800 64px/1 var(--ft-display); letter-spacing: -2px; color: var(--ft-ink); font-variant-numeric: tabular-nums; }
+.dl-data { margin-top: 8px; font-size: 17px; font-weight: 600; color: var(--ft-ink-3); text-transform: capitalize; }
+
+/* ═══ Griglia ═══ */
+.dl-main {
+  display: grid; min-height: 0; gap: 2.2vh 1.6vw;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+.dl-card {
+  background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 22px;
+  box-shadow: var(--ft-elev-1); min-height: 0;
+}
+.dl-hero { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.6vw; min-height: 0; }
+.dl-stat { display: flex; flex-direction: column; justify-content: center; padding: 3vh 3vw; position: relative; overflow: hidden; }
+.dl-stat-lbl { display: flex; align-items: center; gap: 14px; font-size: 24px; font-weight: 700; color: var(--ft-ink-2); }
+.dl-stat-lbl .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--ft-accent); flex-shrink: 0; }
+.dl-stat.ok .dl-stat-lbl .dot { background: var(--ft-ok-dot); }
+.dl-stat-val {
+  font: 800 clamp(96px, 15vh, 180px)/1 var(--ft-display); letter-spacing: -5px;
+  color: var(--ft-ink); font-variant-numeric: tabular-nums; margin: 1.4vh 0 1vh;
+}
+.dl-stat-sub { font-size: 19px; color: var(--ft-ink-3); font-weight: 500; }
+/* Il numero e' cambiato: alone indaco (o verde per i pronti) che si spegne. */
+.dl-stat.ft-new { animation: dlNuovo 1.8s ease-out; }
+.dl-stat.ok.ft-new { animation-name: dlNuovoOk; }
+@keyframes dlNuovo { 0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, .45); border-color: var(--ft-accent); } 100% { box-shadow: 0 0 0 18px rgba(79, 70, 229, 0); } }
+@keyframes dlNuovoOk { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .45); border-color: var(--ft-ok-dot); } 100% { box-shadow: 0 0 0 18px rgba(16, 185, 129, 0); } }
+
+/* Stato officina */
+.dl-panel { display: flex; flex-direction: column; padding: 3vh 2.4vw; }
+.dl-panel-title {
+  font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ft-ink-3); margin: 0 0 2vh;
+}
+.dl-bars { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 3vh; }
+.dl-bar-row { display: grid; grid-template-columns: 220px minmax(0, 1fr) 90px; gap: 24px; align-items: center; }
+.dl-bar-lbl { font-size: 22px; font-weight: 600; color: var(--ft-ink-2); }
+.dl-bar { height: 30px; border-radius: 10px; background: var(--ft-line-2); overflow: hidden; }
+.kanban-bar-fill { height: 100%; border-radius: 10px; min-width: 10px; transition: width .7s var(--ft-ease); }
+.kanban-bar-fill.ricevuti { background: var(--ft-ink-4); }
+.kanban-bar-fill.lavorazione { background: var(--ft-accent); }
+.kanban-bar-fill.pronti { background: var(--ft-ok-dot); }
+.dl-bar-n { font: 800 40px/1 var(--ft-display); letter-spacing: -1px; text-align: right; color: var(--ft-ink); font-variant-numeric: tabular-nums; }
+
+/* Chi siamo */
+.dl-brand-panel { display: flex; flex-direction: column; justify-content: center; padding: 3vh 2.4vw; position: relative; overflow: hidden; }
+.dl-brand-panel::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--ft-accent);
+}
+.dl-anni { font: 800 clamp(72px, 11vh, 120px)/1 var(--ft-display); letter-spacing: -4px; color: var(--ft-ink); }
+.dl-anni span { font-size: .42em; letter-spacing: -1px; color: var(--ft-accent); margin-left: 8px; }
+.dl-anni-sub { margin-top: 1.2vh; font-size: 20px; font-weight: 500; color: var(--ft-ink-3); }
+.dl-tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 2.6vh; }
+.dl-tag {
+  padding: 8px 16px; border-radius: 100px; border: 1px solid var(--ft-line);
+  background: var(--ft-well); font-size: 16px; font-weight: 600; color: var(--ft-ink-2);
 }
 
-.dashboard {
-  width: 100%; height: 100vh;
-  display: grid;
-  grid-template-rows: 90px 1fr auto;
-  gap: 16px;
-  padding: 20px 32px 24px;
+/* ═══ Piede ═══ */
+.dl-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding-top: 1.6vh; border-top: 1px solid var(--ft-line);
+  font-size: 15px; color: var(--ft-ink-3); font-weight: 500;
 }
+.dl-certs { display: flex; gap: 28px; }
+.dl-certs span { font: 700 15px var(--ft-display); color: var(--ft-ink-2); letter-spacing: .03em; }
+.dl-foot .ft-live { font-size: 15px; gap: 0 10px; }
+.dl-foot .ft-live::before { width: 10px; height: 10px; }
+.dl-foot .ft-live:not(.off)::before { animation: dlPulsa 2s ease-in-out infinite; }
+@keyframes dlPulsa { 50% { box-shadow: 0 0 0 7px rgba(16, 185, 129, .08); } }
+#last-update { font-variant-numeric: tabular-nums; color: var(--ft-ink-2); font-weight: 600; }
 
-/* ═══ HEADER ═══ */
-.header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding-bottom: 14px;
-  border-bottom: 2px solid var(--border);
-}
-.brand {
-  display: flex; align-items: center; gap: 16px;
-}
-.logo-badge {
-  width: 60px; height: 60px; border-radius: 14px;
-  background: var(--text); color: white;
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Geist'; font-weight: 900; font-size: 26px;
-  letter-spacing: -0.5px;
-}
-.brand-name {
-  font-family: 'Geist'; font-weight: 900; font-size: 34px;
-  letter-spacing: -1px; color: var(--text);
-  line-height: 1;
-}
-.brand-payoff {
-  font-size: 13px; color: var(--text-3); font-weight: 500;
-  margin-top: 4px; letter-spacing: 0.3px;
-}
-.clock-block { text-align: right; }
-.clock-time {
-  font-family: 'Geist'; font-weight: 800; font-size: 42px;
-  color: var(--text); letter-spacing: -1px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-.clock-date {
-  font-size: 13px; color: var(--text-3); font-weight: 500;
-  margin-top: 6px; letter-spacing: 0.3px;
-  text-transform: uppercase;
-}
+/* La griglia entra una volta sola, all'accensione dello schermo: poi la
+   classe si toglie, cosi' l'alone dei numeri cambiati non rifa' l'entrata. */
+.dl-entra > :not(.dl-hero), .dl-entra .dl-hero > * { animation: ftSale .5s var(--ft-ease) both; }
+.dl-entra .dl-hero > :nth-child(2) { animation-delay: 60ms; }
+.dl-entra > :nth-child(2) { animation-delay: 120ms; }
+.dl-entra > :nth-child(3) { animation-delay: 180ms; }
 
-/* ═══ MAIN GRID ═══ */
-.main {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 16px;
-  min-height: 0;
-}
-
-/* Big numbers hero (top left, span cols) */
-.hero-stats {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-.stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 32px 28px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  text-align: center;
-  transition: transform 0.3s;
-}
-.stat-card .stat-value {
-  font-family: 'Geist'; font-weight: 900;
-  font-size: 96px; line-height: 1;
-  color: var(--text); letter-spacing: -3px;
-  font-variant-numeric: tabular-nums;
-}
-.stat-card.accent .stat-value { color: var(--accent); }
-.stat-card.green .stat-value { color: var(--green); }
-.stat-card .stat-label {
-  font-size: 14px; font-weight: 600;
-  color: var(--text-2); letter-spacing: 2px;
-  text-transform: uppercase; margin-top: 12px;
-}
-.stat-card .stat-sub {
-  font-size: 11px; color: var(--text-3); margin-top: 4px;
-  font-weight: 500;
-}
-
-/* Kanban visual bar (bottom-left) */
-.kanban-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 24px 28px;
-  display: flex; flex-direction: column;
-}
-.panel-title {
-  font-family: 'Geist'; font-weight: 800; font-size: 16px;
-  letter-spacing: -0.3px; margin-bottom: 20px;
-  color: var(--text);
-  display: flex; align-items: center; gap: 10px;
-}
-.panel-title .dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent);
-}
-.kanban-bars {
-  display: flex; flex-direction: column; gap: 20px;
-  flex: 1; justify-content: center;
-}
-.kanban-row {
-  display: grid; grid-template-columns: 140px 1fr;
-  gap: 16px; align-items: center;
-}
-.kanban-label {
-  font-size: 13px; font-weight: 600; color: var(--text-2);
-}
-.kanban-bar {
-  height: 26px; background: var(--border-2);
-  border-radius: 8px; overflow: hidden;
-  position: relative;
-}
-.kanban-bar-fill {
-  height: 100%; border-radius: 8px;
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 8px;
-}
-.kanban-bar-fill.ricevuti { background: linear-gradient(90deg, #FCD34D, #F59E0B); }
-.kanban-bar-fill.lavorazione { background: linear-gradient(90deg, #6366F1, #4F46E5); }
-.kanban-bar-fill.pronti { background: linear-gradient(90deg, #34D399, #10B981); }
-
-/* Right column: activity + brand area */
-.activity-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 24px 28px;
-  display: flex; flex-direction: column;
-  min-height: 0;
-}
-.activity-chart {
-  flex: 1; display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 6px; padding: 20px 0 12px;
-  border-bottom: 1px solid var(--border-2);
-}
-.activity-bar {
-  flex: 1; min-height: 4px;
-  background: linear-gradient(180deg, var(--accent) 0%, #6366F1 100%);
-  border-radius: 4px 4px 0 0;
-  transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-}
-.activity-bar.empty { background: var(--border); }
-.activity-hours {
-  display: flex; justify-content: space-between;
-  font-size: 10px; color: var(--text-3);
-  margin-top: 8px; font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Brand/values panel (bottom right) */
-.brand-panel {
-  background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-  color: white;
-  border-radius: 20px;
-  padding: 28px;
-  display: flex; flex-direction: column; justify-content: center;
-  min-height: 0; position: relative; overflow: hidden;
-}
-.brand-panel::before {
-  content: '';
-  position: absolute; top: -50%; right: -30%;
-  width: 300px; height: 300px;
-  background: radial-gradient(circle, rgba(79,70,229,0.35) 0%, transparent 70%);
-  pointer-events: none;
-}
-.brand-anni {
-  font-family: 'Geist'; font-weight: 900; font-size: 68px;
-  line-height: 1; letter-spacing: -2.5px;
-  background: linear-gradient(135deg, #FFFFFF 0%, #A5B4FC 100%);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
-  position: relative;
-}
-.brand-anni-sub {
-  font-size: 13px; color: rgba(255,255,255,0.55);
-  margin-top: 8px; letter-spacing: 0.3px;
-  text-transform: uppercase; font-weight: 500;
-}
-.brand-values {
-  display: flex; flex-wrap: wrap; gap: 8px;
-  margin-top: 20px;
-}
-.brand-tag {
-  padding: 6px 14px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 100px;
-  font-size: 11px; font-weight: 600;
-  color: rgba(255,255,255,0.85);
-  letter-spacing: 0.4px; text-transform: uppercase;
-}
-
-/* ═══ FOOTER ═══ */
-.footer {
-  display: flex; align-items: center; justify-content: space-between;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  font-size: 11px; color: var(--text-3);
-  font-weight: 500; letter-spacing: 0.3px;
-}
-.footer .certs {
-  display: flex; gap: 20px; align-items: center;
-}
-.footer .certs span {
-  font-family: 'Geist'; font-weight: 700; font-size: 11px;
-  color: var(--text-2); letter-spacing: 0.5px;
-}
-.footer .last-update {
-  font-variant-numeric: tabular-nums;
-}
-
-/* Live indicator */
-.live-dot {
-  display: inline-block;
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--green);
-  animation: pulse 1.4s infinite;
-  margin-right: 6px;
-  vertical-align: middle;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.3); }
-}
-
-/* Responsive TV / large screens */
-@media (min-width: 1600px) {
-  .stat-card .stat-value { font-size: 128px; }
-  .brand-name { font-size: 42px; }
-  .clock-time { font-size: 54px; }
-  .brand-anni { font-size: 88px; }
-}
-@media (max-width: 900px) {
-  .main { grid-template-columns: 1fr; }
-  .hero-stats { grid-template-columns: repeat(3, 1fr); }
-  .stat-card .stat-value { font-size: 64px; }
+@media (max-width: 1100px) {
+  html, body.ft { overflow: auto; }
+  .dl { height: auto; min-height: 100vh; }
+  .dl-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+  .dl-stat-val { font-size: 84px; }
+  .dl-bar-row { grid-template-columns: 140px minmax(0, 1fr) 60px; gap: 14px; }
+  .dl-bar-lbl { font-size: 17px; }
+  .dl-bar-n { font-size: 28px; }
 }
 </style>
 </head>
-<body>
+<body class="ft">
 
-<div class="dashboard">
-  <!-- HEADER -->
-  <div class="header">
-    <div class="brand">
-      <div class="logo-badge">LS</div>
+<div class="dl">
+  <!-- TESTATA -->
+  <header class="dl-head">
+    <div class="dl-brand">
+      <div class="ft-logo">LS</div>
       <div>
-        <div class="brand-name">FerroTrack</div>
-        <div class="brand-payoff">Carpenteria metallica di precisione</div>
+        <div class="dl-brand-name">FerroTrack</div>
+        <div class="dl-brand-sub">Carpenteria metallica di precisione</div>
       </div>
     </div>
-    <div class="clock-block">
-      <div class="clock-time" id="clock-time">--:--</div>
-      <div class="clock-date" id="clock-date">—</div>
+    <div class="dl-clock">
+      <div class="dl-ora" id="clock-time">--:--</div>
+      <div class="dl-data" id="clock-date">—</div>
     </div>
-  </div>
+  </header>
 
-  <!-- MAIN GRID -->
-  <div class="main">
-    <!-- Hero big numbers (span cols) -->
-    <div class="hero-stats">
-      <div class="stat-card accent">
-        <div class="stat-value" id="stat-attivi">—</div>
-        <div class="stat-label">Attivi ora</div>
-        <div class="stat-sub"><span class="live-dot"></span>Sessioni in corso</div>
+  <main class="dl-main dl-entra" id="dl-main">
+    <!-- Numeri grandi -->
+    <div class="dl-hero">
+      <!-- "Attivi ora" e "Attivita' giornata" contavano le scansioni con la
+           pistola: pistole tolte, tolti anche loro (sarebbero stati zeri). -->
+      <div class="dl-card dl-stat" id="card-produzione">
+        <div class="dl-stat-lbl"><span class="dot"></span>In produzione</div>
+        <div class="dl-stat-val" id="stat-produzione">—</div>
+        <div class="dl-stat-sub">Ordini aperti in officina</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value" id="stat-produzione">—</div>
-        <div class="stat-label">In produzione</div>
-        <div class="stat-sub">Lavorazione attiva 24h</div>
-      </div>
-      <div class="stat-card green">
-        <div class="stat-value" id="stat-pronti">—</div>
-        <div class="stat-label">Pronti</div>
-        <div class="stat-sub">In attesa spedizione</div>
+      <div class="dl-card dl-stat ok" id="card-pronti">
+        <div class="dl-stat-lbl"><span class="dot"></span>Pronti</div>
+        <div class="dl-stat-val" id="stat-pronti">—</div>
+        <div class="dl-stat-sub">In attesa di spedizione</div>
       </div>
     </div>
 
-    <!-- Kanban visual -->
-    <div class="kanban-panel">
-      <div class="panel-title">
-        <span class="dot"></span>
-        Stato officina
-      </div>
-      <div class="kanban-bars">
-        <div class="kanban-row">
-          <span class="kanban-label">Ricevuti</span>
-          <div class="kanban-bar"><div class="kanban-bar-fill ricevuti" id="bar-ricevuti" style="width:0%"></div></div>
+    <!-- Stato officina -->
+    <div class="dl-card dl-panel">
+      <h2 class="dl-panel-title">Stato officina</h2>
+      <div class="dl-bars">
+        <div class="dl-bar-row">
+          <span class="dl-bar-lbl">Ricevuti</span>
+          <div class="dl-bar"><div class="kanban-bar-fill ricevuti" id="bar-ricevuti" style="width:0%"></div></div>
+          <span class="dl-bar-n" id="n-ricevuti">—</span>
         </div>
-        <div class="kanban-row">
-          <span class="kanban-label">In lavorazione</span>
-          <div class="kanban-bar"><div class="kanban-bar-fill lavorazione" id="bar-lavorazione" style="width:0%"></div></div>
+        <div class="dl-bar-row">
+          <span class="dl-bar-lbl">In lavorazione</span>
+          <div class="dl-bar"><div class="kanban-bar-fill lavorazione" id="bar-lavorazione" style="width:0%"></div></div>
+          <span class="dl-bar-n" id="n-lavorazione">—</span>
         </div>
-        <div class="kanban-row">
-          <span class="kanban-label">Pronti</span>
-          <div class="kanban-bar"><div class="kanban-bar-fill pronti" id="bar-pronti" style="width:0%"></div></div>
+        <div class="dl-bar-row">
+          <span class="dl-bar-lbl">Pronti</span>
+          <div class="dl-bar"><div class="kanban-bar-fill pronti" id="bar-pronti" style="width:0%"></div></div>
+          <span class="dl-bar-n" id="n-pronti">—</span>
         </div>
       </div>
     </div>
 
-    <!-- Activity + Brand -->
-    <div style="display:flex; flex-direction:column; gap:16px; min-height:0;">
-      <div class="activity-panel" style="flex:1;">
-        <div class="panel-title">
-          <span class="dot"></span>
-          Attività giornata
-        </div>
-        <div class="activity-chart" id="activity-chart">
-          <!-- Barre generate via JS -->
-        </div>
-        <div class="activity-hours">
-          <span>07</span><span>09</span><span>11</span><span>13</span><span>15</span><span>17</span>
-        </div>
-      </div>
-
-      <div class="brand-panel" style="flex:0 0 auto;">
-        <div class="brand-anni" id="brand-anni">35<span style="font-size:0.5em;">anni</span></div>
-        <div class="brand-anni-sub">di esperienza al vostro servizio</div>
-        <div class="brand-values">
-          <span class="brand-tag">Qualità</span>
-          <span class="brand-tag">Precisione</span>
-          <span class="brand-tag">Tempi certi</span>
-          <span class="brand-tag">Made in Italy</span>
-        </div>
+    <!-- Chi siamo -->
+    <div class="dl-card dl-brand-panel">
+      <div class="dl-anni" id="brand-anni">35<span>anni</span></div>
+      <div class="dl-anni-sub">di esperienza al vostro servizio</div>
+      <div class="dl-tags">
+        <span class="dl-tag">Qualità</span>
+        <span class="dl-tag">Precisione</span>
+        <span class="dl-tag">Tempi certi</span>
+        <span class="dl-tag">Made in Italy</span>
       </div>
     </div>
-  </div>
+  </main>
 
-  <!-- FOOTER -->
-  <div class="footer">
-    <div class="certs">
+  <!-- PIEDE -->
+  <footer class="dl-foot">
+    <div class="dl-certs">
       <span>UNI EN 1090</span>
       <span>ISO 9001</span>
       <span>EN ISO 3834</span>
     </div>
-    <div class="last-update">
-      <span class="live-dot"></span>
-      Live · Ultimo aggiornamento: <span id="last-update">—</span>
-    </div>
-  </div>
+    <div class="ft-live" id="live">Live · Ultimo aggiornamento: <span id="last-update">—</span></div>
+  </footer>
 </div>
 
 <script>
-// ═══ CLOCK: aggiornato ogni secondo ═══
+// ═══ OROLOGIO: aggiornato ogni secondo ═══
 function updateClock() {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
@@ -397,54 +216,58 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// ═══ DATA REFRESH: ogni 10s ═══
+// ═══ DATI: ogni 10 s ═══
+// Ultimi numeri mostrati: se cambiano, la scheda si accende un attimo.
+const ULTIMI = {};
+function numero(id, valore, card) {
+  const v = Number(valore) || 0;
+  const prima = ULTIMI[id];
+  ULTIMI[id] = v;
+  FT.conta(document.getElementById(id), v, { durata: 900 });
+  if (card && prima !== undefined && prima !== v) FT.evidenzia(document.getElementById(card));
+}
+
 async function refreshData() {
+  const live = document.getElementById('live');
   try {
     const r = await fetch('/api/dashboard-live');
     const d = await r.json();
     if (!d.success) throw new Error(d.error || 'Errore server');
 
-    // Hero big numbers
-    document.getElementById('stat-attivi').textContent = d.snapshot.operatori_attivi;
-    document.getElementById('stat-produzione').textContent = d.snapshot.ordini_in_produzione;
-    document.getElementById('stat-pronti').textContent = d.snapshot.ordini_pronti;
+    // Numeri grandi
+    numero('stat-produzione', d.snapshot.ordini_in_produzione, 'card-produzione');
+    numero('stat-pronti', d.snapshot.ordini_pronti, 'card-pronti');
 
-    // Kanban proportional bars (max di tutti = 100%)
+    // Barre proporzionali (il piu' grande = 100%)
     const max = Math.max(d.kanban.ricevuti, d.kanban.lavorazione, d.kanban.pronti, 1);
     const pct = (v) => Math.max(3, Math.round(v / max * 100));
     document.getElementById('bar-ricevuti').style.width = pct(d.kanban.ricevuti) + '%';
     document.getElementById('bar-lavorazione').style.width = pct(d.kanban.lavorazione) + '%';
     document.getElementById('bar-pronti').style.width = pct(d.kanban.pronti) + '%';
+    numero('n-ricevuti', d.kanban.ricevuti);
+    numero('n-lavorazione', d.kanban.lavorazione);
+    numero('n-pronti', d.kanban.pronti);
 
-    // Activity chart (barre per ora della giornata)
-    const chart = document.getElementById('activity-chart');
-    chart.innerHTML = '';
-    const maxAtt = Math.max(...d.curva_ore.map(x => x.attivita), 1);
-    for (const h of d.curva_ore) {
-      const bar = document.createElement('div');
-      bar.className = 'activity-bar' + (h.attivita === 0 ? ' empty' : '');
-      const heightPct = Math.max(4, Math.round(h.attivita / maxAtt * 100));
-      bar.style.height = heightPct + '%';
-      bar.title = `${h.ora}:00 · ${h.attivita} attività`;
-      chart.appendChild(bar);
-    }
-
-    // Timestamp
+    // Ora dell'ultimo aggiornamento
     const now = new Date();
     document.getElementById('last-update').textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    live.classList.remove('off');
   } catch (e) {
+    // I numeri restano gli ultimi buoni; il pallino rosso dice che sono vecchi.
+    live.classList.add('off');
     console.error('refresh failed:', e);
   }
 }
 
+setTimeout(() => document.getElementById('dl-main').classList.remove('dl-entra'), 1000);
 refreshData();
 setInterval(refreshData, 10000);  // ogni 10 secondi
 
-// ═══ ANNI ESPERIENZA: configurabile via URL ?anni=42 ═══
+// ═══ ANNI DI ESPERIENZA: configurabile via URL ?anni=42 ═══
 const params = new URLSearchParams(window.location.search);
 const anni = params.get('anni');
 if (anni && /^\d+$/.test(anni)) {
-  document.getElementById('brand-anni').innerHTML = `${anni}<span style="font-size:0.5em;">anni</span>`;
+  document.getElementById('brand-anni').innerHTML = `${anni}<span>anni</span>`;
 }
 </script>
 </body>

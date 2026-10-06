@@ -113,9 +113,11 @@
     let box = document.querySelector('.ft-toasts');
     if (!box) { box = document.createElement('div'); box.className = 'ft-toasts'; document.body.appendChild(box); }
     const t = document.createElement('div');
-    t.className = 'ft-toast ' + (tipo || '');
+    t.className = 'ft-toast ' + (tipo || '') + (tipo === 'ok' ? ' ft-spunta' : '');
     t.setAttribute('role', tipo === 'err' ? 'alert' : 'status');
-    t.innerHTML = `<span>${esc(msg)}</span>`;
+    t.innerHTML = (tipo === 'ok'
+      ? '<svg class="ft-check" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="9"/><path d="M5.2 9.3l2.5 2.5 5-5.2"/></svg>'
+      : '') + `<span>${esc(msg)}</span>`;
     if (azione && azione.testo) {
       const b = document.createElement('button');
       b.className = 'ft-toast-act'; b.textContent = azione.testo;
@@ -174,7 +176,14 @@
   });
 
   /** Utente salvato nel browser (stesso formato di login.html). */
+  /** Chi sta usando la pagina, come lo sa il server (ft-accesso.js): la
+      persona entrata col PIN, oppure la stazione. Solo per mostrarlo: i
+      permessi li decide il server a ogni richiesta. */
   function utente() {
+    const io = window.FTA && window.FTA.io;
+    if (io && io.persona) return { id: io.persona.id, name: io.persona.nome, role: io.stazione_nome };
+    if (io && io.registrato) return { id: null, name: io.stazione_nome, role: io.stazione_nome };
+    // periodo di passaggio: la postazione scelta col vecchio ingresso
     try { return JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) { return null; }
   }
   /** Riempie la pillola utente della testata (.ft-user con #ft-user-*). */
@@ -189,8 +198,77 @@
 
   function icone() { try { if (window.lucide) window.lucide.createIcons(); } catch (_) {} }
 
+  // ── Effetti comuni (vedi "Effetti comuni" in ft-ui.css) ─────────────
+  const MUOVI = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  /** Il numero scorre dal valore mostrato a `valore`.
+      opz: {dec, euro, intero, durata, suffisso}. Ritorna subito; il testo
+      finale e' sempre quello giusto anche senza animazione. */
+  function conta(el, valore, opz) {
+    if (!el) return;
+    opz = opz || {};
+    const fmt = v => (opz.euro ? euro(v, opz.intero) : numero(v, opz.dec || 0)) + (opz.suffisso || '');
+    const fine = Number(valore);
+    if (isNaN(fine)) { el.textContent = fmt(valore); return; }
+    // La prima volta parte da zero: all'apertura della pagina i numeri salgono.
+    const inizio = el.dataset.ftVal === undefined ? 0 : Number(el.dataset.ftVal);
+    el.dataset.ftVal = String(fine);
+    if (!MUOVI || isNaN(inizio) || inizio === fine || document.hidden) { el.textContent = fmt(fine); return; }
+    const t0 = performance.now(), d = opz.durata || 650;
+    const passo = t => {
+      const k = Math.min(1, (t - t0) / d), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = fmt(k < 1 ? inizio + (fine - inizio) * e : fine);
+      if (k < 1) requestAnimationFrame(passo);
+    };
+    requestAnimationFrame(passo);
+  }
+  /** Evidenzia un elemento appena arrivato (riga, scheda). */
+  function evidenzia(el, classe) {
+    if (!el) return;
+    classe = classe || 'ft-new';
+    el.classList.remove(classe); void el.offsetWidth; el.classList.add(classe);
+    setTimeout(() => el.classList.remove(classe), 1900);
+  }
+  /** Numera i figli per l'entrata in sequenza di .ft-stagger (max 14 in
+      ritardo: oltre entrano tutti insieme, una lista lunga non deve attendere). */
+  function sequenza(box) {
+    if (!box) return;
+    const figli = Array.from(box.children);
+    figli.forEach((c, i) => c.style.setProperty('--i', Math.min(i, 14)));
+    box.classList.remove('ft-stagger'); void box.offsetWidth; box.classList.add('ft-stagger');
+    // Solo questa volta: i ridisegni successivi (aggiornamento, ricerca) non
+    // devono rifare l'entrata.
+    clearTimeout(box._ftSeq);
+    box._ftSeq = setTimeout(() => box.classList.remove('ft-stagger'), Math.min(figli.length, 14) * 35 + 450);
+  }
+  /** Come conta(), ma ricorda il valore per chiave fra un ridisegno e
+      l'altro: utile quando l'elemento viene ricreato da innerHTML. */
+  const _ultimi = {};
+  function contaDa(chiave, el, valore, opz) {
+    if (!el) return;
+    if (chiave in _ultimi) el.dataset.ftVal = String(_ultimi[chiave]);
+    _ultimi[chiave] = Number(valore);
+    conta(el, valore, opz);
+  }
+  // Uscita in dissolvenza sui link interni (stessa scheda, stessa origine).
+  document.addEventListener('click', e => {
+    if (!MUOVI || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const a = e.target.closest && e.target.closest('a[href]');
+    if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return;
+    const url = new URL(a.href, location.href);
+    if (url.origin !== location.origin || url.pathname.startsWith('/api/') || /\.(pdf|dxf|step|stp|png|jpe?g)$/i.test(url.pathname)) return;
+    if (url.pathname === location.pathname && url.search === location.search) return;   // solo #ancora
+    if (!document.body.classList.contains('ft')) return;
+    e.preventDefault();
+    document.body.classList.add('ft-esce');
+    setTimeout(() => { location.href = url.href; }, 130);
+  });
+  // Tornando indietro la pagina puo' arrivare dalla cache ancora "uscita".
+  window.addEventListener('pageshow', () => { if (document.body) document.body.classList.remove('ft-esce'); });
+
   window.FT = {
     data, fmtData, fmtDataBreve, fmtOra, fmtDataOra, fmtRelativo, giorniDa, oggiISO, scadenza,
     euro, numero, esc, iniziali, toast, conferma, apri, chiudi, utente, mostraUtente, icone,
+    conta, contaDa, evidenzia, sequenza,
   };
 })();

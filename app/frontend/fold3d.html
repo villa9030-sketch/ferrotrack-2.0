@@ -4,74 +4,109 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Anteprima piega 3D — FerroTrack</title>
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; background: #E2E8F0; overflow: hidden; }
+  /* Anteprima piega 3D. Base grafica da ft-ui.css: qui il visore three.js,
+     la barra e il pannello della piega. */
+  html, body.ft { height: 100%; background: var(--ft-canvas); overflow: hidden; }
   #viewer { position: absolute; inset: 0; }
   #viewer canvas { display: block; }
+  /* Modello pronto: entra con una breve dissolvenza */
+  #viewer.pronto canvas { animation: foldEntra .5s var(--ft-ease) both; }
+  @keyframes foldEntra { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
   .bar {
-    position: absolute; left: 0; right: 0; top: 0; height: 54px; z-index: 10;
-    background: #171B2E; color: #fff; display: flex; align-items: center; gap: 12px;
-    padding: 0 18px; box-shadow: 0 2px 10px rgba(0,0,0,.2);
+    position: absolute; left: 0; right: 0; top: 0; height: 56px; z-index: 10;
+    background: rgba(255,255,255,.92); border-bottom: 1px solid var(--ft-line);
+    backdrop-filter: blur(18px) saturate(180%); -webkit-backdrop-filter: blur(18px) saturate(180%);
+    color: var(--ft-ink); display: flex; align-items: center; gap: 12px; padding: 0 16px 0 18px;
   }
-  .bar .logo { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg,#7C3AED,#4F46E5); display: flex; align-items: center; justify-content: center; font-weight: 800; }
-  .bar .title { font-weight: 700; letter-spacing: -.2px; }
-  .bar .pill { background: rgba(124,58,237,.25); color: #C4B5FD; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
+  .bar .ft-logo { width: 30px; height: 30px; font-size: 13px; flex-shrink: 0; }
+  .bar .title { font: 800 15px var(--ft-display); letter-spacing: -.3px; white-space: nowrap; }
+  .bar .pill { max-width: 360px; overflow: hidden; text-overflow: ellipsis; font-family: var(--ft-mono); font-weight: 500; }
   .bar .sp { flex: 1; }
-  .bar button { background: rgba(255,255,255,.1); color: #fff; border: none; border-radius: 8px; padding: 7px 14px; cursor: pointer; font-size: 13px; }
-  .bar button:hover { background: rgba(255,255,255,.2); }
   .panel {
-    position: absolute; top: 70px; right: 16px; z-index: 10; width: 250px;
-    background: rgba(23,27,46,.92); color: #fff; border-radius: 14px; padding: 16px 18px;
-    backdrop-filter: blur(6px); box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    position: absolute; top: 72px; right: 16px; z-index: 10; width: 250px;
+    background: rgba(255,255,255,.94); color: var(--ft-ink); border: 1px solid var(--ft-line);
+    border-radius: var(--ft-r-l); padding: 14px 16px;
+    backdrop-filter: blur(10px); box-shadow: var(--ft-elev-2);
+    animation: ftPop .25s var(--ft-ease);
   }
-  .panel h4 { font-size: 11px; letter-spacing: .12em; color: #93A0C0; text-transform: uppercase; margin-bottom: 12px; }
-  .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-  .panel .row label { font-size: 13px; }
-  .panel .val { font-family: 'Geist', monospace; font-weight: 700; color: #C4B5FD; }
-  input[type=range] { -webkit-appearance: none; width: 100%; height: 5px; border-radius: 5px; background: linear-gradient(90deg,#7C3AED var(--pct,0%), #3A4160 var(--pct,0%)); outline: none; }
-  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 17px; height: 17px; border-radius: 50%; background: #fff; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
-  .btnrow { display: flex; gap: 8px; margin-top: 6px; }
-  .btnrow button { flex: 1; background: #2A3050; color: #C4B5FD; border: none; border-radius: 8px; padding: 8px; cursor: pointer; font-size: 12px; font-weight: 600; }
-  .btnrow button:hover { background: #363d63; }
-  .bends { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 12px; }
-  .bend { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #C7CEE0; }
-  .bend .dir { width: 26px; font-weight: 700; }
-  .bend .su { color: #34D399; } .bend .giu { color: #FBBF24; }
-  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; z-index: 20; color: #475569; }
-  #loading .sp { width: 34px; height: 34px; border: 3px solid #CBD5E1; border-top-color: #7C3AED; border-radius: 50%; animation: spin .7s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .err { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:30px; text-align:center; color:#B91C1C; z-index:25; }
-  .hint { position: absolute; left: 16px; bottom: 14px; z-index: 10; font-size: 12px; color: #64748B; }
+  .panel h4 { font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--ft-ink-3); text-transform: uppercase; margin-bottom: 10px; }
+  .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .panel .row label { font-size: 13px; font-weight: 600; color: var(--ft-ink-2); }
+  .panel .val { font: 800 15px var(--ft-display); color: var(--ft-ink); font-variant-numeric: tabular-nums; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 4px; background: linear-gradient(90deg, var(--ft-accent) var(--pct,0%), var(--ft-line) var(--pct,0%)); outline: none; cursor: pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 17px; height: 17px; border-radius: 50%; background: var(--ft-panel); border: 2px solid var(--ft-accent); cursor: pointer; box-shadow: 0 1px 4px rgba(15,23,42,.18); transition: box-shadow .15s; }
+  input[type=range]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 4px var(--ft-accent-glow); }
+  input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: var(--ft-panel); border: 2px solid var(--ft-accent); cursor: pointer; }
+  .btnrow { display: flex; margin-top: 12px; width: 100%; }
+  .btnrow button { flex: 1; justify-content: center; }
+  .bends { margin-top: 14px; border-top: 1px solid var(--ft-line); padding-top: 10px; }
+  .bend { display: flex; align-items: center; gap: 10px; font-size: 12.5px; padding: 4px 0; color: var(--ft-ink-2); font-variant-numeric: tabular-nums; }
+  .bend .dir { width: 52px; font-weight: 700; font-size: 11.5px; }
+  .bend .su { color: var(--ft-accent-ink); } .bend .giu { color: var(--ft-ink); }
+  .bend .r { color: var(--ft-ink-4); font-family: var(--ft-mono); font-size: 11.5px; }
+  .bend.vuota { color: var(--ft-ink-3); }
+  /* Caricamento: sagoma che luccica */
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; z-index: 20; color: var(--ft-ink-3); font-size: 13px; font-weight: 500; background: var(--ft-canvas); }
+  .load-piega { position: relative; width: 150px; height: 96px; }
+  .load-piega .ft-skel { position: absolute; border-radius: 8px; background-image: linear-gradient(90deg, #E2E5EA 25%, #EEF0F3 50%, #E2E5EA 75%); }
+  /* sul fondo grigio la sagoma va un tono piu' scura */
+  .load-piega .p1 { left: 0; bottom: 0; width: 150px; height: 22px; }
+  .load-piega .p2 { left: 0; bottom: 18px; width: 22px; height: 70px; transform: skewY(-14deg); transform-origin: bottom; }
+  .load-piega .p3 { right: 0; bottom: 18px; width: 22px; height: 52px; transform: skewY(14deg); transform-origin: bottom; }
+  .err { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:30px; text-align:center; z-index:25; }
+  .err .ft-empty { animation: ftIn .22s var(--ft-ease); }
+  .err .ft-empty-icon { background: var(--ft-err-bg); color: var(--ft-err); font: 800 18px var(--ft-display); }
+  .hint { position: absolute; left: 16px; bottom: 14px; z-index: 10; font-size: 11.5px; color: var(--ft-ink-3);
+          background: rgba(255,255,255,.88); border: 1px solid var(--ft-line); border-radius: 999px; padding: 5px 13px;
+          backdrop-filter: blur(6px); box-shadow: var(--ft-elev-1); }
   /* Modalità miniatura: solo il 3D che ruota, nessuna UI, sfondo tenue */
   body.thumb .bar, body.thumb .panel, body.thumb .hint { display: none !important; }
   body.thumb, body.thumb html { background: #EEF2F6; }
   body.thumb #loading { background: #EEF2F6; }
+  body.thumb #loading .load-txt { display: none; }
+  body.thumb .load-piega { transform: scale(.5); }
+  /* Incorporato (?embed=1, tablet dell'officina): la pagina ospite ha gia'
+     titolo e "Chiudi" nella sua barra. Qui niente barra, e comandi grandi
+     per le dita. */
+  body.embed .bar { display: none !important; }
+  body.embed .panel { top: 16px; width: 290px; }
+  body.embed .panel .row label, body.embed .panel .val { font-size: 16px; }
+  body.embed .btnrow button { min-height: 52px; font-size: 16px; }
+  body.embed input[type=range] { height: 10px; }
+  body.embed input[type=range]::-webkit-slider-thumb { width: 34px; height: 34px; }
+  body.embed .hint { font-size: 15px; }
 </style>
 </head>
-<body>
+<body class="ft">
   <div class="bar">
-    <div class="logo">F</div>
+    <span class="ft-logo" aria-hidden="true">LS</span>
     <div class="title">Anteprima piega 3D</div>
-    <div class="pill" id="part-name">—</div>
+    <div class="pill ft-chip" id="part-name">—</div>
     <div class="sp"></div>
-    <button onclick="closeMe()">Chiudi</button>
+    <button class="ft-btn sm" onclick="closeMe()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>Chiudi</button>
   </div>
 
   <div id="viewer"></div>
 
   <div class="panel" id="panel" style="display:none;">
     <h4>Piega</h4>
-    <div class="row"><label>Apertura</label><span class="val" id="fold-val">100%</span></div>
+    <div class="row"><label for="fold-slider">Apertura</label><span class="val" id="fold-val">100%</span></div>
     <input type="range" id="fold-slider" min="0" max="100" value="100">
-    <div class="btnrow">
-      <button onclick="animateFold(0)">Disteso</button>
-      <button onclick="animateFold(100)">Piegato</button>
+    <div class="ft-seg btnrow">
+      <button type="button" onclick="animateFold(0)">Disteso</button>
+      <button type="button" onclick="animateFold(100)">Piegato</button>
     </div>
     <div class="bends" id="bends-list"></div>
   </div>
 
-  <div id="loading"><div class="sp"></div><div>Costruzione 3D…</div></div>
+  <div id="loading" role="status" aria-live="polite">
+    <div class="load-piega" aria-hidden="true"><span class="ft-skel p2"></span><span class="ft-skel p3"></span><span class="ft-skel p1"></span></div>
+    <div class="load-txt">Costruzione 3D…</div>
+  </div>
   <div class="hint">Trascina = ruota · Rotella = zoom</div>
 
 <script type="importmap">
@@ -87,13 +122,20 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const params = new URLSearchParams(location.search);
 const isThumb = params.get('thumb') === '1';
 if (isThumb) document.body.classList.add('thumb');
+if (!isThumb && params.get('embed') === '1') {
+  document.body.classList.add('embed');
+  document.querySelector('.hint').textContent = 'Un dito = ruota · Due dita = zoom';
+}
 function closeMe(){ try{ window.parent && window.parent.postMessage({type:'fold3d-close'},'*'); }catch(_){} }
 window.closeMe = closeMe;
 
 function showErr(msg){
   document.getElementById('loading').style.display='none';
-  const e=document.createElement('div'); e.className='err'; e.textContent=msg; document.body.appendChild(e);
+  const e=document.createElement('div'); e.className='err'; e.setAttribute('role','alert');
+  e.innerHTML='<div class="ft-empty"><div class="ft-empty-icon">!</div><b>Anteprima non disponibile</b><p></p></div>';
+  e.querySelector('p').textContent=msg; document.body.appendChild(e);
 }
+const esc = s => (window.FT ? FT.esc(s) : String(s == null ? '' : s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'));
 
 // ── Ottieni il modello: da postMessage (iniettato dal CAD) o da ?src=<json> ──
 let model = null;
@@ -110,7 +152,7 @@ let inited = false;
 // Init UNA VOLTA: renderer, camera, luci, controlli, loop. Riusato tra i pezzi.
 function initViewer(){
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(isThumb ? '#EEF2F6' : '#E2E8F0');
+  scene.background = new THREE.Color(isThumb ? '#EEF2F6' : '#F2F4F7');
   scene.add(new THREE.HemisphereLight(0xB0C4DE, 0x33404F, 1.15));
   const key = new THREE.DirectionalLight(0xffffff, 1.7); key.position.set(2,3,4); scene.add(key);
   const fill = new THREE.DirectionalLight(0x8899BB, 0.55); fill.position.set(-3,1,-2); scene.add(fill);
@@ -178,11 +220,12 @@ function build(m){
   // pannello pieghe (solo modalità editor)
   if(!isThumb){
     const bl = document.getElementById('bends-list');
-    bl.innerHTML = hinges.map(h=>`<div class="bend"><span class="dir ${h.verso}">${h.verso==='su'?'▲ SU':'▼ GIÙ'}</span><span>${h.gradi}°</span><span style="color:#64748B">R${h.raggio}</span></div>`).join('') || '<div class="bend" style="color:#64748B">Nessuna piega leggibile</div>';
+    bl.innerHTML = hinges.map(h=>`<div class="bend"><span class="dir ${esc(h.verso)}">${h.verso==='su'?'▲ SU':'▼ GIÙ'}</span><span>${esc(h.gradi)}°</span><span class="r">R${esc(h.raggio)}</span></div>`).join('') || '<div class="bend vuota">Nessuna piega leggibile</div>';
     document.getElementById('panel').style.display='block';
     const slider = document.getElementById('fold-slider'); slider.style.setProperty('--pct','100%');
   }
   document.getElementById('loading').style.display='none';
+  document.getElementById('viewer').classList.add('pronto');   // breve entrata del modello
 
   setFold(0); applyTransforms(); fitView();
   if (isThumb) {

@@ -8,6 +8,7 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Laser · FerroTrack</title>
 <link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-accesso.js" data-stazioni="laser"></script>
 <script src="/ft-ui.js"></script>
 <style>
 /* Postazione laser. La base (testata, bottoni, tabelle, stati) viene da
@@ -556,7 +557,7 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
         <div class="ft-user-role" id="ft-user-role"></div>
       </span>
     </div>
-    <button class="ft-btn ghost sm" onclick="logout()"><i data-lucide="log-out"></i> Esci</button>
+    <button class="ft-btn ghost sm" onclick="logout()" title="Cambiare cosa fa questo PC: serve il PIN dell'amministratore"><i data-lucide="monitor-cog"></i> Postazione</button>
   </div>
 </header>
 
@@ -784,52 +785,23 @@ function passaFiltro(o) {
 }
 
 // ═══ Sessione ═══════════════════════════════════════════════════════
-/** La sessione salvata nel browser vale ancora? Una memoria vecchia
-    diventerebbe un'utenza che non esiste piu': la pagina si aprirebbe e poi
-    rifiuterebbe ogni salvataggio. Non e' un permesso: quelli li decide il
-    server a ogni richiesta. */
-async function _sessioneAncoraValida() {
-  const u = FT.utente();
-  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
-  try {
-    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
-    if (!r.ok) return true;                 // server irraggiungibile: si prosegue
-    const d = await r.json();
-    if (!d.valida) {
-      localStorage.removeItem('currentUser');
-      window.location.href = '/login.html';
-      return false;
-    }
-    localStorage.setItem('currentUser', JSON.stringify({ ...u, ...d.utente }));
-    FT.mostraUtente();
-  } catch (_) { /* rete assente: si prosegue con quello che c'e' */ }
-  return true;
-}
-
 /** Mostra cio' che la delega del capo consente, e solo se c'e' davvero.
     Nascondere un pulsante non e' un permesso: il server ricontrolla. */
 function _mostraDelegaCapo() {
+  // Al laser lavorano gli amministratori: le pagine "Ore e KPI" e
+  // "Impostazioni" chiedono il loro PIN quando serve.
+  const io = window.FTA && FTA.io;
   const u = FT.utente();
-  if (!u || !u.is_capo) return;
+  if (!(io && io.stazione === 'laser') && !(u && u.is_capo)) return;
   for (const id of ['nav-sep', 'nav-capo', 'nav-admin']) {
     const a = document.getElementById(id);
     if (a) a.style.display = '';
   }
 }
 
-async function logout() {
-  try {
-    const u = utente();
-    if (u.id) {
-      await fetch(`${API_URL}/api/auth/logout`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: u.id }),
-      });
-    }
-  } catch (_) {}
-  localStorage.removeItem('currentUser');
-  window.location.href = '/login.html';
-}
+/** Al laser non si entra col PIN: il PC e' la postazione. "Postazione"
+    porta alla pagina iniziale per cambiarla, col PIN dell'amministratore. */
+function logout() { FTA.cambiaDispositivo(); }
 
 function updateConnBadge(ok) {
   const b = document.getElementById('conn-badge');
@@ -1255,7 +1227,7 @@ async function apriDisegnoPerNome(nome) { lvMostra('disegno', nome); }
 // <cartella>\<CLIENTE>\<numero ordine>\<lamiera>\... sul PC server.
 async function creaCartella(id) {
   let d;
-  try { d = await _post(`${API_URL}/api/orders/${id}/crea-cartella`, { user_id: utente().id }); }
+  try { d = await _post(`${API_URL}/api/orders/${id}/crea-cartella`, {}); }
   catch (e) { FT.toast('Server non raggiungibile', 'err'); return; }
   if (d.codice === 'non_impostata') {
     FT.toast('Prima scegli dove creare le cartelle', 'warn');
@@ -1296,7 +1268,7 @@ async function apriCartellaDisegni() {
     const chiudi = v => { bg.remove(); risolvi(v); };
     const invia = async metodo => {
       const r = await fetch(`${API_URL}/api/laser/cartella-disegni`, { method: metodo, headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: utente().id, percorso: inp.value.trim() }) });
+        body: JSON.stringify({ percorso: inp.value.trim() }) });
       return r.json();
     };
     bg.addEventListener('click', async e => {
@@ -1336,7 +1308,7 @@ document.addEventListener('keydown', e => {
 async function segnaImportato(id, annulla) {
   const dopo = annulla ? null : lvProssimo(id);
   let d;
-  try { d = await _post(`${API_URL}/api/orders/${id}/importato`, { user_id: utente().id, annulla: !!annulla }); }
+  try { d = await _post(`${API_URL}/api/orders/${id}/importato`, { annulla: !!annulla }); }
   catch (e) { FT.toast('Server non raggiungibile', 'err'); return; }
   if (!d.success) { FT.toast('Non riuscito: ' + (d.error || 'errore del server'), 'err'); return; }
   FT.toast(annulla ? 'Di nuovo da importare' : 'In Lantek: ora è fra quelli da tagliare', 'ok',
@@ -1508,7 +1480,7 @@ async function smista(orderId, vaTagliato) {
   actionInProgress = true;
   try {
     const d = await _post(`${API_URL}/api/orders/${orderId}/smistamento`,
-      { user_id: utente().id, va_tagliato: !!vaTagliato });
+      { va_tagliato: !!vaTagliato });
     if (d.success) {
       FT.toast(vaTagliato ? 'In coda al laser' : 'Mandato in officina: non passa dal laser', 'ok',
         { testo: 'Annulla', fn: () => annullaSmistamento(orderId, true) });
@@ -1528,7 +1500,7 @@ async function annullaSmistamento(orderId, daToast) {
   actionInProgress = true;
   try {
     const d = await _post(`${API_URL}/api/orders/${orderId}/smistamento`,
-      { user_id: utente().id, annulla: true });
+      { annulla: true });
     if (d.success) {
       FT.toast(daToast ? 'Annullato: di nuovo da smistare' : 'Rimesso fra quelli da smistare', 'ok');
       await loadOrders(true);
@@ -1555,7 +1527,7 @@ async function markLaserDone(orderId) {
   let fatto = false;
   actionInProgress = true;
   try {
-    const d = await _post(`${API_URL}/api/orders/${orderId}/mark-laser-done`, { user_id: utente().id });
+    const d = await _post(`${API_URL}/api/orders/${orderId}/mark-laser-done`, {});
     if (d.success) {
       fatto = true;
       FT.toast('Taglio segnato: ordine tolto dalla coda', 'ok',
@@ -1579,7 +1551,7 @@ async function undoLaserDone(orderId, senzaConferma) {
   }
   actionInProgress = true;
   try {
-    const d = await _post(`${API_URL}/api/orders/${orderId}/mark-laser-undone`, { user_id: utente().id });
+    const d = await _post(`${API_URL}/api/orders/${orderId}/mark-laser-undone`, {});
     if (d.success) FT.toast('Taglio annullato: l’ordine è di nuovo in coda', 'ok');
     else FT.toast('Non riuscito: ' + (d.error || 'errore del server'), 'err');
   } catch (err) {
@@ -1961,7 +1933,7 @@ async function pianificaTaglio(o, ds) {
   if (nuovo === prima) return;
   actionInProgress = true;
   try {
-    const d = await _post(`${API_URL}/api/orders/${o.id}/pianifica-taglio`, { user_id: utente().id, data: nuovo });
+    const d = await _post(`${API_URL}/api/orders/${o.id}/pianifica-taglio`, { data: nuovo });
     if (!d.success) { FT.toast(d.error || 'Non salvato', 'err'); return; }
     o.data_taglio_pianificata = d.data_taglio_pianificata;
     const k = caricoGiorno(giornoCal(o));
@@ -1983,7 +1955,7 @@ async function durataAMano(id, valore) {
   const h = parseFloat(String(valore).replace(',', '.'));
   const min = h > 0 ? Math.round(h * 600) / 10 : null;
   if (min === (o.durata_laser_manuale_min || null)) return;      // niente di cambiato
-  const d = await _post(`${API_URL}/api/orders/${o.id}/pianifica-taglio`, { user_id: utente().id, durata_min: min });
+  const d = await _post(`${API_URL}/api/orders/${o.id}/pianifica-taglio`, { durata_min: min });
   if (!d.success) { FT.toast(d.error || 'Non salvata', 'err'); return; }
   o.durata_laser_manuale_min = d.durata_laser_manuale_min;
   delete sat.cache[o.id];
@@ -2044,7 +2016,7 @@ function apriImpostazioniCal() {
     if (!b) return;
     if (b.dataset.v === '0') return chiudi();
     const v = id => parseFloat(String(bg.querySelector('#' + id).value).replace(',', '.'));
-    const corpo = { user_id: utente().id, ore_turno: v('cfg-turno'), ore_riserva: v('cfg-riserva'),
+    const corpo = { ore_turno: v('cfg-turno'), ore_riserva: v('cfg-riserva'),
       carico_min_lamiera: v('cfg-carico'), scarico_s_pezzo: v('cfg-scarico'), fattore_tempo: 1 + v('cfg-fattore') / 100,
       giorni: [...bg.querySelectorAll('.lz-cfg-giorni input:checked')].map(x => +x.value) };
     const r = await fetch(`${API_URL}/api/laser/calendario-config`, { method: 'PUT',
@@ -2074,7 +2046,7 @@ async function salvaEccezione(ds, valore) {
     ecc[ds] = { ore: h, nota: 'ore a mano' };
   }
   const r = await fetch(`${API_URL}/api/laser/calendario-config`, { method: 'PUT',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: utente().id, eccezioni: ecc }) });
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eccezioni: ecc }) });
   const d = await r.json().catch(() => ({}));
   if (!d.success) { FT.toast(d.error || 'Non salvato', 'err'); return; }
   sat.cfg = d.config;
@@ -2260,7 +2232,7 @@ function updateKPIs() {
   const coda = ordiniDaTagliare();
   const scaduti = coda.filter(o => (giorniAllaConsegna(o) ?? 0) < 0);
   const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-  set('kpi-oggi', tagliati.filter(o => giornoTaglio(o) === oggi).length);
+  FT.conta(document.getElementById('kpi-oggi'), tagliati.filter(o => giornoTaglio(o) === oggi).length);
   // saturazione: settimana in corso e giorni oltre capacita' nelle prossime 2
   let usati = 0, utili = 0;
   const pieni = [];
@@ -2272,9 +2244,9 @@ function updateKPIs() {
   }
   set('kpi-sat-sett', `${(usati / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} / ${(utili / 60).toLocaleString('it-IT', { maximumFractionDigits: 0 })} h`);
   set('kpi-sat-sett-sub', utili ? `${Math.round(usati / utili * 100)}% · ore di laser su ore utili` : 'ore di laser su ore utili');
-  set('kpi-pieni', pieni.length);
+  FT.conta(document.getElementById('kpi-pieni'), pieni.length);
   set('kpi-pieni-sub', pieni.length ? 'il primo: ' + FT.fmtData(pieni[0]) : 'nelle prossime 2 settimane');
-  set('kpi-scaduti', scaduti.length);
+  FT.conta(document.getElementById('kpi-scaduti'), scaduti.length);
   const vecchio = scaduti.map(giornoConsegna).sort()[0];
   set('kpi-scaduti-sub', vecchio ? 'il più vecchio: ' + FT.fmtData(vecchio) : 'nessuno in ritardo');
 }
@@ -2305,10 +2277,8 @@ document.addEventListener('click', e => {
 });
 
 async function loadNotifs() {
-  const uid = utente().id;
-  if (!uid) return;
   try {
-    const res = await fetch(`${API_URL}/api/notifications?user_id=${encodeURIComponent(uid)}&limit=50`);
+    const res = await fetch(`${API_URL}/api/notifications?limit=50`);
     const data = await res.json();
     if (!data.success) return;
     updateNotifBadge(data.data.unread_count || 0);
@@ -2339,30 +2309,26 @@ async function deleteNotif(id) {
   try { await fetch(`${API_URL}/api/notifications/${id}`, { method: 'DELETE' }); loadNotifs(); } catch (_) {}
 }
 async function clearAllNotifs() {
-  const uid = utente().id;
-  if (!uid) return;
-  try { await fetch(`${API_URL}/api/notifications/clear-all?user_id=${encodeURIComponent(uid)}`, { method: 'DELETE' }); loadNotifs(); } catch (_) {}
+  try { await fetch(`${API_URL}/api/notifications/clear-all`, { method: 'DELETE' }); loadNotifs(); } catch (_) {}
 }
 async function pollNotifCount() {
-  const uid = utente().id;
-  if (!uid) return;
   try {
-    const res = await fetch(`${API_URL}/api/notifications?user_id=${encodeURIComponent(uid)}&limit=1`);
+    const res = await fetch(`${API_URL}/api/notifications?limit=1`);
     const data = await res.json();
     if (data.success) updateNotifBadge(data.data.unread_count || 0);
   } catch (_) {}
 }
 
 // ═══ Avvio ══════════════════════════════════════════════════════════
-(function avvio() {
+(async function avvio() {
+  await FTA.pronto;                 // chi e' questo PC lo dice il server
   const u = FT.utente();
-  if (!u || !u.id) { window.location.href = '/login.html'; return; }
+  if (!u) return;
   FT.mostraUtente(u, 'Postazione laser');
   _mostraDelegaCapo();
   switchLaserView(laserViewMode);
   renderWorkEmpty();
   FT.icone();
-  _sessioneAncoraValida().then(() => FT.mostraUtente(null, 'Postazione laser'));
   loadOrders();
   caricaSaturazione(true);
   let poll = setInterval(loadOrders, 5000);

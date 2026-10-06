@@ -3,199 +3,264 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ore e riepilogo — Ufficio</title>
+<meta name="theme-color" content="#0B1220">
+<title>FerroTrack — Ore e riepilogo</title>
+<script src="/ft-accesso.js" data-stazioni="ufficio"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
 <style>
-  :root{
-    --bg:#fafafa; --white:#fff; --black:#000;
-    --green:#1a7a48; --green-light:#22a060;
-    --gray-text:#666; --gray-muted:#999; --border:#e5e5e5;
-    --blue:#1e40af; --blue-bg:#dbeafe;
-    --red:#991b1b; --red-bg:#fee2e2;
-    --orange:#92400e; --orange-bg:#fef3c7;
-    --green-badge:#166534; --green-badge-bg:#dcfce7;
-  }
-  *{box-sizing:border-box}
-  body{margin:0; background:var(--bg); color:var(--black);
-       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size:14px}
-  .topbar{background:var(--white); border-bottom:1px solid var(--border); padding:14px 20px;
-          display:flex; align-items:center; gap:14px; position:sticky; top:0; z-index:20}
-  .topbar h1{margin:0; font-size:18px; font-weight:700; flex:1}
-  .dev{font-size:12px; color:var(--gray-text)}
-  /* Senza questo la pagina era un vicolo cieco: si entrava e non si usciva. */
-  .indietro{background:var(--white); border:1px solid var(--border); border-radius:9px;
-    padding:7px 13px; font-size:14px; font-weight:600; color:var(--gray-text);
-    cursor:pointer; white-space:nowrap}
-  .indietro:hover{border-color:var(--green); color:var(--green)}
-  .tabbar{background:var(--white); border-bottom:1px solid var(--border); padding:0 20px;
-          display:flex; gap:4px; position:sticky; top:53px; z-index:19}
-  .tab{padding:12px 18px; border:none; background:none; font-size:14px; font-weight:600;
-       color:var(--gray-text); cursor:pointer; border-bottom:3px solid transparent}
-  .tab.active{color:var(--green); border-bottom-color:var(--green)}
-  .tab:focus-visible{outline:3px solid var(--blue); outline-offset:-3px}
-  .wrap{max-width:1200px; margin:0 auto; padding:20px}
-  .card{background:var(--white); border:1px solid var(--border); border-radius:10px;
-        padding:18px; margin-bottom:18px}
-  .card h2{margin:0 0 4px; font-size:16px; font-weight:700}
-  .card .sub{color:var(--gray-text); font-size:13px; margin:0 0 14px}
-  table{width:100%; border-collapse:collapse; font-size:13px}
-  th,td{padding:9px 10px; text-align:left; border-bottom:1px solid var(--border)}
-  th{background:#f7f7f7; font-weight:700; font-size:12px; text-transform:uppercase;
-     letter-spacing:.03em; color:var(--gray-text)}
-  td.n,th.n{text-align:right; font-variant-numeric:tabular-nums}
-  .scroll{overflow-x:auto}
-  .badge{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:700}
-  .b-red{background:var(--red-bg); color:var(--red)}
-  .b-orange{background:var(--orange-bg); color:var(--orange)}
-  .b-blue{background:var(--blue-bg); color:var(--blue)}
-  .b-green{background:var(--green-badge-bg); color:var(--green-badge)}
-  .b-gray{background:#eee; color:var(--gray-text)}
-  input,select{padding:8px 10px; border:1px solid var(--border); border-radius:7px;
-               font-size:14px; font-family:inherit; background:var(--white)}
-  input:focus,select:focus{outline:none; border-color:var(--green); box-shadow:0 0 0 3px #1a7a4822}
-  label{display:block; font-size:12px; font-weight:600; color:var(--gray-text); margin-bottom:4px}
-  .row{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:14px}
-  .f{display:flex; flex-direction:column}
-  button.act{padding:9px 16px; border-radius:7px; border:none; background:var(--green);
-             color:#fff; font-weight:700; font-size:14px; cursor:pointer}
-  button.act:disabled{background:var(--gray-muted); cursor:default}
-  button.sec{padding:8px 14px; border-radius:7px; border:1px solid var(--border);
-             background:var(--white); font-weight:600; cursor:pointer; font-size:13px}
-  button.act:focus-visible,button.sec:focus-visible{outline:3px solid var(--blue); outline-offset:2px}
-  .msg{padding:11px 14px; border-radius:8px; font-size:13px; font-weight:600; margin:10px 0; display:none}
-  .msg.ok{background:var(--green-badge-bg); color:var(--green-badge); display:block}
-  .msg.err{background:var(--red-bg); color:var(--red); display:block}
-  .msg.warn{background:var(--orange-bg); color:var(--orange); display:block}
-  .vuoto{color:var(--gray-text); padding:22px; text-align:center; font-size:13px}
-  .assente{color:var(--gray-muted); font-style:italic}
-  .avvisi{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px}
-  .avviso{padding:9px 13px; border-radius:8px; font-size:13px; font-weight:600}
-  .nota{font-size:12px; color:var(--gray-text); line-height:1.6; margin-top:12px;
-        padding-top:12px; border-top:1px dashed var(--border)}
-  .tot{font-size:22px; font-weight:800; font-variant-numeric:tabular-nums}
-  [hidden]{display:none !important}
-  @media (max-width:640px){ .wrap{padding:12px} .row{flex-direction:column; align-items:stretch} }
+/* Ore dell'Ufficio — una scheda della stazione Ufficio: stessa testata e
+   stesse schede di impiegata.html, componenti di ft-ui.css. Qui solo quello
+   che la base comune non ha; le classi "uo-" sono proprie di questa pagina. */
 
-  /* Aggiungere una persona: un campo e un pulsante, niente moduli. */
-  .riga-aggiungi{display:flex; gap:10px; margin:0 0 16px; flex-wrap:wrap}
-  .riga-aggiungi input{flex:1 1 260px; padding:10px 12px; font-size:15px;
-    border:1px solid var(--border,#ddd); border-radius:9px}
-  button.sec.via{color:#9E2A20; border-color:#e6c9c5; margin-left:6px}
-  button.sec.via:hover{background:#fbf0ee}
+/* Stessa compressione della testata dell'Ufficio (otto schede in 1280 px). */
+@media (max-width: 1400px) {
+  .ft-topbar { gap: 14px; }
+  .ft-tab { padding: 0 9px; font-size: 13px; }
+  .ft-user-name, .ft-user-role { display: none; }
+  .ft-user { padding: 3px; }
+}
+
+/* Cambio di sezione (Da controllare / Riepilogo / Configurazione) e schede
+   che compaiono (correzione, dettaglio): stessa entrata delle viste. */
+.uo-view:not([hidden]) { animation: ftIn .22s var(--ft-ease); }
+.uo-in { animation: ftSale .32s var(--ft-ease) both; }
+/* scrollIntoView non deve infilare la scheda sotto la testata fissa. */
+#card-correzione, #card-dettaglio { scroll-margin-top: calc(var(--ft-topbar-h) + 16px); }
+.uo-view > .ft-card + .ft-card { margin-top: 16px; }
+.uo-view > .ft-kpis { margin-bottom: 16px; }
+
+.uo-dev { font-size: 12px; color: var(--ft-ink-3); }
+.uo-dev:empty { display: none; }
+
+/* Filtri e moduli in riga dentro una scheda */
+.uo-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.uo-row .ft-field > span { white-space: nowrap; }
+.uo-row .uo-spazio { flex: 1; }
+.uo-row + .uo-row { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--ft-line); }
+.uo-msg { margin: 0 16px 14px; }
+.ft-card-body > .uo-msg { margin: 0 0 14px; }
+
+/* Tabelle: le colonne numeriche a destra, in cifre allineate */
+.ft-table .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ft-table tfoot th { padding: 11px 14px; border-top: 1px solid var(--ft-line); background: #FAFBFC; text-align: left; font-weight: 700; font-size: 13px; color: var(--ft-ink); }
+.ft-table tfoot th.n { text-align: right; }
+.ft-table tfoot td { font-weight: 500; color: var(--ft-ink-3); }
+.ft-table tfoot td b { color: var(--ft-ink-2); }
+.ft-table td .ft-chip + .ft-chip { margin-left: 4px; }
+.ft-table td .ft-btn + .ft-btn { margin-left: 6px; }
+.ft-table .vuoto { padding: 28px 14px; text-align: center; color: var(--ft-ink-3); font-size: 13px; }
+.vuoto { padding: 22px; text-align: center; color: var(--ft-ink-3); font-size: 13px; }
+.assente { color: var(--ft-ink-4); font-style: italic; }
+.uo-parz { color: var(--ft-warn); font-weight: 700; }
+.ft-table input.ft-input { height: 32px; display: inline-block; }
+.uo-giorni label { display: inline-flex; align-items: center; gap: 4px; margin-right: 8px; font-size: 12.5px; color: var(--ft-ink-2); cursor: pointer; }
+.uo-giorni input, .ft-table input[type=checkbox] { accent-color: var(--ft-accent); width: 15px; height: 15px; }
+
+/* Avvisi del riepilogo: piccoli, in fila */
+.uo-avvisi { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 14px; }
+.uo-avvisi:empty { display: none; }
+.uo-avvisi .ft-alert { padding: 7px 12px; font-size: 12.5px; font-weight: 600; }
+.nota { font-size: 12px; color: var(--ft-ink-3); line-height: 1.6; padding: 12px 16px; border-top: 1px solid var(--ft-line-2); }
+.nota:empty { display: none; }
+
+/* Totale della correzione */
+.uo-tot { font: 800 22px var(--ft-display); letter-spacing: -.4px; font-variant-numeric: tabular-nums; height: 36px; display: flex; align-items: center; }
+.uo-sub-tabella { margin-top: 18px; }
+.uo-sub-tabella:first-child { margin-top: 0; }
+.uo-sub-tabella .ft-section-title { margin: 0 0 8px; }
+.uo-sub-tabella .ft-table { border: 1px solid var(--ft-line); border-radius: var(--ft-r-l); border-collapse: separate; border-spacing: 0; overflow: hidden; }
+
+/* Aggiungere una persona: un campo e un pulsante, niente moduli. */
+.riga-aggiungi { display: flex; gap: 10px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--ft-line); }
+.riga-aggiungi .ft-input { flex: 1 1 260px; max-width: 420px; }
+
+.uo-gate { max-width: 560px; margin: 40px auto; }
+.uo-gate .ft-card-body p { margin: 0; color: var(--ft-ink-2); font-size: 14px; }
+.uo-gate .ft-alert { margin-top: 14px; }
+
+@media (max-width: 720px) { .uo-row { flex-direction: column; align-items: stretch; } }
 </style>
 </head>
-<body>
+<body class="ft">
 
-<div class="topbar">
-  <button class="indietro" onclick="tornaIndietro()" title="Torna alla pagina principale">
-    &#8592; Indietro</button>
-  <h1>Ore e riepilogo economico</h1>
-  <div class="dev" id="dev">—</div>
-</div>
-<div class="tabbar">
-  <button class="tab active" data-t="anomalie" onclick="vai('anomalie')">Da controllare</button>
-  <button class="tab" data-t="riepilogo" onclick="vai('riepilogo')">Riepilogo economico</button>
-  <button class="tab" data-t="config" onclick="vai('config')">Configurazione</button>
-</div>
-
-<div class="wrap">
-  <div class="msg err" id="msg-token" hidden></div>
-
-  <!-- Ingresso del computer d'ufficio: si fa una volta sola. Uguale a quello
-       del tablet, perche' il problema e' lo stesso e la soluzione anche. -->
-  <section class="card" id="abilita" hidden>
-    <h2>Questo computer non &egrave; ancora abilitato alle ore</h2>
-    <p class="sub">Le ore e il riepilogo economico sono riservati all'ufficio, quindi
-      il computer va abilitato una volta sola con un codice. Non scade e non va pi&ugrave;
-      reinserito.</p>
-    <p class="sub"><b>Come ottenerlo:</b> sul computer dove gira il programma, esegui
-      <code>python app/tools/device_token.py crea "PC ufficio" ufficio</code>.
-      Il codice compare una volta sola: copialo e incollalo qui sotto.</p>
-    <div class="riga-aggiungi">
-      <input type="password" id="in-token-ufficio" placeholder="Codice dispositivo"
-             autocomplete="off" aria-label="Codice dispositivo">
-      <button class="sec" onclick="salvaTokenUfficio()">Abilita</button>
+<!-- ═══════════════ TESTATA (la stessa dell'Ufficio) ═══════════════ -->
+<header class="ft-topbar">
+  <a class="ft-brand" href="/impiegata.html" title="Ufficio — torna all'inizio">
+    <div class="ft-logo">LS</div>
+    <div>
+      <div class="ft-brand-name">FerroTrack</div>
+      <div class="ft-brand-area">Ufficio</div>
     </div>
-    <div class="msg" id="msg-abilita" hidden></div>
+  </a>
+  <!-- Le schede dell'Ufficio vivono in impiegata.html: qui sono collegamenti
+       che la riaprono sulla scheda giusta (impiegata legge #scheda). -->
+  <nav class="ft-tabs" aria-label="Sezioni dell'ufficio">
+    <a class="ft-tab" href="/impiegata.html#oggi">Oggi</a>
+    <a class="ft-tab" href="/impiegata.html#carica">Carica ordine</a>
+    <a class="ft-tab" href="/impiegata.html#richiesta">Richiesta preventivo</a>
+    <a class="ft-tab" href="/impiegata.html#conferme">Da confermare</a>
+    <a class="ft-tab" href="/impiegata.html#calendario">Calendario</a>
+    <a class="ft-tab" href="/impiegata.html#ordini">Ordini</a>
+    <a class="ft-tab" href="/impiegata.html#archivio">Archivio</a>
+    <a class="ft-tab active" href="/ufficio-ore.html" aria-current="page" title="Ore dichiarate e riepilogo">Ore <span class="ft-count hot" id="ore-badge"></span></a>
+    <a class="ft-tab" href="/impiegata.html#backup">Backup</a>
+  </nav>
+  <div class="ft-topbar-end">
+    <div class="ft-user">
+      <div class="ft-avatar" id="ft-user-avatar">?</div>
+      <div>
+        <div class="ft-user-name" id="ft-user-name">—</div>
+        <div class="ft-user-role" id="ft-user-role">Ufficio</div>
+      </div>
+    </div>
+    <button class="ft-btn ghost sm" onclick="FTA.esci()" title="Esci da FerroTrack">Esci</button>
+  </div>
+</header>
+
+<main class="ft-page">
+  <div class="ft-head">
+    <div>
+      <h1 class="ft-title">Ore e riepilogo economico</h1>
+      <p class="ft-subtitle">Le ore dichiarate dagli operai, le giornate da sistemare e quanto rende ogni cliente.
+        <span class="uo-dev" id="dev"></span></p>
+    </div>
+    <div class="ft-actions">
+      <div class="ft-seg tabbar" id="ore-seg" role="tablist" aria-label="Sezioni delle ore">
+        <button class="tab on" role="tab" data-t="anomalie" onclick="vai('anomalie')">Da controllare</button>
+        <button class="tab" role="tab" data-t="riepilogo" onclick="vai('riepilogo')">Riepilogo economico</button>
+        <button class="tab" role="tab" data-t="config" onclick="vai('config')">Configurazione</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="ft-alert err" id="msg-token" hidden></div>
+
+  <!-- Le ore e il riepilogo economico sono dell'Ufficio: si vedono solo dal PC
+       registrato come Ufficio, con la persona entrata col PIN. -->
+  <section class="ft-card uo-gate" id="abilita" hidden>
+    <div class="ft-card-head"><div>
+      <h2 class="ft-card-title">Le ore si vedono solo dal computer dell&rsquo;Ufficio</h2>
+    </div></div>
+    <div class="ft-card-body">
+      <p>Questo computer non &egrave; registrato come <b>Ufficio</b>, oppure
+        sta ancora usando il vecchio ingresso. Chiedi all&rsquo;amministrazione di registrarlo
+        dalla <a class="ft-link" href="/">pagina iniziale</a> (serve il PIN dell&rsquo;amministratore).</p>
+      <div class="ft-alert" id="msg-abilita" hidden></div>
+    </div>
   </section>
 
   <!-- ================= ANOMALIE ================= -->
-  <section id="s-anomalie">
-    <div class="card">
-      <h2>Giornate da controllare</h2>
-      <p class="sub">Ore mancanti o diverse dal previsto. Si risolvono da sole quando i dati
-         diventano corretti.</p>
-      <div class="row">
-        <div class="f"><label>Stato</label>
-          <select id="an-stato" onchange="caricaAnomalie()">
+  <section class="uo-view" id="s-anomalie">
+    <div class="ft-kpis" id="an-kpi">
+      <div class="ft-kpi"><span class="ft-kpi-lbl"><span class="dot"></span>In elenco</span>
+        <span class="ft-kpi-val" id="k-an-tot">—</span><span class="ft-kpi-sub">giornate col filtro scelto</span></div>
+      <div class="ft-kpi"><span class="ft-kpi-lbl"><span class="dot" style="background:var(--ft-err-dot)"></span>Non dichiarate</span>
+        <span class="ft-kpi-val" id="k-an-manc">—</span><span class="ft-kpi-sub">nessuna ora inserita</span></div>
+      <div class="ft-kpi"><span class="ft-kpi-lbl"><span class="dot" style="background:var(--ft-warn-dot)"></span>Ore inferiori</span>
+        <span class="ft-kpi-val" id="k-an-sotto">—</span><span class="ft-kpi-sub">meno del previsto</span></div>
+      <div class="ft-kpi"><span class="ft-kpi-lbl"><span class="dot" style="background:var(--ft-accent)"></span>Ore superiori</span>
+        <span class="ft-kpi-val" id="k-an-sopra">—</span><span class="ft-kpi-sub">pi&ugrave; del previsto</span></div>
+    </div>
+
+    <div class="ft-card">
+      <div class="ft-card-head">
+        <div><h2 class="ft-card-title">Giornate da controllare</h2>
+          <p class="ft-card-sub">Ore mancanti o diverse dal previsto. Si risolvono da sole quando i dati
+            diventano corretti.</p></div>
+        <div class="ft-actions">
+          <select class="ft-select" id="an-stato" onchange="caricaAnomalie()" style="width:auto" aria-label="Stato">
             <option value="aperta">Da sistemare</option>
             <option value="risolta">Risolte</option>
             <option value="tutte">Tutte</option>
-          </select></div>
-        <button class="sec" onclick="controllaOra()">Ricontrolla adesso</button>
+          </select>
+          <button class="ft-btn" onclick="controllaOra()">Ricontrolla adesso</button>
+        </div>
       </div>
-      <div class="msg" id="msg-an" hidden></div>
-      <div class="scroll"><table>
+      <div class="ft-alert uo-msg" id="msg-an" hidden style="margin-top:14px"></div>
+      <div class="ft-table-wrap"><table class="ft-table">
         <thead><tr><th>Data</th><th>Operaio</th><th>Problema</th>
-          <th class="n">Dichiarate</th><th class="n">Attese</th><th>Azioni</th></tr></thead>
+          <th class="n">Dichiarate</th><th class="n">Attese</th><th class="r">Azioni</th></tr></thead>
         <tbody id="an-body"><tr><td colspan="6" class="vuoto">Caricamento…</td></tr></tbody>
       </table></div>
     </div>
 
-    <div class="card" id="card-correzione" hidden>
-      <h2>Correzione giornata</h2>
-      <p class="sub" id="corr-sub"></p>
-      <div class="msg" id="msg-corr" hidden></div>
-      <div id="corr-righe"></div>
-      <div class="row" style="margin-top:12px">
-        <div class="f"><label>Aggiungi cliente</label>
-          <select id="corr-cliente"></select></div>
-        <div class="f"><label>Ore</label>
-          <input type="number" id="corr-ore" step="0.5" min="0" value="1" style="width:100px"></div>
-        <button class="sec" onclick="corrAggiungi()">Aggiungi</button>
-        <div style="flex:1"></div>
-        <div class="f"><label>Totale</label><div class="tot"><span id="corr-tot">0</span> h</div></div>
-        <button class="act" id="btn-corr" onclick="corrSalva()">Salva correzione</button>
-      </div>
-      <div class="row" style="border-top:1px dashed var(--border); padding-top:14px">
-        <div class="f"><label>Oppure registra</label>
-          <select id="corr-ecc">
-            <option value="">— nessuna eccezione —</option>
-            <option value="assenza">Assenza (ferie/malattia)</option>
-            <option value="ridotta">Giornata ridotta</option>
-            <option value="festivo">Festivo</option>
-          </select></div>
-        <div class="f"><label>Ore attese (se ridotta)</label>
-          <input type="number" id="corr-ecc-ore" step="0.5" min="0" value="4" style="width:110px"></div>
-        <button class="sec" onclick="corrEccezione()">Registra eccezione</button>
+    <div class="ft-card" id="card-correzione" hidden>
+      <div class="ft-card-head"><div>
+        <h2 class="ft-card-title">Correzione giornata</h2>
+        <p class="ft-card-sub" id="corr-sub"></p>
+      </div></div>
+      <div class="ft-card-body">
+        <div class="ft-alert uo-msg" id="msg-corr" hidden></div>
+        <div id="corr-righe"></div>
+        <div class="uo-row" style="margin-top:14px">
+          <label class="ft-field"><span>Aggiungi cliente</span>
+            <select class="ft-select" id="corr-cliente" style="min-width:220px"></select></label>
+          <label class="ft-field"><span>Ore</span>
+            <input class="ft-input" type="number" id="corr-ore" step="0.5" min="0" value="1" style="width:100px"></label>
+          <button class="ft-btn" onclick="corrAggiungi()">Aggiungi</button>
+          <div class="uo-spazio"></div>
+          <div class="ft-field"><span>Totale</span><div class="uo-tot"><span id="corr-tot">0</span>&nbsp;h</div></div>
+          <button class="ft-btn primary" id="btn-corr" onclick="corrSalva()">Salva correzione</button>
+        </div>
+        <div class="uo-row">
+          <label class="ft-field"><span>Oppure registra</span>
+            <select class="ft-select" id="corr-ecc" style="min-width:220px">
+              <option value="">— nessuna eccezione —</option>
+              <option value="assenza">Assenza (ferie/malattia)</option>
+              <option value="ridotta">Giornata ridotta</option>
+              <option value="festivo">Festivo</option>
+            </select></label>
+          <label class="ft-field"><span>Ore attese (se ridotta)</span>
+            <input class="ft-input" type="number" id="corr-ecc-ore" step="0.5" min="0" value="4" style="width:110px"></label>
+          <button class="ft-btn" onclick="corrEccezione()">Registra eccezione</button>
+        </div>
       </div>
     </div>
   </section>
 
   <!-- ================= RIEPILOGO ================= -->
-  <section id="s-riepilogo" hidden>
-    <div class="card">
-      <h2>Riepilogo per cliente</h2>
-      <p class="sub">Fatturato, materiali attribuiti, ore dichiarate e costo delle ore.</p>
-      <div class="row">
-        <div class="f"><label>Periodo</label>
-          <select id="ri-tipo" onchange="cambiaPeriodo()">
-            <option value="mese">Mese</option>
-            <option value="anno">Cumulato annuale</option>
-            <option value="custom">Personalizzato</option>
-          </select></div>
-        <div class="f" id="f-anno"><label>Anno</label>
-          <input type="number" id="ri-anno" style="width:100px" onchange="caricaRiepilogo()"></div>
-        <div class="f" id="f-mese"><label>Mese</label>
-          <select id="ri-mese" onchange="caricaRiepilogo()"></select></div>
-        <div class="f" id="f-dal" hidden><label>Dal</label>
-          <input type="date" id="ri-dal" onchange="caricaRiepilogo()"></div>
-        <div class="f" id="f-al" hidden><label>Al</label>
-          <input type="date" id="ri-al" onchange="caricaRiepilogo()"></div>
-        <div class="f"><label>Cliente</label>
-          <select id="ri-cliente" onchange="caricaRiepilogo()"><option value="">Tutti</option></select></div>
+  <section class="uo-view" id="s-riepilogo" hidden>
+    <div class="ft-kpis" id="ri-kpi">
+      <div class="ft-kpi"><span class="ft-kpi-lbl">Ore dichiarate</span>
+        <span class="ft-kpi-val" id="k-ri-ore">—</span><span class="ft-kpi-sub" id="k-ri-ore-sub">sui clienti</span></div>
+      <div class="ft-kpi"><span class="ft-kpi-lbl">Costo delle ore</span>
+        <span class="ft-kpi-val" id="k-ri-costo">—</span><span class="ft-kpi-sub">al costo orario aziendale</span></div>
+      <div class="ft-kpi"><span class="ft-kpi-lbl">Fatturato</span>
+        <span class="ft-kpi-val" id="k-ri-fatt">—</span><span class="ft-kpi-sub">inserito a mano</span></div>
+      <div class="ft-kpi"><span class="ft-kpi-lbl"><span class="dot" style="background:var(--ft-accent)"></span>Residuo</span>
+        <span class="ft-kpi-val" id="k-ri-res">—</span><span class="ft-kpi-sub">fatturato &minus; ore &minus; materiali</span></div>
+    </div>
+
+    <div class="ft-card">
+      <div class="ft-card-head"><div>
+        <h2 class="ft-card-title">Riepilogo per cliente</h2>
+        <p class="ft-card-sub">Fatturato, materiali attribuiti, ore dichiarate e costo delle ore.</p>
+      </div></div>
+      <div class="ft-card-body">
+        <div class="uo-row">
+          <label class="ft-field"><span>Periodo</span>
+            <select class="ft-select" id="ri-tipo" onchange="cambiaPeriodo()">
+              <option value="mese">Mese</option>
+              <option value="anno">Cumulato annuale</option>
+              <option value="custom">Personalizzato</option>
+            </select></label>
+          <label class="ft-field" id="f-anno"><span>Anno</span>
+            <input class="ft-input" type="number" id="ri-anno" style="width:100px" onchange="caricaRiepilogo()"></label>
+          <label class="ft-field" id="f-mese"><span>Mese</span>
+            <select class="ft-select" id="ri-mese" onchange="caricaRiepilogo()"></select></label>
+          <label class="ft-field" id="f-dal" hidden><span>Dal</span>
+            <input class="ft-input" type="date" id="ri-dal" onchange="caricaRiepilogo()"></label>
+          <label class="ft-field" id="f-al" hidden><span>Al</span>
+            <input class="ft-input" type="date" id="ri-al" onchange="caricaRiepilogo()"></label>
+          <label class="ft-field"><span>Cliente</span>
+            <select class="ft-select" id="ri-cliente" onchange="caricaRiepilogo()" style="min-width:220px"><option value="">Tutti</option></select></label>
+        </div>
       </div>
-      <div class="avvisi" id="ri-avvisi"></div>
-      <div class="scroll"><table>
+      <div class="uo-avvisi" id="ri-avvisi"></div>
+      <div class="ft-table-wrap"><table class="ft-table">
         <thead><tr><th>Cliente</th><th class="n">Ore</th><th class="n">Costo ore</th>
           <th class="n">Materiali</th><th class="n">Fatturato</th><th class="n">Residuo</th>
           <th></th></tr></thead>
@@ -205,64 +270,80 @@
       <div class="nota" id="ri-note"></div>
     </div>
 
-    <div class="card" id="card-dettaglio" hidden>
-      <h2 id="det-titolo">Dettaglio</h2>
-      <p class="sub" id="det-sub"></p>
-      <div class="scroll" id="det-body"></div>
+    <div class="ft-card" id="card-dettaglio" hidden>
+      <div class="ft-card-head"><div>
+        <h2 class="ft-card-title" id="det-titolo">Dettaglio</h2>
+        <p class="ft-card-sub" id="det-sub"></p>
+      </div></div>
+      <div class="ft-card-body ft-table-wrap" id="det-body"></div>
     </div>
 
-    <div class="card">
-      <h2>Inserimento dati amministrativi</h2>
-      <p class="sub">Il sistema non conosce gli importi fatturati: si inseriscono qui.
-         I materiali sono <b>acquisti attribuiti</b>, non consumi misurati.</p>
-      <div class="msg" id="msg-ins" hidden></div>
-      <div class="row">
-        <div class="f"><label>Tipo</label>
-          <select id="in-tipo">
-            <option value="fatturato">Fatturato</option>
-            <option value="materiale">Materiali</option>
-          </select></div>
-        <div class="f"><label>Cliente</label><select id="in-cliente"></select></div>
-        <div class="f"><label>Anno</label><input type="number" id="in-anno" style="width:100px"></div>
-        <div class="f"><label>Mese</label><select id="in-mese"></select></div>
-        <div class="f"><label>Importo €</label><input type="number" id="in-importo" step="0.01" min="0" style="width:130px"></div>
-        <div class="f"><label>Riferimento / descrizione</label><input type="text" id="in-rif" style="width:200px"></div>
-        <button class="act" onclick="salvaDato()">Registra</button>
+    <div class="ft-grid-2" style="margin-top:16px">
+      <div class="ft-card">
+        <div class="ft-card-head"><div>
+          <h2 class="ft-card-title">Inserimento dati amministrativi</h2>
+          <p class="ft-card-sub">Il sistema non conosce gli importi fatturati: si inseriscono qui.
+            I materiali sono <b>acquisti attribuiti</b>, non consumi misurati.</p>
+        </div></div>
+        <div class="ft-card-body">
+          <div class="ft-alert uo-msg" id="msg-ins" hidden></div>
+          <div class="ft-form-grid">
+            <label class="ft-field"><span>Tipo</span>
+              <select class="ft-select" id="in-tipo">
+                <option value="fatturato">Fatturato</option>
+                <option value="materiale">Materiali</option>
+              </select></label>
+            <label class="ft-field"><span>Cliente</span><select class="ft-select" id="in-cliente"></select></label>
+            <label class="ft-field"><span>Anno</span><input class="ft-input" type="number" id="in-anno"></label>
+            <label class="ft-field"><span>Mese</span><select class="ft-select" id="in-mese"></select></label>
+            <label class="ft-field"><span>Importo €</span><input class="ft-input" type="number" id="in-importo" step="0.01" min="0"></label>
+            <label class="ft-field"><span>Riferimento / descrizione</span><input class="ft-input" type="text" id="in-rif"></label>
+          </div>
+          <div class="uo-row" style="margin-top:14px; border:0; padding:0">
+            <p class="ft-hint" style="margin:0; flex:1">Per gli acquisti generici lascia il cliente su
+              <b>«non attribuito»</b>: non vengono ripartiti sui clienti.</p>
+            <button class="ft-btn primary" onclick="salvaDato()">Registra</button>
+          </div>
+        </div>
       </div>
-      <p class="sub" style="margin:0">Per gli acquisti generici lascia il cliente su
-        <b>«non attribuito»</b>: non vengono ripartiti sui clienti.</p>
-    </div>
 
-    <div class="card">
-      <h2>Costo orario aziendale</h2>
-      <p class="sub">Vale da una data in poi: cambiarlo <b>non modifica lo storico</b> già calcolato.</p>
-      <div class="msg" id="msg-tar" hidden></div>
-      <div class="row">
-        <div class="f"><label>Valido dal</label><input type="date" id="tar-dal"></div>
-        <div class="f"><label>€ / ora</label><input type="number" id="tar-val" step="0.01" min="0" style="width:120px"></div>
-        <button class="act" onclick="salvaTariffa()">Imposta</button>
+      <div class="ft-card">
+        <div class="ft-card-head"><div>
+          <h2 class="ft-card-title">Costo orario aziendale</h2>
+          <p class="ft-card-sub">Vale da una data in poi: cambiarlo <b>non modifica lo storico</b> già calcolato.</p>
+        </div></div>
+        <div class="ft-card-body">
+          <div class="ft-alert uo-msg" id="msg-tar" hidden></div>
+          <div class="uo-row">
+            <label class="ft-field"><span>Valido dal</span><input class="ft-input" type="date" id="tar-dal"></label>
+            <label class="ft-field"><span>€ / ora</span><input class="ft-input" type="number" id="tar-val" step="0.01" min="0" style="width:120px"></label>
+            <button class="ft-btn primary" onclick="salvaTariffa()">Imposta</button>
+          </div>
+        </div>
+        <div class="ft-table-wrap" style="border-top:1px solid var(--ft-line)"><table class="ft-table">
+          <thead><tr><th>Valido dal</th><th class="n">€/ora</th><th>Nota</th></tr></thead>
+          <tbody id="tar-body"></tbody>
+        </table></div>
       </div>
-      <div class="scroll"><table>
-        <thead><tr><th>Valido dal</th><th class="n">€/ora</th><th>Nota</th></tr></thead>
-        <tbody id="tar-body"></tbody>
-      </table></div>
     </div>
   </section>
 
   <!-- ================= CONFIGURAZIONE ================= -->
-  <section id="s-config" hidden>
-    <div class="card">
-      <h2>Chi compila le ore</h2>
-      <p class="sub">Ore attese e giorni lavorativi per persona. Non si assume che siano
-         8 ore per tutti. Chi se ne va si toglie da qui: le ore che ha gi&agrave;
-         dichiarato restano dove sono.</p>
+  <section class="uo-view" id="s-config" hidden>
+    <div class="ft-card">
+      <div class="ft-card-head"><div>
+        <h2 class="ft-card-title">Chi compila le ore</h2>
+        <p class="ft-card-sub">Ore attese e giorni lavorativi per persona. Non si assume che siano
+          8 ore per tutti. Chi se ne va si toglie da qui: le ore che ha gi&agrave;
+          dichiarato restano dove sono.</p>
+      </div></div>
       <div class="riga-aggiungi">
-        <input type="text" id="nuovo-nome" placeholder="Nome della persona da aggiungere"
-               autocomplete="off">
-        <button class="sec" onclick="aggiungiPersona()">+ Aggiungi</button>
+        <input class="ft-input" type="text" id="nuovo-nome" placeholder="Nome della persona da aggiungere"
+               autocomplete="off" onkeydown="if(event.key==='Enter')aggiungiPersona()">
+        <button class="ft-btn primary" onclick="aggiungiPersona()">+ Aggiungi</button>
       </div>
-      <div class="msg" id="msg-cfg" hidden></div>
-      <div class="scroll"><table>
+      <div class="ft-alert uo-msg" id="msg-cfg" hidden style="margin-top:14px"></div>
+      <div class="ft-table-wrap"><table class="ft-table">
         <!-- Niente colonna "Ruolo": adesso i nomi sono etichette, non utenze,
              e mostrare "Operaio Laser" accanto a "Operaio" fa sembrare che ci
              sia una differenza che non c'e' piu'. -->
@@ -272,36 +353,52 @@
       </table></div>
     </div>
   </section>
-</div>
+</main>
 
 <script>
-let TOKEN = null, CLIENTI = [], CORR = null;
+let CLIENTI = [], CORR = null;
 const MESI = ['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto',
               'settembre','ottobre','novembre','dicembre'];
 
 async function api(path, opts = {}) {
+  // Chi sta usando la pagina lo sa il server (dispositivo Ufficio + PIN).
   const o = Object.assign({headers: {}}, opts);
-  o.headers['X-Device-Token'] = TOKEN || '';
   if (o.body) o.headers['Content-Type'] = 'application/json';
   const r = await fetch(path, o);
   let d = {}; try { d = await r.json(); } catch (_) {}
   return {status: r.status, ok: r.ok, data: d};
 }
 
-// Un nome che finisce dentro un attributo onclick va protetto a parte: in
-// Italia "D'Angelo" e' un cognome normale, e un apostrofo li' dentro chiude la
-// stringa e rompe il pulsante.
-function escAttr(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+// Un valore che finisce come argomento dentro un attributo onclick: stringa
+// JSON (in Italia "D'Angelo" e' un cognome normale, e un apostrofo li' dentro
+// chiudeva la stringa e rompeva il pulsante) e poi protetta per l'HTML.
+function jsA(s){return esc(JSON.stringify(String(s==null?'':s)));}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function h(min){const v=(min||0)/60; return Number.isInteger(v)?String(v):v.toFixed(1).replace('.',',');}
 function eur(v){return v==null?'—':(v).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';}
-function msg(id,t,tipo){const e=document.getElementById(id); e.className='msg '+(tipo||'ok'); e.textContent=t; e.hidden=false;
-  if(tipo==='ok') setTimeout(()=>{e.hidden=true;},3000);}
+function dataIt(s){return esc(String(s||'').split('-').reverse().join('/'));}
+/** Esito di un'azione: "fatto" con il toast della casa, problemi in pagina. */
+function msg(id,t,tipo){const e=document.getElementById(id);
+  tipo=tipo||'ok';
+  if(tipo==='ok'){ e.hidden=true; FT.toast(t,'ok'); return; }
+  e.className='ft-alert uo-msg '+tipo; e.textContent=t; e.hidden=false;}
 function nascondi(id){const e=document.getElementById(id); if(e) e.hidden=true;}
+/** Fa comparire una scheda con la stessa entrata delle viste. */
+function mostra(el){ el.hidden=false; el.classList.remove('uo-in'); void el.offsetWidth; el.classList.add('uo-in');
+  // Tolta a fine entrata, cosi' non copre l'alone del salvataggio (ft-flash-ok).
+  el.addEventListener('animationend',()=>el.classList.remove('uo-in'),{once:true}); }
+/** Numeri dei riquadri: scorrono fino al valore; null = non calcolabile. */
+function kpi(id,v,opz){const el=document.getElementById(id); if(!el) return;
+  if(v==null||isNaN(Number(v))){ el.textContent='—'; delete el.dataset.ftVal; return; }
+  FT.conta(el,Number(v),opz);}
+// Le tabelle entrano in sequenza solo la prima volta che si riempiono.
+const PRIMA = {};
+function entra(id){ if(PRIMA[id]) return; PRIMA[id]=true; FT.sequenza(document.getElementById(id)); }
 
 function vai(t){
   for(const s of ['anomalie','riepilogo','config']) document.getElementById('s-'+s).hidden=(s!==t);
-  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.t===t));
+  document.querySelectorAll('#ore-seg .tab').forEach(b=>{
+    const on=b.dataset.t===t; b.classList.toggle('on',on); b.setAttribute('aria-selected',on?'true':'false');});
   if(t==='riepilogo') caricaRiepilogo();
   if(t==='config') caricaConfig();
 }
@@ -311,7 +408,7 @@ function vai(t){
     errori rossi invece di una istruzione. */
 function chiediAbilitazione(perche){
   document.getElementById('abilita').hidden = false;
-  const barra = document.querySelector('.tabbar');
+  const barra = document.getElementById('ore-seg');
   if (barra) barra.hidden = true;
   for (const id of ['s-anomalie','s-riepilogo','s-config']) {
     const el = document.getElementById(id);
@@ -320,67 +417,30 @@ function chiediAbilitazione(perche){
   if (perche) msg('msg-abilita', perche, 'err');
 }
 
-/** Salva il codice e riprova. Il codice si controlla subito: dire "abilitato" e
-    poi fallire alla prima richiesta sarebbe peggio che dire subito di no. */
-async function salvaTokenUfficio(){
-  const campo = document.getElementById('in-token-ufficio');
-  const t = (campo.value || '').trim();
-  if(!t){ msg('msg-abilita','Incolla il codice.','err'); return; }
-  const precedente = TOKEN;
-  TOKEN = t;
-  const r = await api('/api/ore/contesto');
-  if(!r.ok || (r.data && r.data.scope !== 'ufficio')){
-    TOKEN = precedente;
-    msg('msg-abilita', (r.data && r.data.scope && r.data.scope !== 'ufficio')
-      ? 'Questo codice abilita un tablet di officina, non l\'ufficio.'
-      : 'Codice non valido.', 'err');
-    return;
-  }
-  localStorage.setItem('ufficio_device_token', t);
-  campo.value = '';
-  nascondi('msg-abilita');
-  avvia();
-}
-
 /** Torna dove sta di casa chi sta usando il programma.
     Questa pagina si apre anche col solo codice del dispositivo, senza essere
     entrati da nessuna parte: allora si torna all'ingresso, che e' l'unico
     posto sensato dove mandare qualcuno. */
 function tornaIndietro(){
-  let u = null;
-  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
-  const r = (u && u.role) || '';
-  if (r === 'Amministrazione' || r === 'Impiegata') { location.href = '/impiegata.html'; return; }
-  if (r === 'Laser' || r === 'Operaio Laser') { location.href = '/laser.html'; return; }
-  if (r === 'Commerciale') { location.href = '/preventivi.html'; return; }
-  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
-    location.href = '/capo-officina.html'; return;
-  }
-  location.href = '/login.html';
+  const io = window.FTA && FTA.io;
+  location.href = (io && io.pagina) || '/impiegata.html';
 }
 
 // ---------- avvio ----------
 async function avvia(){
-  const url=new URL(location.href), q=url.searchParams.get('token');
-  if(q){ localStorage.setItem('ufficio_device_token', q); url.searchParams.delete('token');
-         history.replaceState({},'',url.toString()); }
-  TOKEN = localStorage.getItem('ufficio_device_token');
-  if(!TOKEN){ chiediAbilitazione(); return; }
+  await FTA.pronto;
+  FT.mostraUtente(null, 'Ufficio');
   const r = await api('/api/ore/contesto');
-  if(!r.ok){ chiediAbilitazione('Il codice non e\u0300 valido, oppure e\u0300 stato revocato.'); return; }
-  if(r.data.scope !== 'ufficio'){
-    chiediAbilitazione('Questo codice abilita un tablet di officina, non l\'ufficio.');
-    return;
-  }
+  if(!r.ok){ chiediAbilitazione(r.data && r.data.error); return; }
   // Abilitato: si chiude l'ingresso e si riapre la pagina sulla scheda
   // attiva. Senza questo le sezioni resterebbero chiuse da quando erano state
   // nascoste, e dopo aver inserito il codice si vedrebbe una pagina vuota.
   document.getElementById('abilita').hidden = true;
-  const barra = document.querySelector('.tabbar');
+  const barra = document.getElementById('ore-seg');
   if (barra) barra.hidden = false;
-  const attiva = document.querySelector('.tab.active');
+  const attiva = document.querySelector('#ore-seg .tab.on');
   vai(attiva ? attiva.dataset.t : 'anomalie');
-  document.getElementById('dev').textContent = r.data.dispositivo || '';
+  document.getElementById('dev').textContent = r.data.dispositivo ? '· ' + r.data.dispositivo : '';
   const oggi = r.data.oggi;
   const [y,m] = oggi.split('-').map(Number);
   document.getElementById('ri-anno').value=y; document.getElementById('in-anno').value=y;
@@ -400,24 +460,29 @@ async function avvia(){
 }
 
 // ---------- anomalie ----------
-const TIPO = {mancante:['Non ha dichiarato','b-red'], sotto:['Ore inferiori','b-orange'], sopra:['Ore superiori','b-blue']};
+const TIPO = {mancante:['Non ha dichiarato','err'], sotto:['Ore inferiori','warn'], sopra:['Ore superiori','accent']};
 
 async function caricaAnomalie(){
   const st=document.getElementById('an-stato').value;
   const r=await api('/api/ore/anomalie?stato='+st);
   const b=document.getElementById('an-body');
   const rows=(r.data.anomalie)||[];
+  const conta=t=>rows.filter(a=>a.tipo===t).length;
+  kpi('k-an-tot',rows.length); kpi('k-an-manc',conta('mancante'));
+  kpi('k-an-sotto',conta('sotto')); kpi('k-an-sopra',conta('sopra'));
+  // Il numero sulla scheda "Ore" e' quello delle giornate ancora da sistemare.
+  if(st==='aperta'&&r.ok) document.getElementById('ore-badge').textContent=rows.length||'';
   if(!rows.length){ b.innerHTML='<tr><td colspan="6" class="vuoto">Nessuna giornata da controllare.</td></tr>'; return; }
   b.innerHTML=rows.map(a=>{
-    const [t,cls]=TIPO[a.tipo]||[a.tipo,'b-gray'];
-    const d=a.data.split('-').reverse().join('/');
+    const [t,cls]=TIPO[a.tipo]||[a.tipo,''];
     return `<tr>
-      <td>${d}</td><td>${esc(a.operatore)}</td>
-      <td><span class="badge ${cls}">${t}</span>${a.stato==='risolta'?' <span class=\"badge b-green\">risolta</span>':''}${a.confermata_dall_operaio?' <span class=\"badge b-gray\" title=\"L\'operaio ha confermato queste ore sul tablet: probabile mezza giornata o permesso, non una dimenticanza\">confermata dall\'operaio</span>':''}</td>
+      <td class="ft-num">${dataIt(a.data)}</td><td><b>${esc(a.operatore)}</b></td>
+      <td><span class="ft-chip ${cls}">${esc(t)}</span>${a.stato==='risolta'?' <span class="ft-chip ok">risolta</span>':''}${a.confermata_dall_operaio?' <span class="ft-chip" title="L&#39;operaio ha confermato queste ore sul tablet: probabile mezza giornata o permesso, non una dimenticanza">confermata dall&#39;operaio</span>':''}</td>
       <td class="n">${h(a.minuti_dichiarati)} h</td>
       <td class="n">${h(a.minuti_attesi)} h</td>
-      <td><button class="sec" onclick="apriCorrezione('${a.operatore_id}','${a.data}','${esc(a.operatore)}')">Correggi</button></td>
+      <td class="r"><button class="ft-btn sm" onclick="apriCorrezione(${jsA(a.operatore_id)},${jsA(a.data)},${jsA(a.operatore)})">Correggi</button></td>
     </tr>`;}).join('');
+  entra('an-body');
 }
 
 async function controllaOra(){
@@ -427,26 +492,27 @@ async function controllaOra(){
 }
 
 async function apriCorrezione(op,data,nome){
-  const r=await api(`/api/ore/giornata?operatore_id=${encodeURIComponent(op)}&data=${data}`);
+  const r=await api(`/api/ore/giornata?operatore_id=${encodeURIComponent(op)}&data=${encodeURIComponent(data)}`);
   if(!r.ok){ msg('msg-an','Non riesco a leggere la giornata.','err'); return; }
   const g=r.data.giornata;
   CORR={op,data,nome,revisione:g.revisione||0,
         righe:(g.righe||[]).map(x=>({cliente:x.cliente,attivita_interna:!!x.attivita_interna,minuti:x.minuti}))};
   document.getElementById('corr-sub').textContent=
     `${nome} — ${data.split('-').reverse().join('/')}${g.dichiarata?'':' (mai dichiarata)'}`;
-  document.getElementById('card-correzione').hidden=false;
+  const card=document.getElementById('card-correzione');
+  mostra(card);
   nascondi('msg-corr'); renderCorr();
-  document.getElementById('card-correzione').scrollIntoView({behavior:'smooth',block:'start'});
+  card.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 function renderCorr(){
   const b=document.getElementById('corr-righe');
   if(!CORR.righe.length){ b.innerHTML='<div class="vuoto">Nessuna ora inserita.</div>'; }
-  else b.innerHTML='<div class="scroll"><table><tbody>'+CORR.righe.map((r,i)=>`<tr>
-      <td>${r.attivita_interna?'<span class="badge b-blue">Attività interne</span>':esc(r.cliente)}</td>
-      <td class="n" style="width:150px"><input type="number" step="0.5" min="0" value="${(r.minuti/60)}"
+  else b.innerHTML='<div class="uo-sub-tabella"><table class="ft-table"><tbody>'+CORR.righe.map((r,i)=>`<tr>
+      <td>${r.attivita_interna?'<span class="ft-chip">Attività interne</span>':'<b>'+esc(r.cliente)+'</b>'}</td>
+      <td class="n" style="width:160px"><input class="ft-input" type="number" step="0.5" min="0" value="${esc(r.minuti/60)}"
           onchange="corrOre(${i},this.value)" style="width:90px"> h</td>
-      <td style="width:60px"><button class="sec" onclick="corrRimuovi(${i})">✕</button></td>
+      <td class="r" style="width:60px"><button class="ft-btn sm ghost danger" onclick="corrRimuovi(${i})" title="Togli la riga" aria-label="Togli la riga">✕</button></td>
     </tr>`).join('')+'</tbody></table></div>';
   document.getElementById('corr-tot').textContent=h(CORR.righe.reduce((s,r)=>s+r.minuti,0));
 }
@@ -467,6 +533,7 @@ async function corrSalva(){
     revisione_attesa:CORR.revisione, richiesta_id:'uff-'+Date.now()})});
   btn.disabled=false;
   if(r.ok&&r.data.success){ msg('msg-corr','Correzione salvata.','ok');
+    FT.evidenzia(document.getElementById('card-correzione'),'ft-flash-ok');
     CORR.revisione=r.data.giornata.revisione; caricaAnomalie(); }
   else if(r.status===409){ msg('msg-corr','Modificata nel frattempo: ricarico i dati aggiornati.','warn');
     apriCorrezione(CORR.op,CORR.data,CORR.nome); }
@@ -478,7 +545,8 @@ async function corrEccezione(){
   const body={operatore_id:CORR.op,data:CORR.data,tipo};
   if(tipo==='ridotta') body.minuti_attesi=Math.round(parseFloat(document.getElementById('corr-ecc-ore').value||0)*60);
   const r=await api('/api/ore/eccezione',{method:'POST',body:JSON.stringify(body)});
-  if(r.ok){ msg('msg-corr','Eccezione registrata.','ok'); caricaAnomalie(); }
+  if(r.ok){ msg('msg-corr','Eccezione registrata.','ok');
+    FT.evidenzia(document.getElementById('card-correzione'),'ft-flash-ok'); caricaAnomalie(); }
   else msg('msg-corr',(r.data&&r.data.error)||'Non riuscito.','err');
 }
 
@@ -506,36 +574,45 @@ async function caricaRiepilogo(){
   const d=r.data.riepilogo;
   document.getElementById('card-dettaglio').hidden=true;
 
+  const t2=d.totali;
+  const dec=v=>{v=Number(v); return Number.isInteger(v)?0:(Number.isInteger(Math.round(v*100)/10)?1:2);};
+  kpi('k-ri-ore',t2.ore,{dec:dec(t2.ore),suffisso:' h'});
+  kpi('k-ri-costo',t2.costo_ore,{euro:true,intero:true});
+  kpi('k-ri-fatt',t2.fatturato,{euro:true,intero:true});
+  kpi('k-ri-res',t2.residuo,{euro:true,intero:true});
+  document.getElementById('k-ri-ore-sub').textContent=
+    `sui clienti · più ${String(d.attivita_interne.ore).replace('.',',')} h interne`;
+
   const av=[];
-  if(d.avvisi.tariffa_assente) av.push(['b-red','Costo orario non impostato: il costo delle ore non è calcolabile']);
-  if(d.avvisi.giornate_mancanti) av.push(['b-orange',`${d.avvisi.giornate_mancanti} giornate ancora da dichiarare nel periodo`]);
-  if(d.avvisi.clienti_senza_fatturato.length) av.push(['b-blue',`Fatturato non inserito per ${d.avvisi.clienti_senza_fatturato.length} clienti`]);
-  if(d.materiali_non_attribuiti) av.push(['b-gray',`Materiali non attribuiti: ${eur(d.materiali_non_attribuiti)}`]);
-  if(d.avvisi.periodo_non_allineato_ai_mesi) av.push(['b-gray','Periodo non allineato ai mesi: fatturato e materiali sono registrati per mese']);
-  document.getElementById('ri-avvisi').innerHTML=av.map(([c,t])=>`<div class="avviso ${c.replace('b-','')}"><span class="badge ${c}">${esc(t)}</span></div>`).join('');
+  if(d.avvisi.tariffa_assente) av.push(['err','Costo orario non impostato: il costo delle ore non è calcolabile']);
+  if(d.avvisi.giornate_mancanti) av.push(['warn',`${d.avvisi.giornate_mancanti} giornate ancora da dichiarare nel periodo`]);
+  if(d.avvisi.clienti_senza_fatturato.length) av.push(['',`Fatturato non inserito per ${d.avvisi.clienti_senza_fatturato.length} clienti`]);
+  if(d.materiali_non_attribuiti) av.push(['',`Materiali non attribuiti: ${eur(d.materiali_non_attribuiti)}`]);
+  if(d.avvisi.periodo_non_allineato_ai_mesi) av.push(['','Periodo non allineato ai mesi: fatturato e materiali sono registrati per mese']);
+  document.getElementById('ri-avvisi').innerHTML=av.map(([c,t])=>`<div class="ft-alert ${c}">${esc(t)}</div>`).join('');
 
   const b=document.getElementById('ri-body');
   if(!d.clienti.length){ b.innerHTML='<tr><td colspan="7" class="vuoto">Nessun dato nel periodo.</td></tr>'; }
-  else b.innerHTML=d.clienti.map(c=>`<tr>
+  else { b.innerHTML=d.clienti.map(c=>`<tr>
       <td><b>${esc(c.cliente)}</b></td>
-      <td class="n">${c.ore.toString().replace('.',',')} h</td>
+      <td class="n">${esc(String(c.ore).replace('.',','))} h</td>
       <td class="n">${c.costo_ore==null?'<span class="assente">non calcolabile</span>':eur(c.costo_ore)}</td>
       <td class="n">${c.materiali_assente?'<span class="assente">assente</span>':eur(c.materiali)}</td>
       <td class="n">${c.fatturato_assente?'<span class="assente">assente</span>':eur(c.fatturato)}</td>
-      <td class="n"><b>${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</b>${c.residuo_parziale?'<span title="Materiali non inseriti: il residuo è sovrastimato" style="color:var(--orange);font-weight:700"> *</span>':''}</td>
-      <td><button class="sec" onclick="dettaglio('${esc(c.cliente).replace(/'/g,"\\'")}')">Dettaglio</button></td>
+      <td class="n"><span class="ft-money">${c.residuo_calcolabile?eur(c.residuo):'<span class="assente">—</span>'}</span>${c.residuo_parziale?'<span class="uo-parz" title="Materiali non inseriti: il residuo è sovrastimato"> *</span>':''}</td>
+      <td class="r"><button class="ft-btn sm" onclick="dettaglio(${jsA(c.cliente)})">Dettaglio</button></td>
     </tr>`).join('');
+    entra('ri-body'); }
 
-  const t2=d.totali;
   document.getElementById('ri-foot').innerHTML=`<tr>
-    <th>Totale</th><th class="n">${t2.ore.toString().replace('.',',')} h</th>
+    <th>Totale</th><th class="n">${esc(String(t2.ore).replace('.',','))} h</th>
     <th class="n">${eur(t2.costo_ore)}</th><th class="n">${eur(t2.materiali_attribuiti)}</th>
     <th class="n">${eur(t2.fatturato)}</th><th class="n">${eur(t2.residuo)}</th><th></th></tr>
-    <tr><td colspan="7" style="color:var(--gray-text)">Attività interne (non attribuite):
-      <b>${d.attivita_interne.ore.toString().replace('.',',')} h</b> — ${eur(d.attivita_interne.costo_ore)}</td></tr>`;
+    <tr><td colspan="7">Attività interne (non attribuite):
+      <b>${esc(String(d.attivita_interne.ore).replace('.',','))} h</b> — ${eur(d.attivita_interne.costo_ore)}</td></tr>`;
   const parz=d.clienti.filter(c=>c.residuo_parziale).length;
   document.getElementById('ri-note').innerHTML=
-    (parz?'<b style="color:var(--orange)">* Materiali non inseriti: per '+parz+' clienti il residuo è sovrastimato.</b><br>':'')
+    (parz?'<b class="uo-parz">* Materiali non inseriti: per '+parz+' clienti il residuo è sovrastimato.</b><br>':'')
     + d.note.map(n=>'&bull; '+esc(n)).join('<br>');
   caricaTariffe();
 }
@@ -552,22 +629,26 @@ async function dettaglio(cliente){
   document.getElementById('det-titolo').textContent='Dettaglio — '+cliente;
   document.getElementById('det-sub').textContent=d.nota_fonti;
   document.getElementById('det-body').innerHTML=`
-    <table><thead><tr><th>Data</th><th>Operaio</th><th class="n">Ore</th>
+    <div class="uo-sub-tabella"><div class="ft-section-title">Ore</div>
+    <table class="ft-table"><thead><tr><th>Data</th><th>Operaio</th><th class="n">Ore</th>
       <th class="n">€/h</th><th class="n">Costo</th><th>Origine</th></tr></thead>
-    <tbody>${d.ore.map(o=>`<tr><td>${o.data.split('-').reverse().join('/')}</td>
-      <td>${esc(o.operatore)}</td><td class="n">${String(o.ore).replace('.',',')}</td>
-      <td class="n">${o.euro_ora==null?'—':o.euro_ora}</td>
+    <tbody>${d.ore.map(o=>`<tr><td class="ft-num">${dataIt(o.data)}</td>
+      <td>${esc(o.operatore)}</td><td class="n">${esc(String(o.ore).replace('.',','))}</td>
+      <td class="n">${o.euro_ora==null?'—':esc(o.euro_ora)}</td>
       <td class="n">${o.costo==null?'—':eur(o.costo)}</td>
-      <td><span class="badge b-gray">${esc(o.origine)}</span></td></tr>`).join('')||
-      '<tr><td colspan="6" class="vuoto">Nessuna ora nel periodo.</td></tr>'}</tbody></table>
-    <table style="margin-top:14px"><thead><tr><th>Fatturato (inserito a mano)</th><th class="n">Importo</th><th>Riferimento</th></tr></thead>
-    <tbody>${d.fatturato.map(f=>`<tr><td>${f.periodo}</td><td class="n">${eur(f.importo)}</td><td>${esc(f.riferimento||'')}</td></tr>`).join('')||
-      '<tr><td colspan="3" class="vuoto">Nessun fatturato inserito.</td></tr>'}</tbody></table>
-    <table style="margin-top:14px"><thead><tr><th>Materiali attribuiti</th><th class="n">Importo</th><th>Descrizione</th></tr></thead>
-    <tbody>${d.materiali.map(m=>`<tr><td>${m.periodo}</td><td class="n">${eur(m.importo)}</td><td>${esc(m.descrizione||'')}</td></tr>`).join('')||
-      '<tr><td colspan="3" class="vuoto">Nessun materiale attribuito.</td></tr>'}</tbody></table>`;
-  document.getElementById('card-dettaglio').hidden=false;
-  document.getElementById('card-dettaglio').scrollIntoView({behavior:'smooth',block:'start'});
+      <td><span class="ft-chip">${esc(o.origine)}</span></td></tr>`).join('')||
+      '<tr><td colspan="6" class="vuoto">Nessuna ora nel periodo.</td></tr>'}</tbody></table></div>
+    <div class="uo-sub-tabella"><div class="ft-section-title">Fatturato (inserito a mano)</div>
+    <table class="ft-table"><thead><tr><th>Periodo</th><th class="n">Importo</th><th>Riferimento</th></tr></thead>
+    <tbody>${d.fatturato.map(f=>`<tr><td>${esc(f.periodo)}</td><td class="n">${eur(f.importo)}</td><td>${esc(f.riferimento||'')}</td></tr>`).join('')||
+      '<tr><td colspan="3" class="vuoto">Nessun fatturato inserito.</td></tr>'}</tbody></table></div>
+    <div class="uo-sub-tabella"><div class="ft-section-title">Materiali attribuiti</div>
+    <table class="ft-table"><thead><tr><th>Periodo</th><th class="n">Importo</th><th>Descrizione</th></tr></thead>
+    <tbody>${d.materiali.map(m=>`<tr><td>${esc(m.periodo)}</td><td class="n">${eur(m.importo)}</td><td>${esc(m.descrizione||'')}</td></tr>`).join('')||
+      '<tr><td colspan="3" class="vuoto">Nessun materiale attribuito.</td></tr>'}</tbody></table></div>`;
+  const card=document.getElementById('card-dettaglio');
+  mostra(card);
+  card.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 async function salvaDato(){
@@ -579,7 +660,7 @@ async function salvaDato(){
   else { body.descrizione=document.getElementById('in-rif').value; }
   const r=await api('/api/ore/'+(tipo==='fatturato'?'fatturato':'materiale'),
     {method:'POST',body:JSON.stringify(body)});
-  if(r.ok&&r.data.success){ msg('msg-ins','Registrato.','ok');
+  if(r.ok&&r.data.success){ nascondi('msg-ins'); msg('msg-ins','Registrato.','ok');
     document.getElementById('in-importo').value=''; document.getElementById('in-rif').value='';
     caricaRiepilogo(); }
   else msg('msg-ins',(r.data&&r.data.error)||'Non riuscito.','err');
@@ -588,15 +669,16 @@ async function salvaDato(){
 async function caricaTariffe(){
   const r=await api('/api/ore/tariffa');
   document.getElementById('tar-body').innerHTML=((r.data.tariffe)||[]).map(t=>
-    `<tr><td>${t.valido_dal.split('-').reverse().join('/')}</td><td class="n">${t.euro_ora} €</td><td>${esc(t.nota||'')}</td></tr>`
+    `<tr><td class="ft-num">${dataIt(t.valido_dal)}</td><td class="n">${esc(t.euro_ora)} €</td><td>${esc(t.nota||'')}</td></tr>`
   ).join('')||'<tr><td colspan="3" class="vuoto">Nessuna tariffa impostata.</td></tr>';
+  entra('tar-body');
 }
 
 async function salvaTariffa(){
   const r=await api('/api/ore/tariffa',{method:'POST',body:JSON.stringify({
     valido_dal:document.getElementById('tar-dal').value,
     euro_ora:document.getElementById('tar-val').value})});
-  if(r.ok&&r.data.success){ msg('msg-tar','Tariffa impostata (lo storico precedente resta invariato).','ok');
+  if(r.ok&&r.data.success){ nascondi('msg-tar'); msg('msg-tar','Tariffa impostata (lo storico precedente resta invariato).','ok');
     caricaTariffe(); caricaRiepilogo(); }
   else msg('msg-tar',(r.data&&r.data.error)||'Non riuscito.','err');
 }
@@ -607,19 +689,20 @@ async function caricaConfig(){
   const r=await api('/api/ore/configurazione');
   const b=document.getElementById('cfg-body');
   const rows=(r.data.operai)||[];
-  b.innerHTML=rows.map((o,i)=>`<tr>
+  b.innerHTML=rows.map((o,i)=>`<tr id="cfg-r-${i}">
     <td><b>${esc(o.operatore)}</b></td>
-    <td><input type="checkbox" id="c-t-${i}" ${o.tenuto?'checked':''}></td>
-    <td class="n"><input type="number" id="c-m-${i}" step="0.5" min="0" value="${o.minuti_attesi/60}" style="width:80px"> h</td>
-    <td>${[1,2,3,4,5,6,7].map(g=>`<label style="display:inline-block;margin-right:6px;font-weight:400">
+    <td><input type="checkbox" id="c-t-${i}" ${o.tenuto?'checked':''} aria-label="Compila le ore"></td>
+    <td class="n"><input class="ft-input" type="number" id="c-m-${i}" step="0.5" min="0" value="${esc(o.minuti_attesi/60)}" style="width:80px"> h</td>
+    <td class="uo-giorni">${[1,2,3,4,5,6,7].map(g=>`<label>
         <input type="checkbox" id="c-g-${i}-${g}" ${(o.giorni_settimana||[]).includes(g)?'checked':''}> ${GG[g]}</label>`).join('')}</td>
-    <td style="white-space:nowrap">
-      <button class="sec" onclick="salvaCfg(${i},'${o.operatore_id}')">Salva</button>
-      <button class="sec via" onclick="togliPersona('${o.operatore_id}','${escAttr(o.operatore)}')"
-              title="Togli dalla bacheca: le ore gi\u00e0 dichiarate restano">Togli</button>
+    <td class="r" style="white-space:nowrap">
+      <button class="ft-btn sm" onclick="salvaCfg(${i},${jsA(o.operatore_id)})">Salva</button>
+      <button class="ft-btn sm danger" onclick="togliPersona(${jsA(o.operatore_id)},${jsA(o.operatore)})"
+              title="Togli dalla bacheca: le ore già dichiarate restano">Togli</button>
     </td>
   </tr>`).join('')||'<tr><td colspan="5" class="vuoto">Nessuno sulla bacheca. '
     +'Aggiungi una persona scrivendo il nome qui sopra.</td></tr>';
+  if(rows.length) entra('cfg-body');
 }
 /** Aggiunge una persona alla bacheca: serve solo il nome. */
 async function aggiungiPersona(){
@@ -629,8 +712,12 @@ async function aggiungiPersona(){
   const r=await api('/api/ore/operai',{method:'POST',body:JSON.stringify({nome:nome})});
   if(r.ok&&r.data.success){
     campo.value='';
-    msg('msg-cfg','"'+nome+'" \u00e8 sulla bacheca della timbratrice.','ok');
-    caricaConfig();
+    nascondi('msg-cfg');
+    msg('msg-cfg','"'+nome+'" è sulla bacheca della timbratrice.','ok');
+    await caricaConfig();
+    // La riga appena aggiunta si accende un attimo.
+    const righe=document.querySelectorAll('#cfg-body tr');
+    for(const tr of righe){ const b=tr.querySelector('td b'); if(b&&b.textContent===nome){ FT.evidenzia(tr); break; } }
   } else {
     msg('msg-cfg',(r.data&&r.data.error)||'Non riuscito.','err');
   }
@@ -638,12 +725,13 @@ async function aggiungiPersona(){
 
 /** Toglie una persona dalla bacheca. Le ore gia' dichiarate restano sue. */
 async function togliPersona(op,nome){
-  if(!confirm('Togliere '+nome+' dalla bacheca?\n\n'
-    +'Le ore che ha gi\u00e0 dichiarato restano nello storico e nei riepiloghi. '
-    +'Semplicemente non gliene verranno chieste altre.')) return;
+  if(!await FT.conferma({titolo:'Togliere '+nome+' dalla bacheca?',
+    testo:'Le ore che ha già dichiarato restano nello storico e nei riepiloghi. '
+    +'Semplicemente non gliene verranno chieste altre.', ok:'Togli', pericolo:true})) return;
   const r=await api('/api/ore/operai/'+encodeURIComponent(op),{method:'DELETE'});
   if(r.ok&&r.data.success){
-    msg('msg-cfg',nome+' non \u00e8 pi\u00f9 sulla bacheca.','ok');
+    nascondi('msg-cfg');
+    msg('msg-cfg',nome+' non è più sulla bacheca.','ok');
     caricaConfig();
   } else {
     msg('msg-cfg',(r.data&&r.data.error)||'Non riuscito.','err');
@@ -656,7 +744,8 @@ async function salvaCfg(i,op){
     operatore_id:op, tenuto:document.getElementById(`c-t-${i}`).checked,
     minuti_attesi:Math.round(parseFloat(document.getElementById(`c-m-${i}`).value||0)*60),
     giorni_settimana:giorni})});
-  if(r.ok&&r.data.success) msg('msg-cfg','Configurazione salvata.','ok');
+  if(r.ok&&r.data.success){ nascondi('msg-cfg'); msg('msg-cfg','Configurazione salvata.','ok');
+    FT.evidenzia(document.getElementById('cfg-r-'+i),'ft-new'); }
   else msg('msg-cfg',(r.data&&r.data.error)||'Non riuscito.','err');
 }
 

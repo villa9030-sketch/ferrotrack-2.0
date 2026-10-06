@@ -3,44 +3,37 @@
 <head>
 <meta charset="UTF-8">
 <title>Anteprima DXF</title>
+<script src="/ft-accesso.js" data-stazioni="commerciale,ufficio"></script>
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    background: #F2F2F7; color: #1C1C1E;
-    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
-  }
+  /* Anteprima DXF (in una finestra del preventivatore). Base grafica da
+     ft-ui.css: qui solo il visore e il pannello lavorazioni. */
+  body.ft { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-  /* Header */
+  /* Testata */
   .header {
-    background: #1C1C1E;
-    padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+    background: var(--ft-panel); border-bottom: 1px solid var(--ft-line);
+    padding: 0 18px; height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
     flex-shrink: 0;
   }
-  .header-left { display: flex; align-items: center; gap: 14px; }
+  .header-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .header-icon {
-    width: 40px; height: 40px; background: rgba(255,255,255,0.12);
-    border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; background: var(--ft-line-2); color: var(--ft-ink-2);
+    border-radius: 9px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
-  .header-icon svg { width: 22px; height: 22px; }
-  .header-title { font-size: 16px; font-weight: 700; color: white; }
-  .header-sub { font-size: 12px; color: #AEAEB2; margin-top: 2px; }
-  .header-right { display: flex; gap: 10px; }
-  .btn {
-    padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
-    cursor: pointer; border: none; transition: all 0.15s;
-  }
-  .btn-ghost { background: rgba(255,255,255,0.1); color: white; }
-  .btn-ghost:hover { background: rgba(255,255,255,0.2); }
-  .btn-confirm { background: #007AFF; color: white; }
-  .btn-confirm:hover { background: #0056CC; }
+  .header-icon svg { width: 18px; height: 18px; }
+  .header-title { font: 800 15px var(--ft-display); letter-spacing: -.3px; color: var(--ft-ink); }
+  .header-sub { font: 500 12px var(--ft-mono); color: var(--ft-ink-3); margin-top: 1px;
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }
+  .header-right { display: flex; gap: 8px; flex-shrink: 0; }
 
   /* Main */
   .main { flex: 1; display: flex; overflow: hidden; }
 
   /* SVG viewer area */
   .viewer {
-    flex: 1; position: relative; background: #0F172A;
+    flex: 1; position: relative; background: var(--ft-canvas);
     overflow: hidden; cursor: grab;
   }
   .viewer:active { cursor: grabbing; }
@@ -51,148 +44,146 @@
   #svg-container svg {
     display: block;
   }
+  /* Disegno pronto: breve entrata */
+  #svg-container.pronto svg { animation: dxfEntra .4s var(--ft-ease) both; transform-origin: 50% 50%; }
+  @keyframes dxfEntra { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
 
-  /* Loading state */
+  /* Caricamento: foglio che luccica al posto del disegno */
   .loading {
-    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    text-align: center; color: #94A3B8;
+    position: absolute; inset: 28px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; color: var(--ft-ink-3); font-size: 13px; font-weight: 500; pointer-events: none;
   }
-  .loading-spinner {
-    width: 40px; height: 40px; border: 3px solid rgba(0,122,255,0.2);
-    border-top-color: #007AFF; border-radius: 50%;
-    animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+  .loading-sheet {
+    position: relative; width: min(560px, 80%); aspect-ratio: 4 / 3; border-radius: var(--ft-r-xl);
+    background: var(--ft-panel); border: 1px solid var(--ft-line); box-shadow: var(--ft-elev-1);
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-sheet .ft-skel { position: absolute; }
+  .loading-sheet .k1 { left: 9%; top: 12%; width: 50%; height: 56%; border-radius: 10px; }
+  .loading-sheet .k2 { left: 64%; top: 12%; width: 27%; height: 26%; border-radius: 10px; }
+  .loading-sheet .k3 { left: 64%; top: 44%; width: 27%; height: 24%; border-radius: 10px; }
+  .loading-sheet .k4 { right: 9%; bottom: 9%; width: 38%; height: 12%; }
+  .loading-sheet .k5 { left: 9%; bottom: 11%; width: 26%; height: 9px; }
+  .loading.errore { inset: 0; pointer-events: auto; }
+  .loading .ft-empty { animation: ftIn .22s var(--ft-ease); }
+  .loading .ft-empty-icon { background: var(--ft-err-bg); color: var(--ft-err); }
+  .loading .ft-empty-icon svg { width: 20px; height: 20px; }
 
   /* Viewer hint */
   .viewer-hint {
     position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
-    background: rgba(15,23,42,0.8); backdrop-filter: blur(6px);
-    padding: 6px 16px; border-radius: 20px;
-    font-size: 11px; color: #94A3B8; pointer-events: none; z-index: 10;
+    background: rgba(255,255,255,.88); backdrop-filter: blur(6px); border: 1px solid var(--ft-line);
+    padding: 5px 14px; border-radius: 999px; box-shadow: var(--ft-elev-1);
+    font-size: 11.5px; color: var(--ft-ink-3); pointer-events: none; z-index: 10; white-space: nowrap;
   }
 
   /* Zoom controls */
   .zoom-controls {
     position: absolute; bottom: 12px; right: 12px; z-index: 10;
-    display: flex; flex-direction: column; gap: 4px;
+    display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 4px;
+    background: rgba(255,255,255,.92); backdrop-filter: blur(6px);
+    border: 1px solid var(--ft-line); border-radius: 10px; box-shadow: var(--ft-elev-2);
   }
   .zoom-btn {
-    width: 32px; height: 32px; border-radius: 8px; border: none;
-    background: rgba(28,28,30,0.85); backdrop-filter: blur(6px);
-    color: white; font-size: 16px; cursor: pointer;
+    width: 30px; height: 30px; border-radius: 7px; border: 0;
+    background: transparent; color: var(--ft-ink-2); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    transition: background 0.15s;
+    transition: background .15s, color .15s, transform .08s;
   }
-  .zoom-btn:hover { background: rgba(0,122,255,0.8); }
+  .zoom-btn svg { width: 15px; height: 15px; }
+  .zoom-btn:hover { background: var(--ft-line-2); color: var(--ft-ink); }
+  .zoom-btn:active { transform: scale(.94); }
   .zoom-level {
-    text-align: center; font-size: 10px; color: #AEAEB2;
-    background: rgba(28,28,30,0.85); border-radius: 6px;
-    padding: 2px 6px; backdrop-filter: blur(6px);
+    text-align: center; font: 600 10.5px var(--ft-mono); color: var(--ft-ink-3);
+    padding: 3px 0; border-top: 1px solid var(--ft-line-2); border-bottom: 1px solid var(--ft-line-2);
   }
 
   /* Info badge */
   .dim-badge {
     position: absolute; top: 12px; left: 12px; z-index: 10;
-    background: rgba(28,28,30,0.85); backdrop-filter: blur(8px);
-    border-radius: 10px; padding: 10px 14px;
-    display: flex; gap: 16px;
+    background: rgba(255,255,255,.92); backdrop-filter: blur(8px);
+    border: 1px solid var(--ft-line); border-radius: 10px; padding: 8px 13px; box-shadow: var(--ft-elev-1);
+    display: flex; gap: 16px; animation: ftIn .3s var(--ft-ease);
   }
-  .dim-item { display: flex; flex-direction: column; gap: 2px; }
-  .dim-label { font-size: 9px; color: #AEAEB2; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-  .dim-value { font-size: 13px; color: white; font-weight: 600; font-family: 'Cascadia Code', monospace; }
+  .dim-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .dim-label { font-size: 10px; color: var(--ft-ink-3); text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
+  .dim-value { font: 600 12.5px var(--ft-mono); color: var(--ft-ink); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Right panel */
   .panel {
-    width: 340px; flex-shrink: 0; background: white;
-    border-left: 1px solid #E5E5EA;
+    width: 340px; flex-shrink: 0; background: var(--ft-panel);
+    border-left: 1px solid var(--ft-line);
     display: flex; flex-direction: column;
   }
   .panel-header {
-    padding: 20px 24px 16px; border-bottom: 1px solid #F2F2F7;
+    padding: 18px 20px 14px; border-bottom: 1px solid var(--ft-line);
   }
-  .panel-codice { font-size: 18px; font-weight: 700; color: #1C1C1E; }
+  .panel-codice { font: 800 18px var(--ft-display); letter-spacing: -.3px; color: var(--ft-ink); }
+  .panel-codice:empty::before { content: 'Lavorazioni'; }
   .panel-path {
-    font-size: 11px; color: #94A3B8; margin-top: 4px;
+    font: 500 11.5px var(--ft-mono); color: var(--ft-ink-3); margin-top: 3px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
-  .panel-body { flex: 1; padding: 20px 24px; overflow-y: auto; }
+  .panel-body { flex: 1; padding: 18px 20px; overflow-y: auto; }
 
-  .field-group { margin-bottom: 20px; }
+  .field-group { margin-bottom: 16px; }
   .field-label {
-    font-size: 12px; font-weight: 600; color: #64748B;
-    margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; color: var(--ft-ink-2);
+    margin-bottom: 5px; display: flex; align-items: center; gap: 6px;
   }
-  .field-label .detected-tag {
-    font-size: 9px; background: #E8F0FE; color: #007AFF;
-    padding: 2px 6px; border-radius: 4px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.3px;
-  }
+  .field-label .detected-tag { height: 18px; padding: 0 6px; font-size: 10px; letter-spacing: .03em; }
   .field-input {
-    width: 100%; height: 44px; border: 1.5px solid #E5E5EA;
-    border-radius: 10px; padding: 0 14px; font-size: 16px;
-    font-family: 'Cascadia Code', 'Consolas', monospace;
-    color: #007AFF; text-align: center; background: #F2F2F7;
-    transition: all 0.15s; outline: none;
+    width: 100%; height: 40px; border: 1px solid var(--ft-line);
+    border-radius: var(--ft-r-m); padding: 0 12px; font: 600 15px var(--ft-mono);
+    color: var(--ft-ink); text-align: center; background: var(--ft-panel);
+    transition: border-color .15s, box-shadow .15s; outline: none;
   }
-  .field-input:focus {
-    border-color: #007AFF; background: white;
-    box-shadow: 0 0 0 3px rgba(0,122,255,0.1);
-  }
-  .field-hint { font-size: 10px; color: #94A3B8; margin-top: 4px; }
+  .field-input:focus { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
+  .field-hint { font-size: 11.5px; color: var(--ft-ink-3); margin-top: 4px; }
 
   /* Summary card */
   .summary-card {
-    background: linear-gradient(135deg, #E8F0FE, #D6E4FF);
-    border-radius: 12px; padding: 16px; margin-top: 8px;
+    background: var(--ft-well); border: 1px solid var(--ft-line);
+    border-radius: var(--ft-r-l); padding: 12px 14px; margin-top: 6px;
   }
   .summary-title {
-    font-size: 10px; font-weight: 700; color: #007AFF;
-    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
+    font-size: 11px; font-weight: 700; color: var(--ft-ink-3);
+    text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px;
   }
   .summary-row {
-    display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px;
+    display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px;
+    border-bottom: 1px solid var(--ft-line-2);
   }
-  .summary-row .label { color: #0056CC; }
-  .summary-row .value { font-weight: 700; color: #1C1C1E; font-family: 'Cascadia Code', monospace; }
+  .summary-row:last-child { border-bottom: 0; }
+  .summary-row .label { color: var(--ft-ink-2); }
+  .summary-row .value { font: 700 13px var(--ft-display); color: var(--ft-ink); font-variant-numeric: tabular-nums; }
 
   /* Bottom */
-  .panel-footer { padding: 16px 24px; border-top: 1px solid #F2F2F7; }
+  .panel-footer { padding: 14px 20px; border-top: 1px solid var(--ft-line); background: #FAFBFC; }
   .auto-check {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
-    cursor: pointer; font-size: 12px; color: #64748B;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+    cursor: pointer; font-size: 12.5px; color: var(--ft-ink-2);
   }
   .auto-check input[type="checkbox"] {
-    width: 16px; height: 16px; accent-color: #007AFF; cursor: pointer;
+    width: 16px; height: 16px; accent-color: var(--ft-accent); cursor: pointer;
   }
   .footer-btns { display: flex; gap: 8px; }
-  .footer-btns .btn { flex: 1; height: 42px; font-size: 13px; display: flex; align-items: center; justify-content: center; }
-  .btn-cancel { background: white; color: #64748B; border: 1.5px solid #E5E5EA; }
-  .btn-cancel:hover { background: #F2F2F7; border-color: #CBD5E1; }
-  .btn-ok { background: #007AFF; color: white; }
-  .btn-ok:hover { background: #0056CC; }
+  .footer-btns .ft-btn { flex: 1; }
 
   /* Background toggle */
   .bg-toggle {
     position: absolute; top: 12px; right: 12px; z-index: 10;
-    display: flex; gap: 4px;
+    display: flex; gap: 4px; padding: 4px;
+    background: rgba(255,255,255,.92); backdrop-filter: blur(6px);
+    border: 1px solid var(--ft-line); border-radius: 10px; box-shadow: var(--ft-elev-1);
   }
   .bg-btn {
-    width: 28px; height: 28px; border-radius: 6px; border: 2px solid transparent;
-    cursor: pointer; transition: all 0.15s;
+    width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--ft-line);
+    cursor: pointer; transition: box-shadow .15s, transform .08s;
   }
-  .bg-btn.active { border-color: #007AFF; }
-  .bg-dark { background: #0F172A; }
-  .bg-light { background: #FFFFFF; }
-  .bg-gray { background: #374151; }
-
-  kbd {
-    display: inline-block; padding: 1px 5px; font-size: 10px;
-    font-family: 'Segoe UI', sans-serif; color: #94A3B8;
-    background: rgba(148,163,184,0.1); border-radius: 3px;
-    margin-left: 4px;
-  }
+  .bg-btn:hover { box-shadow: 0 0 0 2px var(--ft-line); }
+  .bg-btn:active { transform: scale(.92); }
+  .bg-btn.active { box-shadow: 0 0 0 2px var(--ft-panel), 0 0 0 4px var(--ft-accent); }
 
   /* Embedded mode: usa il DXF viewer dentro iframe minimal (senza toolbar/panel/footer).
      Attivato via ?embedded=1 nel querystring. */
@@ -239,44 +230,60 @@
   body.embedded #svg-container svg circle,
   body.embedded #svg-container svg ellipse,
   body.embedded #svg-container svg rect {
-    stroke: #0F172A !important;
+    stroke: var(--ft-ink) !important;
     stroke-width: 1.2px !important;
     vector-effect: non-scaling-stroke !important;
     fill: none !important;
   }
   /* Testi/quote/annotazioni restano leggibili in grigio scuro */
   body.embedded #svg-container svg text {
-    fill: #334155 !important;
+    fill: var(--ft-ink-2) !important;
   }
+  /* Sfondo chiaro (quello di base): le linee del DXF, pensate per lo sfondo
+     scuro, diventavano quasi invisibili. Su sfondo chiaro si forzano scure. */
+  .viewer.chiaro #svg-container svg path,
+  .viewer.chiaro #svg-container svg line,
+  .viewer.chiaro #svg-container svg polyline,
+  .viewer.chiaro #svg-container svg polygon,
+  .viewer.chiaro #svg-container svg circle,
+  .viewer.chiaro #svg-container svg ellipse,
+  .viewer.chiaro #svg-container svg rect:not(:first-child) {
+    stroke: var(--ft-ink) !important;
+    stroke-width: 1.2px !important;
+    vector-effect: non-scaling-stroke !important;
+  }
+  .viewer.chiaro #svg-container svg text { fill: var(--ft-ink-2) !important; }
   body.embedded .zoom-controls {
-    top: 8px !important; right: 8px !important; left: auto !important;
-    padding: 4px !important; gap: 3px !important;
+    top: 8px !important; right: 8px !important; left: auto !important; bottom: auto !important;
+    padding: 3px !important; gap: 2px !important;
   }
-  body.embedded .zoom-btn { width: 24px !important; height: 24px !important; font-size: 12px !important; }
+  body.embedded .zoom-btn { width: 24px !important; height: 24px !important; }
+  body.embedded .zoom-btn svg { width: 13px; height: 13px; }
   body.embedded .dim-badge {
     top: 8px !important; left: 8px !important;
     font-size: 10px !important; padding: 6px 8px !important;
     gap: 8px !important;
   }
+  body.embedded .loading { inset: 8px; }
 </style>
 </head>
-<body>
+<body class="ft">
 
 <div class="header">
   <div class="header-left">
     <div class="header-icon">
-      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
       </svg>
     </div>
-    <div>
+    <div style="min-width:0">
       <div class="header-title">Anteprima DXF</div>
       <div class="header-sub" id="header-sub"></div>
     </div>
   </div>
   <div class="header-right">
-    <button class="btn btn-ghost" onclick="annulla()">Annulla <kbd>Esc</kbd></button>
-    <button class="btn btn-confirm" onclick="conferma()">Conferma <kbd>Ctrl+Enter</kbd></button>
+    <button class="ft-btn ghost" onclick="annulla()">Annulla <kbd>Esc</kbd></button>
+    <button class="ft-btn accent" onclick="conferma()">Conferma <kbd>Ctrl+Enter</kbd></button>
   </div>
 </div>
 
@@ -284,9 +291,12 @@
   <div class="viewer" id="viewer">
     <div id="svg-container"></div>
 
-    <div class="loading" id="loading">
-      <div class="loading-spinner"></div>
-      <div>Rendering DXF...</div>
+    <div class="loading" id="loading" role="status" aria-live="polite">
+      <div class="loading-sheet" aria-hidden="true">
+        <span class="ft-skel k1"></span><span class="ft-skel k2"></span><span class="ft-skel k3"></span>
+        <span class="ft-skel k4"></span><span class="ft-skel k5"></span>
+      </div>
+      <div>Preparo il disegno…</div>
     </div>
 
     <div class="dim-badge" id="dim-badge" style="display:none">
@@ -309,10 +319,13 @@
     </div>
 
     <div class="zoom-controls">
-      <button class="zoom-btn" onclick="zoomIn()">+</button>
+      <button class="zoom-btn" onclick="zoomIn()" title="Ingrandisci" aria-label="Ingrandisci">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
       <div class="zoom-level" id="zoom-level">100%</div>
-      <button class="zoom-btn" onclick="zoomOut()">&minus;</button>
-      <button class="zoom-btn" onclick="zoomFit()" style="margin-top:4px;font-size:12px" title="Adatta">&squf;</button>
+      <button class="zoom-btn" onclick="zoomOut()" title="Riduci" aria-label="Riduci">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+      <button class="zoom-btn" onclick="zoomFit()" title="Adatta" aria-label="Adatta">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
     </div>
 
     <div class="viewer-hint">Trascina per muovere &middot; Rotella per zoom &middot; Doppio click per centrare</div>
@@ -328,7 +341,7 @@
       <div class="field-group">
         <div class="field-label">
           Metri saldatura
-          <span class="detected-tag" id="tag-sald" style="display:none">AUTO</span>
+          <span class="ft-chip accent detected-tag" id="tag-sald" style="display:none">AUTO</span>
         </div>
         <input type="number" class="field-input" id="f-sald" value="0" min="0" step="0.01">
         <div class="field-hint">Metri lineari di saldatura rilevati</div>
@@ -337,7 +350,7 @@
       <div class="field-group">
         <div class="field-label">
           Numero pieghe
-          <span class="detected-tag" id="tag-pieghe" style="display:none">AUTO</span>
+          <span class="ft-chip accent detected-tag" id="tag-pieghe" style="display:none">AUTO</span>
         </div>
         <input type="number" class="field-input" id="f-pieghe" value="0" min="0">
         <div class="field-hint">Rilevate automaticamente dal DXF</div>
@@ -346,7 +359,7 @@
       <div class="field-group">
         <div class="field-label">
           Filettatura
-          <span class="detected-tag" id="tag-filett" style="display:none">AUTO</span>
+          <span class="ft-chip accent detected-tag" id="tag-filett" style="display:none">AUTO</span>
         </div>
         <input type="number" class="field-input" id="f-filett" value="0" min="0">
         <div class="field-hint">Fori filettati rilevati</div>
@@ -355,14 +368,14 @@
       <div class="field-group">
         <div class="field-label">
           Svasatura
-          <span class="detected-tag" id="tag-svas" style="display:none">AUTO</span>
+          <span class="ft-chip accent detected-tag" id="tag-svas" style="display:none">AUTO</span>
         </div>
         <input type="number" class="field-input" id="f-svas" value="0" min="0">
         <div class="field-hint">Fori svasati rilevati</div>
       </div>
 
       <div class="summary-card">
-        <div class="summary-title">Riepilogo Lavorazioni</div>
+        <div class="summary-title">Riepilogo lavorazioni</div>
         <div class="summary-row"><span class="label">Saldatura</span><span class="value" id="s-sald">0.00 ml</span></div>
         <div class="summary-row"><span class="label">Pieghe</span><span class="value" id="s-pieghe">0</span></div>
         <div class="summary-row"><span class="label">Filettature</span><span class="value" id="s-filett">0</span></div>
@@ -376,8 +389,8 @@
         Accetta automaticamente i prossimi
       </label>
       <div class="footer-btns">
-        <button class="btn btn-cancel" onclick="annulla()">Annulla</button>
-        <button class="btn btn-ok" onclick="conferma()">Conferma</button>
+        <button class="ft-btn" onclick="annulla()">Annulla</button>
+        <button class="ft-btn accent" onclick="conferma()">Conferma</button>
       </div>
     </div>
   </div>
@@ -428,8 +441,21 @@ document.querySelectorAll('.field-input').forEach(el => el.addEventListener('inp
 updateSummary();
 
 // Background toggle
+/** Sfondo chiaro o scuro? Decide il colore delle linee (classe .chiaro). */
+function contrasto(colore) {
+  const v = document.getElementById('viewer');
+  let chiaro = true;
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(colore || '').trim());
+  if (m) {
+    const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    chiaro = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+  } else if (/^(black|#000)$/i.test(String(colore || '').trim())) chiaro = false;
+  v.classList.toggle('chiaro', chiaro);
+}
+contrasto('');
 function setBg(color, btn) {
   document.getElementById('viewer').style.background = color;
+  contrasto(color);
   document.querySelectorAll('.bg-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 }
@@ -471,6 +497,7 @@ function setupSvg(svgText) {
     const fill = (firstRect.getAttribute('fill') || '').toLowerCase();
     if (fill && fill !== 'none' && fill !== 'transparent') {
       viewer.style.background = fill;
+      contrasto(fill);
       // Update bg toggle active state
       document.querySelectorAll('.bg-btn').forEach(b => b.classList.remove('active'));
     }
@@ -489,6 +516,7 @@ function setupSvg(svgText) {
   svgH = pxH;
 
   zoomFit();
+  container.classList.add('pronto');   // breve entrata del disegno
 }
 
 // Load SVG asynchronously from server
@@ -498,8 +526,13 @@ fetch(SVG_URL).then(r => {
 }).then(svg => {
   setupSvg(svg);
 }).catch(err => {
-  document.getElementById('loading').innerHTML =
-    '<div style="color:#EF4444;font-size:14px">Errore rendering SVG<br><span style="font-size:12px;color:#94A3B8">' + err.message + '</span></div>';
+  const box = document.getElementById('loading');
+  box.classList.add('errore');
+  box.setAttribute('role', 'alert');
+  box.innerHTML =
+    '<div class="ft-empty"><div class="ft-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 12v3"/><path d="M12 18h.01"/></svg></div>'
+    + '<b>Errore rendering SVG</b><p></p></div>';
+  box.querySelector('p').textContent = err.message;
 });
 
 let zoom = 1, panX = 0, panY = 0;

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LS FerroTrack — Capo Officina</title>
+<script src="/ft-accesso.js" data-stazioni="ufficio,laser"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -267,9 +268,6 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
     <button class="btn-tb" onclick="window.location.href='/admin.html'" title="Impostazioni, utenti, soglie">
       <i data-lucide="settings" style="width:14px;height:14px;vertical-align:-2px;"></i> Admin
     </button>
-    <button class="btn-tb danger" id="btn-chiudi-turno" onclick="closeResidual()" title="Chiude tutte le scan ancora aperte (fine turno)">
-      <i data-lucide="moon" style="width:14px;height:14px;vertical-align:-2px;"></i> Chiudi turno
-    </button>
     <button class="btn-tb danger" onclick="logout()">
       <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;"></i> Esci
     </button>
@@ -284,19 +282,17 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
     <span id="sospetti-badge" style="display:none; margin-left:8px; padding:2px 8px; border-radius:100px; background:#dc2626; color:white; font-size:11px; font-weight:800;">0</span>
   </div>
   <div class="tab-item" data-tab="calendario" onclick="switchTab('calendario')">Calendario</div>
-  <div class="tab-item" id="tab-pistole" data-tab="pistole" onclick="switchTab('pistole')">Pistole</div>
   <div class="tab-item" onclick="window.location.href='/laser.html'" style="margin-left:auto;">Postazione Laser →</div>
 </div>
 
 <!-- ===================== PANEL: KPI ===================== -->
 <div class="panel active" id="panel-kpi">
   <h2 class="page-title">KPI Operai — ore lavorate</h2>
-  <div id="nota-fonte-ore" style="display:none; margin-bottom:12px; padding:10px 14px;
+  <div id="nota-fonte-ore" style="margin-bottom:12px; padding:10px 14px;
        border-radius:10px; background:#eef2f4; border:1px solid #dde3e6;
        font-size:12px; color:#5a6367; line-height:1.5;">
-    Le ore arrivano dalle <b>dichiarazioni degli operai</b> sul tablet (una al giorno, per cliente).
-    Le pistole barcode sono dismesse: lo storico delle scansioni resta consultabile ma non
-    alimenta più questi numeri.
+    Le ore arrivano dalle <b>dichiarazioni degli operai</b> sul tablet della timbratrice
+    (una al giorno, per cliente).
   </div>
   <div class="card">
     <div class="card-header">
@@ -327,9 +323,9 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
           <tr>
             <th>Ordine</th>
             <th>Cliente</th>
-            <th>Taglio fatto il</th>
-            <th>Ultima scan</th>
-            <th class="n">Inattivo</th>
+            <th>Arrivato il</th>
+            <th>Consegna</th>
+            <th class="n">Aperto da</th>
             <th style="text-align:center;">Azione</th>
           </tr>
         </thead>
@@ -351,13 +347,12 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
             <th>Cliente</th>
             <th>Consegna</th>
             <th class="n">Giorni</th>
-            <th>Stato officina</th>
-            <th class="n">Tempo officina</th>
+            <th>Taglio</th>
             <th style="text-align:center;">Azione</th>
           </tr>
         </thead>
         <tbody id="ord-tbody">
-          <tr><td colspan="7" class="empty">Caricamento ordini…</td></tr>
+          <tr><td colspan="6" class="empty">Caricamento ordini…</td></tr>
         </tbody>
       </table>
     </div>
@@ -380,61 +375,6 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   </div>
 </div>
 
-<!-- ===================== PANEL: PISTOLE ===================== -->
-<div class="panel" id="panel-pistole">
-  <h2 class="page-title">Gestione Pistole Barcode</h2>
-  <p style="color: var(--gray-text); margin-bottom: 20px; font-size: 14px; max-width: 760px;">
-    Una pistola WiFi per ogni operaio. L'ID hardware viene configurato una volta sulla pistola, e poi inviato a ogni scansione. Il sistema risale all'operatore di conseguenza.
-  </p>
-
-  <!-- Form registrazione -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Registra nuova pistola</h3>
-    </div>
-    <div class="card-body" style="padding: 18px;">
-      <div style="display: grid; grid-template-columns: 1fr 1fr 2fr auto; gap: 10px;">
-        <input type="text" id="new-pistola-id" placeholder="ID hardware (es. PISTOLA-A3F2)"
-               style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: 'JetBrains Mono', monospace;">
-        <select id="new-pistola-operatore"
-                style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;">
-          <option value="">Seleziona operaio…</option>
-        </select>
-        <input type="text" id="new-pistola-note" placeholder="Note (opzionale)"
-               style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;">
-        <button onclick="createPistola()"
-                style="padding: 10px 20px; background: var(--green); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px;">+ Registra</button>
-      </div>
-      <div id="pistola-form-msg" style="margin-top: 10px; font-size: 13px; min-height: 18px;"></div>
-    </div>
-  </div>
-
-  <!-- Lista pistole -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Pistole registrate</h3>
-      <span class="card-meta" id="pistole-meta">—</span>
-    </div>
-    <div class="card-body">
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>ID Hardware</th>
-            <th>Operaio</th>
-            <th>Note</th>
-            <th style="text-align:center;">Stato</th>
-            <th>Registrata</th>
-            <th style="text-align:center;">Azioni</th>
-          </tr>
-        </thead>
-        <tbody id="pistole-tbody">
-          <tr><td colspan="6" class="empty">Caricamento…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
 <!-- MODAL: dettaglio giorno -->
 <div class="modal-overlay" id="day-modal" onclick="if(event.target===this)closeDayModal()">
   <div class="modal">
@@ -446,7 +386,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   </div>
 </div>
 
-<!-- MODAL: dettaglio ordine con timeline sessioni officina -->
+<!-- MODAL: dettaglio ordine -->
 <div class="modal-overlay" id="order-detail-modal" onclick="if(event.target===this)closeOrderDetailModal()">
   <div class="modal" style="max-width:760px;">
     <div class="modal-head">
@@ -466,36 +406,19 @@ let _polls = [];
 
 // ---------- session / topbar ----------
 
-/** Dove sta di casa una postazione.
-    Ripetuta in ogni pagina perche' le pagine sono indipendenti: e' la stessa
-    funzione ovunque, e va tenuta allineata. */
-function paginaDiCasa(u) {
-  const r = (u && u.role) || '';
-  if (r === 'Timbratrice') return '/ore.html';
-  if (r === 'Visione') return '/operaio-info.html';
-  if (r === 'Laser' || r === 'Operaio Laser') return '/laser.html';
-  if (r === 'Amministrazione' || r === 'Impiegata') return '/impiegata.html';
-  if (r === 'Commerciale') return '/preventivi.html';
-  if (u && (u.is_capo || r === 'Capo Officina' || r === 'Amministratore')) {
-    return '/capo-officina.html';
-  }
-  return '/operaio-info.html';
-}
-
-window.addEventListener('load', () => {
-  // Prima di tutto: la sessione salvata vale ancora? Se no si torna
-  // all'ingresso, invece di aprire una pagina che rifiutera' ogni salvataggio.
-  _sessioneAncoraValida();
-  const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
-  if (!user.id) { window.location.href = '/login.html'; return; }
+window.addEventListener('load', async () => {
+  // Chi e' entrato lo dice il server (dispositivo + PIN, vedi ft-accesso.js):
+  // se manca il PIN o la postazione e' un'altra, ci pensa ft-accesso.js.
+  await FTA.pronto;
+  const io = FTA.io || {};
+  let user = null;
+  if (io.persona) user = { id: io.persona.id, name: io.persona.nome, role: io.stazione_nome };
+  else if (io.vecchio) { try { user = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {} }
+  else if (io.registrato) user = { id: null, name: io.stazione_nome, role: io.stazione_nome };
+  if (!user) return;
   currentUser = user;
-  // Qui si entra solo con la delega del capo: la porta la postazione laser,
-  // oltre alle vecchie utenze dei responsabili. Chi non ce l'ha torna a casa
-  // sua, invece di trovarsi davanti a una pagina che non gli serve.
-  if (!user.is_capo && user.role !== 'Capo Officina' && user.role !== 'Amministratore') {
-    window.location.href = paginaDiCasa(user);
-    return;
-  }
+  // Le ore e i KPI per operaio sono dell'Ufficio: dal laser li chiede il PIN
+  // dell'amministratore (lo fa da solo ft-accesso.js quando il server lo vuole).
   const initials = (user.name || '').split(' ').map(w => w[0]).join('').toUpperCase() || '?';
   const avatarEl = document.getElementById('user-pill-avatar');
   avatarEl.textContent = initials;
@@ -505,21 +428,14 @@ window.addEventListener('load', () => {
   switchTab('kpi');
 });
 
+/** "Esci" negli uffici chiude la sessione; al laser porta a cambiare postazione. */
 function logout() {
-  localStorage.removeItem('currentUser');
-  window.location.href = '/login.html';
+  const io = window.FTA && FTA.io;
+  if (io && io.persona) FTA.esci(); else FTA.cambiaDispositivo();
 }
 
 function escapeHtml(s) {
   return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function formatMinuti(min) {
-  if (!min || min < 1) return '—';
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}h ${m}min` : `${h}h`;
 }
 
 // ---------- tab switching ----------
@@ -536,7 +452,6 @@ function switchTab(tabId) {
   if (tabId === 'kpi')        { loadKpi();        _polls.push(setInterval(loadKpi, 30000)); }
   if (tabId === 'ordini')     { loadOrdini(); refreshSospettiCapo(); _polls.push(setInterval(loadOrdini, 30000)); _polls.push(setInterval(refreshSospettiCapo, 30000)); }
   if (tabId === 'calendario') { loadCalendario(); }
-  if (tabId === 'pistole')    { loadPistole(); }
 }
 
 // ---------- Ordini sospetti finiti (badge tab + sezione dedicata) ----------
@@ -569,14 +484,14 @@ async function refreshSospettiCapo() {
     countEl.textContent = `${orders.length} ordini`;
     let html = '';
     for (const o of orders) {
-      const dt = o.data_taglio_completato ? new Date(o.data_taglio_completato).toLocaleDateString('it-IT') : '—';
-      const ls = o.ultima_scan ? new Date(o.ultima_scan).toLocaleDateString('it-IT') : 'mai dopo taglio';
+      const arr = o.data_ricezione ? new Date(o.data_ricezione).toLocaleDateString('it-IT') : '—';
+      const cons = o.data_consegna ? new Date(o.data_consegna).toLocaleDateString('it-IT') : '—';
       const label = escapeHtml(o.numero_ordine);
-      html += `<tr>
+      html += `<tr title="${escapeHtml(o.motivo || '')}">
         <td><code>${label}</code></td>
         <td>${escapeHtml(o.cliente || '')}</td>
-        <td style="color:var(--gray-text); font-size:12px;">${dt}</td>
-        <td style="color:var(--gray-text); font-size:12px;">${ls}</td>
+        <td style="color:var(--gray-text); font-size:12px;">${arr}</td>
+        <td style="color:var(--gray-text); font-size:12px;">${cons}</td>
         <td class="n" style="font-weight:700; color:#991b1b;">${o.giorni_inattivo}g</td>
         <td style="text-align:center;">
           <button onclick="closeOrder('${o.id}', '${label}')"
@@ -610,134 +525,6 @@ setTimeout(() => {
     if (n) { badge.textContent = n; badge.style.display = 'inline-block'; }
   }).catch(() => {});
 }, 2000);
-
-// ---------- Pistole dismesse: adegua la pagina --------------------------
-// Se la rilevazione con pistola e' spenta, spariscono il tab e il pulsante di
-// chiusura turno (non avrebbero piu' effetto) e si dichiara da dove vengono le ore.
-(async function adeguaPistole() {
-  try {
-    const r = await fetch(`${API_URL}/api/admin/config`);
-    const j = await r.json();
-    const attive = !!(j.config && j.config.pistole_attive);
-    if (attive) return;
-    const tab = document.getElementById('tab-pistole');
-    if (tab) tab.style.display = 'none';
-    const btn = document.getElementById('btn-chiudi-turno');
-    if (btn) btn.style.display = 'none';
-    const nota = document.getElementById('nota-fonte-ore');
-    if (nota) nota.style.display = 'block';
-  } catch (_) { /* in dubbio si lascia tutto visibile */ }
-})();
-
-// ---------- Gestione pistole ----------
-async function loadPistole() {
-  const tbody = document.getElementById('pistole-tbody');
-  const meta = document.getElementById('pistole-meta');
-  try {
-    const [pr, ur] = await Promise.all([
-      fetch(`${API_URL}/api/admin/pistole`),
-      fetch(`${API_URL}/api/users`),
-    ]);
-    const pistole = await pr.json();
-    const users = (await ur.json()).users || [];
-
-    const sel = document.getElementById('new-pistola-operatore');
-    sel.innerHTML = '<option value="">Seleziona operaio…</option>' +
-      users.filter(u => u.is_active !== false).map(u =>
-        `<option value="${u.id}">${escapeHtml(u.name)} — ${escapeHtml(u.role || '')}</option>`
-      ).join('');
-
-    meta.textContent = pistole.length ? `${pistole.length} registrate` : 'nessuna';
-    if (!pistole.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty">Nessuna pistola registrata. Registrane una qui sopra.</td></tr>';
-      return;
-    }
-
-    let html = '';
-    for (const p of pistole) {
-      const ts = p.created_at ? new Date(p.created_at) : null;
-      const tsStr = ts ? `${String(ts.getDate()).padStart(2,'0')}/${String(ts.getMonth()+1).padStart(2,'0')}/${ts.getFullYear()}` : '—';
-      const statoBadge = p.attiva
-        ? '<span class="badge green">ATTIVA</span>'
-        : '<span class="badge gray">DISATTIVA</span>';
-      const toggleLabel = p.attiva ? 'Disattiva' : 'Attiva';
-      html += `<tr>
-        <td><code>${escapeHtml(p.pistola_id)}</code></td>
-        <td style="font-weight:600;">${escapeHtml(p.operatore_name || p.operatore_id)}</td>
-        <td style="color:var(--gray-text); font-size:13px;">${escapeHtml(p.note || '')}</td>
-        <td style="text-align:center;">${statoBadge}</td>
-        <td style="color:var(--gray-text); font-size:13px;">${tsStr}</td>
-        <td style="text-align:center; white-space:nowrap;">
-          <button onclick="togglePistola('${p.id}', ${!p.attiva})"
-                  style="padding:5px 10px; background:#fff; border:1px solid var(--border); color:var(--black); border-radius:6px; cursor:pointer; font-weight:600; font-size:12px; margin-right:4px;">
-            ${toggleLabel}
-          </button>
-          <button onclick="deletePistola('${p.id}', '${escapeHtml(p.pistola_id)}')"
-                  style="padding:5px 10px; background:#fff; border:1px solid var(--red); color:var(--red); border-radius:6px; cursor:pointer; font-weight:600; font-size:12px;">
-            Elimina
-          </button>
-        </td>
-      </tr>`;
-    }
-    tbody.innerHTML = html;
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">Errore: ${escapeHtml(String(e))}</td></tr>`;
-  }
-}
-
-async function createPistola() {
-  const msg = document.getElementById('pistola-form-msg');
-  const pistola_id = document.getElementById('new-pistola-id').value.trim();
-  const operatore_id = document.getElementById('new-pistola-operatore').value;
-  const note = document.getElementById('new-pistola-note').value.trim();
-  msg.textContent = '';
-  if (!pistola_id) { msg.style.color = 'var(--red)'; msg.textContent = 'ID hardware obbligatorio'; return; }
-  if (!operatore_id) { msg.style.color = 'var(--red)'; msg.textContent = 'Seleziona un operaio'; return; }
-  try {
-    const r = await fetch(`${API_URL}/api/admin/pistole`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pistola_id, operatore_id, note, admin_id: currentUser ? currentUser.id : '' })
-    });
-    const data = await r.json();
-    if (r.ok) {
-      msg.style.color = 'var(--green)';
-      msg.textContent = `✓ Pistola "${pistola_id}" registrata`;
-      document.getElementById('new-pistola-id').value = '';
-      document.getElementById('new-pistola-operatore').value = '';
-      document.getElementById('new-pistola-note').value = '';
-      loadPistole();
-    } else {
-      msg.style.color = 'var(--red)';
-      msg.textContent = 'Errore: ' + (data.error || 'sconosciuto');
-    }
-  } catch (e) {
-    msg.style.color = 'var(--red)';
-    msg.textContent = 'Errore: ' + e.message;
-  }
-}
-
-async function togglePistola(pistolaUuid, newAttiva) {
-  try {
-    await fetch(`${API_URL}/api/admin/pistole/${pistolaUuid}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attiva: newAttiva, admin_id: currentUser ? currentUser.id : '' })
-    });
-    loadPistole();
-  } catch (e) { alert('Errore: ' + e.message); }
-}
-
-async function deletePistola(pistolaUuid, label) {
-  if (!confirm(`Eliminare pistola "${label}"?`)) return;
-  try {
-    const adminId = currentUser ? currentUser.id : '';
-    await fetch(`${API_URL}/api/admin/pistole/${pistolaUuid}?admin_id=${encodeURIComponent(adminId)}`, {
-      method: 'DELETE'
-    });
-    loadPistole();
-  } catch (e) { alert('Errore: ' + e.message); }
-}
 
 // ---------- KPI operai ----------
 // Genera colore HSL deterministico dal nome — avatar diverso per ogni operaio
@@ -852,19 +639,20 @@ async function loadOrdini() {
       }
       const consTxt = cons ? `${String(cons.getDate()).padStart(2,'0')}/${String(cons.getMonth()+1).padStart(2,'0')}/${cons.getFullYear()}` : '—';
       const label = escapeHtml(o.numero_ordine || o.id.substring(0,8));
-      // Status taglio: se non ancora tagliato, lo segnaliamo
-      const tagliato = o.taglio_completato;
-      const stato_iniziale = tagliato
-        ? '<span class="badge gray" title="Caricamento…">…</span>'
-        : '<span class="badge orange">Da tagliare</span>';
+      // Stato del taglio, dall'ordine: e' l'unico avanzamento che FerroTrack
+      // conosce (il resto lo dice l'officina a voce).
+      const taglio = o.taglio_completato
+        ? '<span class="badge green">Tagliato</span>'
+        : (o.taglio_richiesto === false
+          ? '<span class="badge gray" title="Il laser lo ha smistato: non passa dal taglio">Senza taglio</span>'
+          : '<span class="badge orange">Da tagliare</span>');
       const prevBadge = (o.origine === 'PREVENTIVO') ? ' <span class="badge purple" style="font-size:9px; padding:1px 6px;" title="Ordine creato da preventivo accettato">PREV</span>' : '';
       html += `<tr data-order-id="${o.id}" style="cursor:pointer;" onclick="openOrderDetailModal('${o.id}', '${label}')">
         <td><code>${label}</code>${prevBadge}</td>
         <td>${escapeHtml(o.cliente || '')}</td>
         <td>${consTxt}</td>
         <td class="n"><span class="badge ${urgClass}">${giorni}${typeof giorni === 'number' ? ' g' : ''}</span></td>
-        <td data-stato-officina="${o.id}">${stato_iniziale}</td>
-        <td class="n" data-tempo-officina="${o.id}">…</td>
+        <td>${taglio}</td>
         <td style="text-align:center;" onclick="event.stopPropagation();">
           <button onclick="closeOrder('${o.id}', '${label}')"
                   title="Lavorazione finita: passa all'amministrazione per la fatturazione"
@@ -875,34 +663,8 @@ async function loadOrdini() {
       </tr>`;
     }
     tbody.innerHTML = html;
-    // Lazy-fetch tempo officina + stato per ogni ordine (uno alla volta, non blocca)
-    for (const o of orders) {
-      try {
-        const tr = await fetch(`${API_URL}/api/orders/${o.id}/tempo-officina`);
-        if (!tr.ok) continue;
-        const td = await tr.json();
-        const cell = document.querySelector(`[data-tempo-officina="${o.id}"]`);
-        if (cell) {
-          const giorniStr = td.giorni_distinti > 1 ? ` (${td.giorni_distinti}g)` : '';
-          cell.innerHTML = formatMinuti(td.tempo_totale_minuti) + (giorniStr ? `<span style="color:var(--gray-muted); font-size:11px;">${giorniStr}</span>` : '');
-        }
-        const stCell = document.querySelector(`[data-stato-officina="${o.id}"]`);
-        if (stCell && o.taglio_completato) {
-          // Calcola stato officina
-          let badge;
-          if (td.numero_sessioni_aperte > 0) {
-            badge = `<span class="badge green" title="${td.numero_sessioni_aperte} operai stanno lavorando">● In lavorazione</span>`;
-          } else if (td.numero_sessioni > 0) {
-            badge = '<span class="badge orange" title="Iniziato ma nessuno ci sta lavorando ora">⏸ In pausa</span>';
-          } else {
-            badge = '<span class="badge gray">Mai scansionato</span>';
-          }
-          stCell.innerHTML = badge;
-        }
-      } catch (_) {}
-    }
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty">Errore: ${escapeHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">Errore: ${escapeHtml(String(e))}</td></tr>`;
   }
 }
 
@@ -1016,20 +778,15 @@ function closeDayModal() {
   document.getElementById('day-modal').classList.remove('active');
 }
 
-// ---------- Modal dettaglio ordine (timeline sessioni officina) ----------
+// ---------- Modal dettaglio ordine ----------
 async function openOrderDetailModal(orderId, label) {
   document.getElementById('order-detail-title').textContent = `Dettaglio ordine ${label}`;
   document.getElementById('order-detail-body').innerHTML = '<div class="empty">Caricamento…</div>';
   document.getElementById('order-detail-modal').classList.add('active');
   try {
-    // Recupera in parallelo dati ordine + dettaglio sessioni
-    const [or, tr] = await Promise.all([
-      fetch(`${API_URL}/api/orders/${orderId}`),
-      fetch(`${API_URL}/api/orders/${orderId}/tempo-officina`),
-    ]);
+    const or = await fetch(`${API_URL}/api/orders/${orderId}`);
     const ord = await or.json();
-    const tempo = await tr.json();
-    renderOrderDetail(ord, tempo);
+    renderOrderDetail(ord);
   } catch (e) {
     document.getElementById('order-detail-body').innerHTML =
       `<div class="empty">Errore: ${escapeHtml(String(e))}</div>`;
@@ -1040,7 +797,7 @@ function closeOrderDetailModal() {
   document.getElementById('order-detail-modal').classList.remove('active');
 }
 
-function renderOrderDetail(ord, tempo) {
+function renderOrderDetail(ord) {
   const cliente = escapeHtml(ord.cliente || '');
   const numero = escapeHtml(ord.numero_ordine || ord.id.substring(0,8));
   const cons = ord.data_consegna ? new Date(ord.data_consegna) : null;
@@ -1062,72 +819,8 @@ function renderOrderDetail(ord, tempo) {
           ? `<span class="badge green">✓ Completato</span> <span style="color:var(--gray-text); font-size:12px;">${dataTaglio ? dataTaglio.toLocaleString('it-IT', {dateStyle:'short', timeStyle:'short'}) : ''}</span>`
           : '<span class="badge orange">Da tagliare</span>'}</div>
       </div>
-      <div>
-        <div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Tempo officina</div>
-        <div style="margin-top:4px; font-weight:700; font-family:'Geist';">${formatMinuti(tempo.tempo_totale_minuti)}</div>
-      </div>
-      <div>
-        <div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Giorni di lavoro</div>
-        <div style="margin-top:4px; font-weight:700; font-family:'Geist';">${tempo.giorni_distinti || 0}</div>
-      </div>
-      <div>
-        <div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Sessioni</div>
-        <div style="margin-top:4px; font-weight:700; font-family:'Geist';">${tempo.numero_sessioni} ${tempo.numero_sessioni_aperte ? `<span style="color:var(--green); font-size:13px;">(${tempo.numero_sessioni_aperte} attive)</span>` : ''}</div>
-      </div>
     </div>
   `;
-
-  if (!tempo.sessioni || !tempo.sessioni.length) {
-    html += '<div class="empty">Nessuna scansione officina registrata</div>';
-  } else {
-    html += `
-      <div style="padding:14px 18px 6px;"><h4 style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--gray-muted); margin:0;">Timeline sessioni</h4></div>
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th>Operaio</th>
-            <th>Inizio</th>
-            <th>Fine</th>
-            <th class="n">Durata</th>
-            <th>Motivo chiusura</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-    // Le sessioni arrivano in ordine cronologico ascendente; mostro recenti in alto
-    const sessions = tempo.sessioni.slice().reverse();
-    for (const s of sessions) {
-      const ini = new Date(s.inizio);
-      const iniStr = `${String(ini.getDate()).padStart(2,'0')}/${String(ini.getMonth()+1).padStart(2,'0')} ${String(ini.getHours()).padStart(2,'0')}:${String(ini.getMinutes()).padStart(2,'0')}`;
-      let finStr, durStr, motivoBadge;
-      if (s.aperta) {
-        finStr = '<span class="badge green">● In corso</span>';
-        const liveSec = Math.floor((Date.now() - ini.getTime())/1000);
-        durStr = formatMinuti(Math.floor(liveSec/60));
-        motivoBadge = '—';
-      } else {
-        const fin = new Date(s.fine);
-        finStr = `${String(fin.getDate()).padStart(2,'0')}/${String(fin.getMonth()+1).padStart(2,'0')} ${String(fin.getHours()).padStart(2,'0')}:${String(fin.getMinutes()).padStart(2,'0')}`;
-        durStr = formatMinuti(Math.floor(s.durata_secondi/60));
-        const motivoMap = {
-          'altro_ordine': '<span class="badge gray" title="L\'operaio è passato ad altro ordine">altro ordine</span>',
-          'cambio_fase': '<span class="badge gray" title="L\'ordine è stato spostato">cambio fase</span>',
-          'fine_turno': '<span class="badge orange" title="Cron fine turno">fine turno</span>',
-          'ordine_chiuso': '<span class="badge green" title="L\'ordine è stato chiuso">ordine chiuso</span>',
-          'manuale': '<span class="badge gray">manuale</span>',
-        };
-        motivoBadge = motivoMap[s.chiusura_motivo] || `<span class="badge gray">${escapeHtml(s.chiusura_motivo||'')}</span>`;
-      }
-      html += `<tr>
-        <td>${escapeHtml(s.operatore_name || s.operatore_id)}</td>
-        <td style="color:var(--gray-text); font-family:'JetBrains Mono', monospace; font-size:12px;">${iniStr}</td>
-        <td style="color:var(--gray-text); font-family:'JetBrains Mono', monospace; font-size:12px;">${finStr}</td>
-        <td class="n" style="font-weight:600;">${durStr}</td>
-        <td>${motivoBadge}</td>
-      </tr>`;
-    }
-    html += '</tbody></table>';
-  }
 
   document.getElementById('order-detail-body').innerHTML = html;
 }
@@ -1135,17 +828,16 @@ function renderOrderDetail(ord, tempo) {
 // ---------- Lavoro finito (capo conferma fine lavorazione fisica) ----------
 // Sposta l'ordine in DA_FATTURARE → appare nella tab di Elena.
 async function closeOrder(orderId, label) {
-  if (!confirm(`Confermi che la lavorazione di "${label}" è finita?\n\nL'ordine passerà a "Da fatturare" e apparirà nella lista di Elena.\nLe scansioni officina ancora aperte verranno finalizzate.`)) return;
+  if (!confirm(`Confermi che la lavorazione di "${label}" è finita?\n\nL'ordine passerà a "Da fatturare" e apparirà nella lista di Elena.`)) return;
   try {
     const r = await fetch(`${API_URL}/api/orders/${orderId}/close`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser ? currentUser.id : '' })
+      body: '{}'
     });
     const data = await r.json();
     if (r.ok && data.success) {
-      const tot = data.scan_chiuse ? ` (chiuse ${data.scan_chiuse} scansioni)` : '';
-      alert(`✓ Lavoro finito, ordine mandato all'amministrazione per la fatturazione${tot}.`);
+      alert(`✓ Lavoro finito, ordine mandato all'amministrazione per la fatturazione.`);
       loadOrdini();
     } else {
       alert('Errore: ' + (data.error || 'sconosciuto'));
@@ -1155,53 +847,9 @@ async function closeOrder(orderId, label) {
   }
 }
 
-// ---------- Chiusura turno ----------
-async function closeResidual() {
-  if (!confirm('Chiudere TUTTE le scan ancora aperte (fine turno)?')) return;
-  try {
-    const r = await fetch(`${API_URL}/api/admin/close-residual`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: currentUser.id, motivo: 'fine_turno' })
-    });
-    const data = await r.json();
-    if (r.ok) {
-      alert(`Chiuse ${data.chiuse || 0} scan.`);
-      loadKpi();
-    } else {
-      alert('Errore: ' + (data.error || 'sconosciuto'));
-    }
-  } catch (e) {
-    alert('Errore: ' + e.message);
-  }
-}
 </script>
 <script src="https://unpkg.com/lucide@latest"></script>
 <script>if (window.lucide) lucide.createIcons();
-/** La sessione salvata nel browser vale ancora?
-    Passando alle postazioni, una memoria vecchia diventa un'utenza che non
-    esiste piu': la pagina si aprirebbe e poi rifiuterebbe ogni salvataggio,
-    senza dire perche'. Meglio rimandare all'ingresso.
-    Non e' un permesso: quelli li decide il server a ogni richiesta. */
-async function _sessioneAncoraValida() {
-  let u = null;
-  try { u = JSON.parse(localStorage.getItem('currentUser') || 'null'); } catch (_) {}
-  if (!u || !u.id) { window.location.href = '/login.html'; return false; }
-  try {
-    const r = await fetch(`${API_URL}/api/auth/sessione/${encodeURIComponent(u.id)}`);
-    if (!r.ok) return true;                 // server irraggiungibile: si prosegue
-    const d = await r.json();
-    if (!d.valida) {
-      localStorage.removeItem('currentUser');
-      window.location.href = '/login.html';
-      return false;
-    }
-    // Ruolo e permessi possono essere cambiati da quando si e' entrati.
-    localStorage.setItem('currentUser', JSON.stringify({ ...u, ...d.utente }));
-  } catch (_) { /* rete assente: si prosegue con quello che c'e' */ }
-  return true;
-}
-
 </script>
 </body>
 </html>

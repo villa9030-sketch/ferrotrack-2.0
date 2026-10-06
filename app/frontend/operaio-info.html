@@ -3,191 +3,386 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#14181A">
+<meta name="theme-color" content="#F2F4F7">
 <link rel="manifest" href="/manifest.json">
 <title>LS FerroTrack — Officina</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="/ft-accesso.js" data-stazioni="reparto,ufficio,laser"></script>
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
 <style>
 /* Tablet dei ragazzi in officina: trovare un ordine (cliente o numero), vedere
-   i pezzi da fare, i disegni e il foglio d'ordine. Sola consultazione.
+   i pezzi da fare, i disegni e il foglio d'ordine. Si consulta e basta, salvo
+   "Segnala un problema", che avvisa l'ufficio.
    Pensato per le dita, in piedi, con le mani sporche: bersagli di almeno
-   48 px, testo grande, niente cose piccole da centrare. */
-* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-[hidden] { display: none !important; }
-:root {
-  --ink: #14181A; --ink2: #3D4549; --ink3: #6B7478; --ink4: #9AA3A7;
-  --bg: #EEF1F2; --panel: #fff; --line: #DDE2E4; --line2: #ECEFF0;
-  --acc: #1A7A48; --acc-bg: #E5F3EB; --acc-ink: #135C36;
-  --err: #C4320A; --err-bg: #FDECE6; --warn: #B54708; --warn-bg: #FEF3E2;
-  --info: #1D4ED8; --info-bg: #E7EEFD; --vio: #6D28D9; --vio-bg: #EFE9FC;
-  --mono: Consolas, 'JetBrains Mono', ui-monospace, monospace;
-}
-html, body { height: 100%; }
-body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--ink); font-variant-numeric: tabular-nums;
-  display: flex; flex-direction: column; overflow: hidden; }
-button { font: inherit; color: inherit; cursor: pointer; }
+   48 px, testo grande, niente cose piccole da centrare. E quando nessuno lo
+   tocca e' un cartellone: "Cosa c'e' da fare", leggibile da due o tre metri.
+
+   La base (colori, caratteri, testata, effetti) e' ft-ui.css, la stessa del
+   preventivatore; qui ci sono solo le misure grandi del tablet. */
+:where(body.ft *) { margin: 0; padding: 0; }
+body.ft { --ft-topbar-h: 68px; font-size: 15px; -webkit-tap-highlight-color: transparent; }
+html, body.ft { height: 100%; }
+body.ft { display: flex; flex-direction: column; overflow: hidden; }
+:where(body.ft button) { font: inherit; color: inherit; cursor: pointer; }
 
 /* ── testata ── */
-header { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: var(--ink); color: #fff; }
-.logo { width: 42px; height: 42px; flex: none; border-radius: 11px; background: var(--acc); display: grid; place-items: center;
-  font: 900 15px 'Geist', sans-serif; }
-.chi { min-width: 0; }
-.chi h1 { font: 800 19px/1.15 'Geist', sans-serif; letter-spacing: -.3px; }
-.chi .ruolo { font-size: 12.5px; color: #B9C1C4; }
-.testa-dx { margin-left: auto; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #B9C1C4; }
-.testa-dx .ora { font: 700 22px 'Geist', sans-serif; color: #fff; }
-.tbtn { min-height: 44px; padding: 0 16px; border-radius: 11px; border: 1px solid rgba(255,255,255,.22); background: rgba(255,255,255,.08); color: #fff; font-weight: 700; font-size: 14px; }
-.tbtn:active { background: rgba(255,255,255,.2); }
-.ore-cta { display: block; margin: 10px 18px 0; padding: 12px 16px; border-radius: 12px; background: var(--acc); color: #fff; text-decoration: none; }
-.ore-cta .t { font-weight: 800; } .ore-cta .s { font-size: 13px; opacity: .85; }
-.attiva { margin: 40px auto; max-width: 560px; padding: 28px; border-radius: 16px; background: var(--panel); text-align: center; }
-.attiva h2 { font: 800 22px 'Geist', sans-serif; margin-bottom: 10px; }
-.attiva p { color: var(--ink2); line-height: 1.5; }
+.ft-topbar.of-topbar { position: relative; flex: none; gap: 18px; background: var(--ft-panel); }
+.of-topbar .ft-brand-name { font-size: 16px; }
+.of-topbar .ft-brand-area { font-size: 12.5px; }
+/* Il logo e' anche l'uscita nascosta del chiosco: si tiene premuto 2 secondi.
+   L'anello che si riempie dice a chi lo sta facendo che sta succedendo qualcosa. */
+.of-logo { position: relative; width: 44px; height: 44px; border-radius: 11px; font-size: 16px; cursor: default;
+  user-select: none; -webkit-user-select: none; touch-action: none; -webkit-touch-callout: none; }
+.of-logo::after { content: ''; position: absolute; inset: -5px; border-radius: 15px; border: 3px solid var(--ft-accent); opacity: 0;
+  clip-path: inset(0 100% 0 0); }
+.of-logo.premuto::after { opacity: 1; animation: riempi 2s linear forwards; }
+@keyframes riempi { to { clip-path: inset(0 0 0 0); } }
+.of-chi { min-width: 0; padding-left: 18px; border-left: 1px solid var(--ft-line); }
+.of-chi h1 { font: 800 clamp(19px, 1.45vw, 24px)/1.15 var(--ft-display); letter-spacing: -.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.of-ruolo { font-size: 13px; font-weight: 500; color: var(--ft-ink-3); }
+.of-testa-dx { gap: 20px; }
+.of-testa-dx .ft-live { font-size: 14px; font-weight: 500; }
+.of-testa-dx .ft-live:empty { display: none; }
+.of-ora { font: 800 clamp(26px, 2vw, 34px)/1 var(--ft-display); letter-spacing: -.8px; color: var(--ft-ink); }
+.ore-cta { flex: none; display: block; margin: 12px 18px 0; padding: 14px 18px; border-radius: var(--ft-r-l); background: var(--ft-accent); color: #fff;
+  text-decoration: none; box-shadow: 0 6px 20px rgba(79, 70, 229, .24); transition: background .15s; }
+.ore-cta:hover { background: var(--ft-accent-hover); }
+.ore-cta .t { font: 800 17px var(--ft-display); letter-spacing: -.2px; } .ore-cta .s { font-size: 13.5px; opacity: .85; }
+.attiva { margin: 48px auto; max-width: 560px; padding: 32px; border-radius: 16px; background: var(--ft-panel); border: 1px solid var(--ft-line);
+  box-shadow: var(--ft-elev-2); text-align: center; }
+.attiva h2 { font: 800 24px var(--ft-display); letter-spacing: -.4px; margin-bottom: 10px; }
+.attiva p { color: var(--ft-ink-2); line-height: 1.5; font-size: 16px; }
+
+/* ── dati vecchi: si deve vedere dall'altra parte dell'officina ── */
+.fuori-linea { flex: none; display: flex; align-items: center; gap: 18px; padding: 14px 24px; background: var(--ft-err); color: #fff; animation: ftIn .22s var(--ft-ease); }
+.fuori-linea .icona { flex: none; width: 52px; height: 52px; border-radius: 50%; background: #fff; color: var(--ft-err); display: grid; place-items: center;
+  font: 900 32px var(--ft-display); }
+.fuori-linea b { display: block; font: 800 clamp(22px, 2.3vw, 34px)/1.1 var(--ft-display); letter-spacing: -.4px; }
+.fuori-linea span { font-size: clamp(14px, 1.2vw, 18px); opacity: .92; }
 
 /* ── corpo: elenco + ordine aperto ── */
 .corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 440px) minmax(0, 1fr); }
-.lista { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
-.cerca-box { padding: 12px 14px 8px; display: grid; gap: 10px; }
+.lista { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ft-line); background: var(--ft-canvas); }
+.cerca-box { padding: 14px 16px 10px; display: grid; gap: 10px; }
 .cerca-w { position: relative; }
-.cerca { width: 100%; height: 56px; border: 2px solid var(--line); border-radius: 14px; padding: 0 52px 0 18px; font: 600 18px 'Inter', sans-serif;
-  background: var(--panel); color: var(--ink); }
-.cerca:focus { outline: none; border-color: var(--acc); }
+.cerca-ico { position: absolute; left: 17px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--ft-ink-4); pointer-events: none;
+  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.cerca { width: 100%; height: 56px; border: 1px solid var(--ft-line); border-radius: 12px; padding: 0 56px 0 48px; font: 500 17px var(--ft-font);
+  background: var(--ft-panel); color: var(--ft-ink); box-shadow: var(--ft-elev-1); outline: 0; transition: border-color .15s, box-shadow .15s; }
+.cerca:focus { border-color: var(--ft-accent); box-shadow: 0 0 0 4px var(--ft-accent-glow); }
+.cerca::placeholder { color: var(--ft-ink-4); }
 .cerca::-webkit-search-cancel-button { display: none; }
-.svuota { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; border: 0; border-radius: 10px; background: var(--line2); font-size: 22px; line-height: 1; color: var(--ink2); }
+.svuota { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 9px; background: var(--ft-line-2);
+  font-size: 22px; line-height: 1; color: var(--ft-ink-2); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { flex: none; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 2px solid var(--line); background: var(--panel); font-weight: 700; font-size: 14.5px; color: var(--ink2);
-  display: inline-flex; align-items: center; gap: 8px; }
-.chip b { font: 800 15px 'Geist', sans-serif; color: var(--ink3); }
-.chip.on { border-color: var(--ink); background: var(--ink); color: #fff; }
-.chip.on b { color: #fff; }
-.chip.cli.on { border-color: var(--acc); background: var(--acc); }
-.meta { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 6px; font-size: 13px; color: var(--ink3); }
-.avviso { margin: 0 14px 8px; padding: 10px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--warn); font-size: 13.5px; font-weight: 600; }
-.elenco { flex: 1; min-height: 0; overflow-y: auto; padding: 0 14px 20px; display: grid; gap: 10px; align-content: start; -webkit-overflow-scrolling: touch; }
-.vuoto { padding: 40px 20px; text-align: center; color: var(--ink3); font-size: 15px; }
+.chip { flex: none; min-height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel);
+  font: 600 15px var(--ft-font); color: var(--ft-ink-2); display: inline-flex; align-items: center; gap: 8px; box-shadow: var(--ft-elev-1);
+  transition: background .15s, border-color .15s, color .15s; }
+.chip b { font: 700 14px var(--ft-display); color: var(--ft-ink-4); }
+.chip.on { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; }
+.chip.on b { color: rgba(255, 255, 255, .7); }
+.chip.zero { opacity: .5; }
+/* i clienti su una riga sola che scorre: l'elenco degli ordini resta alto */
+#clienti { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 2px 16px; }
+#clienti::-webkit-scrollbar { display: none; }
+.chip.cli { min-height: 44px; font-size: 14px; }
+.chip.cli.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); box-shadow: inset 0 0 0 1px var(--ft-accent); }
+.chip.cli.on b { color: var(--ft-accent-ink); }
+.meta { display: flex; justify-content: space-between; align-items: center; padding: 2px 18px 8px;
+  font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ft-ink-3); }
+.elenco { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 16px 24px; display: grid; gap: 10px; align-content: start; -webkit-overflow-scrolling: touch; }
+.vuoto { padding: 48px 20px; text-align: center; color: var(--ft-ink-3); font-size: 15px; }
 
 /* card ordine */
-.ordine { position: relative; display: grid; gap: 8px; padding: 14px 16px 14px 20px; border-radius: 14px; background: var(--panel);
-  border: 2px solid transparent; box-shadow: 0 1px 2px rgba(20,24,26,.06); cursor: pointer; }
-.ordine::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 6px; border-radius: 0 6px 6px 0; background: var(--line); }
-.ordine.scaduto::before, .ordine.oggi::before { background: var(--err); }
-.ordine.presto::before { background: #F79009; }
-.ordine.futuro::before { background: #84ADFF; }
-.ordine.sel { border-color: var(--acc); background: #FAFDFB; }
-.ordine:active { transform: scale(.995); }
+.ordine { position: relative; display: grid; gap: 9px; padding: 14px 16px 14px 22px; border-radius: var(--ft-r-xl); background: var(--ft-panel);
+  border: 1px solid var(--ft-line); box-shadow: var(--ft-elev-1); cursor: pointer;
+  transition: border-color .15s, box-shadow .2s, transform .12s var(--ft-ease); }
+.ordine::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; width: 5px; border-radius: 0 5px 5px 0; background: var(--ft-line); }
+.ordine.scaduto::before, .ordine.oggi::before { background: var(--ft-err-dot); }
+.ordine.presto::before { background: var(--ft-warn-dot); }
+.ordine.futuro::before { background: #CBD2DC; }
+@media (hover: hover) { .ordine:hover { border-color: #CBD2DC; box-shadow: var(--ft-elev-2); } }
+.ordine.sel { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
+.ordine:active { transform: scale(.99); }
 .o-top { display: flex; gap: 12px; align-items: flex-start; }
 .o-cli { min-width: 0; flex: 1; }
-.o-cli .cli { font: 800 19px/1.2 'Geist', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.o-cli .num { font: 600 14px var(--mono); color: var(--ink3); margin-top: 2px; }
+.o-cli .cli { font: 800 19px/1.2 var(--ft-display); letter-spacing: -.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o-cli .num { font: 600 15px var(--ft-mono); color: var(--ft-ink-2); margin-top: 3px; display: flex; align-items: center; gap: 8px; }
 .consegna { text-align: right; flex: none; }
-.consegna .d { font: 800 19px 'Geist', sans-serif; }
-.consegna .e { font-size: 13px; font-weight: 700; color: var(--ink3); }
-.scaduto .consegna .e, .oggi .consegna .e { color: var(--err); }
-.presto .consegna .e { color: var(--warn); }
+.consegna .d { font: 800 22px/1.1 var(--ft-display); letter-spacing: -.5px; }
+.consegna .e { font-size: 13px; font-weight: 600; color: var(--ft-ink-3); margin-top: 2px; }
+.scaduto .consegna .e, .oggi .consegna .e { color: var(--ft-err); }
+.presto .consegna .e { color: var(--ft-warn); }
+.o-lav { display: flex; flex-wrap: wrap; gap: 6px; }
 .o-bot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.tag { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 8px; font-size: 13px; font-weight: 700; background: var(--line2); color: var(--ink2); }
-.tag.lavorabile { background: var(--acc-bg); color: var(--acc-ink); }
-.tag.in-taglio { background: var(--info-bg); color: var(--info); }
-.tag.da-smistare { background: var(--warn-bg); color: var(--warn); }
-.conta { margin-left: auto; font-size: 13px; color: var(--ink3); font-weight: 600; }
+.tag { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 7px; font-size: 13px; font-weight: 600;
+  background: var(--ft-line-2); color: var(--ft-ink-2); border: 1px solid transparent; }
+.tag.lavorabile { background: var(--ft-ok-bg); color: var(--ft-ok); border-color: var(--ft-ok-line); }
+.tag.in-taglio { background: var(--ft-info-bg); color: var(--ft-info); border-color: var(--ft-info-line); }
+.tag.da-smistare, .tag.nota-flag { background: var(--ft-warn-bg); color: var(--ft-warn); border-color: var(--ft-warn-line); }
+.tag.nota-flag { font-weight: 700; }
+.tag.segnalato { background: var(--ft-err-bg); color: var(--ft-err); border-color: var(--ft-err-line); }
+.lav { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 7px; background: var(--ft-accent-bg); color: var(--ft-accent-ink);
+  font-size: 14px; font-weight: 700; }
+.lav.on { background: var(--ft-accent); color: #fff; }
+.lav.solo { background: none; color: var(--ft-ink-4); font-weight: 500; padding-left: 0; }
+.conta { margin-left: auto; font-size: 13px; color: var(--ft-ink-3); font-weight: 600; }
 
 /* ── ordine aperto ── */
-.ordine-aperto { display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
-.oa-vuoto { margin: auto; text-align: center; color: var(--ink3); padding: 40px; }
-.oa-vuoto b { display: block; font: 800 22px 'Geist', sans-serif; color: var(--ink2); margin-bottom: 6px; }
-.oa-testa { padding: 16px 22px 12px; border-bottom: 1px solid var(--line); }
-.oa-r1 { display: flex; align-items: flex-start; gap: 14px; }
-.indietro { display: none; min-height: 48px; padding: 0 16px; border-radius: 12px; border: 2px solid var(--line); background: var(--panel); font-weight: 800; font-size: 15px; }
+.ordine-aperto { display: flex; flex-direction: column; min-height: 0; background: var(--ft-panel); container-type: inline-size; }
+/* aprendo un ordine (o tornando al cartellone) entra in dissolvenza; gli
+   aggiornamenti automatici no: chi sta guardando non deve vedere movimenti */
+.ordine-aperto[data-entra="1"] > * { animation: ftIn .24s var(--ft-ease) both; }
+.oa-testa { padding: 16px 24px 14px; border-bottom: 1px solid var(--ft-line); }
+.oa-r1 { display: flex; align-items: flex-start; gap: 16px; }
+.indietro { min-height: 52px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 15px;
+  display: inline-flex; align-items: center; flex: none; box-shadow: var(--ft-elev-1); }
 .oa-tit { min-width: 0; flex: 1; }
-.oa-tit h2 { font: 800 28px/1.15 'Geist', sans-serif; letter-spacing: -.5px; }
-.oa-tit .num { font: 600 16px var(--mono); color: var(--ink3); margin-top: 3px; }
-.oa-cons { text-align: right; }
-.oa-cons small { display: block; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink3); }
-.oa-cons b { font: 800 24px 'Geist', sans-serif; }
-.oa-cons em { display: block; font-style: normal; font-weight: 700; font-size: 14px; color: var(--ink3); }
-.oa-cons.scaduto em, .oa-cons.oggi em { color: var(--err); } .oa-cons.presto em { color: var(--warn); }
-.oa-r2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
-.nota { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: #FFF8E1; border: 1px solid #F5D98B; font-size: 15px; line-height: 1.4; white-space: pre-wrap; }
-.nota b { display: block; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: #8A6100; margin-bottom: 2px; }
-.schede { display: flex; gap: 8px; padding: 12px 22px; border-bottom: 1px solid var(--line); }
-.scheda { min-height: 52px; padding: 0 20px; border-radius: 13px; border: 2px solid var(--line); background: var(--panel); font-weight: 800; font-size: 16px; color: var(--ink2);
-  display: inline-flex; align-items: center; gap: 9px; }
-.scheda b { font: 800 16px 'Geist', sans-serif; color: var(--ink3); }
-.scheda.on { border-color: var(--ink); background: var(--ink); color: #fff; } .scheda.on b { color: #fff; }
-.scheda:disabled { opacity: .4; }
-.apri-pdf { margin-left: auto; }
+.oa-tit h2 { font: 800 30px/1.12 var(--ft-display); letter-spacing: -.8px; }
+.oa-tit .num { font: 600 19px var(--ft-mono); color: var(--ft-ink-2); margin-top: 4px; }
+.oa-tit .num small { font: 500 13px var(--ft-font); color: var(--ft-ink-4); margin-left: 8px; }
+.oa-cons { text-align: right; flex: none; }
+.oa-cons small { display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ft-ink-3); }
+.oa-cons b { font: 800 28px/1.15 var(--ft-display); letter-spacing: -.6px; }
+.oa-cons em { display: block; font-style: normal; font-weight: 600; font-size: 14px; color: var(--ft-ink-3); }
+.oa-cons.scaduto em, .oa-cons.oggi em { color: var(--ft-err); } .oa-cons.presto em { color: var(--ft-warn); }
+.oa-r2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+/* Le note dell'ufficio sono la prima cosa da leggere: fascia ambra, testo grande */
+.nota { padding: 14px 24px 14px 28px; background: var(--ft-warn-bg); border-bottom: 1px solid var(--ft-warn-line); box-shadow: inset 5px 0 0 var(--ft-warn-dot);
+  font: 600 19px/1.4 var(--ft-font); color: #7A2E0E; white-space: pre-wrap; }
+.nota b { display: block; font: 700 12px var(--ft-font); letter-spacing: .06em; text-transform: uppercase; color: var(--ft-warn); margin-bottom: 3px; }
+.segnala-btn { margin-left: auto; min-height: 50px; padding: 0 20px; border-radius: 10px; border: 1px solid var(--ft-warn-line); background: var(--ft-warn-bg);
+  color: var(--ft-warn); font-weight: 700; font-size: 15.5px; transition: box-shadow .15s, transform .08s; }
+.segnala-btn:hover { box-shadow: 0 6px 18px rgba(245, 158, 11, .2); }
+.segnala-btn:active { transform: translateY(1px); }
+.avvisi-oggi { display: grid; gap: 6px; margin-top: 12px; }
+.avvisi-oggi div { padding: 9px 12px; border-radius: 9px; background: var(--ft-err-bg); border: 1px solid var(--ft-err-line); color: var(--ft-err); font-weight: 600; font-size: 14px; }
+.taglio-ord { display: inline-flex; align-items: center; gap: 10px; margin-left: 6px; font-weight: 600; font-size: 15px; color: var(--ft-ink-2); }
+.barra { flex: none; width: clamp(90px, 12cqi, 220px); height: 10px; border-radius: 5px; background: var(--ft-line-2); overflow: hidden; }
+.barra i { display: block; height: 100%; background: var(--ft-ok-dot); border-radius: 5px; }
+.taglio-ord small { font-weight: 500; font-size: 13px; color: var(--ft-ink-3); }
+.schede { display: flex; align-items: center; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--ft-line); background: var(--ft-well); }
+.scheda { min-height: 50px; padding: 0 20px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 15.5px;
+  color: var(--ft-ink-2); display: inline-flex; align-items: center; gap: 9px; box-shadow: var(--ft-elev-1); transition: background .15s, border-color .15s, color .15s; }
+.scheda b { font: 700 15px var(--ft-display); color: var(--ft-ink-4); }
+.scheda.on { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; } .scheda.on b { color: rgba(255, 255, 255, .7); }
+.scheda:disabled { opacity: .4; cursor: default; }
+.apri-pdf { margin-left: 8px; }
 .oa-corpo { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.caric { padding: 30px; text-align: center; color: var(--ink3); }
+.caric { padding: 40px 30px; text-align: center; color: var(--ft-ink-3); font-size: 16px; }
 
 /* pezzi */
-.gr { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 10px; padding: 10px 22px; background: #F3F5F6; border-bottom: 1px solid var(--line);
-  font: 800 16px 'Geist', sans-serif; }
-.gr span { margin-left: auto; font: 600 13px 'Inter', sans-serif; color: var(--ink3); }
-.pz { display: grid; grid-template-columns: 124px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 22px; border-bottom: 1px solid var(--line2); }
-.pz.con-dis { cursor: pointer; }
-.pz.con-dis:active { background: var(--acc-bg); }
-.pz-img { width: 124px; height: 86px; border-radius: 10px; border: 1px solid var(--line); background: #fff; display: grid; place-items: center; overflow: hidden; }
+.gr { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 10px; padding: 10px 24px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line);
+  font: 800 17px var(--ft-display); letter-spacing: -.2px; }
+.gr span { margin-left: auto; font: 500 13px var(--ft-font); color: var(--ft-ink-3); letter-spacing: 0; }
+.gr.rep { background: var(--ft-accent); border-bottom-color: var(--ft-accent); color: #fff; } .gr.rep span { color: rgba(255, 255, 255, .78); }
+.pz { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 12px 24px; border-bottom: 1px solid var(--ft-line-2); }
+.pz.spento > * { opacity: .5; }   /* sui figli: la riga puo' entrare in sequenza senza scatti */
+.pz-img { width: 150px; height: 104px; border-radius: 10px; border: 1px solid var(--ft-line); background: #fff; display: grid; place-items: center; overflow: hidden; padding: 0;
+  transition: border-color .15s, box-shadow .15s; }
+button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
 .pz-img img { max-width: 92%; max-height: 92%; object-fit: contain; }
-.pz-img.no { font-size: 11px; color: var(--ink4); text-align: center; }
-.pz-cod { font: 700 17px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pz-lav { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
-.pz-lav span { padding: 3px 9px; border-radius: 7px; background: var(--vio-bg); color: var(--vio); font-size: 13px; font-weight: 700; }
-.pz-lav .solo { background: none; color: var(--ink4); font-weight: 600; padding-left: 0; }
-.pz-q { text-align: right; font: 900 30px 'Geist', sans-serif; }
-.pz-q small { font: 700 14px 'Inter', sans-serif; color: var(--ink4); margin-right: 2px; }
+.pz-img.no { font-size: 12px; color: var(--ft-ink-4); text-align: center; background: var(--ft-well); }
+.pz-mat { font: 800 21px/1.15 var(--ft-display); letter-spacing: -.3px; }
+.pz-mat small { font: 500 14px var(--ft-font); color: var(--ft-ink-3); margin-left: 6px; }
+.pz-cod { font: 600 16px var(--ft-mono); color: var(--ft-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.pz-lav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.pz-lav .pieghe { background: var(--ft-ink); color: #fff; }
+.tg { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 7px; font-size: 13.5px; font-weight: 700; border: 1px solid transparent; }
+.tg.tagliato { background: var(--ft-ok-bg); color: var(--ft-ok); border-color: var(--ft-ok-line); }
+.tg.parziale { background: var(--ft-warn-bg); color: var(--ft-warn); border-color: var(--ft-warn-line); }
+.tg.in_lantek { background: var(--ft-info-bg); color: var(--ft-info); border-color: var(--ft-info-line); }
+.tg.da_tagliare { background: var(--ft-line-2); color: var(--ft-ink-2); }
+.pz-az { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.pz-az button { min-height: 48px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 15px;
+  color: var(--ft-ink); box-shadow: var(--ft-elev-1); transition: background .12s, border-color .12s; }
+.pz-az button.d3 { border-color: #C7D2FE; color: var(--ft-accent-ink); background: var(--ft-accent-bg); }
+.pz-az button:active { background: var(--ft-line-2); }
+.pz-q { text-align: right; font: 800 36px/1 var(--ft-display); letter-spacing: -1px; }
+.pz-q small { font: 600 16px var(--ft-font); color: var(--ft-ink-4); margin-right: 2px; letter-spacing: 0; }
+.pz-q em { display: block; margin-top: 3px; font: 500 12.5px var(--ft-font); color: var(--ft-ink-3); font-style: normal; letter-spacing: 0; }
 /* disegni */
-.griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 16px 22px 24px; }
-.dis { display: grid; border-radius: 14px; border: 2px solid var(--line); background: #fff; overflow: hidden; text-align: left; padding: 0; }
-.dis:active { border-color: var(--acc); }
-.dis .im { height: 170px; display: grid; place-items: center; padding: 10px; border-bottom: 1px solid var(--line2); }
+.griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 18px 24px 26px; }
+.dis { display: grid; border-radius: var(--ft-r-xl); border: 1px solid var(--ft-line); background: #fff; overflow: hidden; text-align: left; padding: 0; box-shadow: var(--ft-elev-1); }
+.dis:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
+.dis .im { height: 170px; display: grid; place-items: center; padding: 10px; border-bottom: 1px solid var(--ft-line-2); }
 .dis .im img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.dis .n { padding: 10px 12px; font: 700 14px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dis .n { padding: 10px 12px; font: 600 14px var(--ft-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #FAFBFC; }
+/* pannello largo (TV): disegni dei pezzi piu' grandi, si riconoscono da lontano */
+@container (min-width: 1150px) {
+  .pz { grid-template-columns: 210px minmax(0, 1fr) auto; }
+  .pz-img { width: 210px; height: 140px; }
+}
+@container (max-width: 700px) {
+  .pz { grid-template-columns: 110px minmax(0, 1fr) auto; gap: 12px; padding: 10px 14px; }
+  .pz-img { width: 110px; height: 80px; }
+  .oa-tit h2 { font-size: 24px; }
+}
 
-/* ── visore a schermo pieno: disegno e foglio d'ordine ── */
-.pieno { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: #fff; }
-.pieno .testa { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--ink); color: #fff; }
-.pieno .titolo { flex: 1; min-width: 0; font: 800 18px 'Geist', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pieno .titolo small { font: 600 14px 'Inter', sans-serif; color: #B9C1C4; margin-left: 8px; }
-.chiudi { min-height: 52px; min-width: 120px; padding: 0 20px; border-radius: 13px; border: 0; background: #fff; color: var(--ink); font-weight: 800; font-size: 17px; }
+/* ── cartellone "Cosa c'e' da fare" (nessun ordine aperto) ── */
+.pano { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ft-canvas); color: var(--ft-ink); }
+.pano-testa { flex: none; display: flex; align-items: baseline; gap: 16px; padding: clamp(16px, 1.6vw, 26px) clamp(18px, 2vw, 34px) 8px; }
+.pano-testa h2 { font: 800 clamp(26px, 2.6vw, 44px)/1.05 var(--ft-display); letter-spacing: -1px; }
+.pano-testa h2 em { font-style: normal; color: var(--ft-accent); }
+.pano-testa span { margin-left: auto; font-size: clamp(15px, 1.2vw, 20px); color: var(--ft-ink-3); font-weight: 600; }
+.pano-testa span::first-letter { text-transform: uppercase; }
+.pano-conti { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(8px, .8vw, 14px); padding: 8px clamp(18px, 2vw, 34px) 12px; }
+.conto { padding: clamp(12px, 1vw, 16px) clamp(14px, 1.2vw, 20px); border-radius: var(--ft-r-l); background: var(--ft-panel); border: 1px solid var(--ft-line); box-shadow: var(--ft-elev-1); }
+.conto b { display: block; font: 800 clamp(34px, 3.6vw, 60px)/1 var(--ft-display); letter-spacing: -1.5px; }
+.conto span { display: block; margin-top: 4px; font-size: clamp(14px, 1.15vw, 18px); font-weight: 600; color: var(--ft-ink-3); }
+.conto.rosso { background: var(--ft-err-bg); border-color: var(--ft-err-line); } .conto.rosso b, .conto.rosso span { color: var(--ft-err); }
+.conto.zero b { color: var(--ft-ink-4); }
+.pano-lista { flex: 1; min-height: 0; overflow-y: auto; padding: 4px clamp(18px, 2vw, 34px) 24px; display: grid; gap: clamp(8px, .7vw, 12px); align-content: start; }
+.sez { display: flex; align-items: baseline; gap: 12px; margin-top: clamp(8px, .9vw, 16px); font: 700 clamp(14px, 1.1vw, 18px) var(--ft-font); letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ft-ink-3); }
+.sez.rosso { color: var(--ft-err); }
+.sez span { font-weight: 600; letter-spacing: 0; text-transform: none; }
+.pr { display: grid; grid-template-columns: clamp(118px, 9.5vw, 180px) minmax(0, 1.25fr) minmax(0, 1fr) clamp(160px, 13vw, 250px); gap: clamp(12px, 1.3vw, 24px);
+  align-items: center; padding: clamp(12px, 1.1vw, 20px) clamp(14px, 1.4vw, 24px) clamp(12px, 1.1vw, 20px) clamp(18px, 1.6vw, 28px); border-radius: var(--ft-r-xl);
+  background: var(--ft-panel); border: 1px solid var(--ft-line); box-shadow: inset 5px 0 0 var(--ft-line), var(--ft-elev-1); text-align: left; color: inherit; width: 100%;
+  transition: border-color .15s, box-shadow .2s, background .12s; }
+@media (hover: hover) { .pr:hover { border-color: #CBD2DC; } }
+.pr:active { background: var(--ft-hover); }
+.pr.tardi { box-shadow: inset 6px 0 0 var(--ft-err-dot), var(--ft-elev-1); border-color: var(--ft-err-line); background: #FFFCFB; }
+.pr.oggi { box-shadow: inset 6px 0 0 var(--ft-warn-dot), var(--ft-elev-1); }
+.pr-data b { display: block; font: 800 clamp(28px, 2.5vw, 44px)/1 var(--ft-display); letter-spacing: -1px; }
+.pr-data small { display: block; margin-top: 5px; font-size: clamp(14px, 1.05vw, 18px); font-weight: 600; color: var(--ft-ink-3); }
+.tardi .pr-data small { color: var(--ft-err); }
+.oggi .pr-data small { color: var(--ft-warn); }
+.pr-cli { min-width: 0; }
+.pr-cli b { display: block; font: 800 clamp(22px, 1.9vw, 34px)/1.15 var(--ft-display); letter-spacing: -.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-cli small { display: flex; align-items: center; gap: 10px; margin-top: 4px; font: 600 clamp(16px, 1.2vw, 21px) var(--ft-mono); color: var(--ft-ink-2); }
+.pr-cli .notina { font: 700 clamp(12px, .9vw, 14px) var(--ft-font); padding: 2px 8px; border-radius: 6px; background: var(--ft-warn-bg); color: var(--ft-warn);
+  border: 1px solid var(--ft-warn-line); letter-spacing: .04em; }
+.pr-lav { display: flex; flex-wrap: wrap; gap: 6px; }
+.pr-lav span { padding: 4px 10px; border-radius: 7px; background: var(--ft-accent-bg); color: var(--ft-accent-ink); font-size: clamp(14px, 1.1vw, 18px); font-weight: 700; }
+.pr-lav span.on { background: var(--ft-accent); color: #fff; }
+.pr-lav span.solo { background: none; color: var(--ft-ink-4); font-weight: 500; padding-left: 0; }
+.pr-taglio { font-size: clamp(14px, 1.05vw, 18px); font-weight: 600; color: var(--ft-ink-2); }
+.pr-taglio .seg { display: flex; gap: 4px; margin-bottom: 7px; }
+.pr-taglio .seg i { flex: 1; height: 10px; border-radius: 3px; background: var(--ft-line); }
+.pr-taglio .seg i.f { background: var(--ft-ok-dot); }
+.pr-taglio .seg i.l { background: var(--ft-info-dot); }
+.pr-taglio.tagliato { color: var(--ft-ok); } .pr-taglio.in_lantek { color: var(--ft-info); }
+.pano-vuoto { margin: auto; text-align: center; color: var(--ft-ink-3); font-size: clamp(18px, 1.6vw, 24px); padding: 40px; }
+.pano-vuoto b { display: block; font: 800 clamp(28px, 2.6vw, 42px) var(--ft-display); letter-spacing: -.8px; color: var(--ft-ink); margin-bottom: 8px; }
+.pano-piede { flex: none; padding: 8px clamp(18px, 2vw, 34px) 12px; font-size: clamp(13px, 1vw, 16px); color: var(--ft-ink-3); }
+/* pannello stretto (tablet 1280): data e cliente sopra, lavorazioni e taglio sotto */
+@container (max-width: 980px) {
+  .pr { grid-template-columns: clamp(110px, 15cqi, 150px) minmax(0, 1fr) minmax(150px, 30cqi); grid-template-areas: 'data cli taglio' 'data lav taglio'; row-gap: 8px; }
+  .pr-data { grid-area: data; } .pr-cli { grid-area: cli; } .pr-lav { grid-area: lav; } .pr-taglio { grid-area: taglio; }
+}
+
+/* ── visori a schermo pieno: disegno, foglio d'ordine, 3D ── */
+.pieno { position: fixed; inset: 0; z-index: 1500; display: flex; flex-direction: column; background: var(--ft-panel); animation: ftFade .18s ease-out; }
+.pieno .testa { flex: none; display: flex; align-items: center; gap: 10px; min-height: 72px; padding: 10px 16px 10px 22px; background: var(--ft-panel);
+  border-bottom: 1px solid var(--ft-line); }
+.pieno .titolo { flex: 1; min-width: 0; font: 800 20px var(--ft-display); letter-spacing: -.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pieno .titolo small { font: 500 14px var(--ft-font); color: var(--ft-ink-3); margin-left: 10px; letter-spacing: 0; }
+.chiudi { min-height: 52px; min-width: 120px; padding: 0 22px; border-radius: 10px; border: 1px solid var(--ft-ink); background: var(--ft-ink); color: #fff;
+  font-weight: 700; font-size: 16px; transition: background .15s, box-shadow .15s; }
+.chiudi:hover { background: #1E293B; box-shadow: 0 6px 18px rgba(15, 23, 42, .18); }
 .pieno iframe { flex: 1; width: 100%; border: 0; }
-.vis-area { flex: 1; min-height: 0; position: relative; overflow: auto; display: grid; place-items: center; background: #fff; touch-action: pan-x pan-y; }
-.vis-area img { max-width: 96%; max-height: 96%; object-fit: contain; transition: none; }
-.vis-area.zoom { display: block; }
-.vis-area.zoom img { max-width: none; max-height: none; width: 260%; }
-.freccia { position: absolute; top: 50%; transform: translateY(-50%); width: 64px; height: 96px; border-radius: 16px; border: 0; background: rgba(20,24,26,.75);
-  color: #fff; font-size: 34px; z-index: 2; }
-.freccia.sx { left: 12px; } .freccia.dx { right: 12px; }
+/* Il disegno si muove con le dita: due dita ingrandiscono, uno sposta,
+   doppio tocco ingrandisce li' (o torna intero). touch-action: none perche'
+   il browser non zoomi la pagina intera al posto del disegno. */
+.vis-area { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #fff; touch-action: none; user-select: none; -webkit-user-select: none; }
+.vis-area img { position: absolute; left: 0; top: 0; max-width: none; max-height: none; transform-origin: 0 0; pointer-events: none; -webkit-user-drag: none; }
+.freccia { position: absolute; top: 50%; transform: translateY(-50%); width: 64px; height: 96px; padding: 0; border-radius: 14px; border: 0; background: rgba(11, 18, 32, .72);
+  color: #fff; font-size: 34px; z-index: 2; transition: opacity .15s, background .15s; }
+.freccia:active { background: rgba(11, 18, 32, .88); }
+.freccia.sx { left: 14px; } .freccia.dx { right: 14px; }
 .freccia:disabled { opacity: .15; }
-.zoom-btn { min-height: 52px; padding: 0 18px; border-radius: 13px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: #fff; font-weight: 800; font-size: 15px; }
-.solalettura { flex: none; padding: 6px 18px; font-size: 12px; color: var(--ink3); background: var(--panel); border-top: 1px solid var(--line); }
+#visore.zoomato .freccia { display: none; }   /* ingrandito: le frecce coprirebbero il disegno */
+.zoom-btn { min-height: 52px; min-width: 56px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700;
+  font-size: 17px; box-shadow: var(--ft-elev-1); }
+.zoom-btn:active { background: var(--ft-line-2); }
+.vis-aiuto { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 9px 16px; border-radius: 20px; background: rgba(11, 18, 32, .72); color: #fff;
+  font-size: 14px; font-weight: 500; pointer-events: none; z-index: 2; white-space: nowrap; }
+.d3-msg { margin: auto; max-width: 560px; padding: 30px; text-align: center; color: var(--ft-ink-2); font-size: 18px; line-height: 1.45; }
+.d3-msg b { display: block; font: 800 24px var(--ft-display); letter-spacing: -.4px; color: var(--ft-ink); margin-bottom: 8px; }
+.d3-msg button { margin-top: 18px; min-height: 52px; padding: 0 22px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700;
+  font-size: 16px; box-shadow: var(--ft-elev-1); }
+.giro { width: 42px; height: 42px; margin: 0 auto 14px; border: 4px solid var(--ft-line); border-top-color: var(--ft-accent); border-radius: 50%; animation: gira .8s linear infinite; }
+@keyframes gira { to { transform: rotate(360deg); } }
+
+/* ── finestre dentro la pagina (niente confirm(): sul tablet in chiosco non si vede bene) ── */
+.velo { position: fixed; inset: 0; z-index: 1600; display: grid; place-items: center; padding: 24px; background: rgba(11, 18, 32, .42);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: ftFade .16s ease-out; }
+.dlg { width: min(720px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; border-radius: 18px; background: var(--ft-panel); padding: 26px 28px;
+  box-shadow: var(--ft-elev-3); animation: ftPop .22s var(--ft-ease); }
+.dlg h3 { font: 800 26px/1.15 var(--ft-display); letter-spacing: -.5px; }
+.dlg .sotto { margin-top: 6px; color: var(--ft-ink-3); font-size: 15px; }
+.dlg .tit2 { margin: 20px 0 8px; font-weight: 700; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--ft-ink-3); }
+.scelte { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.scelta { min-height: 84px; padding: 14px 18px; border-radius: 14px; border: 1px solid var(--ft-line); background: var(--ft-panel); font: 700 18px/1.25 var(--ft-display);
+  letter-spacing: -.2px; text-align: left; box-shadow: var(--ft-elev-1); transition: border-color .15s, background .15s, color .15s, box-shadow .15s; }
+.scelta.on { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; box-shadow: var(--ft-elev-2); }
+.pezzi-sc { display: flex; flex-wrap: wrap; gap: 8px; max-height: 168px; overflow-y: auto; }
+.pezzi-sc button { min-height: 48px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font: 600 15px var(--ft-mono); }
+.pezzi-sc button.on { border-color: var(--ft-accent); background: var(--ft-accent); color: #fff; }
+.dlg textarea { width: 100%; min-height: 84px; padding: 12px 14px; border: 1px solid var(--ft-line); border-radius: 12px; font: 500 18px/1.35 var(--ft-font); color: var(--ft-ink);
+  resize: none; outline: 0; transition: border-color .15s, box-shadow .15s; }
+.dlg textarea:focus { border-color: var(--ft-accent); box-shadow: 0 0 0 4px var(--ft-accent-glow); }
+.dlg textarea::placeholder { color: var(--ft-ink-4); }
+.dlg .conta-car { text-align: right; font-size: 12px; color: var(--ft-ink-4); margin-top: 3px; }
+.dlg .errore { margin-top: 12px; padding: 11px 14px; border-radius: 10px; background: var(--ft-err-bg); border: 1px solid var(--ft-err-line); color: var(--ft-err); font-weight: 600; }
+.dlg-az { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+.dlg-az button { min-height: 56px; padding: 0 26px; border-radius: 12px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 16.5px;
+  transition: background .15s, box-shadow .15s; }
+.dlg-az .si { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; }
+.dlg-az .si:not(:disabled):hover { background: #1E293B; box-shadow: 0 6px 18px rgba(15, 23, 42, .18); }
+.dlg-az .rosso { border-color: var(--ft-err); background: var(--ft-err); color: #fff; }
+.dlg-az button:disabled { opacity: .45; cursor: not-allowed; }
+/* inviato: il cerchio verde entra e la spunta si disegna */
+.fatto { text-align: center; padding: 26px 10px 10px; }
+.fatto .ok { width: 96px; height: 96px; margin: 0 auto 18px; border-radius: 50%; background: var(--ft-ok-dot); display: grid; place-items: center;
+  animation: ftPop .3s var(--ft-ease) both, ftOk 1.4s ease-out .2s; }
+.fatto .ok svg { width: 52px; height: 52px; }
+.fatto .ok path { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40;
+  animation: ftTraccia .4s var(--ft-ease) .18s forwards; }
+.fatto b { display: block; font: 800 30px var(--ft-display); letter-spacing: -.6px; }
+.fatto p { margin-top: 6px; color: var(--ft-ink-2); font-size: 17px; }
+
+.solalettura { flex: none; padding: 7px 18px; font-size: 12.5px; color: var(--ft-ink-3); background: var(--ft-panel); border-top: 1px solid var(--ft-line); }
 
 /* tablet in verticale o stretto: elenco e ordine uno alla volta */
 @media (max-width: 899px) {
   .corpo { grid-template-columns: minmax(0, 1fr); }
   .corpo.dettaglio .lista { display: none; }
   .corpo:not(.dettaglio) .ordine-aperto { display: none; }
-  .indietro { display: inline-flex; align-items: center; }
-  .oa-tit h2 { font-size: 23px; }
+  .scelte { grid-template-columns: 1fr; }
+  .of-testa-dx .ft-live { display: none; }
 }
+@media (min-width: 900px) { .indietro { display: none; } }
 </style>
 </head>
-<body>
+<body class="ft ft-touch">
 
-<header>
-  <div class="logo">LS</div>
-  <div class="chi">
-    <h1 id="hello">Ordini in officina</h1>
-    <div class="ruolo" id="role">Reparto</div>
+<header class="ft-topbar of-topbar">
+  <div class="ft-brand">
+    <div class="ft-logo of-logo" id="logo" title="Tieni premuto per uscire">LS</div>
+    <span>
+      <div class="ft-brand-name">FerroTrack</div>
+      <div class="ft-brand-area">Officina</div>
+    </span>
   </div>
-  <div class="testa-dx">
-    <span id="aggiornato">—</span>
-    <button class="tbtn" onclick="carica(true)">Aggiorna</button>
-    <span class="ora" id="ora"></span>
-    <button class="tbtn" id="btn-esci" onclick="logout()" hidden>Esci</button>
+  <div class="of-chi">
+    <h1 id="hello">Ordini in officina</h1>
+    <div class="of-ruolo" id="role">Reparto</div>
+  </div>
+  <div class="ft-topbar-end of-testa-dx">
+    <span class="ft-live" id="aggiornato"></span>
+    <span class="of-ora" id="ora"></span>
   </div>
 </header>
+
+<!-- Dati vecchi o server irraggiungibile: grande, rosso, da lontano. Un tablet
+     che mostra ordini di ieri come se fossero di adesso fa piu' danni di uno spento. -->
+<div class="fuori-linea" id="fuori-linea" role="alert" hidden>
+  <div class="icona">!</div>
+  <div><b id="fl-titolo">Non aggiornato</b><span id="fl-testo">Controlla la rete: riprovo da solo.</span></div>
+</div>
 
 <!-- Il richiamo alle ore compare SOLO se un operaio ha fatto login da un PC.
      Sul tablet fisso di reparto no: le ore si registrano alla timbratrice. -->
@@ -198,31 +393,29 @@ header { flex: none; display: flex; align-items: center; gap: 14px; padding: 10p
 
 <!-- Schermata di abilitazione, mostrata una volta sola su un tablet nuovo -->
 <div class="attiva" id="attiva" hidden>
-  <h2>Questo tablet non è ancora abilitato</h2>
-  <p>Chiedi in ufficio di aprire <b>Admin → Soglie sistema → Tablet di officina</b>,
-     scegliere <b>Sola consultazione ordini</b> e inquadrare il QR con questo tablet.</p>
+  <h2>Questo tablet non è ancora registrato</h2>
+  <p>Apri FerroTrack dalla pagina iniziale e scegli <b>Tablet officina</b>:
+     serve il PIN dell’amministratore.</p>
 </div>
 
 <main class="corpo" id="corpo">
   <section class="lista" aria-label="Ordini">
     <div class="cerca-box">
       <div class="cerca-w">
+        <svg class="cerca-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         <input class="cerca" id="cerca" type="search" inputmode="search" placeholder="Cerca cliente o numero d'ordine" autocomplete="off">
         <button class="svuota" id="svuota" onclick="svuotaCerca()" aria-label="Svuota la ricerca" hidden>×</button>
       </div>
-      <div class="chips" id="filtri"></div>
+      <div class="chips" id="filtri" aria-label="Reparto"></div>
       <div class="chips" id="clienti"></div>
     </div>
     <div class="meta"><span id="conteggio">—</span></div>
-    <div id="avvisi"></div>
     <div class="elenco" id="elenco"></div>
   </section>
-  <section class="ordine-aperto" id="aperto" aria-live="polite">
-    <div class="oa-vuoto"><b>Tocca un ordine</b>Vedi i pezzi da fare, i disegni e il foglio d'ordine.</div>
-  </section>
+  <section class="ordine-aperto" id="aperto" aria-live="polite"></section>
 </main>
 
-<div class="solalettura">Sola consultazione: qui non si registra niente. Le ore si segnano alla timbratrice.</div>
+<div class="solalettura">Qui si consulta: le ore si segnano alla timbratrice. Un problema su un ordine? Aprilo e tocca «Segnala un problema».</div>
 
 <!-- Il foglio d'ordine a schermo pieno, dentro la pagina: una scheda nuova
      porterebbe in un visore di sistema da cui non si torna agli ordini. -->
@@ -234,18 +427,48 @@ header { flex: none; display: flex; align-items: center; gap: 14px; padding: 10p
   <iframe id="foglio-pdf" title="Foglio d'ordine"></iframe>
 </div>
 
-<!-- Un disegno a schermo pieno: tocca per ingrandire, frecce o scorri per il prossimo -->
+<!-- Un disegno a schermo pieno: due dita per ingrandire, doppio tocco, frecce o scorri per il prossimo -->
 <div class="pieno" id="visore" hidden>
   <div class="testa">
     <div class="titolo" id="vis-titolo"></div>
+    <button class="zoom-btn" onclick="zoomPasso(1 / 1.6)" aria-label="Rimpicciolisci">−</button>
+    <button class="zoom-btn" onclick="zoomPasso(1.6)" aria-label="Ingrandisci">+</button>
     <button class="zoom-btn" id="vis-zoom" onclick="zoomDisegno()">Ingrandisci</button>
     <button class="chiudi" onclick="chiudiVisore()">Chiudi</button>
   </div>
-  <div class="vis-area" id="vis-area" onclick="zoomDisegno()">
+  <div class="vis-area" id="vis-area">
     <img id="vis-img" alt="">
+    <div class="vis-aiuto" id="vis-aiuto">Due dita per ingrandire · doppio tocco · scorri per il prossimo</div>
   </div>
-  <button class="freccia sx" id="vis-prec" onclick="event.stopPropagation(); spostaDisegno(-1)" aria-label="Disegno precedente">‹</button>
-  <button class="freccia dx" id="vis-succ" onclick="event.stopPropagation(); spostaDisegno(1)" aria-label="Disegno successivo">›</button>
+  <button class="freccia sx" id="vis-prec" onclick="spostaDisegno(-1)" aria-label="Disegno precedente">‹</button>
+  <button class="freccia dx" id="vis-succ" onclick="spostaDisegno(1)" aria-label="Disegno successivo">›</button>
+</div>
+
+<!-- Il pezzo piegato o l'assieme in 3D, dentro la pagina come il disegno -->
+<div class="pieno" id="vis3d" hidden>
+  <div class="testa">
+    <div class="titolo" id="d3-titolo"></div>
+    <button class="chiudi" onclick="chiudi3d()">Chiudi</button>
+  </div>
+  <div class="d3-msg" id="d3-msg"></div>
+  <iframe id="d3-frame" title="Vista 3D" hidden></iframe>
+</div>
+
+<!-- Uscita dal chiosco: si arriva solo tenendo premuto il logo -->
+<div class="velo" id="dlg-esci" hidden>
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="esci-t">
+    <h3 id="esci-t">Cambiare cosa fa questo tablet?</h3>
+    <p class="sotto">Serve solo per la manutenzione e vuole il PIN dell’amministratore.</p>
+    <div class="dlg-az">
+      <button onclick="chiudiEsci()">Annulla</button>
+      <button class="rosso" onclick="logout()">Continua</button>
+    </div>
+  </div>
+</div>
+
+<!-- Segnala un problema: scelte grandi, nota facoltativa, pezzo facoltativo -->
+<div class="velo" id="dlg-segnala" hidden>
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="sg-t" id="sg-box"></div>
 </div>
 
 <script>
@@ -253,55 +476,56 @@ const API = window.location.origin;
 let ORDINI = [];
 let APERTO = null;          // id dell'ordine aperto: resta fra un aggiornamento e l'altro
 let SCHEDA = null;          // 'pezzi' | 'disegni'
-let FILTRO = 'tutti';       // tutti | lavorabili | taglio | smistare
+let REPARTO = 'tutti';      // tutti | piega | saldatura | filettatura | montaggio
 let CLIENTE = '';           // filtro per cliente ('' = tutti)
 let ULTIMO_OK = null;
 let ERRORE_RETE = false;
-const CACHE = {};           // per ordine: {distinta, disegni}
+let FIRMA_APERTO = '';      // per non ridisegnare l'ordine aperto se non e' cambiato
+let NOTI = null;            // id degli ordini gia' visti: i nuovi si illuminano (null = primo caricamento)
+let ENTRATA = false;        // il prossimo disegno dell'ordine aperto entra in dissolvenza
+
+// I reparti dell'officina: le chiavi arrivano gia' calcolate dal server
+// (/api/officina/tablet, backend/tablet_officina.py).
+const REPARTI = [['piega', 'Piega'], ['saldatura', 'Saldatura'], ['filettatura', 'Filettatura e svasatura'], ['montaggio', 'Montaggio']];
+const DA_FARE = { piega: 'Da piegare', saldatura: 'Da saldare', filettatura: 'Da filettare e svasare', montaggio: 'Da montare' };
+
+// Dopo 2 minuti senza tocchi il tablet torna al cartellone. ?inattivo_s=N lo
+// accorcia (solo per le prove: nessuno lo usa in officina).
+let INATTIVO_MS = 120000;
+const VECCHIO_MS = 3 * 60000;   // dati piu' vecchi di cosi': fascia rossa
+let ULTIMO_TOCCO = Date.now();
 
 /* ---------- avvio ----------
-   Due modi di aprire questa pagina:
-   - TABLET DI REPARTO: abilitato una volta con ?token=..., nessun login, nessuna
-     azione, solo gli ordini. E' il caso dei tablet appesi in officina.
-   - OPERAIO DA PC: e' entrato col suo nome, quindi vede anche il richiamo alle
-     ore e il pulsante Esci. */
-let TOKEN = null;
+   Chi e' questo schermo lo dice il server (ft-accesso.js):
+   - TABLET OFFICINA registrato: nessun login, nessuna azione, solo gli ordini;
+   - aperto da un PC d'ufficio o dal laser: stessa vista;
+   - periodo di passaggio: la postazione scelta col vecchio ingresso.
+   Il vecchio indirizzo con ?token=... lo adotta ft-accesso.js (diventa il
+   cookie del dispositivo). Si esce solo tenendo premuto il logo: e' un
+   chiosco, e cambiare cosa fa il tablet vuole il PIN dell'amministratore. */
 let UTENTE = {};
 
-function avvio() {
+async function avvio() {
   const url = new URL(window.location.href);
-  const daUrl = url.searchParams.get('token');
-  if (daUrl) {
-    try { localStorage.setItem('reparto_device_token', daUrl); } catch (_) {}
-    url.searchParams.delete('token');          // via dalla barra: non resta in cronologia
-    history.replaceState(null, '', url.toString());
-  }
-  try { TOKEN = localStorage.getItem('reparto_device_token'); } catch (_) { TOKEN = null; }
-  try { UTENTE = JSON.parse(localStorage.getItem('currentUser') || '{}'); } catch (_) { UTENTE = {}; }
-  try { FILTRO = sessionStorage.getItem('off_filtro') || 'tutti'; } catch (_) {}
+  const s = Number(url.searchParams.get('inattivo_s'));
+  if (s >= 3) INATTIVO_MS = s * 1000;
+  // Il reparto scelto resta sul tablet (quello della piega mostra la piega)
+  try { REPARTO = localStorage.getItem('off_reparto') || 'tutti'; } catch (_) {}
+  if (!REPARTI.some(r => r[0] === REPARTO)) REPARTO = 'tutti';
 
-  if (TOKEN) { avvioTablet(); return; }
-  if (UTENTE.id) { avvioPersona(); return; }
-  window.location.href = '/login.html';
-}
-
-async function avvioTablet() {
-  try {
-    const r = await fetch(`${API}/api/ore/dispositivo`, { headers: { 'X-Device-Token': TOKEN } });
-    if (r.status === 401 || r.status === 403) {   // token revocato o scaduto
-      try { localStorage.removeItem('reparto_device_token'); } catch (_) {}
-      TOKEN = null;
-      if (UTENTE.id) { avvioPersona(); return; }
-      document.getElementById('attiva').hidden = false;
-      document.getElementById('corpo').hidden = true;
-      return;
-    }
-    const d = await r.json();
-    document.getElementById('role').textContent = d.dispositivo || 'Reparto';
-  } catch (_) {
-    document.getElementById('role').textContent = 'Reparto';   // server giu': si mostrano i dati in cache
+  const io = await FTA.pronto;
+  if (!io) { partiElenco(); return; }            // server giu': si riprova da soli
+  if (io.registrato) {
+    document.getElementById('role').textContent = (io.dispositivo && io.dispositivo.nome) || io.stazione_nome || 'Reparto';
+    if (io.persona) UTENTE = { name: io.persona.nome };
+    partiElenco();
+    return;
   }
-  partiElenco();
+  if (io.vecchio) {
+    try { UTENTE = JSON.parse(localStorage.getItem('currentUser') || '{}'); } catch (_) { UTENTE = {}; }
+    avvioPersona();
+  }
+  // altrimenti ft-accesso.js porta alla pagina iniziale
 }
 
 function avvioPersona() {
@@ -311,69 +535,123 @@ function avvioPersona() {
   document.getElementById('hello').textContent = eUnaPostazione ? 'Ordini in officina' : 'Ciao ' + (UTENTE.name || '').split(' ')[0];
   document.getElementById('role').textContent = eUnaPostazione ? (UTENTE.name || 'Reparto') : (UTENTE.role || 'Operaio');
   document.getElementById('ore-cta').hidden = eUnaPostazione;
-  document.getElementById('btn-esci').hidden = false;
   partiElenco();
 }
 
+/** Intestazioni delle richieste: nessuna identita', la sa il server. */
+function intestazioni(extra) {
+  return Object.assign({}, extra || {});
+}
+
+let PARTITO = false;
 function partiElenco() {
+  if (PARTITO) return;
+  PARTITO = true;
   const cerca = document.getElementById('cerca');
   cerca.addEventListener('input', () => { document.getElementById('svuota').hidden = !cerca.value; disegna(); });
-  carica(false);
-  setInterval(() => carica(false), 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) carica(false); });
-  orologio(); setInterval(orologio, 20000);
+  mostraPanoramica();
+  carica();
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    carica(); tieniAcceso();
+  });
+  orologio(); setInterval(orologio, 10000);
+  // ogni tocco, tasto o rotella rimanda il ritorno al cartellone
+  ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev =>
+    document.addEventListener(ev, () => { ULTIMO_TOCCO = Date.now(); }, { capture: true, passive: true }));
+  setInterval(controllaInattivita, 2000);
+  tieniAcceso();
+  pressioneLunga();
+  preparaVisore();
   // tasti fisici / tastiera: frecce nel visore, Esc chiude
   document.addEventListener('keydown', e => {
     if (!document.getElementById('visore').hidden) {
       if (e.key === 'ArrowLeft') spostaDisegno(-1);
       if (e.key === 'ArrowRight') spostaDisegno(1);
       if (e.key === 'Escape') chiudiVisore();
-    } else if (!document.getElementById('foglio').hidden && e.key === 'Escape') chiudiFoglio();
+    } else if (e.key === 'Escape') {
+      if (!document.getElementById('foglio').hidden) chiudiFoglio();
+      else if (!document.getElementById('vis3d').hidden) chiudi3d();
+      else if (!document.getElementById('dlg-segnala').hidden) chiudiSegnala();
+      else if (!document.getElementById('dlg-esci').hidden) chiudiEsci();
+    }
   });
-  // scorrimento col dito nel visore: a sinistra il prossimo, a destra il precedente
-  let x0 = null;
-  const area = document.getElementById('vis-area');
-  area.addEventListener('touchstart', e => { x0 = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
-  area.addEventListener('touchend', e => {
-    if (x0 == null || area.classList.contains('zoom')) return;
-    const dx = e.changedTouches[0].clientX - x0;
-    if (Math.abs(dx) > 70) spostaDisegno(dx < 0 ? 1 : -1);
-    x0 = null;
-  }, { passive: true });
 }
 function orologio() {
   document.getElementById('ora').textContent = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  aggiornaFuoriLinea();
+}
+
+/* ---------- schermo sempre acceso ----------
+   Wake Lock: il browser lo concede solo a pagina visibile (e in https o su
+   localhost) e lo toglie quando la pagina si nasconde, quindi si richiede a
+   ogni ritorno. Se non c'e' o lo rifiuta, pazienza: decide il tablet. */
+let WAKE = null;
+async function tieniAcceso() {
+  try {
+    if (!('wakeLock' in navigator) || document.hidden || (WAKE && !WAKE.released)) return;
+    WAKE = await navigator.wakeLock.request('screen');
+  } catch (_) { WAKE = null; }
 }
 
 /* ---------- dati ---------- */
-async function carica(manuale) {
+let TIMER_CARICA = null;
+async function carica() {
+  clearTimeout(TIMER_CARICA);
   try {
-    const r = await fetch(`${API}/api/orders?aperti=1`, { cache: 'no-store' });
+    const r = await fetch(`${API}/api/officina/tablet`, { cache: 'no-store', headers: intestazioni() });
+    if (r.status === 401 || r.status === 403) return;   // ci pensa ft-accesso.js
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const dati = await r.json();
-    // Solo gli ordini ancora APERTI: quelli che l'ufficio ha gia' dichiarato
-    // completati non devono restare in bacheca come se fossero da fare.
-    ORDINI = (Array.isArray(dati) ? dati : (dati.orders || []))
-      .filter(o => (o.fase ? o.fase === 'aperto' : !['CHIUSO', 'SPEDITO', 'ARCHIVIATO', 'DA_FATTURARE'].includes(o.status)));
+    ORDINI = dati.ordini || [];
     ERRORE_RETE = false;
     ULTIMO_OK = new Date();
-    if (manuale) Object.keys(CACHE).forEach(k => delete CACHE[k]);
   } catch (e) {
     ERRORE_RETE = true;   // non si svuota la lista: meglio i dati di poco fa che una pagina bianca
   }
+  // Primo elenco: entra in sequenza. Dopo: gli ordini appena arrivati si illuminano.
+  const primo = !ERRORE_RETE && NOTI === null;
+  const nuovi = !ERRORE_RETE && NOTI ? ORDINI.filter(x => !NOTI.has(x.id)).map(x => x.id) : [];
+  if (!ERRORE_RETE) NOTI = new Set(ORDINI.map(x => x.id));
   disegna();
   const o = ORDINI.find(x => x.id === APERTO);
-  if (o && manuale) mostraOrdine(o);
+  if (o) mostraOrdine(o, false); else if (APERTO) mostraPanoramica(); else disegnaPanoramica();
+  aggiornaFuoriLinea();
+  if (primo) {
+    FT.sequenza(document.getElementById('elenco'));
+    FT.sequenza(document.querySelector('#pano .pano-lista'));
+  }
+  nuovi.forEach(id => document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`).forEach(el => FT.evidenzia(el)));
+  // ogni minuto; se il server non risponde si riprova piu' spesso
+  TIMER_CARICA = setTimeout(carica, ERRORE_RETE ? 15000 : 60000);
 }
-async function leggi(url) {
-  try { const r = await fetch(url, { cache: 'no-store' }); return r.ok ? await r.json() : null; } catch (_) { return null; }
+
+function aggiornaFuoriLinea() {
+  const ora = Date.now();
+  const eta = ULTIMO_OK ? ora - ULTIMO_OK.getTime() : null;
+  const vecchio = ERRORE_RETE || (eta != null && eta > VECCHIO_MS);
+  const box = document.getElementById('fuori-linea');
+  box.hidden = !vecchio || !PARTITO;
+  if (vecchio) {
+    const min = eta != null ? Math.max(1, Math.floor(eta / 60000)) : null;
+    document.getElementById('fl-titolo').textContent = min == null
+      ? 'Nessun dato: il server non risponde — controlla la rete'
+      : `Non aggiornato da ${min} ${min === 1 ? 'minuto' : 'minuti'} — controlla la rete`;
+    document.getElementById('fl-testo').textContent = ULTIMO_OK
+      ? `Quello che vedi è com'era alle ${hhmm(ULTIMO_OK)}. Riprovo da solo.`
+      : 'Riprovo da solo ogni 15 secondi.';
+  }
+  const agg = document.getElementById('aggiornato');
+  agg.textContent = ULTIMO_OK ? 'aggiornato alle ' + hhmm(ULTIMO_OK) : '';
+  agg.classList.toggle('off', vecchio);
 }
 
 /* ---------- aiuti ---------- */
-function esc(t) {
-  return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-function numero(o) { return o.numero_ordine_cliente || o.numero_ordine || o.id.slice(0, 8); }
+const esc = t => FT.esc(t);
+const hhmm = d => d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+/** Il numero che conosce l'officina: quello dell'ordine del cliente (1252),
+    come al laser. Il server lo mette gia' in o.numero. */
+function numero(o) { return o.numero || o.numero_ordine_cliente || o.numero_ordine || o.id.slice(0, 8); }
 function giorniA(iso) {
   if (!iso) return null;
   const [a, m, g] = String(iso).slice(0, 10).split('-').map(Number);
@@ -394,37 +672,89 @@ function dataBreve(iso, anno) {
   const [a, m, g] = String(iso).slice(0, 10).split('-');
   return anno ? `${g}/${m}/${a}` : `${g}/${m}`;
 }
-/** A che punto e' l'ordine rispetto al laser (quello che serve all'officina:
-    si puo' gia' lavorare o no). */
+/** A che punto e' l'ordine rispetto al laser: un'informazione, non piu' il
+    filtro principale (quello e' il reparto). */
 function statoLaser(o) {
-  if (o.taglio_completato) return { k: 'lavorabili', html: '<span class="tag lavorabile">Lavorabile · tagliato</span>' };
-  if (o.taglio_richiesto === false) return { k: 'lavorabili', html: '<span class="tag lavorabile">Lavorabile · non passa dal laser</span>' };
-  if (o.taglio_richiesto === true) return { k: 'taglio', html: `<span class="tag in-taglio">In taglio${o.importato_lantek_il ? ' · in Lantek' : ''}</span>` };
-  return { k: 'smistare', html: '<span class="tag da-smistare">Da smistare</span>' };
+  if (o.taglio_completato) return '<span class="tag lavorabile">Lavorabile · tagliato</span>';
+  if (o.taglio_richiesto === false) return '<span class="tag lavorabile">Lavorabile · non passa dal laser</span>';
+  if (o.taglio_richiesto === true) return `<span class="tag in-taglio">In taglio${o.importato_lantek_il ? ' · in Lantek' : ''}</span>`;
+  return '<span class="tag da-smistare">Da smistare</span>';
 }
-function testoLavorazione(l) {
-  if (l == null) return '';
-  if (typeof l !== 'object') return String(l);
-  const nome = l.nome || l.tipo || l.descrizione || l.label || '';
-  const n = l.quantita != null ? l.quantita : (l.n != null ? l.n : l.numero);
-  return nome + (n != null && n !== '' && Number(n) !== 1 ? ' ×' + n : '');
+const haReparto = (o, k) => k === 'tutti' || (o.reparti || []).some(r => r.reparto === k);
+/** "Piega ×12 · Saldatura · Filettatura ×4": le lavorazioni dell'ordine in
+    breve. ×N = pezzi da lavorare; saldatura e montaggio senza numero, perche'
+    si contano a metri e ad assiemi, non a pezzi. */
+function chipsReparti(o, cls) {
+  const rr = o.reparti || [];
+  if (!rr.length) {
+    if (!(o.pezzi || []).length) return `<span class="${cls} solo">${o.has_pdf ? 'vedi foglio d’ordine' : 'nessuna distinta'}</span>`;
+    return `<span class="${cls} solo">solo taglio</span>`;
+  }
+  return rr.map(r => {
+    let nome = r.reparto === 'filettatura' ? nomeFilettatura(o) : r.etichetta;
+    const n = (r.reparto === 'piega' || r.reparto === 'filettatura') && r.pezzi > 1 ? ' ×' + r.pezzi : '';
+    return `<span class="${cls}${REPARTO === r.reparto ? ' on' : ''}">${esc(nome + n)}</span>`;
+  }).join('');
 }
-const normaNome = n => String(n || '').toLowerCase().replace(/\.(dxf|dwg)$/, '');
+function nomeFilettatura(o) {
+  const t = (o.pezzi || []).flatMap(p => p.lavorazioni || []).join(' ').toLowerCase();
+  const f = /filett|masch/.test(t), s = /svas/.test(t);
+  return f && s ? 'Filettatura e svasatura' : s ? 'Svasatura' : 'Filettatura';
+}
+const testoSpessore = sp => sp ? String(sp).replace('.', ',') + ' mm' : '';
+const testoMateriale = m => String(m || '').replace(/_/g, ' ');
+
+/* ---------- taglio ----------
+   Il server da' lo stato del taglio di ogni pezzo (p.taglio) e il riepilogo
+   dell'ordine (o.taglio = {tagliati, totale, fonte}). Oggi fonte e' 'ordine':
+   numeri ricavati dallo stato dell'ordine (tutto tagliato o niente). Quando ci
+   sara' la lista dei pezzi tagliati di Lantek arrivera' fonte 'lantek' coi
+   numeri veri pezzo per pezzo: l'aggancio e' tagliati_da_lantek() in
+   backend/tablet_officina.py, qui non cambia niente. */
+function chipTaglio(t) {
+  if (!t || t.stato === 'non_laser') return '';
+  if (t.stato === 'tagliato') return '<span class="tg tagliato">tagliato</span>';
+  if (t.stato === 'parziale') return `<span class="tg parziale">tagliati ${t.tagliati} su ${t.totale}</span>`;
+  if (t.stato === 'in_lantek') return '<span class="tg in_lantek">in Lantek</span>';
+  return '<span class="tg da_tagliare">da tagliare</span>';
+}
+function riepilogoTaglio(o) {
+  const t = o.taglio || {};
+  if (o.stato_taglio === 'non_serve') return { cls: 'non_serve', txt: 'non passa dal laser', seg: '' };
+  if (!t.totale) {
+    if (o.stato_taglio === 'tagliato') return { cls: 'tagliato', txt: 'tagliato', seg: '' };
+    return { cls: o.stato_taglio === 'da_smistare' ? 'da_smistare' : 'da_tagliare', txt: o.stato_taglio === 'da_smistare' ? 'da smistare al laser' : (o.importato_lantek_il ? 'in Lantek' : 'da tagliare'), seg: '' };
+  }
+  const n = 8, pieni = Math.round(n * t.tagliati / t.totale);
+  const lantek = !pieni && o.importato_lantek_il;
+  const seg = Array.from({ length: n }, (_, i) => `<i class="${i < pieni ? 'f' : lantek ? 'l' : ''}"></i>`).join('');
+  if (t.tagliati >= t.totale) return { cls: 'tagliato', txt: `tagliato · ${t.totale} pz`, seg };
+  if (t.tagliati > 0) return { cls: 'parziale', txt: `${t.tagliati} su ${t.totale} pz tagliati`, seg };
+  if (o.stato_taglio === 'da_smistare') return { cls: 'da_smistare', txt: `da smistare · ${t.totale} pz`, seg };
+  return { cls: lantek ? 'in_lantek' : 'da_tagliare', txt: `${lantek ? 'in Lantek' : 'da tagliare'} · ${t.totale} pz`, seg };
+}
 
 /* ---------- elenco ---------- */
 function filtrati() {
   const q = (document.getElementById('cerca').value || '').trim().toLowerCase();
-  return ORDINI.filter(o => !q || [o.numero_ordine, o.numero_ordine_cliente, o.cliente].some(v => (v || '').toLowerCase().includes(q)));
+  return ORDINI.filter(o => !q || [o.numero, o.numero_ordine, o.numero_ordine_cliente, o.cliente].some(v => (v || '').toLowerCase().includes(q)));
 }
-function setFiltro(f) { FILTRO = f; try { sessionStorage.setItem('off_filtro', f); } catch (_) {} disegna(); }
+function setReparto(f) {
+  REPARTO = f;
+  try { localStorage.setItem('off_reparto', f); } catch (_) {}
+  disegna();
+  const o = ORDINI.find(x => x.id === APERTO);
+  if (o) mostraOrdine(o, true); else disegnaPanoramica();
+}
 function setCliente(c) { CLIENTE = CLIENTE === c ? '' : c; disegna(); }
 function svuotaCerca() { const c = document.getElementById('cerca'); c.value = ''; document.getElementById('svuota').hidden = true; disegna(); c.focus(); }
+const perConsegna = (a, b) => String(a.data_consegna || '9999').localeCompare(String(b.data_consegna || '9999'));
 
 function disegna() {
   const base = filtrati();
-  const perStato = k => base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && (k === 'tutti' || statoLaser(o).k === k)).length;
-  document.getElementById('filtri').innerHTML = [['tutti', 'Tutti'], ['lavorabili', 'Lavorabili'], ['taglio', 'In taglio'], ['smistare', 'Da smistare']]
-    .map(([k, t]) => `<button class="chip${FILTRO === k ? ' on' : ''}" onclick="setFiltro('${k}')">${t} <b>${perStato(k)}</b></button>`).join('');
+  const conta = k => base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && haReparto(o, k)).length;
+  document.getElementById('filtri').innerHTML = [['tutti', 'Tutti'], ...REPARTI]
+    .map(([k, t]) => { const n = conta(k); return `<button class="chip${REPARTO === k ? ' on' : ''}${n ? '' : ' zero'}" onclick="setReparto('${k}')">${t} <b>${n}</b></button>`; }).join('');
   // clienti con piu' ordini aperti, per filtrare con un tocco
   const perCli = new Map();
   base.forEach(o => { const c = o.cliente || '—'; perCli.set(c, (perCli.get(c) || 0) + 1); });
@@ -433,148 +763,428 @@ function disegna() {
     ? clienti.map(([c, n]) => `<button class="chip cli${CLIENTE === c ? ' on' : ''}" onclick="setCliente(${esc(JSON.stringify(c))})">${esc(c)} <b>${n}</b></button>`).join('')
     : '';
 
-  const lista = base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && (FILTRO === 'tutti' || statoLaser(o).k === FILTRO))
-    .sort((a, b) => String(a.data_consegna || '9999').localeCompare(String(b.data_consegna || '9999')));
-  document.getElementById('avvisi').innerHTML = ERRORE_RETE
-    ? `<div class="avviso">Aggiornamento non riuscito: stai vedendo i dati ${ULTIMO_OK ? 'delle ' + ULTIMO_OK.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : 'in memoria'}. Riprovo da solo.</div>` : '';
+  const lista = base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && haReparto(o, REPARTO)).sort(perConsegna);
   document.getElementById('conteggio').textContent = lista.length + (lista.length === 1 ? ' ordine' : ' ordini') + (lista.length !== ORDINI.length ? ` su ${ORDINI.length}` : '');
-  document.getElementById('aggiornato').textContent = ULTIMO_OK ? 'aggiornato alle ' + ULTIMO_OK.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
 
   document.getElementById('elenco').innerHTML = lista.length ? lista.map(o => {
-    const g = giorniA(o.data_consegna);
-    const u = urgenza(g);
-    const nd = (o.dxf_files || []).length;
-    const conta = [nd ? `${nd} disegni` : '', o.pdf_file ? 'foglio' : ''].filter(Boolean).join(' · ');
-    return `<div class="ordine ${u.cls}${APERTO === o.id ? ' sel' : ''}" onclick="apri('${o.id}')" role="button" tabindex="0">
+    const u = urgenza(giorniA(o.data_consegna));
+    const segn = (o.segnalazioni_oggi || []).length;
+    return `<div class="ordine ${u.cls}${APERTO === o.id ? ' sel' : ''}" data-id="${esc(o.id)}" onclick="apri('${o.id}')" role="button" tabindex="0">
       <div class="o-top">
-        <div class="o-cli"><div class="cli">${esc(o.cliente || 'Cliente non indicato')}</div><div class="num">#${esc(numero(o))}</div></div>
+        <div class="o-cli"><div class="cli">${esc(o.cliente || 'Cliente non indicato')}</div>
+          <div class="num">#${esc(numero(o))}${o.note ? '<span class="tag nota-flag" title="Note dell’ufficio">! Nota</span>' : ''}</div></div>
         <div class="consegna"><div class="d">${dataBreve(o.data_consegna)}</div><div class="e">${u.txt}</div></div>
       </div>
-      <div class="o-bot">${statoLaser(o).html}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}</span>` : ''}${o.note ? '<span class="tag">Note</span>' : ''}<span class="conta">${conta}</span></div>
+      <div class="o-lav">${chipsReparti(o, 'lav')}</div>
+      <div class="o-bot">${statoLaser(o)}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}</span>` : ''}${segn ? `<span class="tag segnalato">Segnalato oggi</span>` : ''}<span class="conta">${o.pezzi_totali ? o.pezzi_totali + ' pz' : ''}</span></div>
     </div>`;
-  }).join('') : `<div class="vuoto">${ORDINI.length ? 'Nessun ordine con questi filtri.' : 'Nessun ordine aperto.'}</div>`;
+  }).join('') : `<div class="vuoto">${ORDINI.length ? 'Nessun ordine con questi filtri.' : (ULTIMO_OK ? 'Nessun ordine aperto.' : 'Carico gli ordini…')}</div>`;
+}
+
+/* ---------- cartellone: cosa c'e' da fare ----------
+   Quando nessuno tocca il tablet, a destra c'e' questo: prima i ritardi
+   (rossi), poi oggi, domani e la settimana. Si legge da lontano; toccando
+   una riga si apre l'ordine. */
+function mostraPanoramica() {
+  APERTO = null; SCHEDA = null; FIRMA_APERTO = '';
+  document.getElementById('corpo').classList.remove('dettaglio');
+  const box = document.getElementById('aperto');
+  box.dataset.entra = '1';
+  box.innerHTML = '<div class="pano" id="pano"></div>';
+  disegnaPanoramica();
+}
+function disegnaPanoramica() {
+  const box = document.getElementById('pano');
+  if (!box) return;
+  const tutti = ORDINI.filter(o => haReparto(o, REPARTO)).sort(perConsegna);
+  const gr = { tardi: [], oggi: [], domani: [], sett: [], poi: [] };
+  for (const o of tutti) {
+    const g = giorniA(o.data_consegna);
+    if (g === null) gr.poi.push(o);
+    else if (g < 0) gr.tardi.push(o);
+    else if (g === 0) gr.oggi.push(o);
+    else if (g === 1) gr.domani.push(o);
+    else if (g <= 7) gr.sett.push(o);
+    else gr.poi.push(o);
+  }
+  const rep = REPARTI.find(r => r[0] === REPARTO);
+  const oggi = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  const conto = (n, t, rosso, k) => `<div class="conto${rosso && n ? ' rosso' : ''}${n ? '' : ' zero'}"><b data-k="${k}" data-n="${n}">${n}</b><span>${t}</span></div>`;
+  // I ritardi e la settimana sempre; "piu' avanti" solo per riempire, cosi'
+  // sulla TV grande non resta un buco nero quando la settimana e' tranquilla.
+  const sezioni = [['tardi', 'In ritardo', true], ['oggi', 'Oggi'], ['domani', 'Domani'], ['sett', 'Entro 7 giorni']];
+  const mostrati = gr.tardi.length + gr.oggi.length + gr.domani.length + gr.sett.length;
+  const riempi = Math.max(0, 10 - mostrati);
+  let righe = sezioni.filter(([k]) => gr[k].length).map(([k, t, rosso]) =>
+    `<div class="sez${rosso ? ' rosso' : ''}">${t} <span>${gr[k].length}</span></div>` + gr[k].map(o => rigaPanoramica(o, k)).join('')).join('');
+  if (riempi && gr.poi.length) {
+    righe += `<div class="sez">Più avanti <span>${gr.poi.length}</span></div>` + gr.poi.slice(0, riempi).map(o => rigaPanoramica(o, 'poi')).join('');
+  }
+  if (!ULTIMO_OK && !ORDINI.length) righe = '<div class="pano-vuoto"><b>Carico gli ordini…</b></div>';
+  else if (!tutti.length) righe = `<div class="pano-vuoto"><b>Niente da fare${rep ? ' per ' + rep[1].toLowerCase() : ''}</b>${ORDINI.length ? 'Nessun ordine aperto con questa lavorazione.' : 'Nessun ordine aperto.'}</div>`;
+  box.innerHTML = `
+    <div class="pano-testa"><h2>Cosa c'è da fare${rep ? `<em> · ${esc(rep[1])}</em>` : ''}</h2><span>${esc(oggi)}</span></div>
+    <div class="pano-conti">${conto(gr.tardi.length, 'in ritardo', true, 'tardi')}${conto(gr.oggi.length, 'oggi', false, 'oggi')}${conto(gr.domani.length, 'domani', false, 'domani')}${conto(gr.sett.length, 'entro 7 giorni', false, 'sett')}</div>
+    <div class="pano-lista">${righe}</div>
+    <div class="pano-piede">Tocca un ordine per i pezzi, i disegni e il foglio d'ordine.</div>`;
+  // i conti scorrono fino al valore (la prima volta da zero, poi dal valore di prima)
+  box.querySelectorAll('.conto b[data-k]').forEach(b => FT.contaDa('pano-' + b.dataset.k, b, Number(b.dataset.n)));
+}
+function rigaPanoramica(o, k) {
+  const g = giorniA(o.data_consegna);
+  const sotto = g === null ? 'senza data' : g < 0 ? (g === -1 ? 'in ritardo di 1 giorno' : `in ritardo di ${-g} giorni`)
+    : g === 0 ? 'oggi' : g === 1 ? 'domani' : new Date(Date.now() + g * 86400000).toLocaleDateString('it-IT', { weekday: 'long' });
+  const t = riepilogoTaglio(o);
+  return `<button class="pr${k === 'tardi' ? ' tardi' : k === 'oggi' ? ' oggi' : ''}" data-id="${esc(o.id)}" onclick="apri('${o.id}')">
+    <div class="pr-data"><b>${dataBreve(o.data_consegna)}</b><small>${sotto}</small></div>
+    <div class="pr-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><small>#${esc(numero(o))}${o.note ? '<span class="notina">NOTA</span>' : ''}</small></div>
+    <div class="pr-lav">${chipsReparti(o, '')}</div>
+    <div class="pr-taglio ${t.cls}">${t.seg ? `<div class="seg">${t.seg}</div>` : ''}${esc(t.txt)}</div>
+  </button>`;
+}
+
+/* ---------- ritorno da solo al cartellone ----------
+   Un ordine lasciato aperto resterebbe li' tutto il giorno: dopo 2 minuti
+   senza tocchi si chiude tutto (visori, finestre, ricerca) e si torna a
+   "Cosa c'e' da fare". Il reparto scelto resta: e' un'impostazione del tablet. */
+function controllaInattivita() {
+  if (Date.now() - ULTIMO_TOCCO < INATTIVO_MS) return;
+  const cerca = document.getElementById('cerca');
+  const daFare = APERTO || cerca.value || CLIENTE || !document.getElementById('visore').hidden || !document.getElementById('foglio').hidden
+    || !document.getElementById('vis3d').hidden || !document.getElementById('dlg-segnala').hidden || !document.getElementById('dlg-esci').hidden
+    || document.getElementById('corpo').classList.contains('dettaglio');
+  if (!daFare) return;
+  tornaAlCartellone();
+}
+function tornaAlCartellone() {
+  if (!document.getElementById('visore').hidden) chiudiVisore();
+  if (!document.getElementById('foglio').hidden) chiudiFoglio();
+  if (!document.getElementById('vis3d').hidden) chiudi3d();
+  if (!document.getElementById('dlg-segnala').hidden) chiudiSegnala();
+  if (!document.getElementById('dlg-esci').hidden) chiudiEsci();
+  const cerca = document.getElementById('cerca');
+  cerca.value = ''; cerca.blur();
+  document.getElementById('svuota').hidden = true;
+  CLIENTE = '';
+  mostraPanoramica();
+  disegna();
+  document.getElementById('elenco').scrollTop = 0;
 }
 
 /* ---------- ordine aperto ---------- */
 function apri(id) {
   const o = ORDINI.find(x => x.id === id);
   if (!o) return;
-  if (APERTO !== id) SCHEDA = null;
+  if (APERTO !== id) { SCHEDA = null; FIRMA_APERTO = ''; ENTRATA = true; }
   APERTO = id;
   document.getElementById('corpo').classList.add('dettaglio');
   disegna();
-  mostraOrdine(o);
+  mostraOrdine(o, true);
 }
 function indietro() {
-  document.getElementById('corpo').classList.remove('dettaglio');
+  // stretto (tablet in verticale): si torna all'elenco
+  mostraPanoramica();
+  disegna();
 }
-async function mostraOrdine(o) {
-  const g = giorniA(o.data_consegna), u = urgenza(g);
+function mostraOrdine(o, forza) {
+  // All'aggiornamento automatico l'ordine si ridisegna solo se e' cambiato,
+  // e restando dov'era: chi sta guardando un pezzo non deve vederlo saltare.
+  const firma = JSON.stringify(o) + '|' + REPARTO + '|' + SCHEDA;
+  if (!forza && firma === FIRMA_APERTO) return;
+  FIRMA_APERTO = firma;
+  const scorri = document.getElementById('oa-corpo');
+  const pos = !forza && scorri ? scorri.scrollTop : 0;
+  const u = urgenza(giorniA(o.data_consegna));
+  const tt = o.taglio || {};
+  const segn = o.segnalazioni_oggi || [];
+  const interno = o.numero_ordine && o.numero_ordine !== numero(o) ? `<small>${esc(o.numero_ordine)}</small>` : '';
   const box = document.getElementById('aperto');
+  // Entra in dissolvenza solo aprendo un altro ordine, non agli aggiornamenti.
+  box.dataset.entra = forza && ENTRATA ? '1' : '';
+  ENTRATA = false;
   box.innerHTML = `
+    ${o.note ? `<div class="nota"><b>Note dell'ufficio</b>${esc(o.note)}</div>` : ''}
     <div class="oa-testa">
       <div class="oa-r1">
         <button class="indietro" onclick="indietro()">‹ Ordini</button>
-        <div class="oa-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2><div class="num">Ordine #${esc(numero(o))}</div></div>
+        <div class="oa-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2><div class="num">Ordine #${esc(numero(o))}${interno}</div></div>
         <div class="oa-cons ${u.cls}"><small>Consegna</small><b>${dataBreve(o.data_consegna, true)}</b><em>${u.txt}</em></div>
       </div>
-      <div class="oa-r2">${statoLaser(o).html}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>` : ''}</div>
-      ${o.note ? `<div class="nota"><b>Note dell'ufficio</b>${esc(o.note)}</div>` : ''}
+      <div class="oa-r2">${statoLaser(o)}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>` : ''}${chipsReparti(o, 'lav')}
+        ${tt.totale ? `<span class="taglio-ord"><span>${tt.tagliati} ${tt.tagliati === 1 ? 'pezzo' : 'pezzi'} su ${tt.totale} tagliati</span><span class="barra"><i style="width:${Math.round(100 * tt.tagliati / tt.totale)}%"></i></span>${tt.fonte === 'lantek' ? '<small>dalla lista di Lantek</small>' : ''}</span>` : ''}
+</div>
+      ${segn.length ? `<div class="avvisi-oggi">${segn.map(s => `<div>Segnalato oggi alle ${hhmm(new Date(s.quando))}: ${esc(s.etichetta)}${s.codice_pezzo ? ' · pezzo ' + esc(s.codice_pezzo) : ''}${s.nota ? ' — ' + esc(s.nota) : ''}</div>`).join('')}</div>` : ''}
     </div>
     <div class="schede" id="schede"></div>
-    <div class="oa-corpo" id="oa-corpo"><div class="caric">Carico i pezzi…</div></div>`;
-  const id = o.id;
-  if (!CACHE[id]) {
-    const [dist, dis] = await Promise.all([leggi(`${API}/api/orders/${id}/distinta`), leggi(`${API}/api/orders/${id}/disegni`)]);
-    CACHE[id] = { distinta: dist, disegni: dis };
-  }
-  if (APERTO !== id) return;
+    <div class="oa-corpo" id="oa-corpo"></div>`;
   mostraSchede(o);
+  if (pos) document.getElementById('oa-corpo').scrollTop = pos;
+  // Aprendo l'ordine o cambiando scheda i pezzi (o i disegni) entrano in sequenza.
+  if (forza) { const c = document.getElementById('oa-corpo'); FT.sequenza(c.querySelector('.griglia') || c); }
 }
-function disegniDi(id) {
-  const d = (CACHE[id] || {}).disegni;
-  return (d && d.disegni ? d.disegni : []).map(x => ({
-    nome: x.nome, svg: x.url_svg === undefined ? `${API}/api/orders/${id}/dxf/${encodeURIComponent(x.nome)}/svg` : x.url_svg,
-  }));
-}
-function pezziDi(id) {
-  const d = (CACHE[id] || {}).distinta;
-  return d && d.origine !== 'nessuna' ? (d.righe || []) : [];
+function disegniDi(o) {
+  return (o && o.disegni ? o.disegni : []).map(x => ({ nome: x.nome, svg: x.url_svg ? API + x.url_svg : null }));
 }
 function mostraSchede(o) {
-  const pezzi = pezziDi(o.id), dis = disegniDi(o.id);
+  const pezzi = o.pezzi || [], dis = disegniDi(o);
   if (!SCHEDA) SCHEDA = pezzi.length ? 'pezzi' : dis.length ? 'disegni' : 'pezzi';
   document.getElementById('schede').innerHTML = `
     <button class="scheda${SCHEDA === 'pezzi' ? ' on' : ''}" onclick="vaiScheda('pezzi')" ${pezzi.length ? '' : 'disabled'}>Pezzi <b>${pezzi.length}</b></button>
     <button class="scheda${SCHEDA === 'disegni' ? ' on' : ''}" onclick="vaiScheda('disegni')" ${dis.length ? '' : 'disabled'}>Disegni <b>${dis.length}</b></button>
-    ${o.pdf_file ? `<button class="scheda apri-pdf" onclick="vediFoglio('${o.id}', ${esc(JSON.stringify(numero(o)))})">Foglio d'ordine</button>` : ''}`;
+    ${o.has_pdf || (o.pezzi || []).length ? `<button class="scheda apri-pdf" onclick="vediFoglio('${o.id}', ${esc(JSON.stringify(numero(o)))})">Foglio d'ordine</button>` : ''}
+    <button class="segnala-btn" onclick="apriSegnala()">Segnala un problema</button>`;
   const c = document.getElementById('oa-corpo');
   if (SCHEDA === 'disegni' && dis.length) {
     c.innerHTML = `<div class="griglia">${dis.map((d, i) => `<button class="dis" onclick="apriDisegno(${i})">
       <div class="im">${d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'anteprima non disponibile'}</div><div class="n">${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}</div></button>`).join('')}</div>`;
   } else if (pezzi.length) {
+    const idx = new Map(dis.map((d, i) => [d.nome.toLowerCase(), i]));
+    const riga = (p, spento) => rigaPezzo(o, p, idx, spento);
+    const blocchi = [];
+    let resto = pezzi;
+    // Col reparto scelto, prima i pezzi che lo riguardano; gli altri sotto, attenuati.
+    if (REPARTO !== 'tutti') {
+      const miei = pezzi.filter(p => (p.reparti || []).includes(REPARTO));
+      resto = pezzi.filter(p => !(p.reparti || []).includes(REPARTO));
+      if (miei.length) {
+        const tot = miei.reduce((s, p) => s + (Number(p.quantita) || 0), 0);
+        blocchi.push(`<div class="gr rep">${DA_FARE[REPARTO]}<span>${miei.length} ${miei.length === 1 ? 'codice' : 'codici'} · ${tot} pz</span></div>` + miei.map(p => riga(p, false)).join(''));
+      }
+    }
     // per lamiera (materiale + spessore), poi tubi e assiemi: come si lavorano
     const gr = new Map();
-    for (const r of pezzi) {
-      const k = r.tipo === 'assieme' ? '3|Assiemi' : r.tipo === 'tubolare' ? '2|Tubi' : `1|${(r.materiale || 'Materiale ?').replace(/_/g, ' ')}${r.spessore_mm ? ' · ' + String(r.spessore_mm).replace('.', ',') + ' mm' : ''}`;
+    for (const p of resto) {
+      const k = p.tipo === 'assieme' ? '3|Assiemi' : p.tipo === 'tubolare' ? '2|Tubi' : `1|${testoMateriale(p.materiale) || 'Materiale ?'}${p.spessore_mm ? ' · ' + testoSpessore(p.spessore_mm) : ''}`;
       if (!gr.has(k)) gr.set(k, []);
-      gr.get(k).push(r);
+      gr.get(k).push(p);
     }
-    const idx = new Map(dis.map((d, i) => [normaNome(d.nome), i]));
-    c.innerHTML = [...gr.keys()].sort((a, b) => a.localeCompare(b, 'it', { numeric: true })).map(k => {
+    const spento = REPARTO !== 'tutti';
+    [...gr.keys()].sort((a, b) => a.localeCompare(b, 'it', { numeric: true })).forEach(k => {
       const rr = gr.get(k);
-      const tot = rr.reduce((s, r) => s + (Number(r.quantita) || 0), 0);
-      return `<div class="gr">${esc(k.split('|')[1])}<span>${rr.length} ${rr.length === 1 ? 'codice' : 'codici'} · ${tot} pz</span></div>` + rr.map(r => {
-        const i = r.disegno != null ? idx.get(normaNome(r.disegno)) : undefined;
-        const d = i != null ? dis[i] : null;
-        const lav = (r.lavorazioni || []).map(testoLavorazione).filter(l => l && !/^taglio( laser)?$/i.test(l));
-        return `<div class="pz${d ? ' con-dis' : ''}" ${d ? `onclick="apriDisegno(${i})"` : ''}>
-          <div class="pz-img${d && d.svg ? '' : ' no'}">${d && d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'senza<br>disegno'}</div>
-          <div style="min-width:0"><div class="pz-cod">${esc(r.codice || '—')}</div>
-            <div class="pz-lav">${lav.length ? lav.map(l => `<span>${esc(l)}</span>`).join('') : '<span class="solo">solo taglio</span>'}${r.assieme ? `<span class="solo">· ${esc(r.assieme)}</span>` : ''}</div></div>
-          <div class="pz-q"><small>×</small>${esc(r.quantita ?? '?')}</div></div>`;
-      }).join('');
-    }).join('');
+      const tot = rr.reduce((s, p) => s + (Number(p.quantita) || 0), 0);
+      const tit = (spento ? 'Altri pezzi · ' : '') + k.split('|')[1];
+      blocchi.push(`<div class="gr">${esc(tit)}<span>${rr.length} ${rr.length === 1 ? 'codice' : 'codici'} · ${tot} pz</span></div>` + rr.map(p => riga(p, spento)).join(''));
+    });
+    c.innerHTML = blocchi.join('');
   } else {
-    c.innerHTML = `<div class="caric">${o.pdf_file ? 'Per questo ordine non c’è l’elenco dei pezzi: le quantità sono sul <b>foglio d’ordine</b>.' : 'Per questo ordine non ci sono pezzi, disegni né foglio d’ordine.'}</div>`;
+    c.innerHTML = `<div class="caric">${o.has_pdf ? 'Per questo ordine non c’è l’elenco dei pezzi: le quantità sono sul <b>foglio d’ordine</b>.' : 'Per questo ordine non ci sono pezzi, disegni né foglio d’ordine.'}</div>`;
   }
 }
-function vaiScheda(k) { SCHEDA = k; const o = ORDINI.find(x => x.id === APERTO); if (o) mostraSchede(o); }
+function rigaPezzo(o, p, idx, spento) {
+  const i = p.disegno ? idx.get(String(p.disegno).toLowerCase()) : undefined;
+  const d = i != null ? disegniDi(o)[i] : null;
+  const pi = (o.pezzi || []).indexOf(p);
+  const mat = p.tipo === 'assieme' ? 'Assieme' : p.tipo === 'tubolare' ? esc(p.descrizione || 'Tubo')
+    : `${esc(testoMateriale(p.materiale) || 'Materiale ?')}${p.spessore_mm ? ' · ' + testoSpessore(p.spessore_mm) : ''}`;
+  const lav = (p.lavorazioni || []).filter(l => !/^piegatura\b/i.test(l));
+  const chips = [
+    p.pieghe ? `<span class="lav pieghe">${p.pieghe} ${p.pieghe === 1 ? 'piega' : 'pieghe'}</span>` : '',
+    ...lav.map(l => `<span class="lav${(p.reparti || []).includes(REPARTO) && repartoDi(l) === REPARTO ? ' on' : ''}">${esc(testoLav(l))}</span>`),
+    !p.pieghe && !lav.length && p.tipo !== 'assieme' ? '<span class="lav solo">solo taglio</span>' : '',
+    chipTaglio(p.taglio),
+    p.assieme ? `<span class="lav solo">· ${esc(p.assieme)}</span>` : '',
+  ].join('');
+  const az = [
+    d ? `<button onclick="apriDisegno(${i})">Disegno</button>` : '',
+    p.url_piega_3d ? `<button class="d3" onclick="vediPiega(${pi})">Vedi piegato in 3D</button>` : '',
+    p.url_step ? `<button class="d3" onclick="vediAssieme(${pi})">Vedi assieme in 3D</button>` : '',
+  ].join('');
+  return `<div class="pz${spento ? ' spento' : ''}">
+    ${d ? `<button class="pz-img${d.svg ? '' : ' no'}" onclick="apriDisegno(${i})" aria-label="Apri il disegno">${d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'disegno<br>senza anteprima'}</button>`
+        : `<div class="pz-img no">${p.tipo === 'assieme' ? 'assieme' : 'senza<br>disegno'}</div>`}
+    <div style="min-width:0"><div class="pz-mat">${mat}</div><div class="pz-cod">${esc(p.codice || '—')}</div>
+      <div class="pz-lav">${chips}</div>${az ? `<div class="pz-az">${az}</div>` : ''}</div>
+    <div class="pz-q"><small>×</small>${esc(p.quantita ?? '?')}<em>${p.tipo === 'assieme' ? 'assiemi' : 'pezzi'}</em></div></div>`;
+}
+/** "Filettatura (4)" -> "4 filettature": sul pezzo il numero conta le
+    lavorazioni, mentre il ×N sulle schede degli ordini conta i pezzi. */
+function testoLav(l) {
+  const m = /^(filettatura|svasatura)\s*\((\d+)\)$/i.exec(String(l || '').trim());
+  if (!m) return l;
+  const n = Number(m[2]), nome = m[1].toLowerCase();
+  return `${n} ${n === 1 ? nome : nome.replace(/a$/, 'e')}`;
+}
+/** Il reparto di una singola lavorazione, per evidenziare quella giusta. */
+function repartoDi(l) {
+  const t = String(l || '').toLowerCase();
+  if (/pieg|bend/.test(t)) return 'piega';
+  if (/filett|svas|masch/.test(t)) return 'filettatura';
+  if (/montag|assembl/.test(t)) return 'montaggio';
+  if (/sald|puntat/.test(t)) return 'saldatura';
+  return '';
+}
+function vaiScheda(k) { SCHEDA = k; const o = ORDINI.find(x => x.id === APERTO); if (o) mostraOrdine(o, true); }
 
-/* ---------- visore dei disegni ---------- */
+/* ---------- visore dei disegni ----------
+   Il disegno si ridimensiona davvero (larghezza e altezza, non una lente):
+   un SVG ingrandito cosi' resta nitido anche a 8 volte. */
 let VIS = { lista: [], i: 0 };
+const V = { s: 1, x: 0, y: 0, w: 0, h: 0 };    // scala, spostamento, misura "intero"
 function apriDisegno(i) {
-  VIS = { lista: disegniDi(APERTO), i };
+  const o = ORDINI.find(x => x.id === APERTO);
+  VIS = { lista: disegniDi(o), i };
   if (!VIS.lista.length) return;
   document.getElementById('visore').hidden = false;
   mostraDisegno();
 }
 function mostraDisegno() {
   const d = VIS.lista[VIS.i];
-  const area = document.getElementById('vis-area');
-  area.classList.remove('zoom');
-  document.getElementById('vis-zoom').textContent = 'Ingrandisci';
   const img = document.getElementById('vis-img');
+  img.style.visibility = 'hidden';
+  img.onload = () => { adattaDisegno(); img.style.visibility = ''; };
   if (d.svg) img.src = d.svg; else img.removeAttribute('src');
   img.alt = 'Disegno ' + d.nome;
   document.getElementById('vis-titolo').innerHTML = `${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}<small>${VIS.i + 1} di ${VIS.lista.length}</small>`;
   document.getElementById('vis-prec').disabled = VIS.i <= 0;
   document.getElementById('vis-succ').disabled = VIS.i >= VIS.lista.length - 1;
+  document.getElementById('vis-aiuto').hidden = false;
+}
+function adattaDisegno() {
+  const area = document.getElementById('vis-area'), img = document.getElementById('vis-img');
+  const W = area.clientWidth, H = area.clientHeight;
+  const nw = img.naturalWidth || 4, nh = img.naturalHeight || 3;
+  const k = Math.min(W * .96 / nw, H * .96 / nh);
+  V.w = nw * k; V.h = nh * k; V.s = 1;
+  V.x = (W - V.w) / 2; V.y = (H - V.h) / 2;
+  applicaVista();
+}
+function applicaVista() {
+  const area = document.getElementById('vis-area'), img = document.getElementById('vis-img');
+  const W = area.clientWidth, H = area.clientHeight, w = V.w * V.s, h = V.h * V.s;
+  // il disegno non scappa fuori: se e' piu' piccolo dello schermo sta al centro
+  V.x = w <= W ? (W - w) / 2 : Math.min(0, Math.max(W - w, V.x));
+  V.y = h <= H ? (H - h) / 2 : Math.min(0, Math.max(H - h, V.y));
+  img.style.width = w + 'px'; img.style.height = h + 'px';
+  img.style.left = V.x + 'px'; img.style.top = V.y + 'px';
+  document.getElementById('vis-zoom').textContent = V.s > 1.01 ? 'Intero' : 'Ingrandisci';
+  document.getElementById('visore').classList.toggle('zoomato', V.s > 1.01);
+}
+/** Ingrandisce di k volte tenendo fermo il punto (cx, cy) dello schermo. */
+function zoomIn(k, cx, cy) {
+  const area = document.getElementById('vis-area');
+  if (cx == null) { cx = area.clientWidth / 2; cy = area.clientHeight / 2; }
+  const s2 = Math.min(10, Math.max(1, V.s * k));
+  const r = s2 / V.s;
+  V.x = cx - (cx - V.x) * r; V.y = cy - (cy - V.y) * r; V.s = s2;
+  applicaVista();
+}
+function zoomPasso(k) { zoomIn(k); }
+function zoomDisegno() { if (V.s > 1.01) adattaDisegno(); else zoomIn(2.5); }
+function preparaVisore() {
+  const area = document.getElementById('vis-area');
+  const dita = new Map();
+  let pinch = null, tap = { t: 0, x: 0, y: 0 }, swipe = null;
+  const pos = e => { const r = area.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  area.addEventListener('pointerdown', e => {
+    area.setPointerCapture(e.pointerId);
+    dita.set(e.pointerId, pos(e));
+    document.getElementById('vis-aiuto').hidden = true;
+    if (dita.size === 2) {
+      const [a, b] = [...dita.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, s: V.s, x: V.x, y: V.y };
+      swipe = null;
+    } else if (dita.size === 1) {
+      const p = pos(e);
+      swipe = { x0: p.x, y0: p.y, t0: Date.now(), mosso: false };
+    }
+  });
+  area.addEventListener('pointermove', e => {
+    if (!dita.has(e.pointerId)) return;
+    const prima = dita.get(e.pointerId), p = pos(e);
+    dita.set(e.pointerId, p);
+    if (dita.size === 2 && pinch) {
+      const [a, b] = [...dita.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const s2 = Math.min(10, Math.max(1, pinch.s * d / pinch.d));
+      // il punto sotto le dita all'inizio resta sotto le dita
+      V.x = mx - (pinch.mx - pinch.x) * s2 / pinch.s;
+      V.y = my - (pinch.my - pinch.y) * s2 / pinch.s;
+      V.s = s2;
+      applicaVista();
+    } else if (dita.size === 1 && V.s > 1.01) {
+      V.x += p.x - prima.x; V.y += p.y - prima.y;
+      if (swipe) swipe.mosso = true;
+      applicaVista();
+    }
+  });
+  const fine = e => {
+    if (!dita.has(e.pointerId)) return;
+    const p = pos(e);
+    dita.delete(e.pointerId);
+    if (dita.size < 2) pinch = null;
+    if (dita.size === 0 && swipe) {
+      const dx = p.x - swipe.x0, dy = p.y - swipe.y0;
+      const breve = Date.now() - swipe.t0 < 300 && Math.hypot(dx, dy) < 15;
+      if (V.s <= 1.01 && Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy)) spostaDisegno(dx < 0 ? 1 : -1);
+      else if (breve) {
+        // doppio tocco: ingrandisce li', o torna al disegno intero
+        if (Date.now() - tap.t < 350 && Math.hypot(p.x - tap.x, p.y - tap.y) < 40) {
+          if (V.s > 1.01) adattaDisegno(); else zoomIn(2.5, p.x, p.y);
+          tap.t = 0;
+        } else tap = { t: Date.now(), x: p.x, y: p.y };
+      }
+      swipe = null;
+    }
+  };
+  area.addEventListener('pointerup', fine);
+  area.addEventListener('pointercancel', fine);
+  area.addEventListener('wheel', e => { e.preventDefault(); const p = pos(e); zoomIn(e.deltaY < 0 ? 1.25 : 0.8, p.x, p.y); }, { passive: false });
+  window.addEventListener('resize', () => { if (!document.getElementById('visore').hidden) adattaDisegno(); });
 }
 function spostaDisegno(d) {
   const n = VIS.i + d;
   if (n < 0 || n >= VIS.lista.length) return;
   VIS.i = n; mostraDisegno();
 }
-function zoomDisegno() {
-  const area = document.getElementById('vis-area');
-  const on = area.classList.toggle('zoom');
-  document.getElementById('vis-zoom').textContent = on ? 'Adatta' : 'Ingrandisci';
-  if (on) { area.scrollLeft = (area.scrollWidth - area.clientWidth) / 2; area.scrollTop = (area.scrollHeight - area.clientHeight) / 2; }
-}
 function chiudiVisore() {
   document.getElementById('visore').hidden = true;
   document.getElementById('vis-img').removeAttribute('src');   // il tablet resta acceso tutto il giorno
+}
+
+/* ---------- 3D: pezzo piegato e assieme ----------
+   Dentro la pagina, come il disegno: fold3d.html e preview-step.html in
+   modalita' incorporata (?embed=1), con la nostra barra e il nostro Chiudi. */
+async function vediPiega(i) {
+  const o = ORDINI.find(x => x.id === APERTO);
+  const p = o && (o.pezzi || [])[i];
+  if (!p || !p.url_piega_3d) return;
+  apri3d(`${p.codice} · piegato`, '<div class="giro"></div><b>Costruisco il pezzo piegato…</b>Può volerci qualche secondo.');
+  let m = null;
+  try { const r = await fetch(API + p.url_piega_3d, { cache: 'no-store' }); m = r.ok ? await r.json() : null; } catch (_) { m = null; }
+  if (document.getElementById('vis3d').hidden) return;      // chiuso nel frattempo
+  // Il 3D si mostra solo se la ricostruzione e' affidabile: un piegato
+  // sbagliato in officina e' peggio di nessun piegato.
+  if (!m || !m.success || !m.clean) {
+    const idx = disegniDi(o).findIndex(d => d.nome.toLowerCase() === String(p.disegno || '').toLowerCase());
+    document.getElementById('d3-msg').innerHTML = `<b>Il 3D di questo pezzo non è affidabile</b>Le pieghe del disegno non si ricostruiscono bene in automatico: fa fede il disegno.${idx >= 0 ? `<br><button onclick="chiudi3d(); apriDisegno(${idx})">Apri il disegno</button>` : ''}`;
+    return;
+  }
+  mostraFrame3d('/fold3d.html?' + new URLSearchParams({ embed: '1', src: p.url_piega_3d }).toString());
+}
+function vediAssieme(i) {
+  const o = ORDINI.find(x => x.id === APERTO);
+  const p = o && (o.pezzi || [])[i];
+  if (!p || !p.url_step) return;
+  apri3d(`${p.codice} · assieme`, '');
+  mostraFrame3d('/preview-step.html?' + new URLSearchParams({ url: API + p.url_step, name: p.codice, embed: '1' }).toString());
+}
+function apri3d(titolo, msg) {
+  document.getElementById('d3-titolo').textContent = titolo;
+  const m = document.getElementById('d3-msg');
+  m.innerHTML = msg; m.hidden = !msg;
+  const f = document.getElementById('d3-frame');
+  f.hidden = true; f.removeAttribute('src');
+  document.getElementById('vis3d').hidden = false;
+}
+function mostraFrame3d(src) {
+  document.getElementById('d3-msg').hidden = true;
+  const f = document.getElementById('d3-frame');
+  f.src = src; f.hidden = false;
+}
+function chiudi3d() {
+  const f = document.getElementById('d3-frame');
+  f.removeAttribute('src'); f.hidden = true;     // via il 3D dalla memoria
+  document.getElementById('vis3d').hidden = true;
 }
 
 /* ---------- foglio d'ordine ---------- */
@@ -582,7 +1192,9 @@ function vediFoglio(id, num) {
   document.getElementById('foglio-titolo').textContent = num ? 'Ordine ' + num : 'Foglio d’ordine';
   // toolbar=0: via la barra del visore, che su un tablet ruba mezza altezza.
   // view=FitH: il foglio si adatta alla larghezza, cosi' si legge davvero.
-  document.getElementById('foglio-pdf').src = `${API}/api/orders/${id}/pdf#toolbar=0&navpanes=0&view=FitH`;
+  // /stampa: il PDF del cliente se c'e', altrimenti il foglio d'ordine generato
+  // dalla distinta (ordini nati da un preventivo). Lo stesso che stampa l'ufficio.
+  document.getElementById('foglio-pdf').src = `${API}/api/orders/${id}/stampa#toolbar=0&navpanes=0&view=FitH`;
   document.getElementById('foglio').hidden = false;
 }
 function chiudiFoglio() {
@@ -592,10 +1204,85 @@ function chiudiFoglio() {
   document.getElementById('foglio').hidden = true;
 }
 
-function logout() {
-  localStorage.removeItem('currentUser');
-  window.location.href = '/login.html';
+/* ---------- segnala un problema ----------
+   Quattro scelte grandi, il pezzo e una nota se si vuole: arriva all'ufficio
+   come notifica (POST /api/orders/<id>/segnalazioni). */
+const TIPI = [['manca_materiale', 'Manca materiale'], ['disegno', 'Disegno sbagliato o poco chiaro'], ['da_rifare', 'Pezzo da rifare'], ['altro', 'Altro']];
+let SG = null;
+function apriSegnala() {
+  const o = ORDINI.find(x => x.id === APERTO);
+  if (!o) return;
+  SG = { id: o.id, tipo: null, pezzo: '', nota: '', invio: false, errore: '' };
+  document.getElementById('dlg-segnala').hidden = false;
+  disegnaSegnala();
 }
+function disegnaSegnala() {
+  const o = ORDINI.find(x => x.id === SG.id) || {};
+  const codici = [...new Set((o.pezzi || []).map(p => p.codice).filter(Boolean))];
+  document.getElementById('sg-box').innerHTML = `
+    <h3 id="sg-t">Segnala un problema</h3>
+    <p class="sotto">${esc(o.cliente || '')} · ordine #${esc(numero(o))} — arriva subito all'ufficio.</p>
+    <div class="scelte">${TIPI.map(([k, t]) => `<button class="scelta${SG.tipo === k ? ' on' : ''}" onclick="sgTipo('${k}')">${t}</button>`).join('')}</div>
+    ${codici.length ? `<div class="tit2">Quale pezzo? (se riguarda un pezzo)</div>
+      <div class="pezzi-sc"><button class="${SG.pezzo ? '' : 'on'}" onclick="sgPezzo('')">Tutto l'ordine</button>${codici.map(c => `<button class="${SG.pezzo === c ? 'on' : ''}" onclick="sgPezzo(${esc(JSON.stringify(c))})">${esc(c)}</button>`).join('')}</div>` : ''}
+    <div class="tit2">Nota ${SG.tipo === 'altro' ? '(scrivi cosa succede)' : '(facoltativa)'}</div>
+    <textarea id="sg-nota" maxlength="300" placeholder="Due parole per l'ufficio" oninput="SG.nota = this.value; document.getElementById('sg-car').textContent = this.value.length + ' / 300'">${esc(SG.nota)}</textarea>
+    <div class="conta-car" id="sg-car">${SG.nota.length} / 300</div>
+    ${SG.errore ? `<div class="errore">${esc(SG.errore)}</div>` : ''}
+    <div class="dlg-az"><button onclick="chiudiSegnala()">Annulla</button>
+      <button class="si" id="sg-invia" onclick="inviaSegnala()" ${SG.tipo && !SG.invio ? '' : 'disabled'}>${SG.invio ? 'Invio…' : 'Invia all’ufficio'}</button></div>`;
+}
+function sgTipo(k) { SG.tipo = k; SG.errore = ''; disegnaSegnala(); }
+function sgPezzo(c) { SG.pezzo = c; disegnaSegnala(); }
+async function inviaSegnala() {
+  if (!SG || !SG.tipo || SG.invio) return;
+  if (SG.tipo === 'altro' && !SG.nota.trim()) { SG.errore = 'Per «Altro» scrivi due parole: cosa succede?'; disegnaSegnala(); return; }
+  SG.invio = true; SG.errore = ''; disegnaSegnala();
+  const corpo = { tipo: SG.tipo, nota: SG.nota.trim(), codice_pezzo: SG.pezzo || null };
+  if (UTENTE.name) corpo.da = UTENTE.name;
+  let r = null, d = {};
+  try {
+    r = await fetch(`${API}/api/orders/${SG.id}/segnalazioni`, { method: 'POST', headers: intestazioni({ 'Content-Type': 'application/json' }), body: JSON.stringify(corpo) });
+    d = await r.json().catch(() => ({}));
+  } catch (_) { r = null; }
+  if (!SG) return;
+  SG.invio = false;
+  if (!r || !r.ok || !d.success) {
+    SG.errore = r ? (d.error || 'Non sono riuscito a inviarlo.') : 'Il server non risponde: controlla la rete e riprova.';
+    disegnaSegnala(); return;
+  }
+  document.getElementById('sg-box').innerHTML = `<div class="fatto"><div class="ok"><svg viewBox="0 0 52 52" aria-hidden="true"><path d="M15 27.5l7.5 7.5L38 18.5"/></svg></div>
+    <b>${d.gia_segnalato ? 'Già segnalato' : 'Segnalato all’ufficio'}</b>
+    <p>${d.gia_segnalato ? 'Lo stesso problema è arrivato pochi minuti fa: l’ufficio lo sa già.' : 'L’ufficio ha ricevuto l’avviso.'}</p>
+    <div class="dlg-az" style="justify-content:center"><button onclick="chiudiSegnala()">Chiudi</button></div></div>`;
+  setTimeout(() => { if (SG && !document.getElementById('dlg-segnala').hidden) chiudiSegnala(); }, 5000);
+  carica();     // compare subito fra le segnalazioni di oggi
+}
+function chiudiSegnala() {
+  SG = null;
+  document.getElementById('dlg-segnala').hidden = true;
+  document.getElementById('sg-box').innerHTML = '';
+}
+
+/* ---------- uscita dal chiosco: logo premuto 2 secondi ---------- */
+function pressioneLunga() {
+  const logo = document.getElementById('logo');
+  let timer = null;
+  const via = () => { clearTimeout(timer); timer = null; logo.classList.remove('premuto'); };
+  logo.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    via();
+    void logo.offsetWidth;            // riparte l'animazione dell'anello
+    logo.classList.add('premuto');
+    timer = setTimeout(() => { via(); document.getElementById('dlg-esci').hidden = false; }, 2000);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => logo.addEventListener(ev, via));
+  logo.addEventListener('contextmenu', e => e.preventDefault());   // pressione lunga = menu, non qui
+}
+function chiudiEsci() { document.getElementById('dlg-esci').hidden = true; }
+/** Cambiare cosa fa il tablet: la pagina iniziale chiede il PIN
+    dell'amministratore. Nel periodo di passaggio si esce come prima. */
+function logout() { FTA.cambiaDispositivo(); }
 
 avvio();
 </script>

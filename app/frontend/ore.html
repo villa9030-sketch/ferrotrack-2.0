@@ -4,255 +4,252 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Ore di lavoro — LS FerroTrack</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="/ft-accesso.js" data-stazioni="ore"></script>
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
 <style>
-  :root{
-    --bg:#f2f4f5; --white:#ffffff; --black:#14181a; --ink:#14181a;
-    --green:#1a7a48; --green-light:#22a060;
-    --gray-text:#5a6367; --gray-muted:#98a1a5; --border:#e3e6e8;
-    --blue:#1e40af; --blue-bg:#eaf1fb;
-    --red:#991b1b; --red-bg:#fee2e2;
-    --orange:#92400e; --orange-bg:#fef3c7;
-    --ambra:#b45309; --ambra-bordo:#f0b429; --ambra-bg:#fffbf0;
-    --green-badge:#166534; --green-badge-bg:#e7f5ee;
-    --ombra:0 1px 2px rgba(0,0,0,.03), 0 6px 20px rgba(0,0,0,.05);
-    --ombra-alta:0 4px 14px rgba(0,0,0,.05), 0 18px 50px rgba(0,0,0,.10);
-    --touch:64px;
-  }
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
-  html,body{margin:0; padding:0}
-  body{
-    background:var(--bg); color:var(--ink);
-    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  /* Timbratrice: il tablet dove ognuno dichiara le sue ore.
+     La base (colori, caratteri, testata, effetti) e' ft-ui.css, la stessa del
+     preventivatore; qui ci sono solo le misure grandi per le dita e per
+     leggere da un paio di metri. */
+  body.ft{
+    --ft-topbar-h:68px; --touch:64px;
     font-size:18px; line-height:1.45;
-    font-variant-numeric:tabular-nums;
+    -webkit-tap-highlight-color:transparent;
     -webkit-user-select:none; user-select:none;
   }
-  .wrap{max-width:1200px; margin:0 auto; padding:20px 20px 124px}
+  .wrap{max-width:1200px; margin:0 auto; padding:calc(var(--ft-topbar-h) + 24px) 24px 132px}
+  section[id^="vista-"]{animation:ftIn .24s var(--ft-ease)}
 
   /* ---- Testata ---- */
-  .topbar{
-    background:var(--white); border-bottom:1px solid var(--border);
-    padding:14px 20px; display:flex; align-items:center; gap:14px;
-    position:sticky; top:0; z-index:20;
-    box-shadow:0 1px 3px rgba(0,0,0,.04);
-  }
-  .marchio{
-    width:44px; height:44px; flex:none; border-radius:12px;
-    background:var(--green); color:#fff;
-    display:flex; align-items:center; justify-content:center;
-    font-family:'Geist',sans-serif; font-weight:900; font-size:16px; letter-spacing:.5px;
-  }
-  .topbar h1{
-    margin:0; flex:1; font-family:'Geist',sans-serif; font-weight:800;
-    font-size:21px; letter-spacing:-.4px;
-  }
-  .oggi{font-size:16px; color:var(--gray-text); font-weight:600; white-space:nowrap}
+  .or-topbar{gap:18px}
+  .or-topbar .ft-brand-name{font-size:16px}
+  .or-topbar .ft-brand-area{font-size:12.5px}
+  .or-logo{width:44px; height:44px; border-radius:11px; font-size:16px}
+  .or-titolo{margin:0; padding-left:18px; border-left:1px solid var(--ft-line);
+    font:800 22px var(--ft-display); letter-spacing:-.4px; white-space:nowrap}
+  .or-oggi{font:700 20px var(--ft-display); letter-spacing:-.3px; color:var(--ft-ink-2); white-space:nowrap}
   .chip-persona{
-    background:var(--green); color:#fff; font-weight:700; font-size:18px;
-    padding:11px 20px; border-radius:999px; white-space:nowrap;
-    box-shadow:0 4px 12px rgba(26,122,72,.22);
+    display:inline-flex; align-items:center; height:46px; padding:0 20px; border-radius:999px;
+    background:var(--ft-accent); color:#fff; font-weight:700; font-size:17px; white-space:nowrap;
+    box-shadow:0 6px 18px rgba(79,70,229,.24); animation:ftPop .22s var(--ft-ease);
   }
 
-  h2{font-family:'Geist',sans-serif; font-size:24px; margin:24px 0 6px;
-     font-weight:800; letter-spacing:-.5px}
-  .hint{color:var(--gray-text); font-size:16px; margin:0 0 18px}
+  h2{font:800 28px/1.15 var(--ft-display); letter-spacing:-.7px; margin:28px 0 6px; color:var(--ft-ink)}
+  section > h2:first-child, .msg[hidden] + h2, .testa-bacheca h2{margin-top:0}
+  .hint{color:var(--ft-ink-3); font-size:16px; margin:4px 0 20px}
+  .hint a{color:var(--ft-accent); font-weight:600}
 
-  /* ---- Pulsanti grandi ---- */
-  .griglia{display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  /* ---- Pulsanti grandi (clienti) ---- */
+  .griglia{display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
   .btn-grande{
-    min-height:88px; background:var(--white); border:1px solid var(--border);
-    border-radius:14px; font-size:20px; font-weight:600; color:var(--ink);
+    min-height:84px; background:var(--ft-panel); border:1px solid var(--ft-line);
+    border-radius:var(--ft-r-xl); font:600 19px/1.25 var(--ft-font); color:var(--ft-ink);
     cursor:pointer; padding:16px; display:flex; align-items:center; justify-content:center;
-    text-align:center; box-shadow:var(--ombra);
-    transition:border-color .12s, box-shadow .12s, transform .08s;
+    text-align:center; box-shadow:var(--ft-elev-1);
+    transition:border-color .15s, box-shadow .2s, transform .1s var(--ft-ease);
   }
-  .btn-grande:hover{border-color:var(--green); box-shadow:var(--ombra-alta)}
-  .btn-grande:active{transform:scale(.985); background:#fafbfb}
-  .btn-grande:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
-  .btn-grande.interna{background:var(--blue-bg); border-color:#bfdbfe; color:var(--blue)}
+  .btn-grande:hover{border-color:#CBD2DC; box-shadow:var(--ft-elev-2)}
+  .btn-grande:active{transform:scale(.985); background:var(--ft-hover)}
+  .btn-grande.interna{background:var(--ft-accent-bg); border-color:#C7D2FE; color:var(--ft-accent-ink); font-weight:700}
 
   /* ---- Righe ore ---- */
   .riga{
-    background:var(--white); border:1px solid var(--border); border-radius:14px;
-    padding:16px 18px; margin-bottom:12px; display:flex; align-items:center; gap:14px;
-    flex-wrap:wrap; box-shadow:var(--ombra);
+    background:var(--ft-panel); border:1px solid var(--ft-line); border-radius:var(--ft-r-xl);
+    padding:14px 16px 14px 22px; margin-bottom:10px; display:flex; align-items:center; gap:16px;
+    flex-wrap:wrap; box-shadow:var(--ft-elev-1);
   }
-  .riga.interna{background:#f7fafd; border-color:#d7e6f7}
-  .riga .nome{flex:1; min-width:180px; font-size:20px; font-weight:700}
+  .riga.interna{background:#FAFAFF; border-color:#C7D2FE; box-shadow:inset 4px 0 0 var(--ft-accent), var(--ft-elev-1)}
+  .riga .nome{flex:1; min-width:180px; font:700 21px/1.25 var(--ft-display); letter-spacing:-.3px}
   .riga .nome .tag{
-    display:inline-block; font-size:13px; font-weight:700; color:var(--blue);
-    background:var(--blue-bg); padding:2px 10px; border-radius:999px; margin-left:8px;
-    vertical-align:middle;
+    display:inline-flex; align-items:center; height:24px; padding:0 9px; margin-left:10px; vertical-align:middle;
+    border-radius:6px; background:var(--ft-accent-bg); color:var(--ft-accent-ink);
+    font:600 12.5px var(--ft-font); letter-spacing:0;
   }
   .stepper{display:flex; align-items:center; gap:10px}
   .step-btn{
-    width:var(--touch); height:var(--touch); border-radius:14px; border:1px solid var(--border);
-    background:var(--white); font-size:30px; font-weight:600; line-height:1; cursor:pointer;
-    color:var(--ink); display:flex; align-items:center; justify-content:center;
-    box-shadow:var(--ombra); transition:transform .08s, border-color .12s;
+    width:var(--touch); height:var(--touch); border-radius:12px; border:1px solid var(--ft-line);
+    background:var(--ft-panel); font:500 30px/1 var(--ft-font); cursor:pointer; color:var(--ft-ink);
+    display:flex; align-items:center; justify-content:center; padding:0;
+    box-shadow:var(--ft-elev-1); transition:transform .08s, border-color .15s, background .15s;
   }
-  .step-btn:hover{border-color:var(--green)}
-  .step-btn:active{transform:scale(.94); background:#f4f6f7}
-  .step-btn:disabled{opacity:.35; cursor:default}
-  .step-btn:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
-  .valore{min-width:110px; text-align:center; font-family:'Geist',sans-serif;
-          font-size:30px; font-weight:800; letter-spacing:-.5px}
-  .valore .u{font-size:16px; color:var(--gray-text); font-weight:600; margin-left:2px}
+  .step-btn:hover{border-color:#CBD2DC}
+  .step-btn:active{transform:scale(.94); background:var(--ft-line-2)}
+  .step-btn:disabled{opacity:.35; cursor:default; transform:none}
+  .valore{min-width:112px; text-align:center; font:800 34px var(--ft-display); letter-spacing:-1px}
+  .valore .u{font:600 16px var(--ft-font); color:var(--ft-ink-3); margin-left:3px; letter-spacing:0}
   .rimuovi{
-    min-width:56px; height:56px; border-radius:14px; border:1px solid var(--border);
-    background:var(--white); color:var(--red); font-size:20px; cursor:pointer;
+    min-width:56px; height:56px; border-radius:12px; border:1px solid var(--ft-line); padding:0;
+    background:var(--ft-panel); color:var(--ft-err); font-size:20px; cursor:pointer;
+    transition:background .15s, border-color .15s;
   }
-  .rimuovi:hover{border-color:#f3c8c8; background:#fffafa}
+  .rimuovi:hover, .rimuovi:active{border-color:var(--ft-err-line); background:var(--ft-err-bg)}
 
   /* ---- Totale + salva (barra fissa) ---- */
   .barra{
-    position:fixed; left:0; right:0; bottom:0; background:var(--white);
-    border-top:1px solid var(--border); padding:14px 20px;
-    display:flex; align-items:center; gap:16px; z-index:30;
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    display:flex; align-items:center; gap:16px; padding:14px 24px;
     padding-bottom:calc(14px + env(safe-area-inset-bottom));
-    box-shadow:0 -6px 24px rgba(0,0,0,.07);
+    background:rgba(255,255,255,.9); border-top:1px solid var(--ft-line);
+    backdrop-filter:blur(24px) saturate(180%); -webkit-backdrop-filter:blur(24px) saturate(180%);
+    box-shadow:0 -8px 24px rgba(15,23,42,.06); animation:ftSale .26s var(--ft-ease);
   }
-  .totale{flex:1; font-family:'Geist',sans-serif; font-size:22px; font-weight:800;
-          letter-spacing:-.4px}
-  .totale span{font-size:32px; color:var(--green)}
-  .obiettivo{font-family:'Inter',sans-serif; font-size:15px; font-weight:600;
-             margin-top:3px; letter-spacing:0}
-  .obiettivo.manca{color:var(--ambra)}
-  .obiettivo.ok{color:var(--green)}
-  .obiettivo.oltre{color:#1d4ed8}
+  .totale{flex:1; font:700 20px var(--ft-display); letter-spacing:-.3px; color:var(--ft-ink-2)}
+  .totale span{font-size:36px; font-weight:800; letter-spacing:-1px; color:var(--ft-ink)}
+  .obiettivo{font:600 15px var(--ft-font); margin-top:2px; letter-spacing:0; color:var(--ft-ink-3)}
+  .obiettivo.manca{color:var(--ft-warn)}
+  .obiettivo.ok{color:var(--ft-ok)}
+  .obiettivo.oltre{color:var(--ft-accent-ink)}
   .btn-salva{
-    min-height:var(--touch); padding:0 40px; border-radius:14px; border:none;
-    background:var(--green); color:#fff; font-family:'Geist',sans-serif;
-    font-size:21px; font-weight:800; cursor:pointer;
-    box-shadow:0 6px 18px rgba(26,122,72,.24);
-    transition:transform .08s, box-shadow .12s;
+    min-height:var(--touch); padding:0 44px; border-radius:12px; border:1px solid var(--ft-accent);
+    background:var(--ft-accent); color:#fff; font:700 20px var(--ft-font); cursor:pointer;
+    box-shadow:0 6px 20px rgba(79,70,229,.28);
+    transition:transform .08s, box-shadow .15s, background .15s;
   }
-  .btn-salva:hover{background:var(--green-light)}
-  .btn-salva:active{transform:scale(.98)}
-  .btn-salva:disabled{background:var(--gray-muted); box-shadow:none; cursor:default}
-  .btn-salva:focus-visible{outline:4px solid var(--blue); outline-offset:2px}
+  .btn-salva:hover{background:var(--ft-accent-hover)}
+  .btn-salva:active{transform:translateY(1px)}
+  .btn-salva:disabled{background:var(--ft-ink-4); border-color:var(--ft-ink-4); box-shadow:none; cursor:default}
   .btn-sec{
-    min-height:var(--touch); padding:0 26px; border-radius:14px;
-    border:1px solid var(--border); background:var(--white); color:var(--ink);
-    font-size:18px; font-weight:600; cursor:pointer;
+    min-height:var(--touch); padding:0 26px; border-radius:12px;
+    border:1px solid var(--ft-line); background:var(--ft-panel); color:var(--ft-ink);
+    font:600 18px var(--ft-font); cursor:pointer; box-shadow:var(--ft-elev-1);
+    transition:background .15s, border-color .15s;
   }
-  .btn-sec:hover{background:#fafbfb; border-color:var(--gray-muted)}
+  .btn-sec:hover{background:#FAFBFC; border-color:#CBD2DC}
 
   /* ---- Messaggi ---- */
-  .msg{padding:16px 18px; border-radius:12px; font-size:17px; font-weight:500;
-       line-height:1.5; margin:14px 0; display:none}
-  .msg.ok{background:var(--green-badge-bg); color:var(--green-badge); display:block}
-  .msg.err{background:var(--red-bg); color:var(--red); display:block}
-  .msg.warn{background:var(--orange-bg); color:var(--orange); display:block}
+  .msg{padding:15px 18px; border-radius:12px; border:1px solid var(--ft-line); font-size:17px; font-weight:500;
+       line-height:1.5; margin:14px 0; display:none; animation:ftIn .22s var(--ft-ease)}
+  .msg.ok{background:var(--ft-ok-bg); border-color:var(--ft-ok-line); color:#05603A; display:block}
+  .msg.err{background:var(--ft-err-bg); border-color:var(--ft-err-line); color:#912018; display:block}
+  .msg.warn{background:var(--ft-warn-bg); border-color:var(--ft-warn-line); color:#93370D; display:block}
   .msg .azioni{margin-top:12px; display:flex; gap:10px}
 
+  /* ---- Finestre: conferma delle ore e "Salvato" ---- */
   .toast{
-    position:fixed; inset:0; background:rgba(0,0,0,.55); display:none;
-    align-items:center; justify-content:center; z-index:50;
+    position:fixed; inset:0; z-index:2000; display:none; align-items:center; justify-content:center; padding:24px;
+    background:rgba(11,18,32,.42); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
   }
-  .toast.on{display:flex}
+  .toast.on{display:flex; animation:ftFade .16s ease-out}
   .toast .box{
-    background:var(--white); border-radius:22px; padding:44px 56px; text-align:center;
-    box-shadow:0 24px 70px rgba(0,0,0,.32);
+    background:var(--ft-panel); border-radius:18px; padding:40px 56px; text-align:center;
+    box-shadow:var(--ft-elev-3); animation:ftPop .22s var(--ft-ease);
   }
-  .toast .segno{font-size:64px; color:var(--green); line-height:1}
-  .toast .txt{font-family:'Geist',sans-serif; font-size:26px; font-weight:800;
-              margin-top:10px; letter-spacing:-.4px}
-  .toast .sub{font-size:18px; color:var(--gray-text); margin-top:6px}
+  .toast .box.chiedi-box{max-width:560px; padding:28px 30px 24px; text-align:left}
+  .chiedi-tit{font:800 26px/1.2 var(--ft-display); letter-spacing:-.5px; margin-bottom:10px}
+  .chiedi-txt{font-size:19px; color:var(--ft-ink-2); line-height:1.5}
+  .chiedi-az{display:flex; gap:12px; margin-top:26px}
+  .chiedi-az > button{flex:1}
+  .chiedi-az .btn-salva{padding:0 20px; font-size:19px}
+  /* il cerchio verde entra e la spunta si disegna */
+  .toast .segno{width:92px; height:92px; margin:0 auto; border-radius:50%; background:var(--ft-ok-dot);
+    display:grid; place-items:center; animation:ftPop .3s var(--ft-ease) both, ftOk 1.4s ease-out .2s}
+  .toast .segno svg{width:50px; height:50px}
+  .toast .segno path{fill:none; stroke:#fff; stroke-width:5; stroke-linecap:round; stroke-linejoin:round;
+    stroke-dasharray:40; stroke-dashoffset:40; animation:ftTraccia .4s var(--ft-ease) .18s forwards}
+  .toast .txt{font:800 28px var(--ft-display); margin-top:16px; letter-spacing:-.6px}
+  .toast .sub{font-size:18px; color:var(--ft-ink-3); margin-top:4px}
 
   /* ---- Bacheca della giornata (schermata fissa della timbratrice) ---- */
-  .testa-bacheca{display:flex; align-items:baseline; justify-content:space-between;
-                 gap:16px; flex-wrap:wrap}
-  .testa-bacheca .agg{font-size:14px; color:var(--gray-muted); font-weight:500}
-  .bacheca{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:18px}
-
+  .testa-bacheca{display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap}
+  .testa-bacheca .agg{display:inline-flex; align-items:center; gap:7px; font-size:14px; color:var(--ft-ink-3); font-weight:500}
+  .testa-bacheca .agg:not(:empty)::before{content:''; width:8px; height:8px; border-radius:50%;
+    background:var(--ft-ok-dot); box-shadow:0 0 0 3px rgba(16,185,129,.15)}
+  .bacheca{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px}
 
   /* Aggiungere una persona: un gesto, non una procedura. */
-  .btn-aggiungi{margin-top:18px; width:100%; padding:16px; font-size:17px;
-    font-weight:700; color:var(--gray-text); background:var(--white);
-    border:2px dashed var(--border); border-radius:16px; cursor:pointer}
-  .btn-aggiungi:hover{border-color:var(--green); color:var(--green)}
+  .btn-aggiungi{margin-top:16px; width:100%; min-height:var(--touch); padding:16px; font:600 17px var(--ft-font);
+    color:var(--ft-ink-3); background:transparent; border:1.5px dashed #CBD2DC; border-radius:var(--ft-r-xl); cursor:pointer;
+    transition:border-color .15s, color .15s, background .15s}
+  .btn-aggiungi:hover{border-color:var(--ft-accent); color:var(--ft-accent-ink); background:var(--ft-accent-bg)}
   .persona{
     position:relative; display:flex; flex-direction:column; align-items:stretch;
-    justify-content:flex-start; width:100%; text-align:left; cursor:pointer;
-    background:var(--white); border:1px solid var(--border); border-radius:18px;
-    padding:20px 22px 20px 26px; min-height:var(--touch); overflow:hidden;
-    box-shadow:var(--ombra); transition:box-shadow .14s, transform .08s;
+    justify-content:flex-start; width:100%; text-align:left; cursor:pointer; font:inherit; color:inherit;
+    background:var(--ft-panel); border:1px solid var(--ft-line); border-radius:16px;
+    padding:18px 20px 18px 26px; min-height:var(--touch); overflow:hidden;
+    box-shadow:var(--ft-elev-1); transition:border-color .15s, box-shadow .2s, transform .2s var(--ft-ease);
   }
   /* filetto verticale colorato: lo stato si legge da lontano, anche di sbieco */
-  .persona::before{
-    content:''; position:absolute; left:0; top:0; bottom:0; width:6px;
-    background:var(--border);
-  }
-  .persona:hover{box-shadow:var(--ombra-alta)}
+  .persona::before{content:''; position:absolute; left:0; top:0; bottom:0; width:6px; background:var(--ft-line)}
+  .persona:hover{border-color:#CBD2DC; box-shadow:var(--ft-elev-2); transform:translateY(-2px)}
   .persona:active{transform:scale(.99)}
-  .persona.mancante{background:var(--ambra-bg); border-color:#f5e3bd}
-  .persona.mancante::before{background:var(--ambra-bordo)}
-  .persona.completa::before{background:var(--green)}
-  .persona .riga1{display:flex; align-items:baseline; justify-content:space-between; gap:14px}
-  .persona .nome{font-family:'Geist',sans-serif; font-size:22px; font-weight:800;
-                 letter-spacing:-.4px; line-height:1.2}
-  .persona .ore{font-family:'Geist',sans-serif; font-size:30px; font-weight:900;
-                color:var(--green); white-space:nowrap; letter-spacing:-1px}
-  .persona.mancante .ore{color:var(--ambra); font-size:17px; font-weight:800;
-                         letter-spacing:0; text-transform:uppercase}
-  .persona .stato{font-size:13px; font-weight:600; margin-top:4px;
-                  letter-spacing:.2px; color:var(--gray-text)}
-  .persona.mancante .stato{color:var(--ambra)}
-  .persona.completa .stato{color:var(--green)}
-  .persona .stato.corta{color:var(--ambra)}
+  .persona.mancante{background:#FFFDF7; border-color:var(--ft-warn-line)}
+  .persona.mancante::before{background:var(--ft-warn-dot)}
+  .persona.completa::before{background:var(--ft-ok-dot)}
+  .persona .riga1{display:flex; align-items:center; gap:12px}
+  .persona .av{flex:none; width:40px; height:40px; border-radius:50%; display:grid; place-items:center;
+    background:var(--ft-line-2); color:var(--ft-ink-2); font:700 14px var(--ft-font)}
+  .persona.completa .av{background:var(--ft-ok-bg); color:var(--ft-ok)}
+  .persona.mancante .av{background:var(--ft-warn-bg); color:var(--ft-warn)}
+  .persona .nome{flex:1; min-width:0; font:800 22px/1.2 var(--ft-display); letter-spacing:-.4px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .persona .ore{font:800 32px var(--ft-display); color:var(--ft-ink); white-space:nowrap; letter-spacing:-1px}
+  .persona.mancante .ore{color:var(--ft-warn); font:700 13px var(--ft-font); letter-spacing:.06em; text-transform:uppercase;
+    padding:5px 10px; border-radius:7px; background:var(--ft-warn-bg); border:1px solid var(--ft-warn-line)}
+  .persona .stato{font-size:14px; font-weight:600; margin-top:8px; color:var(--ft-ink-3)}
+  .persona.mancante .stato{color:var(--ft-warn)}
+  .persona.completa .stato{color:var(--ft-ok)}
+  .persona .stato.corta{color:var(--ft-warn)}
   .persona .clienti{
-    margin-top:14px; padding-top:14px; border-top:1px solid var(--border);
-    font-size:16px; color:var(--gray-text); line-height:1.75;
+    margin-top:12px; padding-top:12px; border-top:1px solid var(--ft-line-2);
+    font-size:16px; color:var(--ft-ink-2); line-height:1.75;
   }
   .persona .clienti div{display:flex; justify-content:space-between; gap:14px}
   .persona .clienti span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .persona .clienti b{color:var(--ink); font-weight:700; white-space:nowrap}
+  .persona .clienti b{color:var(--ft-ink); font-weight:700; white-space:nowrap}
 
   .cerca{
-    width:100%; min-height:56px; font-size:18px; padding:12px 18px;
-    font-family:'Inter',sans-serif; color:var(--ink);
-    border:1px solid var(--border); border-radius:14px; margin-bottom:16px;
-    background:var(--white); box-shadow:var(--ombra);
+    width:100%; height:58px; font:500 18px var(--ft-font); padding:0 18px; color:var(--ft-ink);
+    border:1px solid var(--ft-line); border-radius:12px; margin-bottom:16px;
+    background:var(--ft-panel); box-shadow:var(--ft-elev-1); outline:0;
+    transition:border-color .15s, box-shadow .15s;
     -webkit-user-select:text; user-select:text;
   }
-  .cerca:focus{outline:none; border-color:var(--green);
-               box-shadow:0 0 0 3px rgba(26,122,72,.14)}
+  .cerca::placeholder{color:var(--ft-ink-4)}
+  .cerca:focus{border-color:var(--ft-accent); box-shadow:0 0 0 4px var(--ft-accent-glow)}
 
-  .vuoto{color:var(--gray-text); font-size:17px; padding:28px; text-align:center;
-         background:var(--white); border:1px dashed var(--border); border-radius:16px}
-  [hidden]{display:none !important}
+  .vuoto{color:var(--ft-ink-3); font-size:17px; padding:30px; text-align:center;
+         background:var(--ft-panel); border:1.5px dashed var(--ft-line); border-radius:var(--ft-r-xl)}
 
+  @media (max-width:720px){
+    .or-titolo{padding-left:0; border-left:0; font-size:19px}
+  }
   @media (max-width:520px){
-    .wrap{padding:14px 14px 132px}
+    .wrap{padding:calc(var(--ft-topbar-h) + 14px) 14px 132px}
+    .or-oggi{display:none}
     .griglia,.bacheca{grid-template-columns:1fr}
     .riga .nome{min-width:100%}
-    .topbar h1{font-size:18px}
-    .totale{font-size:19px}
-    .totale span{font-size:26px}
+    .totale{font-size:18px}
+    .totale span{font-size:28px}
     .btn-salva{padding:0 26px; font-size:19px}
   }
 </style>
 </head>
-<body>
+<body class="ft ft-touch">
 
-<div class="topbar">
-  <div class="marchio">LS</div>
-  <h1>Ore di lavoro</h1>
-  <div class="oggi" id="oggi">—</div>
-  <div class="chip-persona" id="chip-persona" hidden></div>
-</div>
+<header class="ft-topbar or-topbar">
+  <div class="ft-brand">
+    <div class="ft-logo or-logo">LS</div>
+    <span>
+      <div class="ft-brand-name">FerroTrack</div>
+      <div class="ft-brand-area">Timbratrice</div>
+    </span>
+  </div>
+  <h1 class="or-titolo">Ore di lavoro</h1>
+  <div class="ft-topbar-end">
+    <div class="or-oggi" id="oggi">—</div>
+    <div class="chip-persona" id="chip-persona" hidden></div>
+  </div>
+</header>
 
 <div class="wrap">
 
   <!-- ============ CONFIGURAZIONE DISPOSITIVO (una volta sola) ============ -->
   <section id="vista-config" hidden>
-    <h2>Configurazione del dispositivo</h2>
-    <p class="hint">Questo tablet non è ancora abilitato. Inserisci il codice fornito
-       dall'ufficio: si fa <b>una volta sola</b>.</p>
+    <h2>Questo tablet non è ancora registrato</h2>
+    <p class="hint">Apri la <a href="/">pagina iniziale</a> e scegli <b>Timbratrice</b>: serve il PIN
+       dell’amministratore, si fa <b>una volta sola</b>. Oppure inserisci qui il codice preparato
+       dall’amministrazione.</p>
     <input class="cerca" id="in-token" type="password" placeholder="Codice dispositivo"
            autocomplete="off" aria-label="Codice dispositivo">
     <div class="msg err" id="msg-config" hidden></div>
@@ -297,21 +294,20 @@
 
 <!-- ============ CONFERMA SCOSTAMENTO DALLE ORE ATTESE ============ -->
 <div class="toast" id="chiedi">
-  <div class="box" style="max-width:560px; text-align:left">
-    <div style="font-size:26px; font-weight:800; margin-bottom:10px" id="chiedi-titolo"></div>
-    <div style="font-size:19px; color:var(--gray-text); line-height:1.5" id="chiedi-testo"></div>
-    <div style="display:flex; gap:14px; margin-top:26px">
-      <button class="btn-sec" style="flex:1" onclick="chiudiChiedi()">Correggo</button>
-      <button class="btn-salva" style="flex:1; padding:0 20px; font-size:19px"
-              id="chiedi-ok" onclick="confermaScostamento()"></button>
+  <div class="box chiedi-box" role="dialog" aria-modal="true" aria-labelledby="chiedi-titolo">
+    <div class="chiedi-tit" id="chiedi-titolo"></div>
+    <div class="chiedi-txt" id="chiedi-testo"></div>
+    <div class="chiedi-az">
+      <button class="btn-sec" onclick="chiudiChiedi()">Correggo</button>
+      <button class="btn-salva" id="chiedi-ok" onclick="confermaScostamento()"></button>
     </div>
   </div>
 </div>
 
 <!-- ============ CONFERMA ============ -->
-<div class="toast" id="toast">
+<div class="toast" id="toast" role="status">
   <div class="box">
-    <div class="segno">✓</div>
+    <div class="segno"><svg viewBox="0 0 52 52" aria-hidden="true"><path d="M15 27.5l7.5 7.5L38 18.5"/></svg></div>
     <div class="txt">Salvato</div>
     <div class="sub" id="toast-sub"></div>
   </div>
@@ -322,7 +318,6 @@
 //  Stato
 // ===========================================================================
 const API = '';
-let TOKEN = null;
 let CTX = null;                 // contesto dispositivo (scope, oggi, passo)
 let OPERAI = [], CLIENTI = [];
 let operatore = null;           // {id, nome}
@@ -334,16 +329,18 @@ let scostamentoOk = false;      // l'operaio ha confermato un totale diverso dal
 let sporco = false;             // modifiche non salvate
 let richiestaId = null;         // chiave di idempotenza del tentativo corrente
 let inSalvataggio = false;
+let VISTI = null;               // id delle persone gia' sulla bacheca (null = primo disegno)
+let APPENA_SALVATO = null;      // la persona che ha appena salvato: la sua scheda si illumina
 
 const PASSO = () => (CTX && CTX.passo_minuti) || 30;
 const ETICHETTA_INTERNA = () => (CTX && CTX.etichetta_interna) || 'Attività interne';
 
 // ===========================================================================
-//  Rete — il token viaggia sempre nell'header (mai in URL)
+//  Rete — chi e' il tablet lo sa il server (cookie del dispositivo, che
+//  JavaScript non legge): qui non si manda nessun codice.
 // ===========================================================================
 async function api(path, opts = {}) {
   const o = Object.assign({headers: {}}, opts);
-  o.headers['X-Device-Token'] = TOKEN || '';
   if (o.body) o.headers['Content-Type'] = 'application/json';
   const r = await fetch(API + path, o);          // può lanciare (rete assente)
   let d = {};
@@ -363,21 +360,12 @@ function vista(nome) {
 }
 
 async function avvia() {
-  // Token: da URL (configurazione una tantum) oppure da memoria del dispositivo
-  const url = new URL(window.location.href);
-  const daUrl = url.searchParams.get('token');
-  if (daUrl) {
-    localStorage.setItem('ore_device_token', daUrl);
-    url.searchParams.delete('token');
-    history.replaceState({}, '', url.toString());   // non lasciarlo nella barra
-  }
-  TOKEN = localStorage.getItem('ore_device_token');
-  if (!TOKEN) { vista('config'); return; }
-
+  // Il vecchio ?token= dei QR lo adotta ft-accesso.js (diventa il cookie).
+  await FTA.pronto;
   try {
     const r = await api('/api/ore/contesto');
-    if (r.status === 401) { localStorage.removeItem('ore_device_token'); TOKEN = null; vista('config');
-      mostra('msg-config', 'Codice non valido o revocato. Chiedi un nuovo codice all\'ufficio.', 'err');
+    if (r.status === 401) { vista('config');
+      mostra('msg-config', 'Questo tablet non è registrato come Timbratrice (o è stato revocato).', 'err');
       return; }
     if (!r.ok) throw new Error(r.data.error || 'Errore');
     CTX = r.data;
@@ -390,13 +378,15 @@ async function avvia() {
   }
 }
 
+/** Codice preparato dall'amministrazione: diventa il cookie del tablet. */
 async function salvaToken() {
   const t = (document.getElementById('in-token').value || '').trim();
   if (!t) return;
-  localStorage.setItem('ore_device_token', t);
-  TOKEN = t;
-  document.getElementById('msg-config').hidden = true;
-  avvia();
+  const r = await fetch('/api/accesso/usa-codice', { method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codice: t }) }).catch(() => null);
+  if (!r || !r.ok) { mostra('msg-config', 'Codice non valido o revocato.', 'err'); return; }
+  try { localStorage.removeItem('ore_device_token'); } catch (_) {}
+  location.reload();
 }
 
 async function caricaAnagrafiche() {
@@ -442,6 +432,7 @@ function renderOperai() {
                 + 'Aggiungi una persona qui sotto.</div>';
     return;
   }
+  const conta = [];
   g.innerHTML = OPERAI.map(o => {
     const dich = !!o.dichiarata;
     const tot = o.totale_minuti || 0;
@@ -456,6 +447,7 @@ function renderOperai() {
       ore = 'da fare';
     } else {
       ore = oreTesto(tot) + ' h';
+      conta.push([o.id, tot]);
       if (attesi !== null && tot < attesi) {
         cls = 'completa';
         stato = `mancano ${oreTesto(attesi - tot)} h sulle ${oreTesto(attesi)} dovute`
@@ -475,8 +467,9 @@ function renderOperai() {
     }).join('');
 
     return `
-      <button class="persona ${cls}" onclick="scegliOperaio('${o.id}')">
+      <button class="persona ${cls}" data-op="${esc(o.id)}" onclick="scegliOperaio(${esc(JSON.stringify(o.id))})">
         <div class="riga1">
+          <span class="av" aria-hidden="true">${esc(FT.iniziali(o.nome))}</span>
           <span class="nome">${esc(o.nome)}</span>
           <span class="ore">${ore}</span>
         </div>
@@ -484,6 +477,20 @@ function renderOperai() {
         ${righe ? `<div class="clienti">${righe}</div>` : ''}
       </button>`;
   }).join('');
+
+  // Effetti, solo quando succede qualcosa: al primo disegno le schede entrano
+  // in sequenza e le ore salgono; poi chi compare si illumina, chi ha appena
+  // salvato lampeggia di verde e le sue ore scorrono al valore nuovo.
+  const scheda = id => g.querySelector(`[data-op="${CSS.escape(id)}"]`);
+  conta.forEach(([id, tot]) => {
+    const el = scheda(id); if (!el) return;
+    const h = tot / 60;
+    FT.contaDa('ore-' + id, el.querySelector('.ore'), h, { dec: Number.isInteger(h) ? 0 : 1, suffisso: ' h' });
+  });
+  if (VISTI === null) FT.sequenza(g);
+  else OPERAI.filter(o => !VISTI.has(o.id)).forEach(o => FT.evidenzia(scheda(o.id)));
+  VISTI = new Set(OPERAI.map(o => o.id));
+  if (APPENA_SALVATO) { FT.evidenzia(scheda(APPENA_SALVATO), 'ft-flash-ok'); APPENA_SALVATO = null; }
 }
 
 /** Aggiunge una persona alla bacheca: si scrive il nome, e basta.
@@ -516,6 +523,8 @@ async function scegliOperaio(id) {
   renderClienti();
   vista('giornata');
   window.scrollTo(0, 0);
+  FT.sequenza(document.getElementById('righe'));
+  FT.sequenza(document.getElementById('griglia-clienti'));
 }
 
 // ===========================================================================
@@ -577,7 +586,8 @@ function totaleMinuti() {
 
 function aggiornaTotale() {
   const tot = totaleMinuti();
-  document.getElementById('totale').textContent = oreTesto(tot);
+  const h = tot / 60;
+  FT.conta(document.getElementById('totale'), h, { dec: Number.isInteger(h) ? 0 : 1, durata: 320 });
 
   // Obiettivo della giornata sempre in vista: l'operaio deve accorgersi SUBITO
   // se non arriva alle ore dovute, non il giorno dopo tramite l'ufficio.
@@ -632,7 +642,7 @@ function renderClienti(filtro) {
     html += `<button class="btn-grande interna" onclick="aggiungiInterna()">${esc(ETICHETTA_INTERNA())}</button>`;
   }
   html += lista.map(c =>
-    `<button class="btn-grande" onclick="aggiungiCliente('${escAttr(c.nome)}')">${esc(c.nome)}</button>`
+    `<button class="btn-grande" onclick="aggiungiCliente(${esc(JSON.stringify(c.nome))})">${esc(c.nome)}</button>`
   ).join('');
   g.innerHTML = html || '<div class="vuoto">Nessun cliente trovato.</div>';
 }
@@ -647,6 +657,7 @@ function aggiungiCliente(nome) {
   sporco = true; richiestaId = null;
   document.getElementById('cerca-cliente').value = '';
   renderRighe(); renderClienti();
+  evidenziaUltimaRiga();
 }
 
 function aggiungiInterna() {
@@ -654,6 +665,13 @@ function aggiungiInterna() {
   righe.push({cliente: null, attivita_interna: true, minuti: PASSO()});
   sporco = true; richiestaId = null;
   renderRighe(); renderClienti();
+  evidenziaUltimaRiga();
+}
+
+/** La riga appena aggiunta si illumina: si vede dove e' finita. */
+function evidenziaUltimaRiga() {
+  const r = document.querySelectorAll('#righe .riga');
+  if (r.length) FT.evidenzia(r[r.length - 1]);
 }
 
 // ===========================================================================
@@ -770,6 +788,7 @@ function confermaEsci(totMin) {
   document.getElementById('toast-sub').textContent =
     `${operatore.nome} — ${oreTesto(totMin)} h`;
   t.classList.add('on');
+  APPENA_SALVATO = operatore.id;      // tornando alla bacheca la sua scheda lampeggia
   setTimeout(() => { t.classList.remove('on'); tornaAiNomi(true); }, 1400);
 }
 
@@ -797,9 +816,7 @@ function mostra(id, testo, tipo, conRiprova) {
   el.scrollIntoView({block: 'nearest', behavior: 'smooth'});
 }
 function nascondi(id) { const el = document.getElementById(id); if (el) el.hidden = true; }
-function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g,
-  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function escAttr(s) { return String(s == null ? '' : s).replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+const esc = s => FT.esc(s);
 
 window.addEventListener('beforeunload', e => {
   if (sporco) { e.preventDefault(); e.returnValue = ''; }
