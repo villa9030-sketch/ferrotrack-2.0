@@ -112,10 +112,11 @@ def pezzi_in_lantek(codici: list) -> dict:
             trovati = {}
             for i in range(0, len(esatti), 500):
                 blocco = esatti[i:i + 500]
-                cur.execute('SELECT PrdRef, DIS_MatRef, DIS_Thickness FROM PPRR_PPRR_00000100 '
+                cur.execute('SELECT PrdRef, DIS_MatRef, DIS_Thickness, DIS_Area, DIS_ExtArea, DIS_CutPerim, PType '
+                            'FROM PPRR_PPRR_00000100 '
                             'WHERE PrdRef IN (' + ','.join('?' * len(blocco)) + ')', blocco)
-                for prd, mat, sp in cur.fetchall():
-                    trovati[str(prd).strip().upper()] = (str(prd).strip(), mat, sp)
+                for prd, mat, sp, area, est, per, ptype in cur.fetchall():
+                    trovati[str(prd).strip().upper()] = (str(prd).strip(), mat, sp, area, est, per, ptype)
         finally:
             con.close()
     except Exception as e:
@@ -134,6 +135,12 @@ def pezzi_in_lantek(codici: list) -> dict:
             'codice_lantek': t[0] if t else None,
             'materiale': (t[1] or None) if t else None,
             'spessore': float(t[2]) if t and t[2] is not None else None,
+            # geometria come Lantek l'ha importata (m2 e m -> dm2 e m): serve
+            # al controllo dei disegni al caricamento dell'ordine
+            'area_dm2': round(float(t[3]) * 100, 4) if t and t[3] else None,
+            'area_esterna_dm2': round(float(t[4]) * 100, 4) if t and t[4] else None,
+            'perimetro_m': round(float(t[5]), 4) if t and t[5] else None,
+            'e_pezzo': (t[6] == 0) if t and t[6] is not None else None,
             'revisioni': altre,
         }
     esito = {'disponibile': True, 'errore': None, 'pezzi': pezzi}
@@ -170,7 +177,10 @@ def righe_quantita(distinta: list, lantek: dict | None = None) -> list:
         if q <= 0:
             continue
         x = per_codice.setdefault(cod, {'codice': cod, 'quantita': 0, 'materiale_ft': r.get('materiale'),
-                                        'spessore_ft': r.get('spessore_mm')})
+                                        'spessore_ft': r.get('spessore_mm'),
+                                        # verifica tecnica del disegno (al caricamento dell'ordine)
+                                        'controllo': r.get('controllo'), 'articolo_id': r.get('articolo_id'),
+                                        'disegno': r.get('disegno')})
         x['quantita'] += q
     pezzi = (lantek or {}).get('pezzi') or {}
     disponibile = bool((lantek or {}).get('disponibile'))
@@ -219,7 +229,9 @@ def righe_quantita(distinta: list, lantek: dict | None = None) -> list:
         if not mat_lt and not (p and p['esiste'] and p['materiale']):
             avvisi.append(f"materiale {x['materiale_ft'] or '?'}: da scegliere in Lantek")
         out.append({'codice': codice_lt, 'codice_ft': cod, 'quantita': x['quantita'],
-                    'materiale': materiale, 'spessore': spessore, 'stato': stato, 'avvisi': avvisi})
+                    'materiale': materiale, 'spessore': spessore, 'stato': stato, 'avvisi': avvisi,
+                    'controllo': x.get('controllo'), 'articolo_id': x.get('articolo_id'),
+                    'disegno': x.get('disegno')})
     return out
 
 

@@ -35,9 +35,15 @@ function guidaDisegni(id) {
 function guidaAnalisi(d) {
   const creare = new Set((d.nuovi_da_creare || []).map(x => x.codice));
   const fuori = new Map((d.nuovi_esclusi || []).map(x => [x.codice, x.motivo]));
+  const daVerif = new Map((d.nuovi_esclusi || []).filter(x => x.verifica).map(x => [x.codice, x]));
   const auto = d.invio_automatico && (d.lantek || {}).disponibile;
-  const bloccati = [], decidere = [], nuovi = [], pronti = [], aperti = [];
+  const bloccati = [], decidere = [], nuovi = [], pronti = [], aperti = [], verificare = [];
   for (const r of d.righe || []) {
+    if (r.stato === 'nuovo' && daVerif.has(r.codice)) {
+      // disegno dubbio (verifica al caricamento): si guarda e si conferma qui
+      verificare.push({ r, x: daVerif.get(r.codice) });
+      continue;
+    }
     if (r.stato === 'nuovo' && !creare.has(r.codice)) {
       // "25CCPA0026-00 (2)": file scaricato piu' volte, il codice e' sbagliato
       const copia = /\s\(\d+\)$/.test(String(r.codice_ft || r.codice));
@@ -54,7 +60,7 @@ function guidaAnalisi(d) {
     else if (creare.has(r.codice)) nuovi.push(r);
     else pronti.push(r);
   }
-  return { bloccati, decidere, nuovi, pronti, aperti, auto };
+  return { bloccati, decidere, nuovi, pronti, aperti, verificare, auto };
 }
 
 async function guidaCarica(o, fresco) {
@@ -160,6 +166,20 @@ function guidaPasso1(o, g) {
       <p>Questi codici non sono in Lantek e non posso crearli io. Finché non ci sono, l’ordine non parte.</p>
       ${guidaElenco(a.bloccati.map(x => ({ ...x.r, _m: x.motivo, _c: x.cosa })), r => `<b>${esc(r._m)}</b> → ${esc(r._c)}`)}</section>`;
   }
+  // 1b) disegni dubbi dei pezzi nuovi: li guardi e confermi qui
+  if (a.verificare.length) {
+    corpo += `<section class="lg-sez warn"><h3><i data-lucide="eye"></i> Disegni da guardare <em>${a.verificare.length}</em></h3>
+      <p>Pezzi nuovi che creo io in Lantek: il controllo automatico ha un dubbio. Guarda il disegno: se è giusto confermalo.</p>
+      <ul class="lg-ver">${a.verificare.map(({ r, x }) => {
+        const svg = x.disegno && /\.dxf$/i.test(x.disegno) ? urlDisegno(o.id, x.disegno) + '/svg' : null;
+        const motivi = String(x.motivo || '').replace(/^disegno da verificare: /, '').split('; ');
+        return `<li>${svg ? `<a href="${esc(svg)}" target="_blank" title="Apri grande"><img src="${esc(svg)}" alt="" loading="lazy"></a>` : '<div class="lg-ver-noimg">nessuna anteprima</div>'}
+          <div><span class="ft-mono">${esc(r.codice)}</span> <small>${esc(r.materiale || '')} ${r.spessore != null ? esc(String(r.spessore)) + ' mm' : ''} · ${esc(String(r.quantita))} pz</small>
+            ${motivi.map(m => `<p>${esc(m)}</p>`).join('')}
+            <div class="lg-dec-az"><button class="ft-btn sm primary" onclick="guidaConfermaPezzo('${o.id}', ${esc(JSON.stringify(String(x.articolo_id || '')))})"><i data-lucide="check"></i> Il disegno è giusto</button></div>
+            <small class="lg-ver-no">Se è sbagliato: non confermarlo, correggi il pezzo nel preventivo o importalo dal MES, poi Ricontrolla.</small></div></li>`;
+      }).join('')}</ul></section>`;
+  }
   // 2) cosa decidere
   if (a.decidere.length) {
     corpo += `<section class="lg-sez warn"><h3><i data-lucide="help-circle"></i> Da decidere <em>${a.decidere.length}</em></h3>
@@ -186,13 +206,14 @@ function guidaPasso1(o, g) {
   if (ok.length) {
     corpo += `<section class="lg-sez ok"><h3><i data-lucide="check-circle-2"></i> A posto</h3><ul class="lg-ok">${ok.join('')}</ul></section>`;
   }
-  const bloccato = a.bloccati.length || daDecidere.length;
+  const bloccato = a.bloccati.length || daDecidere.length || a.verificare.length;
   let piede = `<button class="ft-btn lg" onclick="guidaCarica(ordineAperto(), true)" title="Rileggi Lantek (dopo aver importato o corretto qualcosa)"><i data-lucide="refresh-cw"></i> Ricontrolla</button>`;
   if (!nMandare && !bloccato) {
     corpo = guidaMsg('ok', 'È già tutto in Lantek', `Tutti i ${d.n_codici} codici hanno il loro ordine di produzione aperto in Lantek.`) + corpo;
     piede += `<button class="ft-btn lg primary" onclick="guidaSegnaFatto('${o.id}')"><i data-lucide="check"></i> Segna in Lantek e vai avanti</button>`;
   } else {
     const perche = a.bloccati.length ? `prima sistema i ${a.bloccati.length} codici in rosso`
+      : a.verificare.length ? `prima guarda i ${a.verificare.length} disegni dubbi`
       : correggo.length ? `prima correggi i ${correggo.length} codici e premi Ricontrolla`
       : daDecidere.length ? `prima decidi i ${daDecidere.length} codici in giallo` : '';
     piede += `<button class="ft-btn lg primary" ${bloccato ? 'disabled' : ''} onclick="guidaVai('${o.id}', 2)" title="${esc(perche)}">Avanti <i data-lucide="arrow-right"></i></button>`;
@@ -202,6 +223,17 @@ function guidaPasso1(o, g) {
     corpo = guidaMsg('ok', 'Tutto pronto', `Puoi andare avanti: vedrai il riepilogo prima di mandare.`) + corpo;
   }
   return { corpo, piede };
+}
+
+async function guidaConfermaPezzo(id, articoloId) {
+  if (!articoloId) { FT.toast('Pezzo non trovato', 'err'); return; }
+  let r;
+  try { r = await _post(`${API_URL}/api/orders/${id}/pezzi/${articoloId}/conferma`, {}); }
+  catch (e) { r = { success: false, error: 'Server non raggiungibile' }; }
+  if (!r.success) { FT.toast('Non riuscito: ' + (r.error || 'errore'), 'err'); return; }
+  FT.toast('Disegno confermato', 'ok');
+  const o = ordineAperto();
+  if (o && o.id === id) guidaCarica(o, true);
 }
 
 function guidaDecidi(id, codice, scelta) {

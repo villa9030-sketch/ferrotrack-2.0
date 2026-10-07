@@ -416,6 +416,46 @@ margin-top: 5px;
           b'"C1-00"' in passi[1][1] and j.get('pezzi_creati') == 1 and j.get('verificati') == j.get('mandati') == 3,
           j)
 
+    print('\n11) Verifica tecnica dei disegni (al caricamento dell\'ordine)')
+    cp = A._controllo_pezzo
+    check('abbinato per somiglianza e non confermato: da confermare',
+          (cp({'dxf_filename': 'X-01.dxf', 'abbinamento': {'tipo': 'somiglianza', 'confermato': False}}) or {}).get('stato')
+          == 'da_confermare')
+    check('confermato o nome uguale: niente da fare',
+          cp({'dxf_filename': 'X-01.dxf', 'abbinamento': {'tipo': 'somiglianza', 'confermato': True}}) is None
+          and cp({'dxf_filename': 'X.dxf', 'abbinamento': {'tipo': 'esatto', 'confermato': True}}) is None)
+    check('verifica automatica "da guardare": col motivo',
+          cp({'esito_verifica': {'stato': 'da_guardare', 'motivi': ['area 40% diversa da Lantek']}})
+          == {'stato': 'da_guardare', 'motivi': ['area 40% diversa da Lantek']})
+    check('contorno corretto in automatico: da confermare',
+          (cp({'contorno_auto': {'stato': 'da_confermare'}}) or {}).get('stato') == 'da_confermare')
+    # ordine con C1-00 nuovo il cui disegno e' stato abbinato solo per somiglianza
+    pr = PreventivoManager.create('DECA S.r.l.', 'paolo', quantita=1, numero_ordine_cliente='7777')
+    pid2 = pr['id'] if isinstance(pr, dict) else pr
+    PreventivoManager.replace_articoli(pid2, [
+        {'codice': 'C1-00', 'quantita': 2, 'materiale': 'ALU', 'spessore_mm': 4, 'costo_base_override': 3,
+         'dxf_filename': 'C1-00.dxf', 'abbinamento': {'tipo': 'somiglianza', 'file': 'C1-01.dxf', 'score': 0.8,
+                                                       'confermato': False}}])
+    s = models.SessionLocal()
+    s.query(Preventivo).filter(Preventivo.id == pid2).first().status = 'INVIATO'
+    s.commit(); s.close()
+    oid2 = PreventivoManager.accetta_e_crea_ordine(pid2, 'paolo').get('order_id')
+    L.ordini_in_lantek = lambda commessa: {}
+    pezzi_lantek['C1-00'] = {'esiste': False, 'codice_lantek': None, 'materiale': None, 'spessore': None, 'revisioni': []}
+    d = laser.get(f'/api/orders/{oid2}/lantek-quantita').get_json() or {}
+    fuori = {x['codice']: x for x in d.get('nuovi_esclusi') or []}
+    check('il pezzo nuovo dubbio non si crea: e\' fra quelli da guardare, col suo id',
+          'C1-00' in fuori and fuori['C1-00'].get('verifica') and fuori['C1-00'].get('articolo_id')
+          and not d.get('nuovi_da_creare'), d.get('nuovi_esclusi'))
+    rc = laser.post(f"/api/orders/{oid2}/pezzi/{fuori.get('C1-00', {}).get('articolo_id', 0)}/conferma", json={})
+    check('"il disegno e\' giusto": salvato', rc.status_code == 200, (rc.status_code, rc.get_json()))
+    d = laser.get(f'/api/orders/{oid2}/lantek-quantita').get_json() or {}
+    check('dopo la conferma si crea col suo disegno',
+          [x['codice'] for x in d.get('nuovi_da_creare') or []] == ['C1-00'] and not d.get('nuovi_esclusi'),
+          (d.get('nuovi_da_creare'), d.get('nuovi_esclusi')))
+    check('l\'officina non puo\' confermare',
+          rep.post(f"/api/orders/{oid2}/pezzi/1/conferma", json={}).status_code in (401, 403))
+
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     return 0 if not KO else 1
 

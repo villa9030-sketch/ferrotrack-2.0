@@ -219,6 +219,14 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lg-dec li.ok { opacity: .7; }
 .lg-dec-az { display: flex; gap: 6px; }
 .lg-ok li { padding: 4px 0; font-size: 14.5px; }
+.lg-ver { margin: 0; padding: 0; list-style: none; }
+.lg-ver li { display: grid; grid-template-columns: 120px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--ft-line-2, #EEF0F3); }
+.lg-ver img, .lg-ver-noimg { width: 120px; height: 90px; object-fit: contain; background: #fff; border: 1px solid var(--ft-line); border-radius: 8px; }
+.lg-ver-noimg { display: grid; place-items: center; font-size: 12px; color: var(--ft-ink-4); }
+.lg-ver p { margin: 3px 0; font-size: 13.5px; color: var(--ft-ink-2); }
+.lg-ver small { color: var(--ft-ink-3); }
+.lg-ver .lg-dec-az { margin: 6px 0 4px; }
+.lg-ver-no { display: block; font-size: 12.5px; }
 .lg-ok.grande li { font-size: 16px; padding: 6px 0; }
 .lg-riep { border: 1px solid var(--ft-line); border-radius: 12px; padding: 14px 16px; }
 .lg-riep > p { margin: 0 0 8px; font-weight: 700; color: var(--ft-ink-2); }
@@ -3178,6 +3186,6 @@ document.addEventListener('keydown', e => {
   if (j !== i) { e.preventDefault(); lbSeleziona(g[j].chiave); }
 });
 </script>
-<script src="/laser-guida.js?v=2"></script>
+<script src="/laser-guida.js?v=3"></script>
 </body>
 </html>

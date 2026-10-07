@@ -1405,6 +1405,27 @@ def _tempo_pezzo_laser(a: dict, tempo_preventivo) -> dict:
     return {'tempo_min': t, 'tempo_fonte': 'da_verificare' if incerto else 'calcolato'}
 
 
+def _controllo_pezzo(a: dict) -> dict | None:
+    """Cosa resta da verificare su un pezzo prima di crearlo in Lantek
+    (verifica automatica al caricamento dell'ordine): None se niente.
+    {'stato': 'da_confermare'|'da_guardare', 'motivi': [...]}"""
+    motivi, stato = [], None
+    ab = a.get('abbinamento') or {}
+    if a.get('dxf_filename') and ab.get('tipo') == 'somiglianza' and not ab.get('confermato'):
+        motivi.append(f"disegno «{a.get('dxf_filename')}» abbinato al codice solo per somiglianza")
+        stato = 'da_confermare'
+    ev = a.get('esito_verifica') or {}
+    if ev.get('stato') in ('da_guardare', 'corretto_da_confermare'):
+        motivi.extend(m for m in (ev.get('motivi') or []) if m)
+        stato = 'da_guardare' if ev['stato'] == 'da_guardare' else (stato or 'da_confermare')
+    ca = a.get('contorno_auto') or {}
+    if ca.get('stato') == 'da_confermare' and ev.get('stato') != 'confermato':
+        if not any('contorno' in m for m in motivi):
+            motivi.append('contorno corretto in automatico col peso del cartiglio')
+        stato = stato or 'da_confermare'
+    return {'stato': stato, 'motivi': motivi[:6]} if stato else None
+
+
 def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
     """Le righe della distinta di un ordine nato da un preventivo.
 
@@ -1498,6 +1519,8 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
                       'materiale': a.get('materiale') or None, 'spessore_mm': sp,
                       'lavorazioni': lav, 'assieme': cod_ass,
                       'disegno': disegno_di(a.get('dxf_filename')),
+                      'articolo_id': a.get('id'),
+                      'controllo': _controllo_pezzo(a),
                       **geo})
 
     for t in prev.get('tubolari') or []:
@@ -7136,6 +7159,9 @@ def _nuovi_per_lantek(order, q, righe=None) -> tuple:
         cod = r['codice']
         if any('scegli' in a for a in r['avvisi']):
             no.append({'codice': cod, 'motivo': 'in Lantek ci sono più revisioni: scegli quella giusta'})
+        elif r.get('controllo'):
+            no.append({'codice': cod, 'motivo': 'disegno da verificare: ' + '; '.join(r['controllo']['motivi']),
+                       'verifica': True, 'articolo_id': r.get('articolo_id'), 'disegno': r.get('disegno')})
         elif not dxf.get(cod.lower()):
             no.append({'codice': cod, 'motivo': 'disegno da preparare in FerroTrack' if cod.lower() in da_preparare
                        else 'manca il disegno'})
@@ -7279,6 +7305,27 @@ def api_ordine_lantek_ordini_xml(order_id):
                          mimetype='application/xml')
     except Exception as e:
         logger.exception('xml ordini Lantek fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/pezzi/<articolo_id>/conferma', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_ordine_pezzo_conferma(order_id, articolo_id):
+    """Verifica tecnica: il disegno di un pezzo dubbio e' giusto (abbinamento
+    per somiglianza, contorno corretto in automatico, controllo che non torna)."""
+    try:
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        if not order.preventivo_id_origine:
+            return jsonify({'success': False, 'error': "Quest'ordine non ha pezzi da verificare"}), 404
+        esito = PreventivoManager.conferma_controllo_articolo(order.preventivo_id_origine, articolo_id, _chi_nome())
+        if not esito.get('success'):
+            return jsonify({'success': False, 'error': esito.get('error') or 'non riuscito'}), 400
+        _audit('PEZZO_VERIFICATO', 'orders', order_id, f'Disegno del pezzo {articolo_id} confermato giusto')
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.exception('conferma pezzo fallita')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

@@ -5184,6 +5184,52 @@ class PreventivoManager:
             session.close()
 
     @staticmethod
+    def conferma_controllo_articolo(preventivo_id, articolo_id, chi: str = '') -> dict:
+        """Verifica tecnica di un pezzo dubbio (disegno abbinato per
+        somiglianza, contorno corretto in automatico, controllo che non torna):
+        chi lavora l'ordine ha guardato il disegno e dice "e' giusto".
+
+        Scrive solo l'esito nei campi extra del pezzo (non prezzi ne'
+        geometria): si puo' fare anche su un preventivo accettato, perche' e'
+        la verifica dell'ordine, non una modifica dell'offerta."""
+        from sqlalchemy import text as _text
+        session = get_session()
+        try:
+            if not PreventivoManager._colonna_extra_pronta(session):
+                return {'error': 'colonna extra non pronta'}
+            riga = session.execute(_text(
+                'SELECT extra_campi FROM preventivo_articoli WHERE id = :i AND preventivo_id = :p'),
+                {'i': articolo_id, 'p': preventivo_id}).fetchone()
+            if riga is None:
+                return {'error': 'Pezzo non trovato'}
+            try:
+                extra = json.loads(riga[0] or '{}') or {}
+            except (TypeError, ValueError):
+                extra = {}
+            quando = datetime.utcnow().isoformat(timespec='seconds')
+            ab = extra.get('abbinamento')
+            if isinstance(ab, dict):
+                ab['confermato'] = True
+            ev = extra.get('esito_verifica')
+            if isinstance(ev, dict) and ev.get('stato') in ('da_guardare', 'corretto_da_confermare', 'non_verificabile'):
+                ev['motivi'] = (list(ev.get('motivi') or []) + [f"confermato a mano ({chi or 'operatore'})"])[:8]
+                ev['stato'] = 'confermato'
+                ev['quando'] = quando
+            ca = extra.get('contorno_auto')
+            if isinstance(ca, dict) and ca.get('stato') == 'da_confermare':
+                ca['stato'] = 'confermato'
+            extra = PreventivoManager._extra_articolo(extra)
+            session.execute(_text('UPDATE preventivo_articoli SET extra_campi = :j WHERE id = :i'),
+                            {'j': json.dumps(extra, ensure_ascii=False), 'i': articolo_id})
+            session.commit()
+            return {'success': True}
+        except Exception as e:
+            session.rollback()
+            return {'error': str(e)}
+        finally:
+            session.close()
+
+    @staticmethod
     def replace_assiemi(preventivo_id, assiemi: list):
         """Sostituisce TUTTI gli assiemi del preventivo. Stesso pattern di replace_articoli."""
         session = get_session()
