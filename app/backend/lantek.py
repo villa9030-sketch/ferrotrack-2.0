@@ -1,18 +1,21 @@
-"""Lantek: lettura (SOLA LETTURA) del suo database e file delle quantita' per iErp.
+"""Lantek: lettura (SOLA LETTURA) del suo database e file da importare in Lantek.
 
-Diagnostica del 06/10/2026 (memoria "lantek-database"): Lantek tiene i dati in
-SQL Server Express sul PC server, istanza localhost\\LANTEK, database LSDB.
-FerroTrack non scrive MAI in Lantek: legge l'archivio pezzi e prepara un file
-Excel che Stefano importa con iErp (modulo di Lantek Sistemi, modello
-C:\\LantekSistemi\\iErp\\Modelli\\ImportProduzione.xlt):
+Diagnostica del 06-07/10/2026 (memoria "lantek-database"): Lantek tiene i dati
+in SQL Server Express sul PC server, istanza localhost\\LANTEK, database LSDB.
+FerroTrack non scrive MAI in Lantek: legge l'archivio pezzi e prepara i file
+che Stefano importa con i programmi di Lantek:
 
-    Codice Articolo | Quantita' | Materiale | Spessore | Data consegna | Commessa
+- i DXF con le scritte QTA/MAT/SP/ORD (importatore DXF del MES): pezzi con
+  materiale e spessore giusti;
+- l'XML degli ordini di produzione (XmlImporter): quantita', ordine, cliente,
+  consegna. Prima si scrivevano a mano in "Invia a produzione" (ordine 1184:
+  57 codici).
 
-Oggi le quantita' si scrivono a mano in Lantek guardando il PDF dell'ordine
-(ordine 1184: 57 codici). Con questo file si importano in un colpo.
+(L'Excel per iErp resta solo come endpoint: il modulo d'import di iErp non e'
+nella licenza.)
 
-Se Lantek non risponde (spento, aggiornato, configurazione diversa) il file si
-prepara lo stesso con i dati di FerroTrack, senza i controlli: FerroTrack
+Se Lantek non risponde (spento, aggiornato, configurazione diversa) i file si
+preparano lo stesso con i dati di FerroTrack, senza i controlli: FerroTrack
 funziona come prima.
 """
 from __future__ import annotations
@@ -311,6 +314,162 @@ def dxf_con_dati(sorgente: str, testi: list) -> bytes:
     buf = io.StringIO()
     doc.write(buf)
     return buf.getvalue().encode(doc.output_encoding or 'cp1252', errors='replace')
+
+
+# ---------------------------------------------------------------------------
+# Ordini di produzione per l'XML Importer di Lantek
+# ---------------------------------------------------------------------------
+# Provato con Stefano il 07/10/2026: C:\Lantek\System\Common\XmlImporter.exe
+# (programma di Lantek, coperto dalla licenza) con un comando MANUFACTURING
+# crea l'ordine di produzione con quantita', ordine, cliente e consegna
+# (FT-PROVA-03: 7 pezzi, uguale a uno fatto a mano). E' Lantek a scrivere,
+# quando Stefano lancia l'import: FerroTrack prepara solo il file.
+# I pezzi NUOVI invece l'XML li crea come materia prima (PType 1): i disegni
+# si importano ancora dal MES ("Importa -> Files DXF"), poi questo file.
+CENTRO_LAVORO = 'CY Laser 3015 HL ECS'
+OPERAZIONE = '2D Cut'
+_FORME_SOCIETA = {'SRL', 'SPA', 'SNC', 'SAS', 'SRLS', 'SS', 'SC', 'SOCIETA'}
+
+
+def ordini_in_lantek(commessa: str) -> dict | None:
+    """Gli ordini di produzione che Lantek ha gia' per quel numero d'ordine
+    (OrdRef "1252", anche "1252 C75"): {codice in maiuscolo: quantita' totale}.
+    None se Lantek non e' leggibile."""
+    commessa = str(commessa or '').strip()
+    cfg = _config()
+    if not commessa or not cfg.get('abilitato'):
+        return {} if commessa == '' else None
+    chiave = ('ordini', cfg['server'], cfg['database'], commessa)
+    with _LOCK:
+        c = _CACHE.get(chiave)
+        if c and time.time() - c[0] < _DURATA_CACHE_S:
+            return c[1]
+    like = commessa.replace('[', '[[]').replace('%', '[%]').replace('_', '[_]') + ' %'
+    try:
+        con, cur = _connessione(cfg)
+        try:
+            cur.execute('SELECT UPPER(LTRIM(RTRIM(PrdRef))), SUM(Quantity) FROM MMNN_MMOO_00000100 '
+                        'WHERE LTRIM(RTRIM(OrdRef)) = ? OR LTRIM(OrdRef) LIKE ? '
+                        'GROUP BY UPPER(LTRIM(RTRIM(PrdRef)))', [commessa, like])
+            out = {str(p): float(q or 0) for p, q in cur.fetchall()}
+        finally:
+            con.close()
+    except Exception as e:
+        logger.info('ordini di produzione Lantek non letti: %s', e)
+        return None
+    with _LOCK:
+        _CACHE[chiave] = (time.time(), out)
+    return out
+
+
+def segna_gia_ordinati(righe: list, ordinati: dict | None) -> None:
+    """Su ogni riga: 'in_produzione' = pezzi che Lantek ha gia' negli ordini
+    di produzione di quell'ordine (0 se nessuno), con l'avviso se la quantita'
+    e' diversa da quella dell'ordine."""
+    for r in righe:
+        q = (ordinati or {}).get(str(r['codice']).strip().upper(), 0)
+        r['in_produzione'] = int(q) if float(q).is_integer() else q
+        if q and abs(q - r['quantita']) > 0.001:
+            r['avvisi'].append(f"in Lantek in produzione {r['in_produzione']:g} pz, l'ordine ne chiede {r['quantita']}")
+
+
+def clienti_lantek() -> list:
+    """Le sigle dei clienti usate negli ordini di produzione di Lantek
+    (CusRef, ultimi due anni), le piu' usate prima. [] senza Lantek."""
+    cfg = _config()
+    if not cfg.get('abilitato'):
+        return []
+    chiave = ('clienti', cfg['server'], cfg['database'])
+    with _LOCK:
+        c = _CACHE.get(chiave)
+        if c and time.time() - c[0] < 600:
+            return c[1]
+    try:
+        con, cur = _connessione(cfg)
+        try:
+            cur.execute("SELECT UPPER(LTRIM(RTRIM(CusRef))) c, COUNT(*) n FROM MMNN_MMOO_00000100 "
+                        "WHERE CrtDate >= DATEADD(year, -2, GETDATE()) AND LTRIM(RTRIM(CusRef)) <> '' "
+                        "GROUP BY UPPER(LTRIM(RTRIM(CusRef))) ORDER BY n DESC")
+            out = [str(r[0]) for r in cur.fetchall()]
+        finally:
+            con.close()
+    except Exception as e:
+        logger.info('clienti Lantek non letti: %s', e)
+        return []
+    with _LOCK:
+        _CACHE[chiave] = (time.time(), out)
+    return out
+
+
+def cliente_lantek(nome: str, noti: list | None = None) -> str:
+    """La sigla del cliente come la si scrive in Lantek: "DECA S.r.l." -> "DECA",
+    "B&B Italia S.p.A." -> "B&B". Se Lantek usa gia' una sigla che corrisponde
+    all'inizio del nome si usa quella (niente "POLIFOMR"), altrimenti la prima
+    parola del nome."""
+    # "S.r.l." -> "SRL": i punti si tolgono senza spezzare la parola
+    s = re.sub(r'[^\w&\s]', ' ', str(nome or '').upper().replace('.', ''))
+    parole = [p for p in s.split() if p not in _FORME_SOCIETA]
+    if not parole:
+        return ''
+    pulito = ' '.join(parole)
+    candidati = [n for n in (noti or []) if n and (pulito == n or pulito.startswith(n + ' '))]
+    if candidati:
+        return max(candidati, key=len)
+    return parole[0][:40]
+
+
+def riferimento_ordine(commessa: str, codice: str) -> str:
+    """Il riferimento dell'ordine di produzione (max 40 caratteri in Lantek):
+    sempre lo stesso per ordine+codice, cosi' reimportando il file Lantek
+    aggiorna l'ordine invece di farne un doppione."""
+    rif = f'FT{commessa}-{codice}' if commessa else f'FT-{codice}'
+    if len(rif) <= 40:
+        return rif
+    import hashlib
+    return rif[:31] + '-' + hashlib.sha1(rif.encode('utf-8')).hexdigest()[:8]
+
+
+def righe_per_xml(righe: list) -> list:
+    """Le righe che Lantek puo' importare: il pezzo deve esserci gia' (stato
+    "in_lantek"), o Lantek non era leggibile ("sconosciuto": ci si prova).
+    Fuori quelle che hanno gia' un ordine di produzione per quell'ordine: si
+    farebbe un doppione."""
+    return [r for r in righe if r.get('stato') != 'nuovo' and int(r.get('quantita') or 0) > 0
+            and not r.get('in_produzione')]
+
+
+def xml_ordini_produzione(righe: list, commessa: str = '', cliente: str = '', consegna=None,
+                          centro: str = CENTRO_LAVORO, operazione: str = OPERAZIONE) -> bytes:
+    """Il file per l'XML Importer: un comando MANUFACTURING per riga, nel
+    formato dell'esempio di Lantek (C:\\Lantek\\System\\Masterlink\\Samples\\
+    Import.xml). FldType: 20 testo, 100 numero, 120 data AAAAMMGG."""
+    from xml.sax.saxutils import quoteattr
+    if isinstance(consegna, str):
+        try:
+            consegna = datetime.strptime(consegna[:10], '%Y-%m-%d')
+        except ValueError:
+            consegna = None
+
+    def campo(ref, val, tipo):
+        return f'\t\t<FIELD FldRef="{ref}" FldValue={quoteattr(str(val))} FldType="{tipo}" />\n'
+
+    out = ['<?xml version="1.0" encoding="utf-8"?>\n<DATAEX>\n']
+    for r in righe:
+        out.append('\t<COMMAND Name="Import" TblRef="MANUFACTURING">\n')
+        out.append(campo('Reference', riferimento_ordine(commessa, r['codice']), 20))
+        out.append(campo('Product', r['codice'], 20))
+        out.append(campo('WorkCenter', centro, 20))
+        out.append(campo('Operation', operazione, 20))
+        if cliente:
+            out.append(campo('Customer', cliente[:40], 20))
+        if commessa:
+            out.append(campo('SaleOrder', commessa[:40], 20))
+        out.append(campo('Quantity', int(r['quantita']), 100))
+        if consegna:
+            out.append(campo('DeliveryDate', consegna.strftime('%Y%m%d'), 120))
+        out.append('\t</COMMAND>\n')
+    out.append('</DATAEX>\n')
+    return ''.join(out).encode('utf-8')
 
 
 def scrivi_excel(percorso_o_file, righe: list, data_consegna=None, commessa: str = '') -> None:

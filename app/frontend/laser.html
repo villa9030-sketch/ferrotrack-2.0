@@ -1182,30 +1182,47 @@ async function lvCaricaDettaglio(o) {
 
 /** Controlli Lantek dell'ordine: riepilogo e, su ogni codice, se e' gia' in
     Lantek o nuovo (con gli avvisi: materiale/spessore diversi, altra
-    revisione). Le quantita' sono scritte nei DXF. Sola lettura. */
+    revisione), piu' il pulsante dell'XML degli ordini di produzione per
+    l'XML Importer di Lantek. Sola lettura. */
 async function lvQuantitaLantek(o, tok) {
   const { ok, d } = await _getJson(`${API_URL}/api/orders/${o.id}/lantek-quantita`);
   if (tok !== _lvTok || selectedOrderId !== o.id) return;
   const box = document.getElementById('lv-pezzi');
   if (!box || !ok || !d || !d.success || !d.n_codici) return;
   const lt = d.lantek || {};
-  const url = `${API_URL}/api/orders/${o.id}/lantek-quantita.xlsx`;
+  // XML degli ordini di produzione per l'XML Importer di Lantek: solo i codici
+  // gia' in Lantek (i nuovi si importano prima dal MES con i DXF)
+  const url = `${API_URL}/api/orders/${o.id}/lantek-ordini.xml`;
+  const nXml = d.n_xml ?? d.n_codici;
+  const nProd = d.n_in_produzione || 0;
+  const titoloXml = nXml
+    ? `Da caricare in Lantek con XML Importer (C:\\Lantek\\System\\Common\\XmlImporter.exe): ${nXml} ordini di produzione con quantità`
+      + `${d.commessa ? ', ordine ' + d.commessa : ''}${d.cliente_lantek ? ', cliente ' + d.cliente_lantek : ''}`
+      + (lt.disponibile && d.n_nuovi ? `. ${d.n_nuovi} codici nuovi esclusi: importa prima i loro DXF dal MES, poi riscarica il file` : '')
+      + (nProd ? `. ${nProd} codici esclusi perché già in produzione in Lantek per quest'ordine` : '')
+    : (d.n_nuovi
+      ? 'Nessun codice da mandare: i nuovi vanno prima importati dal MES (DXF), poi si scarica il file'
+      : "Tutti i codici sono già negli ordini di produzione di Lantek per quest'ordine");
+  const etichettaXml = `Ordini per Lantek${nXml && nXml < d.n_codici ? ` (${nXml} di ${d.n_codici})` : ''}`;
+  const btnXml = (cls) => nXml
+    ? `<a class="${cls}" href="${esc(url)}" download title="${esc(titoloXml)}"><i data-lucide="file-up"></i> ${esc(etichettaXml)}</a>`
+    : `<span class="${cls}" aria-disabled="true" style="opacity:.55;cursor:not-allowed" title="${esc(titoloXml)}"><i data-lucide="file-up"></i> Ordini per Lantek</span>`;
   const bar = document.createElement('div');
   bar.className = 'lv-lt' + (lt.disponibile ? '' : ' spento');
   bar.innerHTML = `<b>Lantek</b>
     <span class="lv-lt-n">${d.n_codici} codici · ${FT.numero(d.n_pezzi)} pz</span>
     ${lt.disponibile
       ? `${d.n_nuovi ? `<span class="lv-lt-n warn">${d.n_nuovi} da importare (nuovi)</span>` : '<span class="lv-lt-n">tutti già in Lantek</span>'}
+         ${nProd ? `<span class="lv-lt-n" title="Hanno già un ordine di produzione in Lantek con il numero ${esc(d.commessa || '')}: non vanno nel file">${nProd} già in produzione</span>` : ''}
          ${d.n_avvisi - d.n_nuovi > 0 ? `<span class="lv-lt-n warn">${d.n_avvisi - d.n_nuovi} da controllare</span>` : ''}`
       : `<span class="lv-lt-n" title="${esc(lt.errore || '')}">Lantek non raggiungibile: controlli non disponibili</span>`}
     <span class="lv-lt-n" title="Nei DXF della cartella dell'ordine ci sono le scritte QTA, MAT, SP, ORD: l'importatore DXF di Lantek compila la griglia da solo">quantità già scritte nei DXF</span>
-    <a class="ft-btn sm primary" href="${esc(url)}" download title="Ordini di produzione da importare con iErp: codici, quantità, materiale, spessore, consegna, commessa ${esc(d.commessa || '')}"><i data-lucide="file-spreadsheet"></i> Excel per iErp</a>`;
+    ${btnXml('ft-btn sm primary')}`;
   box.prepend(bar);
   // Lo stesso pulsante in alto, accanto al cliente: con il PDF aperto
   // l'elenco dei pezzi (e la barra) non si vede.
   const act = document.querySelector('.lv-dh-act');
-  if (act && !act.querySelector('.lv-lt-btn')) act.insertAdjacentHTML('afterbegin',
-    `<a class="ft-btn lg lv-lt-btn" href="${esc(url)}" download title="Ordini di produzione da importare con iErp (${d.n_codici} codici${d.n_nuovi ? ', ' + d.n_nuovi + ' nuovi: prima importa i DXF' : ''})"><i data-lucide="file-spreadsheet"></i> Excel per iErp</a>`);
+  if (act && !act.querySelector('.lv-lt-btn')) act.insertAdjacentHTML('afterbegin', btnXml('ft-btn lg lv-lt-btn'));
   if (lt.disponibile) {
     const per = new Map(d.righe.map(r => [String(r.codice_ft || r.codice).toLowerCase(), r]));
     box.querySelectorAll('.lv-pz').forEach(el => {
@@ -1215,6 +1232,7 @@ async function lvQuantitaLantek(o, tok) {
       const altri = r.avvisi.filter(a => !/^non ancora in Lantek/.test(a));
       let tag = r.stato === 'nuovo' ? '<span class="lt-tag nuovo" title="Non ancora in Lantek: importa prima il disegno">nuovo</span>'
         : `<span class="lt-tag ok" title="Già nell'archivio pezzi di Lantek${r.codice !== r.codice_ft ? ' come ' + esc(r.codice) : ''}">in Lantek${r.codice !== r.codice_ft ? ' ' + esc(r.codice.slice(-3)) : ''}</span>`;
+      if (r.in_produzione) tag += `<span class="lt-tag ok" title="Già negli ordini di produzione di Lantek per l'ordine ${esc(d.commessa || '')}">in produzione ${esc(String(r.in_produzione))}</span>`;
       c.insertAdjacentHTML('beforeend', tag);
       // l'avviso nella colonna delle lavorazioni, dove c'e' spazio per leggerlo
       const lav = el.querySelector('.lv-pz-lav');

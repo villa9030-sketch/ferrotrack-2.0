@@ -1,4 +1,4 @@
-"""Quantita' per Lantek: il file Excel da importare con iErp.
+"""Quantita' per Lantek: Excel (iErp), scritte nei DXF, XML degli ordini di produzione.
 
 Copre:
  1. dalla distinta: solo lamiere col codice, quantita' sommate (lotto, assiemi)
@@ -8,7 +8,7 @@ Copre:
  4. il file: Foglio1, intestazione del modello ImportProduzione di iErp,
     data di consegna come data, commessa = numero dell'ordine
  5. API: elenco coi controlli e download per laser e ufficio, non per l'officina
- 6. nella cartella dell'ordine ("Crea cartella") c'e' anche il file
+ 6. nella cartella dell'ordine niente Excel; 7. scritte nei DXF; 8. XML (XmlImporter)
 
 Lantek e' SIMULATO: i test non toccano il database vero di Lantek.
 Gira su DATABASE TEMPORANEO. Esecuzione: python app/tests/test_lantek_quantita.py
@@ -172,6 +172,9 @@ def main():
     laser = entra(A.app, 'laser')
     rep = entra(A.app, 'reparto')
     L.pezzi_in_lantek = lambda codici: {**LANTEK_FINTO, 'pezzi': {k: v for k, v in LANTEK_FINTO['pezzi'].items() if k in codici}}
+    L.clienti_lantek = lambda: ['DECA', 'B&B', 'POLIFORM']
+    # B1-00 ha gia' un ordine di produzione in Lantek per il 1252 (8 pezzi)
+    L.ordini_in_lantek = lambda commessa: {'B1-00': 8.0} if commessa == '1252' else {}
     oid = preventivo_accettato('DECA S.r.l.', '1252')
     check('ordine creato', bool(oid))
     s = models.SessionLocal()
@@ -188,6 +191,25 @@ def main():
     check('nome del file col numero del cliente', '1252' in (rx.headers.get('Content-Disposition') or ''),
           rx.headers.get('Content-Disposition'))
     check('il tablet officina no', rep.get(f'/api/orders/{oid}/lantek-quantita').status_code in (401, 403))
+    check('cliente come in Lantek: DECA', d.get('cliente_lantek') == 'DECA', d.get('cliente_lantek'))
+    check('B1 gia\' in produzione in Lantek: contato, nel file ne resta 1',
+          d.get('n_in_produzione') == 1 and d.get('n_xml') == 1, {k: d.get(k) for k in ('n_in_produzione', 'n_xml')})
+    rx = laser.get(f'/api/orders/{oid}/lantek-ordini.xml')
+    check('il laser scarica l\'XML degli ordini di produzione', rx.status_code == 200
+          and 'ORDINI LANTEK - 1252.xml' in (rx.headers.get('Content-Disposition') or ''),
+          (rx.status_code, rx.headers.get('Content-Disposition')))
+    import xml.etree.ElementTree as ET
+    cmds = ET.fromstring(rx.data).findall('COMMAND')
+    per = {c.find("FIELD[@FldRef='Product']").get('FldValue'): {f.get('FldRef'): f.get('FldValue') for f in c}
+           for c in cmds}
+    check('solo i codici gia\' in Lantek e non ancora in produzione (C1 nuovo e B1 esclusi)',
+          sorted(per) == ['A1-00'], sorted(per))
+    a = per.get('A1-00') or {}
+    check('A1: quantita 6, ordine 1252, cliente DECA, consegna 20301106, CY Laser, 2D Cut',
+          a.get('Quantity') == '6' and a.get('SaleOrder') == '1252' and a.get('Customer') == 'DECA'
+          and a.get('DeliveryDate') == '20301106' and a.get('WorkCenter') == 'CY Laser 3015 HL ECS'
+          and a.get('Operation') == '2D Cut' and a.get('Reference') == 'FT1252-A1-00', a)
+    check('l\'officina no', rep.get(f'/api/orders/{oid}/lantek-ordini.xml').status_code in (401, 403))
 
     print('\n6) Nella cartella dell\'ordine')
     os.makedirs(os.path.join(A.DRAWINGS_FOLDER, oid), exist_ok=True)
@@ -227,6 +249,41 @@ def main():
     check('originali e da preparare non si toccano',
           A._voce_per_lantek('X/_DISEGNI ORIGINALI/25AB1979.dxf', dati) is None
           and A._voce_per_lantek('X/_DA PREPARARE/S235 - 3 mm/25AB1979.dxf', dati) is None)
+
+    print('\n8) XML per l\'XML Importer di Lantek')
+    noti = ['DECA', 'B&B', 'POLIFORM', 'AZA']
+    check('cliente: sigla gia\' usata in Lantek', (L.cliente_lantek('DECA S.r.l.', noti),
+          L.cliente_lantek('B&B Italia S.p.A.', noti), L.cliente_lantek('Poliform', noti))
+          == ('DECA', 'B&B', 'POLIFORM'))
+    check('cliente nuovo: prima parola senza forma societaria',
+          L.cliente_lantek('S.r.l. Rossi Lamiere', []) == 'ROSSI' and L.cliente_lantek('', noti) == '')
+    rif = L.riferimento_ordine('1252', 'X' * 60)
+    check('riferimento sempre uguale e al massimo 40 caratteri',
+          len(rif) == 40 and rif == L.riferimento_ordine('1252', 'X' * 60)
+          and L.riferimento_ordine('1252', 'A1-00') == 'FT1252-A1-00', rif)
+    righe = [{'codice': 'B&B DADO 244', 'quantita': 40, 'stato': 'in_lantek'},
+             {'codice': 'NUOVO-00', 'quantita': 2, 'stato': 'nuovo'},
+             {'codice': 'SENZA-00', 'quantita': 3, 'stato': 'sconosciuto'}]
+    sel = L.righe_per_xml(righe)
+    check('i nuovi esclusi, senza Lantek ci si prova', [r['codice'] for r in sel] == ['B&B DADO 244', 'SENZA-00'])
+    x = L.xml_ordini_produzione(sel, '1252', 'B&B', None)
+    radice = ET.fromstring(x)
+    c0 = {f.get('FldRef'): (f.get('FldValue'), f.get('FldType')) for f in radice.find('COMMAND')}
+    check('formato di Lantek: DATAEX / COMMAND Import MANUFACTURING / FIELD',
+          radice.tag == 'DATAEX' and all(c.get('Name') == 'Import' and c.get('TblRef') == 'MANUFACTURING'
+                                         for c in radice.findall('COMMAND')))
+    check('"&" nel codice e nel cliente scritto bene, quantita numero (100), senza consegna niente data',
+          c0['Product'] == ('B&B DADO 244', '20') and c0['Customer'] == ('B&B', '20')
+          and c0['Quantity'] == ('40', '100') and 'DeliveryDate' not in c0, c0)
+
+    rr = [{'codice': 'K1-00', 'quantita': 6, 'avvisi': []}, {'codice': 'K2-00', 'quantita': 4, 'avvisi': []},
+          {'codice': 'K3-00', 'quantita': 2, 'avvisi': []}]
+    L.segna_gia_ordinati(rr, {'K1-00': 6.0, 'K2-00': 1.0})
+    check('gia\' in produzione: uguale nessun avviso, diversa (1 invece di 4) avviso, assente 0',
+          rr[0]['in_produzione'] == 6 and not rr[0]['avvisi'] and rr[1]['in_produzione'] == 1
+          and any('ne chiede 4' in a for a in rr[1]['avvisi']) and rr[2]['in_produzione'] == 0, rr)
+    check('quelli in produzione non vanno nel file',
+          [r['codice'] for r in L.righe_per_xml([{**r, 'stato': 'in_lantek'} for r in rr])] == ['K3-00'])
 
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     return 0 if not KO else 1

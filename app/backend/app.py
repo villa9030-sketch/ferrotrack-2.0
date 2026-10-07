@@ -7096,17 +7096,25 @@ def _quantita_lantek(order, righe=None) -> dict:
     commessa = _lt.commessa_lantek(_numero_per_cartelle(order) or (order.numero_ordine or ''))
     consegna = order.data_consegna.date() if getattr(order, 'data_consegna', None) else None
     nome = _sanitize_path_part(f'QUANTITA LANTEK - {commessa or order.id[:8]}', 'QUANTITA LANTEK') + '.xlsx'
+    noti = _lt.clienti_lantek() if info.get('disponibile') else []
+    if info.get('disponibile'):
+        _lt.segna_gia_ordinati(q, _lt.ordini_in_lantek(commessa))
     return {'righe': q, 'lantek': {'disponibile': info.get('disponibile'), 'errore': info.get('errore')},
             'commessa': commessa, 'consegna': consegna.isoformat() if consegna else None,
-            'nome_file': nome}
+            'cliente_lantek': _lt.cliente_lantek(order.cliente or '', noti),
+            'nome_file': nome,
+            'nome_file_xml': _sanitize_path_part(f'ORDINI LANTEK - {commessa or order.id[:8]}',
+                                                 'ORDINI LANTEK') + '.xml'}
 
 
 @app.route('/api/orders/<order_id>/lantek-quantita', methods=['GET'])
 @richiede('laser', 'ufficio')
 def api_ordine_lantek_quantita(order_id):
     """Le righe del file delle quantita' per Lantek, coi controlli (codice
-    gia' in Lantek o nuovo, materiale/spessore diversi, altre revisioni)."""
+    gia' in Lantek o nuovo, materiale/spessore diversi, altre revisioni,
+    gia' negli ordini di produzione di Lantek)."""
     try:
+        from . import lantek as _lt
         order = _ordine_esistente(order_id)
         if not order:
             return _non_trovato_ordine()
@@ -7115,6 +7123,8 @@ def api_ordine_lantek_quantita(order_id):
         return jsonify({'success': True, **q, 'n_codici': len(q['righe']),
                         'n_pezzi': sum(r['quantita'] for r in q['righe']),
                         'n_nuovi': sum(1 for r in q['righe'] if r['stato'] == 'nuovo'),
+                        'n_in_produzione': sum(1 for r in q['righe'] if r.get('in_produzione')),
+                        'n_xml': len(_lt.righe_per_xml(q['righe'])),
                         'n_avvisi': n_avvisi}), 200
     except Exception as e:
         logger.exception('quantita Lantek fallite')
@@ -7145,6 +7155,42 @@ def api_ordine_lantek_quantita_xlsx(order_id):
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         logger.exception('excel quantita Lantek fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/lantek-ordini.xml', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_ordine_lantek_ordini_xml(order_id):
+    """Il file per l'XML Importer di Lantek: un ordine di produzione per
+    codice, con quantita', ordine, cliente e consegna. Solo i codici gia' in
+    Lantek (i nuovi: prima si importano i DXF dal MES)."""
+    try:
+        import io
+        from . import lantek as _lt
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        q = _quantita_lantek(order)
+        if not q['righe']:
+            return jsonify({'success': False, 'codice': 'nessun_pezzo',
+                            'error': "Quest'ordine non ha pezzi di lamiera con un codice"}), 404
+        righe = _lt.righe_per_xml(q['righe'])
+        if not righe:
+            if any(r['stato'] == 'nuovo' for r in q['righe']):
+                return jsonify({'success': False, 'codice': 'pezzi_nuovi',
+                                'error': 'I codici che mancano non sono ancora in Lantek: '
+                                         'importa prima i DXF dal MES, poi riscarica il file'}), 409
+            return jsonify({'success': False, 'codice': 'gia_in_produzione',
+                            'error': "Tutti i codici sono già negli ordini di produzione di Lantek "
+                                     "per quest'ordine"}), 409
+        xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'])
+        _audit('LANTEK_ORDINI_XML', 'orders', order_id,
+               f"File ordini di produzione per Lantek: {len(righe)} codici"
+               + (f" ({len(q['righe']) - len(righe)} nuovi esclusi)" if len(righe) < len(q['righe']) else ''))
+        return send_file(io.BytesIO(xml), as_attachment=True, download_name=q['nome_file_xml'],
+                         mimetype='application/xml')
+    except Exception as e:
+        logger.exception('xml ordini Lantek fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
