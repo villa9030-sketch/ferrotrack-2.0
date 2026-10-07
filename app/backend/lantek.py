@@ -589,6 +589,118 @@ def importa_xml(contenuto: bytes, nome: str, cartella: str, attesa_s: int = 300)
                 _CACHE.pop(k, None)
 
 
+# ---------------------------------------------------------------------------
+# Pezzi NUOVI col loro DXF: processo di Lantek Expert (Procesos.exe)
+# ---------------------------------------------------------------------------
+# Come fa iErp (lsProcesos, letto il 07/10/2026; esempio vero del 2022 in
+# C:\Temp\ImportMec.prc) e provato con Stefano (FT-PROVA-23/24: pezzi veri,
+# nome esatto, disegno, materiale/spessore, CY Laser 2D Cut). Un elenco
+# "DxfLista.Lst" (una riga per pezzo) e un processo ".Prc":
+#   0 FILEPROLT 8.02 / 2 / 1 1 / 3 1 "LAV" "LAV" "" x7   (lavoro temporaneo)
+#   107 1 "<elenco>" (importa i DXF) / 5 / 38 1 "LAV" 0 0 (cancella il lavoro) / 2
+# eseguito da C:\Lantek\Expert\Procesos.exe <processo>. A scrivere e' Lantek.
+PROCESOS = r'C:\Lantek\Expert\Procesos.exe'
+MACCHINA = CENTRO_LAVORO
+
+
+def _procesos() -> str:
+    return (_config().get('procesos') or PROCESOS)
+
+
+def procesos_disponibile() -> bool:
+    import os
+    return os.name == 'nt' and os.path.isfile(_procesos())
+
+
+def materiali_lantek_noti() -> set:
+    return {v.upper() for v in MATERIALI_LANTEK.values()}
+
+
+def _q(v) -> str:
+    """Un campo tra virgolette dell'elenco: le virgolette interne non ci vanno."""
+    return '"' + str(v or '').replace('"', "'") + '"'
+
+
+def riga_lista_dxf(codice: str, dxf: str, materiale: str, spessore, macchina: str = MACCHINA,
+                   user_data: list | None = None) -> str:
+    """Una riga di DxfLista.Lst, come lsProcesos.DxfListAddItem di iErp:
+    "codice" 0 "" "" "" "macchina" "materiale" spessore 1 "file.dxf" "ud1".."ud8" """
+    ud = (list(user_data or []) + [''] * 8)[:8]
+    return (f'{_q(codice)} 0 "" "" "" {_q(macchina)} {_q(materiale)} {float(spessore):g} 1 '
+            f'{_q(dxf)} ' + ' '.join(_q(u) for u in ud) + ' ')
+
+
+def processo_import_dxf(elenco: str, lavoro: str) -> str:
+    return '\n'.join(['0 FILEPROLT 8.02', '2', '1 1',
+                      f'3 1 {_q(lavoro)} {_q(lavoro)} "" "" "" "" "" "" ""',
+                      f'107 1 {_q(elenco)}', '5', f'38 1 {_q(lavoro)} 0 0', '2']) + '\n'
+
+
+def _gia_aperto(nome_exe: str) -> bool:
+    import subprocess
+    try:
+        r = subprocess.run(['tasklist', '/FI', f'IMAGENAME eq {nome_exe}', '/NH'],
+                           capture_output=True, text=True, timeout=15,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return nome_exe.lower() in (r.stdout or '').lower()
+    except Exception:
+        logger.debug('controllo %s aperto non riuscito', nome_exe, exc_info=True)
+        return False
+
+
+def _svuota_cache():
+    with _LOCK:
+        _CACHE.clear()
+
+
+def importa_pezzi_dxf(pezzi: list, cartella: str, user_data: list | None = None,
+                      attesa_s: int = 900) -> dict:
+    """Crea in Lantek i pezzi nuovi coi loro DXF (Procesos.exe), uno alla volta.
+    pezzi: [{'codice', 'dxf', 'materiale', 'spessore'}]. I DXF si copiano in
+    una cartella di lavoro (gli originali non si toccano).
+
+    {'eseguito': bool, 'errore': str|None, 'cartella': str}"""
+    import os
+    import shutil
+    import subprocess
+    exe = _procesos()
+    if not procesos_disponibile():
+        return {'eseguito': False, 'errore': f'Procesos.exe di Lantek non trovato ({exe})'}
+    if not pezzi:
+        return {'eseguito': True, 'errore': None, 'cartella': None}
+    if not _LOCK_IMPORT.acquire(blocking=False):
+        return {'eseguito': False, 'errore': 'Un altro invio a Lantek è in corso: riprova tra poco'}
+    try:
+        if _gia_aperto('Procesos.exe'):
+            return {'eseguito': False, 'errore': 'Un processo di Lantek è già in corso su questo PC: riprova tra poco'}
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        lavoro_dir = os.path.join(cartella, 'pezzi_' + stamp)
+        os.makedirs(lavoro_dir, exist_ok=True)
+        righe = []
+        for p in pezzi:
+            nome = re.sub(r'[^\w\-.]+', '_', str(p['codice'])) + '.dxf'
+            dst = os.path.join(lavoro_dir, nome)
+            shutil.copy2(p['dxf'], dst)
+            righe.append(riga_lista_dxf(p['codice'], os.path.abspath(dst), p['materiale'],
+                                        p['spessore'], user_data=user_data))
+        elenco = os.path.abspath(os.path.join(lavoro_dir, 'DxfLista.Lst'))
+        with open(elenco, 'w', encoding='cp1252', errors='replace', newline='\r\n') as f:
+            f.write('\n'.join(righe) + '\n')
+        processo = os.path.abspath(os.path.join(lavoro_dir, 'ImportDxf.Prc'))
+        with open(processo, 'w', encoding='cp1252', errors='replace', newline='\r\n') as f:
+            f.write(processo_import_dxf(elenco, 'FTIMP' + stamp[-6:]))
+        try:
+            subprocess.run([exe, processo], cwd=os.path.dirname(exe), timeout=attesa_s,
+                           capture_output=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except subprocess.TimeoutExpired:
+            return {'eseguito': False, 'errore': f'Lantek non ha finito di importare i disegni in {attesa_s} s: '
+                                                 'controlla in Lantek prima di riprovare'}
+        return {'eseguito': True, 'errore': None, 'cartella': lavoro_dir}
+    finally:
+        _LOCK_IMPORT.release()
+        _svuota_cache()
+
+
 def scrivi_excel(percorso_o_file, righe: list, data_consegna=None, commessa: str = '') -> None:
     """Il file nel formato del modello iErp "ImportProduzione" (Foglio1, prima
     riga d'intestazione, una riga per codice)."""

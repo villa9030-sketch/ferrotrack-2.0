@@ -7077,6 +7077,61 @@ def _voce_per_lantek(arc: str, dati: dict):
     return '/'.join(parti), testi
 
 
+def _nuovi_per_lantek(order, q, righe=None) -> tuple:
+    """I codici NUOVI dell'ordine (non ancora in Lantek): quali si possono
+    creare in automatico col loro DXF (pronto per Lantek, materiale che Lantek
+    conosce, spessore) e quali no, col motivo.
+
+    ([{'codice', 'dxf', 'materiale', 'spessore'}], [{'codice', 'motivo'}])"""
+    from . import lantek as _lt
+    nuovi = [r for r in q['righe'] if r['stato'] == 'nuovo']
+    if not nuovi:
+        return [], []
+    if righe is None:
+        righe = _distinta_ordine(order)[0]
+    dxf, da_preparare = {}, set()
+    try:
+        # codice/nome del disegno -> codice Lantek (come _dati_lantek_per_disegno,
+        # ma senza dipendere dall'impostazione delle scritte nei DXF)
+        per_cod = {r['codice_ft'].lower(): r['codice'] for r in nuovi}
+        dati = {}
+        for r in righe or []:
+            c = str(r.get('codice') or '').strip().lower()
+            if r.get('tipo') != 'lamiera' or c not in per_cod:
+                continue
+            dati[c] = (per_cod[c], [])
+            if r.get('disegno'):
+                dati[_nome_base_disegno(r['disegno']).rsplit('.', 1)[0].lower()] = (per_cod[c], [])
+        for percorso, arc in _struttura_zip('X', os.path.join(DRAWINGS_FOLDER, order.id),
+                                            _disegni_ordine(order), righe):
+            v = _voce_per_lantek(arc, dati)
+            if v:
+                dxf.setdefault(v[0].rsplit('/', 1)[-1][:-4].lower(), percorso)
+            elif f'/{CARTELLA_DA_PREPARARE}/' in arc:
+                base = arc.rsplit('/', 1)[-1].rsplit('.', 1)[0].lower()
+                if base in dati:
+                    da_preparare.add(dati[base][0].lower())
+    except Exception:
+        logger.warning('DXF dei pezzi nuovi non trovati', exc_info=True)
+    noti = _lt.materiali_lantek_noti()
+    si, no = [], []
+    for r in nuovi:
+        cod = r['codice']
+        if any('scegli' in a for a in r['avvisi']):
+            no.append({'codice': cod, 'motivo': 'in Lantek ci sono più revisioni: scegli quella giusta'})
+        elif not dxf.get(cod.lower()):
+            no.append({'codice': cod, 'motivo': 'disegno da preparare in FerroTrack' if cod.lower() in da_preparare
+                       else 'manca il disegno'})
+        elif str(r.get('materiale') or '').upper() not in noti:
+            no.append({'codice': cod, 'motivo': f"materiale {r.get('materiale') or '?'} da scegliere in Lantek"})
+        elif not r.get('spessore'):
+            no.append({'codice': cod, 'motivo': 'spessore mancante'})
+        else:
+            si.append({'codice': cod, 'dxf': dxf[cod.lower()], 'materiale': r['materiale'],
+                       'spessore': r['spessore'], 'quantita': r['quantita']})
+    return si, no
+
+
 def _quantita_lantek(order, righe=None) -> dict:
     """Le quantita' da importare in Lantek (iErp, modello ImportProduzione) per
     un ordine, coi controlli letti da Lantek in sola lettura (backend/lantek.py).
@@ -7120,7 +7175,14 @@ def api_ordine_lantek_quantita(order_id):
             return _non_trovato_ordine()
         q = _quantita_lantek(order)
         n_avvisi = sum(1 for r in q['righe'] if r['avvisi'])
+        nuovi_si, nuovi_no = [], []
+        if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
+            nuovi_si, nuovi_no = _nuovi_per_lantek(order, q)
         return jsonify({'success': True, **q, 'n_codici': len(q['righe']),
+                        # pezzi nuovi che "Manda a Lantek" crea col loro DXF, e quelli no
+                        'nuovi_da_creare': [{k: x[k] for k in ('codice', 'materiale', 'spessore', 'quantita')}
+                                            for x in nuovi_si],
+                        'nuovi_esclusi': nuovi_no,
                         'n_pezzi': sum(r['quantita'] for r in q['righe']),
                         'n_nuovi': sum(1 for r in q['righe'] if r['stato'] == 'nuovo'),
                         'n_in_produzione': sum(1 for r in q['righe'] if r.get('in_produzione')),
@@ -7201,46 +7263,76 @@ def api_ordine_lantek_ordini_xml(order_id):
 @app.route('/api/orders/<order_id>/lantek-invia', methods=['POST'])
 @richiede('laser', 'ufficio')
 def api_ordine_lantek_invia(order_id):
-    """"Manda a Lantek": dopo la conferma, l'XML degli ordini di produzione
-    viene importato dall'XML Importer di Lantek (programma di Lantek, senza
-    finestra). Poi si rilegge Lantek per vedere cosa c'e' davvero.
+    """"Manda a Lantek", dopo la conferma. Lo fanno i programmi di Lantek:
+    1. i pezzi NUOVI col loro DXF (Procesos.exe, come iErp);
+    2. gli ordini di produzione con le quantita' (XmlImporter).
+    Poi si rilegge Lantek per dire cosa c'e' davvero.
 
-    Corpo: {"codici": [...]} = i codici mostrati nella conferma; se nel
-    frattempo l'elenco e' cambiato non si manda niente (409)."""
+    Corpo: {"codici": [...], "nuovi": [...]} = cio' che si e' visto nella
+    conferma; se nel frattempo e' cambiato non si manda niente (409)."""
     try:
         from . import lantek as _lt
         order = _ordine_esistente(order_id)
         if not order:
             return _non_trovato_ordine()
         corpo = request.get_json(silent=True) or {}
-        q = _quantita_lantek(order)
+        righe_dist = _distinta_ordine(order)[0]
+        q = _quantita_lantek(order, righe_dist)
         righe = _lt.righe_per_xml(q['righe'])
-        if not righe:
+        nuovi_si = []
+        if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
+            nuovi_si = _nuovi_per_lantek(order, q, righe_dist)[0]
+        if not righe and not nuovi_si:
             return jsonify({'success': False, 'codice': 'niente_da_mandare',
-                            'error': 'Niente da mandare: i codici sono nuovi o già in produzione in Lantek'}), 409
-        attesi = sorted(str(c) for c in (corpo.get('codici') or []))
-        if attesi != sorted(r['codice'] for r in righe):
+                            'error': 'Niente da mandare: i codici sono già in produzione in Lantek '
+                                     'o i nuovi non si possono creare in automatico'}), 409
+        if (sorted(str(c) for c in (corpo.get('codici') or [])) != sorted(r['codice'] for r in righe)
+                or sorted(str(c) for c in (corpo.get('nuovi') or [])) != sorted(x['codice'] for x in nuovi_si)):
             return jsonify({'success': False, 'codice': 'cambiato',
                             'error': "L'elenco è cambiato da quando l'hai visto: ricontrolla e conferma di nuovo"}), 409
         if not _lt.xmlimporter_disponibile():
             return jsonify({'success': False, 'codice': 'no_xmlimporter',
                             'error': "XML Importer di Lantek non trovato su questo PC: scarica il file "
                                      "e importalo a mano"}), 503
-        xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'])
-        esito = _lt.importa_xml(xml, q['nome_file_xml'].rsplit('.', 1)[0],
-                                os.path.join(UPLOAD_FOLDER, 'lantek_import'))
-        if not esito.get('eseguito'):
-            _audit('LANTEK_INVIA', 'orders', order_id, 'Invio a Lantek non riuscito: ' + (esito.get('errore') or ''))
-            return jsonify({'success': False, 'codice': 'import_fallito', 'error': esito.get('errore')}), 502
-        rap = esito['rapporto']
-        # verifica: cosa risulta ora negli ordini di produzione di Lantek
-        ora = _lt.ordini_in_lantek(q['commessa']) or {}
-        presenti = [r['codice'] for r in righe if ora.get(str(r['codice']).strip().upper())]
+        cartella = os.path.join(UPLOAD_FOLDER, 'lantek_import')
+        esito_pezzi, creati = None, []
+        # 1. pezzi nuovi col disegno
+        if nuovi_si:
+            cons = ''
+            if q['consegna']:
+                cons = datetime.strptime(q['consegna'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
+            esito_pezzi = _lt.importa_pezzi_dxf(nuovi_si, cartella, [q['cliente_lantek'], cons])
+            if not esito_pezzi.get('eseguito'):
+                _audit('LANTEK_INVIA', 'orders', order_id,
+                       'Pezzi nuovi non mandati a Lantek: ' + (esito_pezzi.get('errore') or ''))
+                return jsonify({'success': False, 'codice': 'pezzi_falliti', 'error': esito_pezzi.get('errore')}), 502
+            visti = _lt.pezzi_in_lantek([x['codice'] for x in nuovi_si]).get('pezzi') or {}
+            creati = [x['codice'] for x in nuovi_si if (visti.get(x['codice']) or {}).get('esiste')]
+            # ora ci sono: rientrano negli ordini di produzione
+            q = _quantita_lantek(order, righe_dist)
+            ammessi = {str(c) for c in (corpo.get('codici') or [])} | set(creati)
+            righe = [r for r in _lt.righe_per_xml(q['righe']) if r['codice'] in ammessi]
+        # 2. ordini di produzione
+        rap, presenti = {}, []
+        if righe:
+            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'])
+            esito = _lt.importa_xml(xml, q['nome_file_xml'].rsplit('.', 1)[0], cartella)
+            if not esito.get('eseguito'):
+                _audit('LANTEK_INVIA', 'orders', order_id,
+                       f"Pezzi nuovi creati {len(creati)}; ordini di produzione non mandati: "
+                       + (esito.get('errore') or ''))
+                return jsonify({'success': False, 'codice': 'import_fallito', 'pezzi_creati': len(creati),
+                                'error': esito.get('errore')}), 502
+            rap = esito['rapporto']
+            ora = _lt.ordini_in_lantek(q['commessa']) or {}
+            presenti = [r['codice'] for r in righe if ora.get(str(r['codice']).strip().upper())]
         _audit('LANTEK_INVIA', 'orders', order_id,
-               f"Mandati a Lantek {len(righe)} ordini di produzione (ordine {q['commessa']}): "
-               f"{rap.get('ok')} ok, {rap.get('con_errore')} con errore, {len(presenti)} verificati in Lantek")
-        return jsonify({'success': True, 'mandati': len(righe), 'rapporto': rap,
-                        'verificati': len(presenti),
+               f"Mandati a Lantek (ordine {q['commessa']}): {len(creati)} di {len(nuovi_si)} pezzi nuovi creati, "
+               f"{len(presenti)} di {len(righe)} ordini di produzione verificati")
+        return jsonify({'success': True,
+                        'pezzi_nuovi': len(nuovi_si), 'pezzi_creati': len(creati),
+                        'pezzi_non_creati': [x['codice'] for x in nuovi_si if x['codice'] not in creati],
+                        'mandati': len(righe), 'rapporto': rap, 'verificati': len(presenti),
                         'mancanti': [r['codice'] for r in righe if r['codice'] not in presenti]}), 200
     except Exception as e:
         logger.exception('invio a Lantek fallito')

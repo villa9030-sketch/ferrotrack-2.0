@@ -321,6 +321,7 @@ margin-top: 5px;
                 'rapporto': {'totale': 1, 'ok': 1, 'avvisi': 0, 'con_errore': 0, 'errori': []}}
     L.importa_xml = importa_finto
     L.xmlimporter_disponibile = lambda: True
+    L.procesos_disponibile = lambda: False
     L.ordini_in_lantek = lambda commessa: {'B1-00': 8.0} if commessa == '1252' else {}
     d = laser.get(f'/api/orders/{oid}/lantek-quantita').get_json() or {}
     check('per la conferma: elenco da mandare (A1 x 6) e invio automatico possibile',
@@ -340,6 +341,69 @@ margin-top: 5px;
           r9.status_code == 409 and len(lanciati) == 1, (r9.status_code, r9.get_json()))
     check('l\'officina non puo\' mandare', rep.post(f'/api/orders/{oid}/lantek-invia',
                                                    json={'codici': ['A1-00']}).status_code in (401, 403))
+
+    print('\n10) Pezzi nuovi col disegno (Procesos.exe, come iErp)')
+    # formato provato in Lantek il 07/10/2026 (FT-PROVA-23/24)
+    riga = L.riga_lista_dxf('FT-PROVA-23', r'C:\x\FT-PROVA-23.dxf', 'FERRO', 3.0, user_data=['PROVA FT', '15/10/2026'])
+    check('riga dell\'elenco come quella provata',
+          riga == '"FT-PROVA-23" 0 "" "" "" "CY Laser 3015 HL ECS" "FERRO" 3 1 "C:\\x\\FT-PROVA-23.dxf" '
+                  '"PROVA FT" "15/10/2026" "" "" "" "" "" "" ', riga)
+    check('spessore 1,5 col punto', ' 1.5 1 ' in L.riga_lista_dxf('X', 'x.dxf', 'INOX', 1.5))
+    prc = L.processo_import_dxf(r'C:\x\DxfLista.Lst', 'FTIMP1')
+    check('processo come quello provato', prc.splitlines() == [
+        '0 FILEPROLT 8.02', '2', '1 1', '3 1 "FTIMP1" "FTIMP1" "" "" "" "" "" "" ""',
+        '107 1 "C:\\x\\DxfLista.Lst"', '5', '38 1 "FTIMP1" 0 0', '2'], prc)
+    # C1-00 e' nuovo: col suo DXF pronto si puo' creare (ALLUMINIO 4)
+    pronto = os.path.join(_CARTELLE, 'C1-00.dxf')
+    import ezdxf as _ez2
+    _d3 = _ez2.new(); _d3.modelspace().add_lwpolyline([(0, 0), (90, 0), (90, 40), (0, 40)], close=True)
+    _d3.saveas(pronto)
+    A._struttura_zip = lambda radice, cartella, disegni, righe: [(pronto, 'X/ALU - 4 mm/C1-00.dxf')]
+    A._disegni_ordine = lambda order: [{'nome': 'C1-00.dxf'}]
+    L.procesos_disponibile = lambda: True
+    L.ordini_in_lantek = lambda commessa: {}
+    pezzi_lantek = {'C1-00': {'esiste': False, 'codice_lantek': None, 'materiale': None, 'spessore': None, 'revisioni': []}}
+    vecchio_pil = L.pezzi_in_lantek
+
+    def pil(codici):
+        e = vecchio_pil([c for c in codici if c != 'C1-00'])
+        e = {**e, 'pezzi': dict(e.get('pezzi') or {})}
+        if 'C1-00' in codici:
+            e['pezzi']['C1-00'] = pezzi_lantek['C1-00']
+        return e
+    L.pezzi_in_lantek = pil
+    d = laser.get(f'/api/orders/{oid}/lantek-quantita').get_json() or {}
+    check('C1-00 nuovo: da creare col disegno, ALLUMINIO 4',
+          [(x['codice'], x['materiale'], x['spessore']) for x in d.get('nuovi_da_creare') or []] == [('C1-00', 'ALLUMINIO', 4.0)],
+          d.get('nuovi_da_creare'))
+    passi = []
+
+    def pezzi_finti(pezzi, cartella, user_data=None, attesa_s=900):
+        passi.append(('pezzi', [p['codice'] for p in pezzi], [p['dxf'] for p in pezzi], user_data))
+        pezzi_lantek['C1-00'] = {'esiste': True, 'codice_lantek': 'C1-00', 'materiale': 'ALLUMINIO',
+                                 'spessore': 4.0, 'revisioni': []}
+        return {'eseguito': True, 'errore': None, 'cartella': cartella}
+
+    def xml_finto(contenuto, nome, cartella, attesa_s=300):
+        passi.append(('xml', contenuto))
+        L.ordini_in_lantek = lambda commessa: {'A1-00': 6.0, 'B1-00': 8.0, 'C1-00': 2.0}
+        return {'eseguito': True, 'errore': None, 'file_rapporto': 'x',
+                'rapporto': {'totale': 3, 'ok': 3, 'avvisi': 0, 'con_errore': 0, 'errori': []}}
+    L.importa_pezzi_dxf = pezzi_finti
+    L.importa_xml = xml_finto
+    r10 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': sorted(x['codice'] for x in d['da_mandare'])})
+    check('senza i nuovi visti in conferma: non si manda niente (409)', r10.status_code == 409 and not passi,
+          (r10.status_code, r10.get_json()))
+    r10 = laser.post(f'/api/orders/{oid}/lantek-invia',
+                     json={'codici': [x['codice'] for x in d['da_mandare']], 'nuovi': ['C1-00']})
+    j = r10.get_json() or {}
+    check('prima i pezzi nuovi (C1-00 col suo DXF, cliente DECA e consegna nei dati), poi gli ordini',
+          r10.status_code == 200 and [p[0] for p in passi] == ['pezzi', 'xml']
+          and passi[0][1] == ['C1-00'] and passi[0][2] == [pronto] and passi[0][3] == ['DECA', '06/11/2030'],
+          (r10.status_code, j, passi[:1]))
+    check('negli ordini anche il pezzo appena creato (C1-00 x 2)',
+          b'"C1-00"' in passi[1][1] and j.get('pezzi_creati') == 1 and j.get('verificati') == j.get('mandati') == 3,
+          j)
 
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     return 0 if not KO else 1

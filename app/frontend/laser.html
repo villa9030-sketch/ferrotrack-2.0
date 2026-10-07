@@ -1182,38 +1182,51 @@ async function lvCaricaDettaglio(o) {
 
 const _lvLtDati = {};
 
-/** "Manda a Lantek": riepilogo, conferma, poi FerroTrack fa importare
-    l'XML all'XML Importer di Lantek e dice cosa risulta in Lantek. */
+/** "Manda a Lantek": riepilogo, conferma, poi FerroTrack fa lavorare i
+    programmi di Lantek (pezzi nuovi col disegno, poi ordini di produzione)
+    e dice cosa risulta in Lantek. */
 async function lvMandaLantek(orderId, btn) {
   const d = _lvLtDati[orderId];
-  if (!d || !d.da_mandare || !d.da_mandare.length) return;
-  const el = d.da_mandare;
+  const el = (d && d.da_mandare) || [];
+  const nuovi = (d && d.nuovi_da_creare) || [];
+  if (!el.length && !nuovi.length) return;
   const cons = d.consegna ? FT.data(d.consegna).toLocaleDateString('it-IT') : 'senza data';
-  const lista = el.slice(0, 8).map(x => `${x.codice} × ${x.quantita}`).join(', ') + (el.length > 8 ? `, … (altri ${el.length - 8})` : '');
+  const breve = (xs, f) => xs.slice(0, 6).map(f).join(', ') + (xs.length > 6 ? `, … (altri ${xs.length - 6})` : '');
+  const nOrdini = el.length + nuovi.length;
+  const esclusi = (d.nuovi_esclusi || []);
   const ok = await FT.conferma({
-    titolo: `Creare ${el.length} ordini di produzione in Lantek?`,
-    testo: `Ordine ${d.commessa || '—'} · cliente ${d.cliente_lantek || '—'} · consegna ${cons}. ${lista}.`
-      + (d.n_nuovi ? ` ${d.n_nuovi} codici nuovi restano fuori: importa prima i loro DXF dal MES.` : '')
+    titolo: nuovi.length
+      ? `Creare in Lantek ${nuovi.length} pezzi nuovi e ${nOrdini} ordini di produzione?`
+      : `Creare ${nOrdini} ordini di produzione in Lantek?`,
+    testo: `Ordine ${d.commessa || '—'} · cliente ${d.cliente_lantek || '—'} · consegna ${cons}.`
+      + (nuovi.length ? ` Pezzi nuovi col disegno: ${breve(nuovi, x => `${x.codice} (${x.materiale} ${x.spessore})`)}.` : '')
+      + (el.length ? ` Ordini: ${breve(el, x => `${x.codice} × ${x.quantita}`)}${nuovi.length ? ' e i pezzi nuovi' : ''}.` : '')
+      + (esclusi.length ? ` Restano fuori ${esclusi.length} codici nuovi: `
+        + Object.entries(esclusi.reduce((m, x) => { m[x.motivo] = (m[x.motivo] || 0) + 1; return m; }, {}))
+          .map(([mot, n]) => `${n} ${mot}`).join(', ') + ' (importali dal MES).' : '')
       + ' Poi li lanci dal MES come al solito.',
     ok: 'Sì, crea in Lantek',
   });
   if (!ok) return;
   const bottoni = document.querySelectorAll('.lv-lt button, .lv-lt-btn');
   bottoni.forEach(b => { b.disabled = true; });
-  FT.toast('Invio a Lantek in corso…', '', null, 4000);
+  FT.toast(nuovi.length ? 'Lantek sta importando i disegni e creando gli ordini…' : 'Invio a Lantek in corso…', '', null, 6000);
   let r;
   try {
-    r = await _post(`${API_URL}/api/orders/${orderId}/lantek-invia`, { codici: el.map(x => x.codice) });
+    r = await _post(`${API_URL}/api/orders/${orderId}/lantek-invia`,
+      { codici: el.map(x => x.codice), nuovi: nuovi.map(x => x.codice) });
   } catch (e) {
     r = { success: false, error: 'Server non raggiungibile' };
   }
   if (r.success) {
     const rap = r.rapporto || {};
-    if (!rap.con_errore && r.verificati === r.mandati) {
-      FT.toast(`${r.verificati} ordini di produzione creati in Lantek: ora lanciali dal MES`, 'ok', null, 8000);
+    const pz = r.pezzi_nuovi ? `${r.pezzi_creati} pezzi nuovi e ` : '';
+    if (!rap.con_errore && r.verificati === r.mandati && r.pezzi_creati === r.pezzi_nuovi) {
+      FT.toast(`${pz}${r.verificati} ordini di produzione creati in Lantek: ora lanciali dal MES`, 'ok', null, 9000);
     } else {
-      const err = (rap.errori || []).slice(0, 3).map(e => `${e.pezzo || '?'}: ${e.messaggio || 'errore'}`).join(' · ');
-      FT.toast(`Lantek: ${r.verificati} di ${r.mandati} creati. ${err}`, 'err', null, 15000);
+      const err = (rap.errori || []).slice(0, 3).map(e => `${e.pezzo || '?'}: ${e.messaggio || 'errore'}`)
+        .concat((r.pezzi_non_creati || []).slice(0, 3).map(c => `${c}: pezzo non creato`)).join(' · ');
+      FT.toast(`Lantek: ${pz}${r.verificati} di ${r.mandati} ordini creati. ${err}`, 'err', null, 15000);
     }
   } else {
     FT.toast('Non mandato a Lantek: ' + (r.error || 'errore'), 'err', null, 10000);
@@ -1237,25 +1250,27 @@ async function lvQuantitaLantek(o, tok) {
   // gia' in Lantek (i nuovi si importano prima dal MES con i DXF)
   const url = `${API_URL}/api/orders/${o.id}/lantek-ordini.xml`;
   const nXml = d.n_xml ?? d.n_codici;
+  const nNuovi = (d.nuovi_da_creare || []).length;
+  const nTot = nXml + nNuovi;
   const nProd = d.n_in_produzione || 0;
-  const titoloXml = nXml
-    ? `Da caricare in Lantek con XML Importer (C:\\Lantek\\System\\Common\\XmlImporter.exe): ${nXml} ordini di produzione con quantità`
+  const titoloXml = nTot
+    ? `Crea in Lantek ${nNuovi ? nNuovi + ' pezzi nuovi col disegno e ' : ''}${nTot} ordini di produzione con quantità`
       + `${d.commessa ? ', ordine ' + d.commessa : ''}${d.cliente_lantek ? ', cliente ' + d.cliente_lantek : ''}`
-      + (lt.disponibile && d.n_nuovi ? `. ${d.n_nuovi} codici nuovi esclusi: importa prima i loro DXF dal MES, poi riscarica il file` : '')
-      + (nProd ? `. ${nProd} codici esclusi perché già in produzione in Lantek per quest'ordine` : '')
+      + ((d.nuovi_esclusi || []).length ? `. ${d.nuovi_esclusi.length} codici nuovi restano fuori (vedi conferma)` : '')
+      + (nProd ? `. ${nProd} codici già in produzione in Lantek per quest'ordine` : '')
     : (d.n_nuovi
-      ? 'Nessun codice da mandare: i nuovi vanno prima importati dal MES (DXF), poi si scarica il file'
+      ? 'Nessun codice da mandare: i nuovi non si possono creare in automatico (vedi gli avvisi), importali dal MES'
       : "Tutti i codici sono già negli ordini di produzione di Lantek per quest'ordine");
-  const parte = nXml && nXml < d.n_codici ? ` (${nXml} di ${d.n_codici})` : '';
-  // "Manda a Lantek": FerroTrack fa partire l'XML Importer (sullo stesso PC),
-  // dopo la conferma. Se non si puo', resta il file da importare a mano.
+  const parte = nTot && nTot < d.n_codici ? ` (${nTot} di ${d.n_codici})` : '';
+  // "Manda a Lantek": FerroTrack fa lavorare i programmi di Lantek (sullo
+  // stesso PC), dopo la conferma. Se non si puo', resta il file XML a mano.
   const auto = d.invio_automatico && lt.disponibile;
   _lvLtDati[o.id] = d;
-  const btnXml = (cls) => !nXml
+  const btnXml = (cls) => !(auto ? nTot : nXml)
     ? `<span class="${cls}" aria-disabled="true" style="opacity:.55;cursor:not-allowed" title="${esc(titoloXml)}"><i data-lucide="send"></i> Manda a Lantek</span>`
     : auto
-      ? `<button type="button" class="${cls}" title="${esc(titoloXml.replace(/^Da caricare in Lantek con XML Importer \([^)]*\)/, 'Crea in Lantek'))}" onclick="lvMandaLantek('${esc(o.id)}', this)"><i data-lucide="send"></i> Manda a Lantek${parte}</button>`
-      : `<a class="${cls}" href="${esc(url)}" download title="${esc(titoloXml)}"><i data-lucide="file-up"></i> Ordini per Lantek${parte}</a>`;
+      ? `<button type="button" class="${cls}" title="${esc(titoloXml)}" onclick="lvMandaLantek('${esc(o.id)}', this)"><i data-lucide="send"></i> Manda a Lantek${parte}</button>`
+      : `<a class="${cls}" href="${esc(url)}" download title="File per XML Importer (C:\\Lantek\\System\\Common\\XmlImporter.exe): ${nXml} ordini di produzione"><i data-lucide="file-up"></i> Ordini per Lantek${nXml < d.n_codici ? ` (${nXml} di ${d.n_codici})` : ''}</a>`;
   const linkFile = auto && nXml
     ? `<a class="lv-lt-n" href="${esc(url)}" download title="Il file XML, per importarlo a mano con XML Importer">file XML</a>` : '';
   const bar = document.createElement('div');
