@@ -370,7 +370,7 @@ margin-top: 5px;
     _d3 = _ez2.new(); _d3.modelspace().add_lwpolyline([(0, 0), (90, 0), (90, 40), (0, 40)], close=True)
     _d3.saveas(pronto)
     A._struttura_zip = lambda radice, cartella, disegni, righe: [(pronto, 'X/ALU - 4 mm/C1-00.dxf')]
-    A._disegni_ordine = lambda order: [{'nome': 'C1-00.dxf'}]
+    A._disegni_ordine = lambda order: [{'nome': 'C1-00.dxf', 'percorso': pronto}]
     L.procesos_disponibile = lambda: True
     L.ordini_in_lantek = lambda commessa: {}
     pezzi_lantek = {'C1-00': {'esiste': False, 'codice_lantek': None, 'materiale': None, 'spessore': None, 'revisioni': []}}
@@ -453,6 +453,12 @@ margin-top: 5px;
     check('dopo la conferma si crea col suo disegno',
           [x['codice'] for x in d.get('nuovi_da_creare') or []] == ['C1-00'] and not d.get('nuovi_esclusi'),
           (d.get('nuovi_da_creare'), d.get('nuovi_esclusi')))
+    rs = laser.get(f"/api/orders/{oid2}/pezzi/{fuori.get('C1-00', {}).get('articolo_id', 0)}/contorno.svg")
+    corpo_svg = rs.data.decode('utf-8', 'replace')
+    check('disegno col contorno preso evidenziato (verde)', rs.status_code == 200 and corpo_svg.startswith('<svg')
+          and '#16a34a' in corpo_svg and '<polyline' in corpo_svg, (rs.status_code, corpo_svg[:160]))
+    check('il tablet officina non vede il contorno',
+          rep.get(f"/api/orders/{oid2}/pezzi/x/contorno.svg").status_code in (401, 403))
     check('l\'officina non puo\' confermare',
           rep.post(f"/api/orders/{oid2}/pezzi/1/conferma", json={}).status_code in (401, 403))
 

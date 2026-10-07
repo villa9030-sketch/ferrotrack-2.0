@@ -7535,6 +7535,75 @@ def api_laser_cartella_disegni():
         percorso = str(data.get('percorso') or '').strip().strip('"')
         if percorso and not (os.path.isabs(percorso) or percorso.startswith('\\\\')):
             return jsonify({'success': False, 'error': 'Serve un percorso completo, es. C:\\Commesse'}), 400
+def _articolo_ordine(order, articolo_id):
+    """(pezzo, percorso del suo DXF fra i disegni dell'ordine) o (None, None)."""
+    if not order.preventivo_id_origine:
+        return None, None
+    prev = PreventivoManager.get(order.preventivo_id_origine, include_children=True) or {}
+    art = next((a for a in prev.get('articoli') or [] if str(a.get('id')) == str(articolo_id)), None)
+    if not art or not art.get('dxf_filename'):
+        return art, None
+    d = _trova_disegno(order, os.path.basename(art['dxf_filename']))
+    return art, (d or {}).get('percorso')
+
+
+@app.route('/api/orders/<order_id>/pezzi/<articolo_id>/contorno.svg', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_ordine_pezzo_contorno_svg(order_id, articolo_id):
+    """Il disegno del pezzo con sopra il contorno preso da FerroTrack (verde)
+    e, se e' stato corretto in automatico col peso del cartiglio, quello di
+    prima (rosso tratteggiato). Per la verifica al laser: si guarda e si
+    decide. Solo lettura."""
+    try:
+        from flask import Response
+        from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
+        from .preventivi.svg_contorno import svg_con_contorni
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        art, percorso = _articolo_ordine(order, articolo_id)
+        if not percorso or not percorso.lower().endswith('.dxf'):
+            return jsonify({'success': False, 'error': 'Disegno del pezzo non trovato'}), 404
+        cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
+        contorni = []
+        auto = None
+        try:
+            r = detect_pezzo_geometry_v3(percorso, cfg) or {}
+            auto = next((c for c in r.get('candidates') or [] if c.get('is_selected')), None)
+        except Exception:
+            logger.warning('contorno automatico non ricalcolato per %s', percorso, exc_info=True)
+        ca = art.get('contorno_auto') or {}
+        corretto = None
+        if ca.get('stato') in ('da_confermare', 'confermato'):
+            try:
+                from .preventivi.verifica_coerenza import peso_cartiglio, proponi_contorno
+                from .preventivi.verifica_ordine import densita_materiale
+                materiali = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
+                peso = (peso_cartiglio(percorso) or {}).get('peso_kg')
+                if peso and art.get('spessore_mm'):
+                    p = proponi_contorno(percorso, float(art['spessore_mm']),
+                                         densita_materiale(art.get('materiale'), materiali), float(peso), cfg)
+                    if p.get('trovato'):
+                        corretto = p
+            except Exception:
+                logger.warning('contorno corretto non ricalcolato per %s', percorso, exc_info=True)
+        if corretto:
+            if auto and auto.get('geometry'):
+                contorni.append({'punti': auto['geometry'], 'colore': '#dc2626', 'tratteggio': True,
+                                 'titolo': 'contorno letto prima (scartato)'})
+            contorni.append({'punti': corretto.get('esterno') or [], 'fori': corretto.get('fori') or [],
+                             'colore': '#16a34a', 'titolo': 'contorno corretto col peso del cartiglio'})
+        elif auto and auto.get('geometry'):
+            contorni.append({'punti': auto['geometry'], 'colore': '#16a34a', 'titolo': 'contorno preso da FerroTrack'})
+        svg = svg_con_contorni(percorso, contorni)
+        resp = Response(svg, mimetype='image/svg+xml; charset=utf-8')
+        resp.headers['Cache-Control'] = 'private, max-age=300'
+        return resp
+    except Exception as e:
+        logger.exception('svg contorno pezzo fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
         from .database import cartella_non_consentita
         motivo = cartella_non_consentita(percorso)
         if motivo:

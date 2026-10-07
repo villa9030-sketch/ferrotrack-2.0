@@ -169,9 +169,13 @@ function guidaPasso1(o, g) {
   // 1b) disegni dubbi dei pezzi nuovi: li guardi e confermi qui
   if (a.verificare.length) {
     corpo += `<section class="lg-sez warn"><h3><i data-lucide="eye"></i> Disegni da guardare <em>${a.verificare.length}</em></h3>
-      <p>Pezzi nuovi che creo io in Lantek: il controllo automatico ha un dubbio. Guarda il disegno: se è giusto confermalo.</p>
+      <p>Pezzi nuovi che creo io in Lantek: il controllo automatico ha un dubbio. Guarda il disegno:
+        <b style="color:#16a34a">in verde</b> il contorno che taglierei, <b style="color:#dc2626">rosso tratteggiato</b> quello letto prima (se l'ho corretto). Se il verde è il pezzo giusto, confermalo.</p>
       <ul class="lg-ver">${a.verificare.map(({ r, x }) => {
-        const svg = x.disegno && /\.dxf$/i.test(x.disegno) ? urlDisegno(o.id, x.disegno) + '/svg' : null;
+        // il disegno con sopra il contorno preso da FerroTrack (verde) e, se
+        // corretto in automatico, quello di prima (rosso tratteggiato)
+        const svg = x.articolo_id && x.disegno && /\.dxf$/i.test(x.disegno)
+          ? `${API_URL}/api/orders/${o.id}/pezzi/${encodeURIComponent(x.articolo_id)}/contorno.svg` : null;
         const motivi = String(x.motivo || '').replace(/^disegno da verificare: /, '').split('; ');
         return `<li>${svg ? `<a href="${esc(svg)}" target="_blank" title="Apri grande"><img src="${esc(svg)}" alt="" loading="lazy"></a>` : '<div class="lg-ver-noimg">nessuna anteprima</div>'}
           <div><span class="ft-mono">${esc(r.codice)}</span> <small>${esc(r.materiale || '')} ${r.spessore != null ? esc(String(r.spessore)) + ' mm' : ''} · ${esc(String(r.quantita))} pz</small>
