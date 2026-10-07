@@ -7173,6 +7173,9 @@ def api_ordine_lantek_quantita(order_id):
         order = _ordine_esistente(order_id)
         if not order:
             return _non_trovato_ordine()
+        if request.args.get('fresco'):
+            # "Ricontrolla": rileggere Lantek adesso (dopo un import dal MES)
+            _lt._svuota_cache()
         q = _quantita_lantek(order)
         n_avvisi = sum(1 for r in q['righe'] if r['avvisi'])
         nuovi_si, nuovi_no = [], []

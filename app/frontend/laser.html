@@ -174,6 +174,66 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lt-tag.ok { background: #E8F5EE; color: #1A7A48; }
 .lt-tag.da { background: #EEF2FF; color: #3730A3; }
 .lt-tag:not(.ok):not(.da):not(.nuovo):not(.avviso) { background: #F1F5F9; color: var(--ft-ink-3); }
+/* "Metti in Lantek" passo per passo (laser-guida.js) */
+.lg { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.lg-testa { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px 10px; }
+.lg-testa h2 { margin: 0; font: 800 24px/1.15 var(--ft-display); }
+.lg-testa h2 .ft-mono { font-size: 16px; font-weight: 600; color: var(--ft-ink-3); }
+.lg-testa small { color: var(--ft-ink-3); font-size: 14px; }
+.lg-testa-az { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.lg-passi { display: flex; gap: 6px; margin: 0; padding: 0 20px 12px; list-style: none; border-bottom: 1px solid var(--ft-line); }
+.lg-passi li { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #F3F4F6;
+  color: var(--ft-ink-3); font-weight: 700; font-size: 14px; }
+.lg-passi li span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 1px solid var(--ft-line); font-size: 13px; }
+.lg-passi li.ora { background: var(--ft-accent-bg, #EEF2FF); color: var(--ft-accent-ink, #3730A3); }
+.lg-passi li.ora span { background: var(--ft-accent, #4F46E5); border-color: transparent; color: #fff; }
+.lg-passi li.fatto { background: #F2FBF6; color: #1A7A48; }
+.lg-passi li.fatto span { background: #1A7A48; border-color: transparent; color: #fff; }
+.lg-corpo { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+.lg-piede { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 20px;
+  border-top: 1px solid var(--ft-line); background: #FAFBFC; }
+.lg-piede .ft-btn, .lg-testa .ft-btn, .lg-dec-az .ft-btn { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
+.lg-perche { margin-right: auto; color: #B45309; font-weight: 600; font-size: 14px; }
+.lg-msg { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; border: 1px solid; }
+.lg-msg svg { flex: none; width: 22px; height: 22px; margin-top: 1px; }
+.lg-msg b { font-size: 15.5px; }
+.lg-msg p { margin: 3px 0 0; font-size: 14px; color: var(--ft-ink-2); }
+.lg-msg.ok { background: #F2FBF6; border-color: #BFE3CF; color: #1A7A48; }
+.lg-msg.err { background: #FEF3F2; border-color: #FBCFC9; color: #B42318; }
+.lg-msg.warn { background: #FFFAF0; border-color: #F5D9A8; color: #B45309; }
+.lg-msg.info { background: #F5F8FF; border-color: #DCE5FB; color: #3730A3; }
+.lg-sez { border: 1px solid var(--ft-line); border-radius: 12px; padding: 12px 14px; }
+.lg-sez h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 15.5px; }
+.lg-sez h3 svg { width: 19px; height: 19px; }
+.lg-sez h3 em { font-style: normal; margin-left: 4px; padding: 0 8px; border-radius: 999px; background: currentColor; }
+.lg-sez h3 em { color: inherit; background: rgba(0,0,0,.06); }
+.lg-sez > p { margin: 4px 0 8px; font-size: 13.5px; color: var(--ft-ink-3); }
+.lg-sez.err { border-color: #FBCFC9; background: #FFFBFA; } .lg-sez.err h3 { color: #B42318; }
+.lg-sez.warn { border-color: #F5D9A8; background: #FFFDF7; } .lg-sez.warn h3 { color: #B45309; }
+.lg-sez.ok { border-color: #BFE3CF; background: #FAFEFB; } .lg-sez.ok h3 { color: #1A7A48; }
+.lg-el, .lg-dec, .lg-ok { margin: 0; padding: 0; list-style: none; }
+.lg-el li { display: grid; grid-template-columns: minmax(150px, 38%) 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--ft-line-2, #EEF0F3); font-size: 14px; }
+.lg-dec li { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--ft-line-2, #EEF0F3); }
+.lg-dec li p { margin: 2px 0 0; font-size: 13.5px; color: var(--ft-ink-2); }
+.lg-dec li small { grid-column: 1 / -1; color: #B42318; font-weight: 600; }
+.lg-dec li.ok { opacity: .7; }
+.lg-dec-az { display: flex; gap: 6px; }
+.lg-ok li { padding: 4px 0; font-size: 14.5px; }
+.lg-ok.grande li { font-size: 16px; padding: 6px 0; }
+.lg-riep { border: 1px solid var(--ft-line); border-radius: 12px; padding: 14px 16px; }
+.lg-riep > p { margin: 0 0 8px; font-weight: 700; color: var(--ft-ink-2); }
+.lg-num { display: flex; gap: 22px; margin-bottom: 10px; }
+.lg-num div { display: flex; align-items: center; gap: 10px; }
+.lg-num b { font: 800 40px/1 var(--ft-display); color: var(--ft-accent-ink, #3730A3); }
+.lg-num span { font-size: 13.5px; color: var(--ft-ink-3); line-height: 1.25; }
+.lg-riep dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; font-size: 14px; }
+.lg-riep dt { color: var(--ft-ink-3); } .lg-riep dd { margin: 0; font-weight: 700; }
+.lg-tab { width: 100%; border-collapse: collapse; font-size: 14px; }
+.lg-tab th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ft-ink-3); padding: 6px 4px; border-bottom: 1px solid var(--ft-line); }
+.lg-tab td { padding: 6px 4px; border-bottom: 1px solid var(--ft-line-2, #EEF0F3); }
+.lg-tab .n { text-align: right; font-weight: 700; }
+.lg-nota { margin: 0; font-size: 14px; color: var(--ft-ink-2); }
+.lg-attesa p { color: var(--ft-ink-3); }
 /* Stato Lantek dell'ordine, nell'intestazione: cosa c'e' gia' e cosa manca */
 .lv-ltst { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 12px; padding: 8px 12px;
   border-radius: 10px; background: #F5F8FF; border: 1px solid #DCE5FB; font-size: 13.5px; }
@@ -1115,6 +1175,8 @@ function renderWorkEmpty() {
 }
 
 function renderWork(o) {
+  // ordine da mettere in Lantek: procedura passo per passo (laser-guida.js)
+  if (typeof guidaAttiva === 'function' && guidaAttiva(o)) return renderGuida(o);
   const w = document.getElementById('lz-work');
   w.innerHTML = `<header class="lv-dh" id="lz-head"></header>
     <div class="lv-prev">
@@ -1134,8 +1196,8 @@ function renderWorkHead(o) {
   let az = '';
   if (st === 'smistare') az = `<button class="ft-btn lg" onclick="smista('${o.id}', false)" title="Salta il laser: subito lavorabile in officina">Non passa da qui</button>
       <button class="ft-btn lg primary" onclick="smista('${o.id}', true)"><i data-lucide="scissors"></i> Va tagliato</button>`;
-  else if (st === 'coda' && !o.importato_lantek_il) az = `<span id="lz-lt-slot"></span>
-      <button class="ft-btn lg primary" id="lz-btn-imp" onclick="segnaImportato('${o.id}')" title="Disegni e ordini sono in Lantek: passa fra quelli da tagliare"><i data-lucide="file-input"></i> Importato in Lantek</button>`;
+  else if (st === 'coda' && !o.importato_lantek_il) az = `<button class="ft-btn lg primary" onclick="guidaApri('${o.id}')" title="Controllo, conferma e invio a Lantek, un passo alla volta"><i data-lucide="send"></i> Metti in Lantek</button>
+      <button class="ft-btn lg" id="lz-btn-imp" onclick="segnaImportato('${o.id}')" title="L'hai già messo in Lantek a mano: passa fra quelli da tagliare"><i data-lucide="file-input"></i> Già in Lantek</button>`;
   else if (st === 'coda') az = `<span id="lz-lt-slot" data-secondario="1"></span><button class="ft-btn lg" onclick="segnaImportato('${o.id}', true)" title="Torna fra quelli da importare">Non ancora importato</button>
       <button class="ft-btn lg primary" onclick="markLaserDone('${o.id}')"><i data-lucide="check"></i> Taglio fatto</button>`;
   else if (st === 'tagliato') az = `<button class="ft-btn lg" onclick="undoLaserDone('${o.id}')"><i data-lucide="undo-2"></i> Annulla taglio</button>`;
@@ -3116,5 +3178,6 @@ document.addEventListener('keydown', e => {
   if (j !== i) { e.preventDefault(); lbSeleziona(g[j].chiave); }
 });
 </script>
+<script src="/laser-guida.js?v=2"></script>
 </body>
 </html>
