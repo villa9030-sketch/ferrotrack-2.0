@@ -108,6 +108,9 @@ app.register_blueprint(bp_ore)
 # Ingresso (dispositivo, PIN, amministratore) e gestione di persone e dispositivi.
 from .api_accesso import bp_accesso  # noqa: E402
 app.register_blueprint(bp_accesso)
+# Verifica al laser: "Scegli il contorno" sul disegno di un pezzo dell'ordine.
+from .api_contorno_ordine import bp_contorno_ordine  # noqa: E402
+app.register_blueprint(bp_contorno_ordine)
 # Il controllo unico degli accessi, prima di qualunque altra cosa.
 from . import accesso  # noqa: E402
 from .accesso import richiede, identita, ADMIN, PUBBLICO, UFFICI  # noqa: E402,F401

@@ -180,8 +180,9 @@ function guidaPasso1(o, g) {
         return `<li>${svg ? `<a href="${esc(svg)}" target="_blank" title="Apri grande"><img src="${esc(svg)}" alt="" loading="lazy"></a>` : '<div class="lg-ver-noimg">nessuna anteprima</div>'}
           <div><span class="ft-mono">${esc(r.codice)}</span> <small>${esc(r.materiale || '')} ${r.spessore != null ? esc(String(r.spessore)) + ' mm' : ''} · ${esc(String(r.quantita))} pz</small>
             ${motivi.map(m => `<p>${esc(m)}</p>`).join('')}
-            <div class="lg-dec-az"><button class="ft-btn sm primary" onclick="guidaConfermaPezzo('${o.id}', ${esc(JSON.stringify(String(x.articolo_id || '')))})"><i data-lucide="check"></i> Il disegno è giusto</button></div>
-            <small class="lg-ver-no">Se è sbagliato: non confermarlo, correggi il pezzo nel preventivo o importalo dal MES, poi Ricontrolla.</small></div></li>`;
+            <div class="lg-dec-az"><button class="ft-btn sm primary" onclick="guidaConfermaPezzo('${o.id}', ${esc(JSON.stringify(String(x.articolo_id || '')))})"><i data-lucide="check"></i> Il contorno è giusto</button>
+              ${svg ? `<button class="ft-btn sm" onclick="guidaApriCad('${o.id}', ${esc(JSON.stringify(String(x.articolo_id || '')))}, ${esc(JSON.stringify(String(x.disegno || '')))})"><i data-lucide="mouse-pointer-click"></i> Scegli il contorno</button>` : ''}</div>
+            <small class="lg-ver-no">Se il verde non è il pezzo: «Scegli il contorno» e clicca quello giusto sul disegno.</small></div></li>`;
       }).join('')}</ul></section>`;
   }
   // 2) cosa decidere
@@ -235,7 +236,7 @@ async function guidaConfermaPezzo(id, articoloId) {
   try { r = await _post(`${API_URL}/api/orders/${id}/pezzi/${articoloId}/conferma`, {}); }
   catch (e) { r = { success: false, error: 'Server non raggiungibile' }; }
   if (!r.success) { FT.toast('Non riuscito: ' + (r.error || 'errore'), 'err'); return; }
-  FT.toast('Disegno confermato', 'ok');
+  FT.toast('Contorno confermato', 'ok');
   const o = ordineAperto();
   if (o && o.id === id) guidaCarica(o, true);
 }
@@ -244,6 +245,42 @@ function guidaDecidi(id, codice, scelta) {
   const g = _guida[id];
   if (!g) return;
   g.decisioni[codice] = g.decisioni[codice] === scelta ? undefined : scelta;
+/* "Scegli il contorno": lo strumento CAD in modalita' ordine (dxf-editor.html
+   ?ordine=...): si clicca il contorno giusto, il server ricalcola il pezzo e
+   rifa' il DXF pulito per Lantek; poi si ricontrolla. */
+function guidaApriCad(id, articoloId, disegno) {
+  if (!articoloId) return;
+  const url = `/dxf-editor.html?ordine=${encodeURIComponent(id)}&articolo_id=${encodeURIComponent(articoloId)}`
+    + `&file=${encodeURIComponent(disegno)}&embed=1`;
+  const bg = document.createElement('div');
+  bg.className = 'lg-cad-bg';
+  bg.innerHTML = `<div class="lg-cad"><div class="lg-cad-testa"><b>Scegli il contorno del pezzo</b>
+      <span>Clicca il bordo del pezzo da tagliare, poi «Conferma pezzo».</span>
+      <button class="ft-icon-btn" aria-label="Chiudi" title="Chiudi senza salvare"><i data-lucide="x"></i></button></div>
+    <iframe src="${esc(url)}" title="Scegli il contorno"></iframe></div>`;
+  const chiudi = () => { window.removeEventListener('message', ascolta); bg.remove(); };
+  const ascolta = (ev) => {
+    const m = ev.data || {};
+    if (m.type === 'cad-ordine-salvato') {
+      const e = m.esito || {};
+      if (e.success) {
+        FT.toast(e.pronto_lantek ? 'Contorno salvato: il pezzo è pronto per Lantek'
+          : 'Contorno salvato. ' + (e.motivo || 'Il DXF per Lantek va preparato a mano'), e.pronto_lantek ? 'ok' : 'warn', null, 8000);
+      } else {
+        FT.toast('Contorno non salvato: ' + (e.error || e.motivo || 'errore'), 'err', null, 8000);
+      }
+      const o = ordineAperto();
+      if (o && o.id === id) guidaCarica(o, true);
+    } else if (m.type === 'cad-close') {
+      chiudi();
+    }
+  };
+  window.addEventListener('message', ascolta);
+  bg.querySelector('.ft-icon-btn').onclick = chiudi;
+  document.body.appendChild(bg);
+  FT.icone();
+}
+
   const o = ordineAperto();
   if (o && o.id === id) guidaDisegna(o);
 }

@@ -227,6 +227,12 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lg-ver small { color: var(--ft-ink-3); }
 .lg-ver .lg-dec-az { margin: 6px 0 4px; }
 .lg-ver-no { display: block; font-size: 12.5px; }
+.lg-cad-bg { position: fixed; inset: 0; z-index: 2000; background: rgba(15, 23, 42, .55); display: grid; place-items: center; padding: 16px; }
+.lg-cad { width: min(1400px, 100%); height: min(900px, 100%); background: #fff; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; }
+.lg-cad-testa { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--ft-line); }
+.lg-cad-testa span { color: var(--ft-ink-3); font-size: 14px; }
+.lg-cad-testa .ft-icon-btn { margin-left: auto; }
+.lg-cad iframe { flex: 1; border: 0; width: 100%; }
 .lg-ok.grande li { font-size: 16px; padding: 6px 0; }
 .lg-riep { border: 1px solid var(--ft-line); border-radius: 12px; padding: 14px 16px; }
 .lg-riep > p { margin: 0 0 8px; font-weight: 700; color: var(--ft-ink-2); }
@@ -3186,6 +3192,6 @@ document.addEventListener('keydown', e => {
   if (j !== i) { e.preventDefault(); lbSeleziona(g[j].chiave); }
 });
 </script>
-<script src="/laser-guida.js?v=4"></script>
+<script src="/laser-guida.js?v=5"></script>
 </body>
 </html>

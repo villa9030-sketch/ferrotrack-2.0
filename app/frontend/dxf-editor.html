@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CAD interno — Identificazione pezzo</title>
-<script src="/ft-accesso.js" data-stazioni="commerciale"></script>
+<script src="/ft-accesso.js" data-stazioni="commerciale,laser"></script>
 <link rel="stylesheet" href="/ft-ui.css">
 <script src="/ft-ui.js"></script>
 <style>
@@ -25,6 +25,8 @@
              background: var(--ft-panel); border-bottom: 1px solid var(--ft-line); flex-shrink: 0; min-width: 0; }
   .cad-bar .ft-logo { width: 28px; height: 28px; border-radius: 7px; font-size: 12.5px; }
   body.cad-embed .cad-bar .ft-logo { display: none; }
+  /* modalita' ordine: materiale e spessore sono gia' quelli del pezzo */
+  body.cad-ordine .solo-preventivo { display: none !important; }
   .cad-title { font: 700 14px var(--ft-display); letter-spacing: -.2px; white-space: nowrap; }
   .cad-title small { font: 500 12.5px var(--ft-font); color: var(--ft-ink-3); margin-left: 6px; }
   .cad-file { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -206,8 +208,8 @@
       <div class="stat"><span class="lbl">Ingombro</span><span class="val" id="s-bbox">—</span></div>
     </div>
 
-    <h3 class="ft-section-title side-sez">Dati pezzo (obbligatori)</h3>
-    <label class="ft-field">
+    <h3 class="ft-section-title side-sez solo-preventivo">Dati pezzo (obbligatori)</h3>
+    <label class="ft-field solo-preventivo">
       <span>Materiale <span class="req">*</span></span>
       <select class="ft-select" id="f-materiale" onchange="onDatiChange()">
         <option value="">— scegli —</option>
@@ -223,18 +225,18 @@
         <option value="ALTRO">Altro</option>
       </select>
     </label>
-    <label class="ft-field">
+    <label class="ft-field solo-preventivo">
       <span>Spessore (mm) <span class="req">*</span></span>
       <input class="ft-input" type="number" id="f-spessore" step="0.1" min="0" placeholder="es. 3" oninput="onDatiChange()">
     </label>
-    <label class="check"><input type="checkbox" id="f-piega" onchange="onPiegaToggle()">
+    <label class="check solo-preventivo"><input type="checkbox" id="f-piega" onchange="onPiegaToggle()">
       Pezzo piegato — area = sviluppo stimato</label>
-    <label class="ft-field" id="wrap-area-override" style="display:none;">
+    <label class="ft-field solo-preventivo" id="wrap-area-override" style="display:none;">
       <span>Area sviluppo piatto (dm²) <span class="req">*</span></span>
       <input class="ft-input" type="number" id="f-area-override" step="0.001" min="0" placeholder="stima a esperienza" oninput="onDatiChange()">
       <span class="ft-hint">Il disegno mostra il pezzo piegato: inserisci l'area del piatto tagliato (come stimi oggi).</span>
     </label>
-    <div class="xcheck" id="xcheck" style="display:none;"></div>
+    <div class="xcheck solo-preventivo" id="xcheck" style="display:none;"></div>
     <div class="status" id="status"></div>
   </aside>
 </main>
@@ -265,6 +267,19 @@ const ARTICOLO = params.get('articolo') || '';
 // capire a chi appartiene la conferma senza fidarsi della posizione in elenco.
 const ARTICOLO_ID = params.get('articolo_id') || '';
 const EMBED = params.get('embed') === '1';   // innestato inline nel preventivo (no finestra separata)
+// Modalita' ORDINE (?ordine=<id>&articolo_id=<id>): il disegno e' quello
+// dell'ordine (pagina laser), materiale e spessore sono gia' del pezzo, e la
+// conferma salva il contorno sul server. Senza `ordine` tutto come prima.
+const ORDINE = params.get('ordine') || '';
+const MODO_ORDINE = !!(ORDINE && ARTICOLO_ID);
+if (MODO_ORDINE) document.body.classList.add('cad-ordine');
+/** URL delle letture del CAD (geometry-json, pick-candidates, trace-waypoints). */
+function urlCad(azione) {
+  if (MODO_ORDINE) {
+    return `${API}/api/orders/${encodeURIComponent(ORDINE)}/pezzi/${encodeURIComponent(ARTICOLO_ID)}/cad/${azione}`;
+  }
+  return `${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/${azione}`;
+}
 // Notifica il contenitore: finestra separata (opener) o iframe inline (parent).
 function _notifyHost(msg) {
   const host = window.opener || (window.parent !== window ? window.parent : null);
@@ -274,7 +289,7 @@ function _notifyHost(msg) {
 }
 function closeCad() { if (EMBED) _notifyHost({ type: 'cad-close' }); else window.close(); }
 if (EMBED) document.body.classList.add('cad-embed');   // nel preventivo: niente logo, c'e' gia' la testata
-document.getElementById('hdr-file').textContent = FILE || '(nessun file)';
+document.getElementById('hdr-file').textContent = FILE || (MODO_ORDINE ? 'disegno del pezzo' : '(nessun file)');
 
 const svg = document.getElementById('svg');
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -323,11 +338,11 @@ function erroreApertura(msg) {
 }
 
 async function load() {
-  if (!PREV || !FILE) { erroreApertura('Parametri mancanti: ?prev=<id>&file=<nome.dxf>'); return; }
+  if (!MODO_ORDINE && (!PREV || !FILE)) { erroreApertura('Parametri mancanti: ?prev=<id>&file=<nome.dxf>'); return; }
   let d;
   try {
     d = await inLavoro('Leggo il disegno…', async () => {
-      const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/geometry-json`);
+      const r = await fetch(urlCad('geometry-json'));
       return r.json();
     }, 0);
   } catch (e) { erroreApertura('Il disegno non si apre: ' + e.message); return; }
@@ -343,6 +358,10 @@ async function load() {
   GEO_EXT = _geoBBox(d.polylines);
   buildScene(d.polylines);
   zoomToPart();
+  if (MODO_ORDINE) {   // materiale e spessore sono gia' quelli del pezzo
+    setStatus('', 'Clicca sul bordo del pezzo giusto, poi "Conferma pezzo".');
+    return;
+  }
   await caricaMaterialiPersonali();
   prefillDaCartiglio(d);
 }
@@ -604,7 +623,7 @@ async function onPick(cx, cy) {
   setStatus('info', 'Cerco il contorno…');
   try {
     const d = await inLavoro('Cerco il contorno…', async () => {
-      const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/pick-candidates`, {
+      const r = await fetch(urlCad('pick-candidates'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ x: xmm, y: ymm }),
       });
@@ -653,7 +672,8 @@ function selectCandidate(i) {
   lastResult = { ...c, source: 'manual-candidate' };
   drawOverlay(lastResult);
   updateStats(lastResult);
-  setStatus('ok', 'Contorno selezionato. Inserisci materiale e spessore, poi conferma.');
+  setStatus('ok', MODO_ORDINE ? 'Contorno selezionato: controlla e conferma.'
+                              : 'Contorno selezionato. Inserisci materiale e spessore, poi conferma.');
   onDatiChange();
 }
 
@@ -698,7 +718,7 @@ async function runWaypoints(finalize) {
   if (_lavori) return;
   try {
     const d = await inLavoro(finalize ? 'Chiudo il contorno…' : 'Seguo il contorno…', async () => {
-      const r = await fetch(`${API}/api/preventivi/${PREV}/dxf/${encodeURIComponent(FILE)}/trace-waypoints`, {
+      const r = await fetch(urlCad('trace-waypoints'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points: waypoints }),
       });
@@ -752,6 +772,7 @@ function updateStats(d) {
 // selezionata: spessore = peso ÷ (area × densità). Usa la geometria vera che hai
 // cliccato + il peso del cartiglio. Proposto (verifica), snap allo standard.
 function proponiSpessoreDaPeso(d) {
+  if (MODO_ORDINE) return;                 // nell'ordine lo spessore e' gia' del pezzo
   const spInp = document.getElementById('f-spessore');
   if (spInp.value) return;                 // già valorizzato (cartiglio, quote o a mano)
   if (pesoCartiglio == null) return;       // serve il peso dichiarato
@@ -825,6 +846,10 @@ async function inLavoro(testo, fn, ritardo = 250) {
 }
 
 function onDatiChange() {
+  if (MODO_ORDINE) {   // basta il contorno: materiale e spessore sono del pezzo
+    document.getElementById('btn-confirm').disabled = !(lastResult && lastResult.outer_xy);
+    return;
+  }
   const mat = document.getElementById('f-materiale').value;
   const sp = parseFloat(document.getElementById('f-spessore').value);
   const piega = document.getElementById('f-piega').checked;
@@ -844,8 +869,48 @@ function onPiegaToggle() {
   onDatiChange();
 }
 
+// Modalita' ordine: il contorno va al server, che ricalcola area/perimetro/
+// fori, aggiorna il pezzo e rifa' il DXF pulito per Lantek.
+let _salvoOrdine = false;
+async function confermaContornoOrdine() {
+  if (_salvoOrdine) return;
+  if (!lastResult || !lastResult.outer_xy) { setStatus('err', 'Scegli prima il contorno del pezzo.'); return; }
+  const btn = document.getElementById('btn-confirm');
+  btn.disabled = true;
+  _salvoOrdine = true;
+  let esito;
+  try {
+    esito = await inLavoro('Salvo il contorno…', async () => {
+      const r = await fetch(`${API}/api/orders/${encodeURIComponent(ORDINE)}/pezzi/${encodeURIComponent(ARTICOLO_ID)}/contorno`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outer_xy: lastResult.outer_xy, holes_xy: lastResult.holes_xy || [] }),
+      });
+      let d = null;
+      try { d = await r.json(); } catch (_) { d = null; }
+      if (!d) d = { success: false, error: `Risposta non valida dal server (${r.status})` };
+      if (!r.ok && d.success !== false) d.success = false;
+      return d;
+    });
+  } catch (e) {
+    esito = { success: false, error: 'Server non raggiungibile: ' + e.message };
+  } finally { _salvoOrdine = false; }
+  if (!esito.success) {
+    setStatus('err', esito.error || 'Contorno non salvato.');
+    btn.disabled = false;
+    return;
+  }
+  const testo = `Contorno salvato: area ${Number(esito.area_dm2).toFixed(3)} dm², perimetro `
+    + `${Number(esito.perimetro_taglio_m).toFixed(3)} m. `
+    + (esito.pronto_lantek ? 'DXF pronto per Lantek.' : (esito.motivo || 'DXF da preparare in Lantek.'));
+  setStatus(esito.pronto_lantek ? 'ok' : 'info', testo);
+  if (window.FT) FT.toast(esito.pronto_lantek ? 'Contorno salvato, DXF pronto per Lantek' : 'Contorno salvato', 'ok');
+  _notifyHost({ type: 'cad-ordine-salvato', esito: { ...esito, ordine: ORDINE, articolo_id: ARTICOLO_ID } });
+  if (EMBED) setTimeout(closeCad, 900);   // il tempo di leggere l'esito
+}
+
 async function confermaPezzo() {
   if (!lastResult) return;
+  if (MODO_ORDINE) { await confermaContornoOrdine(); return; }
   const mat = document.getElementById('f-materiale').value;
   const sp = parseFloat(document.getElementById('f-spessore').value);
   const piega = document.getElementById('f-piega').checked;
