@@ -4431,7 +4431,11 @@ def _avvisa_capi_nuovo_ordine(order):
 
 
 def _avvisi_riga_pacchetto(it, fonte):
-    """Avvisi in parole semplici su un pezzo del pacchetto, per l'ufficio."""
+    """Avvisi per l'UFFICIO su un pezzo del pacchetto: solo cio' che chi
+    carica l'ordine sa controllare guardando il PDF (quantita', disegni che
+    l'ordine non cita, righe senza disegno). Disegni, contorni, materiale e
+    spessore li controlla il laser (Stefano, 07/10/2026: "l'impiegata non sa
+    leggere i disegni"): vedi _avvisi_tecnici_pacchetto."""
     avvisi = []
     if fonte == 'non_trovato':
         avvisi.append("Disegno non citato nell'ordine: entra solo se gli dai una quantita'")
@@ -4439,12 +4443,22 @@ def _avvisi_riga_pacchetto(it, fonte):
         avvisi.append("Quantita' non trovata nell'ordine: messa 1, controllala")
     elif fonte == 'dubbio':
         avvisi.append("Quantita' incerta: sulla stessa riga dell'ordine ci sono piu' codici")
+    if not it.get('dxf_filename'):
+        avvisi.append('Nessun disegno per questo pezzo')
+    return avvisi
+
+
+def _avvisi_tecnici_pacchetto(it):
+    """Avvisi TECNICI su un pezzo del pacchetto (disegno, contorno, materiale,
+    spessore): li vede e li risolve il laser in "Metti in Lantek", non
+    l'ufficio."""
+    avvisi = []
     ab = it.get('abbinamento') or {}
     if it.get('dxf_filename') and ab.get('tipo') == 'somiglianza' and not ab.get('confermato'):
         avvisi.append(f"Disegno abbinato solo per somiglianza: «{it['dxf_filename']}» per il codice "
                       f"«{it.get('codice')}». Controlla che sia il suo, altrimenti toglilo")
     if not it.get('dxf_filename'):
-        avvisi.append('Nessun disegno per questo pezzo')
+        pass
     elif it.get('_errore_dxf'):
         avvisi.append('Disegno non letto: ' + str(it['_errore_dxf'])[:120])
     else:
@@ -4532,6 +4546,8 @@ def api_ordine_pacchetto_analizza():
                 'url_svg': (f'/api/preventivi/{pid}/dxf/{quote(dxf)}/svg'
                             if dxf and dxf.lower().endswith('.dxf') else None),
                 'avvisi': _avvisi_riga_pacchetto(it, fonte),
+                # disegno/contorno/materiale/spessore: li controlla il laser
+                'avvisi_tecnici': _avvisi_tecnici_pacchetto(it) if dxf else [],
             })
 
         cliente = (result.cliente or '').strip()

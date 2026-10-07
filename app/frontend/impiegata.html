@@ -1382,9 +1382,13 @@ async function avviaPacchetto(files) {
 function pkgNum(s) { const v = String(s == null ? '' : s).trim().replace(',', '.'); return v === '' ? null : Number(v); }
 function pkgQtaValida(r) { const n = pkgNum(r.q); return n != null && Number.isInteger(n) && n >= 0 && n <= 100000; }
 function pkgSpValido(r) { const n = pkgNum(r.sp); return n == null || (n > 0 && n <= 200); }
+/* Da controllare per l'UFFICIO: solo le quantita' (e gli avvisi d'ufficio).
+   Disegni, contorni, materiale e spessore li controlla il laser in "Metti in
+   Lantek" (Stefano, 07/10/2026: chi carica l'ordine non legge i disegni). */
 function pkgDaControllare(r) {
-  return !r.fuori_ordine && (r.quantita_fonte !== 'pdf' || !r.mat || !r.sp || (r.avvisi || []).length > 0);
+  return !r.fuori_ordine && (r.quantita_fonte !== 'pdf' || (r.avvisi || []).filter(a => !/^Nessun disegno/.test(a)).length > 0);
 }
+function pkgAlLaser(r) { return (r.avvisi_tecnici || []).length > 0 || (r.disegno && (!r.mat || !r.sp)); }
 function pkgGruppo(r) { return r.fuori_ordine ? 'fuori' : (r.disegno ? 'disegno' : 'senza'); }
 
 /** Cosa manca per poter creare l'ordine (testo per l'utente), in ordine d'importanza. */
@@ -1414,7 +1418,8 @@ function pkgRiepilogo() {
   const nCtrl = PKG.righe.filter(r => pkgGruppo(r) === 'disegno' && pkgDaControllare(r)).length;
   const nSenza = PKG.righe.filter(r => pkgGruppo(r) === 'senza' && pkgQtaValida(r) && pkgNum(r.q) > 0).length;
   const nQta = PKG.righe.filter(r => !r.fuori_ordine && r.quantita_fonte !== 'pdf').length;
-  return { dentro, pezzi, lamiere, nCtrl, nQta, nSenza };
+  const nLaser = PKG.righe.filter(r => pkgGruppo(r) === 'disegno' && pkgQtaValida(r) && pkgNum(r.q) > 0 && pkgAlLaser(r)).length;
+  return { dentro, pezzi, lamiere, nCtrl, nQta, nSenza, nLaser };
 }
 
 // ── Disegno della revisione ──
@@ -1437,7 +1442,7 @@ function pkgRender() {
     alerts.push(`<div class="ft-alert info"><i data-lucide="info"></i><div>Nel pacchetto non c’è il PDF dell’ordine: i dati sono da scrivere a mano.</div></div>`);
   }
   const sezioni = [
-    ['disegno', 'Pezzi da tagliare', 'Quantità dall’ordine, materiale, spessore e ingombro dai disegni. Correggi quello che non torna.'],
+    ['disegno', 'Pezzi da tagliare', 'Controlla le quantità con l’ordine. Disegni, materiale e spessore li controlla il laser: non serve toccarli.'],
     ['senza', 'Righe dell’ordine senza disegno', 'Restano nell’ordine senza disegno (il laser non le vede sul banco). Metti 0 per toglierle.'],
     ['fuori', 'Disegni che l’ordine non cita', 'Con 0 restano fuori. Scrivi una quantità per aggiungerli all’ordine.'],
   ];
@@ -1481,9 +1486,9 @@ function pkgRender() {
         <div class="ft-table-wrap"><table class="imp-pk-table">
           <colgroup><col style="width:84px"><col><col style="width:112px"><col style="width:150px"><col style="width:92px"><col style="width:120px"><col style="width:140px"></colgroup>
           <thead><tr>
-          <th>Disegno</th><th>Pezzo</th><th>Quantità</th><th>Materiale</th><th>Sp. mm</th><th>Ingombro</th><th>Lettura</th>
+          <th>Disegno</th><th>Pezzo</th><th>Quantità</th><th>Materiale</th><th>Sp. mm</th><th>Ingombro</th><th>Disegno letto</th>
         </tr></thead><tbody>${idx.map(pkgRigaHtml).join('')}</tbody></table>
-        ${g === 'disegno' ? '<div class="imp-pk-empty" id="pkg-vuoto-ctrl" hidden>Niente da controllare: tutti i pezzi hanno quantità, materiale e spessore.</div>' : ''}</div>
+        ${g === 'disegno' ? '<div class="imp-pk-empty" id="pkg-vuoto-ctrl" hidden>Niente da controllare: le quantità sono a posto. I disegni li controlla il laser.</div>' : ''}</div>
       </div>`;
     }).join('')}
     ${!PKG.righe.length ? `<div class="imp-pk-sec">${vuoto('file-question', 'Nessun pezzo letto', 'L’ordine verrà creato solo col PDF, come un caricamento normale.')}</div>` : ''}
@@ -1513,11 +1518,11 @@ function pkgRigaHtml(i) {
   const fonte = r.fuori_ordine ? { t: 'non nell’ordine', c: '' }
     : r.quantita_fonte === 'pdf' ? { t: 'dal PDF', c: '' }
     : r.quantita_fonte === 'dubbio' ? { t: 'incerta', c: 'warn' } : { t: 'da controllare', c: 'warn' };
-  const conf = r.confidenza;
+  // la lettura del disegno non e' affare dell'ufficio: se c'e' un dubbio lo
+  // guarda il laser (i motivi tecnici solo come suggerimento al passaggio)
   const lettura = !r.disegno ? '<span class="ft-chip">Senza disegno</span>'
-    : conf == null ? '<span class="ft-chip warn">Non letto</span>'
-    : conf >= 0.8 ? '<span class="ft-chip ok"><i data-lucide="check"></i> Sicura</span>'
-    : conf >= 0.5 ? '<span class="ft-chip warn">Da verificare</span>' : '<span class="ft-chip err">Incerta</span>';
+    : pkgAlLaser(r) ? `<span class="ft-chip" title="${esc((r.avvisi_tecnici || []).join(' · ') || 'Lo controlla il laser')}">Lo controlla il laser</span>`
+    : '<span class="ft-chip ok"><i data-lucide="check"></i> Letto</span>';
   const dim = r.bbox_w_mm && r.bbox_h_mm ? `${FT.numero(r.bbox_w_mm)} × ${FT.numero(r.bbox_h_mm)}` : '<span class="ft-muted">—</span>';
   const avvisi = (r.avvisi || []).filter(a => !r.fuori_ordine || !/non citato/i.test(a));
   const sotto = r.descrizione || (r.assieme ? 'assieme ' + r.assieme : '') || (r.disegno && r.disegno.replace(/\.[a-z0-9]+$/i, '') !== r.codice ? r.disegno : '');
@@ -1528,9 +1533,9 @@ function pkgRigaHtml(i) {
       ${avvisi.length ? `<ul class="imp-pk-avv">${avvisi.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}</td>
     <td class="imp-pk-qc"><input class="ft-input imp-pk-q ${fonte.c}" type="number" min="0" step="1" inputmode="numeric" value="${esc(r.q)}"
         aria-label="Quantità di ${esc(r.codice)}" oninput="pkgCampo(${i}, 'q', this)"><small class="${fonte.c}">${fonte.t}</small></td>
-    <td><input class="ft-input imp-pk-mat ${r.mat ? '' : 'warn'}" list="pkg-materiali" value="${esc(r.mat)}" placeholder="Es. S235"
+    <td><input class="ft-input imp-pk-mat" list="pkg-materiali" value="${esc(r.mat)}" placeholder="Es. S235"
         aria-label="Materiale di ${esc(r.codice)}" oninput="pkgCampo(${i}, 'mat', this)"></td>
-    <td><input class="ft-input imp-pk-sp ${r.sp ? '' : 'warn'}" inputmode="decimal" value="${esc(r.sp)}" placeholder="mm"
+    <td><input class="ft-input imp-pk-sp" inputmode="decimal" value="${esc(r.sp)}" placeholder="mm"
         aria-label="Spessore in mm di ${esc(r.codice)}" oninput="pkgCampo(${i}, 'sp', this)"></td>
     <td class="imp-pk-dim">${dim}</td>
     <td>${lettura}</td>
@@ -1561,9 +1566,6 @@ function pkgCampo(i, campo, input) {
     }
   } else if (campo === 'sp') {
     input.classList.toggle('invalid', !pkgSpValido(r));
-    input.classList.toggle('warn', !r.sp);
-  } else {
-    input.classList.toggle('warn', !r.mat);
   }
   pkgAggiorna();
 }
@@ -1590,7 +1592,8 @@ function pkgAggiorna() {
     ${lam.length ? `<div class="imp-pk-chips">${lam.map(([k, n]) => `<span class="ft-chip">${esc(k)} <b>(${FT.numero(n)})</b></span>`).join('')}</div>` : ''}
     <div class="imp-pk-chips">
       ${R.nCtrl ? `<button type="button" class="ft-chip warn" onclick="pkgFiltro('ctrl'); document.querySelector('#pkg-card .imp-pk-sec').scrollIntoView({behavior: 'smooth', block: 'start'})"><i data-lucide="alert-triangle"></i> ${R.nCtrl === 1 ? '1 pezzo da controllare' : R.nCtrl + ' pezzi da controllare'}</button>`
-        : (PKG.righe.some(r => pkgGruppo(r) === 'disegno') ? '<span class="ft-chip ok"><i data-lucide="check"></i> Tutti i pezzi hanno quantità, materiale e spessore</span>' : '')}
+        : (PKG.righe.some(r => pkgGruppo(r) === 'disegno') ? '<span class="ft-chip ok"><i data-lucide="check"></i> Quantità a posto</span>' : '')}
+      ${R.nLaser ? `<span class="ft-chip" title="Disegni, contorni, materiale e spessore: li guarda il laser prima di mandarli in Lantek. Tu non devi fare niente.">${R.nLaser === 1 ? '1 disegno lo controlla il laser' : R.nLaser + ' disegni li controlla il laser'}</span>` : ''}
       ${R.nSenza ? `<button type="button" class="ft-chip" onclick="document.querySelector('#pkg-card .imp-pk-sec[data-g=senza]').scrollIntoView({behavior: 'smooth', block: 'start'})">${R.nSenza === 1 ? '1 riga senza disegno' : R.nSenza + ' righe senza disegno'}</button>` : ''}
       ${R.nQta ? `<span class="ft-chip">${R.nQta === 1 ? '1 quantità non letta dal PDF' : R.nQta + ' quantità non lette dal PDF'}</span>` : ''}
       ${nFuori ? `<span class="ft-chip accent">${nFuori === 1 ? '1 disegno aggiunto' : nFuori + ' disegni aggiunti'} all’ordine</span>` : ''}

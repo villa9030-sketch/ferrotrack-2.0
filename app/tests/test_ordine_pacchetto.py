@@ -286,6 +286,10 @@ def main():
           and ra.get('confidenza') is not None, ra)
     check('B: INOX 304 sp.2, 6 pezzi', ra and rb.get('quantita') == 6
           and 'INOX' in str(rb.get('materiale')).upper() and rb.get('spessore_mm') == 2, rb)
+    tecnici = [a for r in (ra, rb, rx) for a in (r.get('avvisi') or [])
+               if any(p in a for p in ('Contorno', 'contorno', 'Materiale', 'Spessore', 'Controllo automatico', 'somiglianza'))]
+    check('all\'ufficio niente avvisi su disegni, contorni, materiale, spessore (li vede il laser)',
+          not tecnici and isinstance(ra.get('avvisi_tecnici'), list), tecnici)
     check('C: riga senza disegno', rc.get('disegno') is None and rc.get('url_svg') is None
           and rc.get('quantita') == 10 and any('disegno' in a.lower() for a in rc.get('avvisi') or []), rc)
     check('EXTRA: fuori ordine, quantita\' 0, da decidere', rx.get('quantita') == 0
