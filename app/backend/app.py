@@ -3880,6 +3880,73 @@ _STATO_RIGA_ORDINE = {'pdf': 'ok', 'dubbio': 'dubbio', 'senza_qta': 'senza_qta',
                       'non_trovato': 'non_trovato'}
 
 
+def _stima_item_pacchetto(item: dict, app_cfg) -> None:
+    """Costo base e scomposizione della stima di un pezzo del pacchetto (se ha
+    materiale, spessore, area e perimetro)."""
+    if not (item.get('materiale') and item.get('spessore_mm') and item.get('area_dm2')
+            and item.get('perimetro_taglio_m')):
+        return
+    try:
+        st = _laser_estimator.stima_base(item, app_cfg)
+        item['costo_base_stimato'] = st.get('base') or 0
+        item['stima_dettaglio'] = {k: st.get(k) for k in (
+            'peso_kg', 'costo_materiale', 'costo_lavoro', 'setup_eur',
+            'tempo_taglio_s', 'tempo_pierce_s', 'tempo_vuoto_s',
+            'tempo_ausiliario_s', 'tempo_totale_min', 'base')}
+        item['avvisi_stima'] = list(st.get('warnings') or [])[:10]
+        item['stima_firma'] = _firma_tariffe(app_cfg)
+        for k in ('ricetta_mancante', 'materiale_sconosciuto', 'spessore_fuori_tabella'):
+            item[k] = bool(st.get(k))
+    except Exception:
+        logger.exception('stima import RFQ fallita per %s', item.get('codice'))
+
+
+def _verifica_pezzi_pacchetto(prev_dir: str, items: list, app_cfg, materiali) -> dict:
+    """Verifica automatica (preventivi/verifica_ordine.py) di ogni pezzo con
+    disegno: scrive su ogni item 'esito_verifica', 'verifica' e, se il contorno
+    e' stato corretto col peso del cartiglio, la geometria nuova e
+    'contorno_auto' da confermare (il DXF pulito per Lantek era del contorno
+    vecchio: si toglie, il pezzo va "da preparare"). Ritorna i conteggi."""
+    from .preventivi.verifica_ordine import verifica_ordine
+    from . import lantek as _lt
+    con_disegno = [it for it in items if it.get('dxf_filename') and not it.get('_errore_dxf')]
+    if not con_disegno:
+        return {}
+    # come quei codici sono nell'archivio di Lantek (gia' tagliati in passato)
+    lpc = {}
+    try:
+        info = _lt.pezzi_in_lantek([it['codice'] for it in con_disegno if it.get('codice')])
+        if info.get('disponibile'):
+            for cod, p in (info.get('pezzi') or {}).items():
+                if p.get('esiste') and p.get('e_pezzo') is not False and p.get('area_dm2'):
+                    lpc[cod] = {'codice': p.get('codice_lantek'), 'area_dm2': p['area_dm2'],
+                                'perimetro_m': p.get('perimetro_m'), 'spessore': p.get('spessore'),
+                                'materiale': p.get('materiale')}
+    except Exception:
+        logger.warning('archivio Lantek non letto per la verifica', exc_info=True)
+    cfg = (app_cfg or {}).get('dxf_detection', {}) if isinstance(app_cfg, dict) else {}
+    risultati = verifica_ordine(prev_dir, con_disegno, dxf_cfg=cfg, materiali=materiali,
+                                lantek_per_codice=lpc)
+    conti = {}
+    for it, r in zip(con_disegno, risultati):
+        esito = (r or {}).get('esito') or {}
+        it['esito_verifica'] = esito
+        conti[esito.get('stato')] = conti.get(esito.get('stato'), 0) + 1
+        if (r or {}).get('verifica'):
+            it['verifica'] = r['verifica']
+        corr = (r or {}).get('correzione')
+        if corr:
+            for k in ('area_dm2', 'perimetro_taglio_m', 'n_forature', 'bbox_w_mm', 'bbox_h_mm', 'geometry_source'):
+                if corr.get(k) is not None:
+                    it[k] = corr[k]
+            it['contorno_auto'] = corr.get('contorno_auto')
+            it['cleaned_dxf_filename'] = None
+            it['cleaned_status'] = None
+            _stima_item_pacchetto(it, app_cfg)
+    logger.info('verifica automatica pacchetto: %s', conti)
+    return conti
+
+
 def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
                                   da_prezzare=False, solo_tecnico=False):
     """Dal pacchetto letto (rfq_importer.process_rfq_package) al preventivo
@@ -4105,22 +4172,19 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
         # Costo stimato subito, come l'import dei disegni: prima nasceva a 0
         # e si calcolava solo aprendo i pezzi uno per uno (LS 1184: 37 pezzi
         # su 70 a 0 € dopo l'import, e nessun avviso).
-        if (item.get('materiale') and item.get('spessore_mm') and item.get('area_dm2')
-                and item.get('perimetro_taglio_m')):
-            try:
-                st = _laser_estimator.stima_base(item, app_cfg)
-                item['costo_base_stimato'] = st.get('base') or 0
-                item['stima_dettaglio'] = {k: st.get(k) for k in (
-                    'peso_kg', 'costo_materiale', 'costo_lavoro', 'setup_eur',
-                    'tempo_taglio_s', 'tempo_pierce_s', 'tempo_vuoto_s',
-                    'tempo_ausiliario_s', 'tempo_totale_min', 'base')}
-                item['avvisi_stima'] = list(st.get('warnings') or [])[:10]
-                item['stima_firma'] = _firma_tariffe(app_cfg)
-                for k in ('ricetta_mancante', 'materiale_sconosciuto', 'spessore_fuori_tabella'):
-                    item[k] = bool(st.get(k))
-            except Exception:
-                logger.exception('stima import RFQ fallita per %s', a.codice)
+        _stima_item_pacchetto(item, app_cfg)
         articoli_db.append(item)
+
+    # Ordine caricato dall'ufficio: ogni pezzo si controlla e, se serve, si
+    # corregge SUBITO, come nel preventivatore (peso del cartiglio, quote,
+    # STEP) e in piu' contro l'archivio di Lantek per i codici gia' tagliati.
+    # Cosi' l'ordine arriva al laser gia' controllato: restano da guardare
+    # solo i pezzi dubbi (Stefano, 07/10/2026).
+    if solo_tecnico and articoli_db:
+        try:
+            _verifica_pezzi_pacchetto(prev_dir, articoli_db, app_cfg, _mats_rfq)
+        except Exception:
+            logger.exception('verifica automatica del pacchetto fallita')
 
     if n_master_saltati:
         result.warnings.append(
@@ -4387,6 +4451,11 @@ def _avvisi_riga_pacchetto(it, fonte):
         conf = it.get('dxf_confidence')
         if it.get('dxf_needs_verify') or (isinstance(conf, (int, float)) and conf < 0.5):
             avvisi.append("Contorno del disegno incerto: l'ingombro va controllato")
+    ev = it.get('esito_verifica') or {}
+    if ev.get('stato') == 'corretto_da_confermare':
+        avvisi.append('Contorno corretto in automatico col peso del cartiglio: da confermare al laser')
+    elif ev.get('stato') == 'da_guardare':
+        avvisi.append('Controllo automatico: ' + '; '.join(ev.get('motivi') or ['da guardare']))
     if not it.get('materiale'):
         avvisi.append('Materiale da indicare')
     if not it.get('spessore_mm'):

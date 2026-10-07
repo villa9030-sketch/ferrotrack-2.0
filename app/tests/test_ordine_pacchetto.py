@@ -65,6 +65,10 @@ A = importlib.import_module('backend.app')  # il MODULO, non l'oggetto Flask
 from backend.database import PreventivoManager  # noqa: E402
 from backend.migrations_ore import _migra_colonne_sottosistema  # noqa: E402
 from backend.preventivi import dxf_cache  # noqa: E402
+# Lantek SIMULATO (spento): la verifica automatica al caricamento non deve
+# leggere l'archivio vero di Lantek durante i test
+from backend import lantek as _LT  # noqa: E402
+_LT.pezzi_in_lantek = lambda codici: {'disponibile': False, 'errore': 'simulato', 'pezzi': {}}
 
 # Cartelle dei file e cache dei disegni: temporanee, mai quelle vere.
 _CARTELLE = tempfile.mkdtemp(prefix='ft_pacchetto_')
