@@ -1180,6 +1180,49 @@ async function lvCaricaDettaglio(o) {
   if (righe.some(r => r.tipo === 'lamiera' && r.codice)) lvQuantitaLantek(o, tok);
 }
 
+const _lvLtDati = {};
+
+/** "Manda a Lantek": riepilogo, conferma, poi FerroTrack fa importare
+    l'XML all'XML Importer di Lantek e dice cosa risulta in Lantek. */
+async function lvMandaLantek(orderId, btn) {
+  const d = _lvLtDati[orderId];
+  if (!d || !d.da_mandare || !d.da_mandare.length) return;
+  const el = d.da_mandare;
+  const cons = d.consegna ? FT.data(d.consegna).toLocaleDateString('it-IT') : 'senza data';
+  const lista = el.slice(0, 8).map(x => `${x.codice} × ${x.quantita}`).join(', ') + (el.length > 8 ? `, … (altri ${el.length - 8})` : '');
+  const ok = await FT.conferma({
+    titolo: `Creare ${el.length} ordini di produzione in Lantek?`,
+    testo: `Ordine ${d.commessa || '—'} · cliente ${d.cliente_lantek || '—'} · consegna ${cons}. ${lista}.`
+      + (d.n_nuovi ? ` ${d.n_nuovi} codici nuovi restano fuori: importa prima i loro DXF dal MES.` : '')
+      + ' Poi li lanci dal MES come al solito.',
+    ok: 'Sì, crea in Lantek',
+  });
+  if (!ok) return;
+  const bottoni = document.querySelectorAll('.lv-lt button, .lv-lt-btn');
+  bottoni.forEach(b => { b.disabled = true; });
+  FT.toast('Invio a Lantek in corso…', '', null, 4000);
+  let r;
+  try {
+    r = await _post(`${API_URL}/api/orders/${orderId}/lantek-invia`, { codici: el.map(x => x.codice) });
+  } catch (e) {
+    r = { success: false, error: 'Server non raggiungibile' };
+  }
+  if (r.success) {
+    const rap = r.rapporto || {};
+    if (!rap.con_errore && r.verificati === r.mandati) {
+      FT.toast(`${r.verificati} ordini di produzione creati in Lantek: ora lanciali dal MES`, 'ok', null, 8000);
+    } else {
+      const err = (rap.errori || []).slice(0, 3).map(e => `${e.pezzo || '?'}: ${e.messaggio || 'errore'}`).join(' · ');
+      FT.toast(`Lantek: ${r.verificati} di ${r.mandati} creati. ${err}`, 'err', null, 15000);
+    }
+  } else {
+    FT.toast('Non mandato a Lantek: ' + (r.error || 'errore'), 'err', null, 10000);
+  }
+  bottoni.forEach(b => { b.disabled = false; });
+  const o = ordineAperto();
+  if (o && o.id === orderId) lvQuantitaLantek(o, _lvTok);
+}
+
 /** Controlli Lantek dell'ordine: riepilogo e, su ogni codice, se e' gia' in
     Lantek o nuovo (con gli avvisi: materiale/spessore diversi, altra
     revisione), piu' il pulsante dell'XML degli ordini di produzione per
@@ -1203,10 +1246,18 @@ async function lvQuantitaLantek(o, tok) {
     : (d.n_nuovi
       ? 'Nessun codice da mandare: i nuovi vanno prima importati dal MES (DXF), poi si scarica il file'
       : "Tutti i codici sono già negli ordini di produzione di Lantek per quest'ordine");
-  const etichettaXml = `Ordini per Lantek${nXml && nXml < d.n_codici ? ` (${nXml} di ${d.n_codici})` : ''}`;
-  const btnXml = (cls) => nXml
-    ? `<a class="${cls}" href="${esc(url)}" download title="${esc(titoloXml)}"><i data-lucide="file-up"></i> ${esc(etichettaXml)}</a>`
-    : `<span class="${cls}" aria-disabled="true" style="opacity:.55;cursor:not-allowed" title="${esc(titoloXml)}"><i data-lucide="file-up"></i> Ordini per Lantek</span>`;
+  const parte = nXml && nXml < d.n_codici ? ` (${nXml} di ${d.n_codici})` : '';
+  // "Manda a Lantek": FerroTrack fa partire l'XML Importer (sullo stesso PC),
+  // dopo la conferma. Se non si puo', resta il file da importare a mano.
+  const auto = d.invio_automatico && lt.disponibile;
+  _lvLtDati[o.id] = d;
+  const btnXml = (cls) => !nXml
+    ? `<span class="${cls}" aria-disabled="true" style="opacity:.55;cursor:not-allowed" title="${esc(titoloXml)}"><i data-lucide="send"></i> Manda a Lantek</span>`
+    : auto
+      ? `<button type="button" class="${cls}" title="${esc(titoloXml.replace(/^Da caricare in Lantek con XML Importer \([^)]*\)/, 'Crea in Lantek'))}" onclick="lvMandaLantek('${esc(o.id)}', this)"><i data-lucide="send"></i> Manda a Lantek${parte}</button>`
+      : `<a class="${cls}" href="${esc(url)}" download title="${esc(titoloXml)}"><i data-lucide="file-up"></i> Ordini per Lantek${parte}</a>`;
+  const linkFile = auto && nXml
+    ? `<a class="lv-lt-n" href="${esc(url)}" download title="Il file XML, per importarlo a mano con XML Importer">file XML</a>` : '';
   const bar = document.createElement('div');
   bar.className = 'lv-lt' + (lt.disponibile ? '' : ' spento');
   bar.innerHTML = `<b>Lantek</b>
@@ -1217,14 +1268,20 @@ async function lvQuantitaLantek(o, tok) {
          ${d.n_avvisi - d.n_nuovi > 0 ? `<span class="lv-lt-n warn">${d.n_avvisi - d.n_nuovi} da controllare</span>` : ''}`
       : `<span class="lv-lt-n" title="${esc(lt.errore || '')}">Lantek non raggiungibile: controlli non disponibili</span>`}
     <span class="lv-lt-n" title="Nei DXF della cartella dell'ordine ci sono le scritte QTA, MAT, SP, ORD: l'importatore DXF di Lantek compila la griglia da solo">quantità già scritte nei DXF</span>
+    ${linkFile}
     ${btnXml('ft-btn sm primary')}`;
+  box.querySelectorAll('.lv-lt').forEach(x => x.remove());
   box.prepend(bar);
   // Lo stesso pulsante in alto, accanto al cliente: con il PDF aperto
   // l'elenco dei pezzi (e la barra) non si vede.
   const act = document.querySelector('.lv-dh-act');
-  if (act && !act.querySelector('.lv-lt-btn')) act.insertAdjacentHTML('afterbegin', btnXml('ft-btn lg lv-lt-btn'));
+  if (act) {
+    act.querySelectorAll('.lv-lt-btn').forEach(x => x.remove());
+    act.insertAdjacentHTML('afterbegin', btnXml('ft-btn lg lv-lt-btn'));
+  }
   if (lt.disponibile) {
     const per = new Map(d.righe.map(r => [String(r.codice_ft || r.codice).toLowerCase(), r]));
+    box.querySelectorAll('.lt-tag').forEach(x => x.remove());
     box.querySelectorAll('.lv-pz').forEach(el => {
       const c = el.querySelector('.lv-pz-cod');
       const r = c && per.get(c.textContent.trim().toLowerCase());

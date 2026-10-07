@@ -472,6 +472,123 @@ def xml_ordini_produzione(righe: list, commessa: str = '', cliente: str = '', co
     return ''.join(out).encode('utf-8')
 
 
+# ---------------------------------------------------------------------------
+# Lancio dell'XML Importer ("Manda a Lantek", dopo la conferma di Stefano)
+# ---------------------------------------------------------------------------
+# Argomenti a coppie "nome valore" (letti dal programma il 07/10/2026 e provati
+# con un file sonda): -src <file> -HIDE 1 -CloseWindow 1 -Showlog 0. Senza
+# finestra; il rapporto va in "<cartella del file>\Importer log\
+# <nome>_<data ora>_log.html" (o _logERR.html se ci sono errori), e l'XML
+# viene spostato li'. A scrivere in Lantek e' il programma di Lantek.
+XMLIMPORTER = r'C:\Lantek\System\Common\XmlImporter.exe'
+_LOCK_IMPORT = threading.Lock()
+
+
+def _xmlimporter() -> str:
+    return (_config().get('xmlimporter') or XMLIMPORTER)
+
+
+def xmlimporter_disponibile() -> bool:
+    import os
+    return os.name == 'nt' and os.path.isfile(_xmlimporter())
+
+
+def leggi_rapporto(percorso: str) -> dict:
+    """Il rapporto HTML dell'XML Importer: totali e, per ogni comando con
+    errore, il pezzo e il messaggio."""
+    import html as _html
+    with open(percorso, encoding='utf-8', errors='replace') as f:
+        testo = f.read()
+    righe = [r.strip() for r in _html.unescape(re.sub(r'<[^>]+>', '\n', testo)).splitlines()]
+    righe = [r for r in righe if r and not r.endswith(';') and r not in ('">', '"')]
+
+    def numero(etichetta):
+        # "Total commands:" e il numero possono stare nella stessa cella o in due
+        for i, r in enumerate(righe):
+            if r.lower().startswith(etichetta.lower()):
+                resto = r[len(etichetta):].strip(' :\t')
+                if not resto and i + 1 < len(righe):
+                    resto = righe[i + 1]
+                m = re.match(r'\d+', resto)
+                return int(m.group(0)) if m else None
+        return None
+
+    # un blocco per comando: "1. IMPORT FOR TABLE ..." fino al successivo
+    blocchi, attuale = [], None
+    for r in righe:
+        if re.match(r'\d+\.\s+IMPORT FOR TABLE', r):
+            attuale = [r]
+            blocchi.append(attuale)
+        elif attuale is not None:
+            attuale.append(r)
+    errori = []
+    for b in blocchi:
+        # riuscito: "successful", oppure nessun messaggio (IMPORTGEO riuscito)
+        if len(b) <= 2 or any(re.search(r'\bsuccessful\b', r, re.I) for r in b[1:]):
+            continue
+        testa = ' '.join(b[1:2])
+        mp = re.search(r'Destination Product:\s*(.+)$', testa) or re.search(r'Product:\s*(\S+)', testa)
+        msg = b[-1] if len(b) > 2 else ''
+        if 'BROKENRULE' in msg:
+            msg = re.sub(r'.*Text="([^"]*)".*', r'\1', msg)
+        errori.append({'comando': b[0], 'pezzo': mp.group(1).strip() if mp else None, 'messaggio': msg})
+    return {'totale': numero('Total commands'), 'ok': numero('Commands Ok'),
+            'avvisi': numero('Commands with warning'), 'con_errore': numero('Commands with error'),
+            'errori': errori}
+
+
+def importa_xml(contenuto: bytes, nome: str, cartella: str, attesa_s: int = 300) -> dict:
+    """Salva l'XML in `cartella` e lo fa importare all'XML Importer di Lantek
+    (senza finestra), poi legge il suo rapporto. Uno alla volta.
+
+    {'eseguito': bool, 'errore': str|None, 'rapporto': {...}, 'file_rapporto': str}"""
+    import glob
+    import os
+    import subprocess
+    exe = _xmlimporter()
+    if not xmlimporter_disponibile():
+        return {'eseguito': False, 'errore': f'XML Importer di Lantek non trovato ({exe})'}
+    if not _LOCK_IMPORT.acquire(blocking=False):
+        return {'eseguito': False, 'errore': 'Un altro invio a Lantek è in corso: riprova tra poco'}
+    try:
+        # aperto a mano da qualcuno? Con -HIDE il secondo si chiuderebbe senza importare
+        try:
+            gia = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq XmlImporter.exe', '/NH'],
+                                 capture_output=True, text=True, timeout=15,
+                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            if 'xmlimporter.exe' in (gia.stdout or '').lower():
+                return {'eseguito': False,
+                        'errore': "XML Importer è già aperto su questo PC: chiudilo e riprova"}
+        except Exception:
+            logger.debug('controllo XmlImporter aperto non riuscito', exc_info=True)
+        os.makedirs(cartella, exist_ok=True)
+        base = re.sub(r'[^\w\-]+', '_', nome).strip('_')[:60] or 'ordini'
+        base = f"{base}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        percorso = os.path.join(cartella, base + '.xml')
+        with open(percorso, 'wb') as f:
+            f.write(contenuto)
+        try:
+            p = subprocess.run([exe, '-src', percorso, '-HIDE', '1', '-CloseWindow', '1', '-Showlog', '0'],
+                               cwd=os.path.dirname(exe), timeout=attesa_s, capture_output=True,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except subprocess.TimeoutExpired:
+            return {'eseguito': False, 'errore': f'XML Importer non ha finito in {attesa_s} s: '
+                                                 'controlla in Lantek prima di riprovare'}
+        rapporti = sorted(glob.glob(os.path.join(cartella, 'Importer log', glob.escape(base) + '_*log*.html')),
+                          key=os.path.getmtime)
+        if not rapporti:
+            return {'eseguito': False, 'errore': 'XML Importer non ha lasciato il rapporto '
+                                                 f'(uscita {p.returncode}): controlla in Lantek'}
+        return {'eseguito': True, 'errore': None, 'rapporto': leggi_rapporto(rapporti[-1]),
+                'file_rapporto': rapporti[-1]}
+    finally:
+        _LOCK_IMPORT.release()
+        # gli ordini di produzione sono cambiati: si rilegge Lantek
+        with _LOCK:
+            for k in [k for k in _CACHE if k and k[0] == 'ordini']:
+                _CACHE.pop(k, None)
+
+
 def scrivi_excel(percorso_o_file, righe: list, data_consegna=None, commessa: str = '') -> None:
     """Il file nel formato del modello iErp "ImportProduzione" (Foglio1, prima
     riga d'intestazione, una riga per codice)."""

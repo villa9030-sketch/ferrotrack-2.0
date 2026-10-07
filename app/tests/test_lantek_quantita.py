@@ -285,6 +285,62 @@ def main():
     check('quelli in produzione non vanno nel file',
           [r['codice'] for r in L.righe_per_xml([{**r, 'stato': 'in_lantek'} for r in rr])] == ['K3-00'])
 
+    print('\n9) "Manda a Lantek": rapporto dell\'XML Importer e invio')
+    rapporto = os.path.join(_CARTELLE, 'r_logERR.html')
+    with open(rapporto, 'w', encoding='utf-8') as f:
+        f.write('''<html><body><table>
+ <tr><td>Total commands:</td> <td>2</td></tr> <tr><td>Commands Ok:</td> <td>1</td></tr>
+ <tr><td>Commands with warning:</td> <td>0</td></tr> <tr><td>Commands with error:</td> <td>1</td></tr></table>
+ <div><div>
+1. IMPORT FOR TABLE MANUFACTURING <div>
+ Production Order: FT1252-A1-00 Destination Product: A1-00  </div></div>
+ <ul style= " list-style-type: circle;
+margin-top: 5px;
+"> <li style="  color: #2F738C;
+"><div> Insert into table 'MANUFACTURING' was successful.</div> </li></ul></div>
+ <div><div>
+2. IMPORT FOR TABLE MANUFACTURING <div>
+ Production Order: FT1252-Z9-00 Destination Product: Z9-00  </div></div>
+ <ul style= " list-style-type: circle;
+"> <li style=" color: #E55B3C;
+"> Cannot find product with reference: 'Z9-00' - insert failed.</li></ul></div>
+</body></html>''')
+    rp = L.leggi_rapporto(rapporto)
+    check('rapporto: totali (2, 1 ok, 1 errore) e l\'errore col pezzo',
+          (rp['totale'], rp['ok'], rp['avvisi'], rp['con_errore']) == (2, 1, 0, 1)
+          and len(rp['errori']) == 1 and rp['errori'][0]['pezzo'] == 'Z9-00'
+          and 'Cannot find product' in rp['errori'][0]['messaggio'], rp)
+
+    # l'XML Importer e' SIMULATO: nessun programma di Lantek viene lanciato
+    lanciati = []
+
+    def importa_finto(contenuto, nome, cartella, attesa_s=300):
+        lanciati.append((contenuto, nome, cartella))
+        L.ordini_in_lantek = lambda commessa: {'B1-00': 8.0, 'A1-00': 6.0}
+        return {'eseguito': True, 'errore': None, 'file_rapporto': 'x',
+                'rapporto': {'totale': 1, 'ok': 1, 'avvisi': 0, 'con_errore': 0, 'errori': []}}
+    L.importa_xml = importa_finto
+    L.xmlimporter_disponibile = lambda: True
+    L.ordini_in_lantek = lambda commessa: {'B1-00': 8.0} if commessa == '1252' else {}
+    d = laser.get(f'/api/orders/{oid}/lantek-quantita').get_json() or {}
+    check('per la conferma: elenco da mandare (A1 x 6) e invio automatico possibile',
+          d.get('da_mandare') == [{'codice': 'A1-00', 'quantita': 6}] and d.get('invio_automatico') is True,
+          {k: d.get(k) for k in ('da_mandare', 'invio_automatico')})
+    r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00', 'C1-00']})
+    check('elenco diverso da quello confermato: non si manda niente (409)',
+          r9.status_code == 409 and not lanciati, (r9.status_code, r9.get_json()))
+    r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00']})
+    j = r9.get_json() or {}
+    check('confermato: XML Importer lanciato una volta con l\'XML di A1, verificato in Lantek',
+          r9.status_code == 200 and len(lanciati) == 1 and b'A1-00' in lanciati[0][0]
+          and b'B1-00' not in lanciati[0][0] and j.get('mandati') == 1 and j.get('verificati') == 1
+          and j.get('mancanti') == [], (r9.status_code, j))
+    r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00']})
+    check('rimandato: ora e\' gia\' in produzione, niente da mandare (409), niente doppioni',
+          r9.status_code == 409 and len(lanciati) == 1, (r9.status_code, r9.get_json()))
+    check('l\'officina non puo\' mandare', rep.post(f'/api/orders/{oid}/lantek-invia',
+                                                   json={'codici': ['A1-00']}).status_code in (401, 403))
+
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     return 0 if not KO else 1
 

@@ -7125,6 +7125,10 @@ def api_ordine_lantek_quantita(order_id):
                         'n_nuovi': sum(1 for r in q['righe'] if r['stato'] == 'nuovo'),
                         'n_in_produzione': sum(1 for r in q['righe'] if r.get('in_produzione')),
                         'n_xml': len(_lt.righe_per_xml(q['righe'])),
+                        # per la conferma di "Manda a Lantek"
+                        'da_mandare': [{'codice': r['codice'], 'quantita': r['quantita']}
+                                       for r in _lt.righe_per_xml(q['righe'])],
+                        'invio_automatico': _lt.xmlimporter_disponibile(),
                         'n_avvisi': n_avvisi}), 200
     except Exception as e:
         logger.exception('quantita Lantek fallite')
@@ -7191,6 +7195,55 @@ def api_ordine_lantek_ordini_xml(order_id):
                          mimetype='application/xml')
     except Exception as e:
         logger.exception('xml ordini Lantek fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/lantek-invia', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_ordine_lantek_invia(order_id):
+    """"Manda a Lantek": dopo la conferma, l'XML degli ordini di produzione
+    viene importato dall'XML Importer di Lantek (programma di Lantek, senza
+    finestra). Poi si rilegge Lantek per vedere cosa c'e' davvero.
+
+    Corpo: {"codici": [...]} = i codici mostrati nella conferma; se nel
+    frattempo l'elenco e' cambiato non si manda niente (409)."""
+    try:
+        from . import lantek as _lt
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        corpo = request.get_json(silent=True) or {}
+        q = _quantita_lantek(order)
+        righe = _lt.righe_per_xml(q['righe'])
+        if not righe:
+            return jsonify({'success': False, 'codice': 'niente_da_mandare',
+                            'error': 'Niente da mandare: i codici sono nuovi o già in produzione in Lantek'}), 409
+        attesi = sorted(str(c) for c in (corpo.get('codici') or []))
+        if attesi != sorted(r['codice'] for r in righe):
+            return jsonify({'success': False, 'codice': 'cambiato',
+                            'error': "L'elenco è cambiato da quando l'hai visto: ricontrolla e conferma di nuovo"}), 409
+        if not _lt.xmlimporter_disponibile():
+            return jsonify({'success': False, 'codice': 'no_xmlimporter',
+                            'error': "XML Importer di Lantek non trovato su questo PC: scarica il file "
+                                     "e importalo a mano"}), 503
+        xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'])
+        esito = _lt.importa_xml(xml, q['nome_file_xml'].rsplit('.', 1)[0],
+                                os.path.join(UPLOAD_FOLDER, 'lantek_import'))
+        if not esito.get('eseguito'):
+            _audit('LANTEK_INVIA', 'orders', order_id, 'Invio a Lantek non riuscito: ' + (esito.get('errore') or ''))
+            return jsonify({'success': False, 'codice': 'import_fallito', 'error': esito.get('errore')}), 502
+        rap = esito['rapporto']
+        # verifica: cosa risulta ora negli ordini di produzione di Lantek
+        ora = _lt.ordini_in_lantek(q['commessa']) or {}
+        presenti = [r['codice'] for r in righe if ora.get(str(r['codice']).strip().upper())]
+        _audit('LANTEK_INVIA', 'orders', order_id,
+               f"Mandati a Lantek {len(righe)} ordini di produzione (ordine {q['commessa']}): "
+               f"{rap.get('ok')} ok, {rap.get('con_errore')} con errore, {len(presenti)} verificati in Lantek")
+        return jsonify({'success': True, 'mandati': len(righe), 'rapporto': rap,
+                        'verificati': len(presenti),
+                        'mancanti': [r['codice'] for r in righe if r['codice'] not in presenti]}), 200
+    except Exception as e:
+        logger.exception('invio a Lantek fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
