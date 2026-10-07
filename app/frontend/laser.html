@@ -119,7 +119,9 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lv-dh-tit { min-width: 0; }
 .lv-dh-tit h2 { margin: 0; font: 800 26px/1.15 var(--ft-display); letter-spacing: -.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lv-dh-tit > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; font-size: 14px; color: var(--ft-ink-3); }
-.lv-dh-act { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.lv-dh-act { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; min-width: 0; }
+.lv-dh-act:empty { display: none; }
+.lv-dh-ico { display: flex; gap: 4px; flex: none; }
 .lv-facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 14px; }
 .lv-facts > div { display: grid; align-content: start; }
 .lv-facts span { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ft-ink-3); }
@@ -137,10 +139,10 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lv.largo .lv-cli { max-width: 180px; }
 .lv-prev-nav .ft-btn.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
 .lv-prev { flex: 0 0 47%; display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--ft-line); }
-.lv-prev-bar { display: flex; align-items: center; gap: 10px; padding: 7px 14px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line-2); }
+.lv-prev-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 7px 14px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line-2); }
 .lv-prev-bar .ft-seg { flex-wrap: nowrap; }
 .lv-prev-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ft-mono); font-size: 13px; color: var(--ft-ink-2); }
-.lv-prev-nav { margin-left: auto; display: flex; gap: 6px; }
+.lv-prev-nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
 .lv-prev-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; background: #fff; overflow: hidden; }
 .lv-prev-body img { max-width: 100%; max-height: 100%; object-fit: contain; padding: 14px; cursor: zoom-in; }
 .lv-prev-body iframe { width: 100%; height: 100%; border: 0; }
@@ -149,7 +151,7 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lv-pz-g b { font-size: 15px; }
 .lv-pz-g em { font-style: normal; color: var(--ft-accent-ink); }
 .lv-pz-g span { margin-left: auto; font-size: 13px; color: var(--ft-ink-3); }
-.lv-pz { display: grid; grid-template-columns: minmax(150px, 34%) minmax(0, 1fr) 72px; gap: 10px; align-items: center; padding: 7px 20px;
+.lv-pz { scroll-margin-top: 44px; display: grid; grid-template-columns: minmax(150px, 34%) minmax(0, 1fr) 72px; gap: 10px; align-items: center; padding: 7px 20px;
   border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
 .lv-pz:hover { background: var(--ft-hover); }
 .lv-pz.sel { background: var(--ft-accent-bg); }
@@ -170,6 +172,24 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 .lt-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font: 700 11px var(--ft-font);
   vertical-align: 2px; white-space: nowrap; }
 .lt-tag.ok { background: #E8F5EE; color: #1A7A48; }
+.lt-tag.da { background: #EEF2FF; color: #3730A3; }
+.lt-tag:not(.ok):not(.da):not(.nuovo):not(.avviso) { background: #F1F5F9; color: var(--ft-ink-3); }
+/* Stato Lantek dell'ordine, nell'intestazione: cosa c'e' gia' e cosa manca */
+.lv-ltst { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 12px; padding: 8px 12px;
+  border-radius: 10px; background: #F5F8FF; border: 1px solid #DCE5FB; font-size: 13.5px; }
+.lv-ltst:empty { display: none; }
+.lv-ltst .t { font-weight: 800; margin-right: 4px; }
+.lv-ltst .p { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px;
+  background: #fff; border: 1px solid var(--ft-line); font-weight: 650; white-space: nowrap; cursor: default; }
+.lv-ltst .p svg { width: 14px; height: 14px; }
+.lv-ltst .p.ok { color: #1A7A48; border-color: #BFE3CF; background: #F2FBF6; }
+.lv-ltst .p.da { color: #3730A3; border-color: #C7D2FE; }
+.lv-ltst .p.warn { color: #B45309; border-color: #F5D9A8; background: #FFFAF0; }
+.lv-ltst .p.info { color: var(--ft-ink-3); }
+.lv-ltst .hint { color: #1A7A48; font-weight: 600; }
+.lv-ltst a { margin-left: auto; font-size: 12.5px; color: var(--ft-ink-3); }
+.lv-ltst.tutto { background: #F2FBF6; border-color: #BFE3CF; }
+.lv-ltst.spento { background: #F8FAFC; border-color: var(--ft-line); color: var(--ft-ink-3); }
 .lt-tag.nuovo { background: #FFF4E5; color: #B45309; }
 .lt-tag.avviso { background: #FDECEC; color: #B42318; cursor: help; }
 
@@ -313,7 +333,7 @@ tr.lv-r.late td:first-child { border-left-color: var(--ft-err); }
 }
 
 @media print {
-  .lv-list, .lv-prev, .lv-dh-act, .ft-toasts { display: none !important; }
+  .lv-list, .lv-prev, .lv-dh-act, .lv-dh-ico, .ft-toasts { display: none !important; }
   .lv { display: block; height: auto; }
   .lv-pezzi { overflow: visible; }
 }
@@ -519,7 +539,7 @@ body.ft #panel-lavoro.active, body.ft #panel-lamiere.active, body.ft #panel-cale
   .lv-dh-tit { flex: 1 1 60%; }
   .lv-dh-tit h2 { font-size: 22px; }
   .lv-dh-act { order: 3; flex: 1 1 100%; margin-left: 0; }
-  .lv-dh-act .ft-icon-btn { margin-left: auto; }
+  .lv-dh-ico { order: 2; margin-left: auto; }
   .lv-facts { gap: 6px 20px; }
   .lv-facts b { font-size: 16px; }
 }
@@ -1114,9 +1134,9 @@ function renderWorkHead(o) {
   let az = '';
   if (st === 'smistare') az = `<button class="ft-btn lg" onclick="smista('${o.id}', false)" title="Salta il laser: subito lavorabile in officina">Non passa da qui</button>
       <button class="ft-btn lg primary" onclick="smista('${o.id}', true)"><i data-lucide="scissors"></i> Va tagliato</button>`;
-  else if (st === 'coda' && !o.importato_lantek_il) az = `<button class="ft-btn lg" onclick="annullaSmistamento('${o.id}')" title="Rimettilo fra quelli da smistare">Rimetti da smistare</button>
-      <button class="ft-btn lg primary" onclick="segnaImportato('${o.id}')" title="I disegni sono in Lantek"><i data-lucide="file-input"></i> Importato in Lantek</button>`;
-  else if (st === 'coda') az = `<button class="ft-btn lg" onclick="segnaImportato('${o.id}', true)" title="Torna fra quelli da importare">Non ancora importato</button>
+  else if (st === 'coda' && !o.importato_lantek_il) az = `<span id="lz-lt-slot"></span>
+      <button class="ft-btn lg primary" id="lz-btn-imp" onclick="segnaImportato('${o.id}')" title="Disegni e ordini sono in Lantek: passa fra quelli da tagliare"><i data-lucide="file-input"></i> Importato in Lantek</button>`;
+  else if (st === 'coda') az = `<span id="lz-lt-slot" data-secondario="1"></span><button class="ft-btn lg" onclick="segnaImportato('${o.id}', true)" title="Torna fra quelli da importare">Non ancora importato</button>
       <button class="ft-btn lg primary" onclick="markLaserDone('${o.id}')"><i data-lucide="check"></i> Taglio fatto</button>`;
   else if (st === 'tagliato') az = `<button class="ft-btn lg" onclick="undoLaserDone('${o.id}')"><i data-lucide="undo-2"></i> Annulla taglio</button>`;
   else if (st === 'escluso') az = `<button class="ft-btn lg" onclick="annullaSmistamento('${o.id}')"><i data-lucide="undo-2"></i> Rimetti da smistare</button>`;
@@ -1125,7 +1145,8 @@ function renderWorkHead(o) {
   h.innerHTML = `<div class="lv-dh-top">
       <div class="lv-dh-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2>
         <div><span class="ft-mono">#${esc(numeroOrdine(o))}</span>${numeroInterno(o) ? `<span class="ft-mono" style="font-size:12px;color:var(--ft-ink-4)" title="Numero del preventivo">${esc(numeroInterno(o))}</span>` : ''}<span class="ft-chip">${esc(origine)}</span><span class="ft-status ${STATI[st].cls}">${st === 'coda' ? LV_VISTE[faseLaser(o)] : STATI[st].testo}</span></div></div>
-      <div class="lv-dh-act">${az}<button class="ft-icon-btn" onclick="deselectOrder()" title="Chiudi" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
+      <div class="lv-dh-act">${az}</div>
+      <div class="lv-dh-ico">${st === 'coda' && !o.importato_lantek_il ? `<button class="ft-icon-btn" onclick="annullaSmistamento('${o.id}')" title="Rimetti fra quelli da smistare" aria-label="Rimetti da smistare"><i data-lucide="undo-2"></i></button>` : ''}<button class="ft-icon-btn" onclick="deselectOrder()" title="Chiudi" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
     </div>
     <div class="lv-facts">
       <div><span>Consegna</span><b class="${g != null && g < 0 && st !== 'tagliato' ? 'late' : ''}">${cons ? FT.fmtData(cons) : '—'}</b><small>${g == null ? '' : g < 0 ? `scaduta da ${-g} gg` : g === 0 ? 'oggi' : `tra ${g} gg`}</small></div>
@@ -1136,6 +1157,7 @@ function renderWorkHead(o) {
       <div><span>Lamiere</span><b>${d.lamiere ?? '—'}</b><small>${(d.per || []).length ? (d.per.length === 1 ? '1 spessore' : d.per.length + ' spessori') : ''}</small></div>
       <div><span>Pezzi</span><b id="lz-fact-pezzi">${d.pezzi ?? '—'}</b><small id="lz-fact-codici"></small></div>
     </div>
+    <div id="lz-lantek"></div>
     ${d.fonte === 'ignota' && mobile ? `<div class="lv-mano">Nessun disegno: quanto ci vuole? <input class="ft-input sm" type="number" min="0" step="0.25" placeholder="ore"
         value="${o.durata_laser_manuale_min ? Math.round(o.durata_laser_manuale_min / 6) / 10 : ''}" onchange="durataAMano('${o.id}', this.value)"> ore</div>` : ''}`;
   FT.icone();
@@ -1230,6 +1252,14 @@ async function lvMandaLantek(orderId, btn) {
     const pz = r.pezzi_nuovi ? `${r.pezzi_creati} pezzi nuovi e ` : '';
     if (!rap.con_errore && r.verificati === r.mandati && r.pezzi_creati === r.pezzi_nuovi) {
       FT.toast(`${pz}${r.verificati} ordini di produzione creati in Lantek: ora lanciali dal MES`, 'ok', null, 9000);
+      // tutto l'ordine e' in Lantek (niente rimasto fuori): passa da solo fra
+      // quelli da tagliare, come se avessi premuto "Importato in Lantek"
+      const oo = allOrders.find(x => x.id === orderId);
+      if (!esclusi.length && oo && statoLaser(oo) === 'coda' && !oo.importato_lantek_il) {
+        bottoni.forEach(b => { b.disabled = false; });
+        await segnaImportato(orderId);
+        return;
+      }
     } else {
       const err = (rap.errori || []).slice(0, 3).map(e => `${e.pezzo || '?'}: ${e.messaggio || 'errore'}`)
         .concat((r.pezzi_non_creati || []).slice(0, 3).map(c => `${c}: pezzo non creato`)).join(' · ');
@@ -1278,30 +1308,43 @@ async function lvQuantitaLantek(o, tok) {
     : auto
       ? `<button type="button" class="${cls}" title="${esc(titoloXml)}" onclick="lvMandaLantek('${esc(o.id)}', this)"><i data-lucide="send"></i> Manda a Lantek${parte}</button>`
       : `<a class="${cls}" href="${esc(url)}" download title="File per XML Importer (C:\\Lantek\\System\\Common\\XmlImporter.exe): ${nXml} ordini di produzione"><i data-lucide="file-up"></i> Ordini per Lantek${nXml < d.n_codici ? ` (${nXml} di ${d.n_codici})` : ''}</a>`;
-  const linkFile = auto && nXml
-    ? `<a class="lv-lt-n" href="${esc(url)}" download title="Il file XML, per importarlo a mano con XML Importer">file XML</a>` : '';
-  const bar = document.createElement('div');
-  bar.className = 'lv-lt' + (lt.disponibile ? '' : ' spento');
-  bar.innerHTML = `<b>Lantek</b>
-    <span class="lv-lt-n">${d.n_codici} codici · ${FT.numero(d.n_pezzi)} pz</span>
-    ${lt.disponibile
-      ? `${d.n_nuovi ? `<span class="lv-lt-n warn">${d.n_nuovi} da importare (nuovi)</span>` : '<span class="lv-lt-n">tutti già in Lantek</span>'}
-         ${nProd ? `<span class="lv-lt-n" title="Hanno già un ordine di produzione APERTO in Lantek con il numero ${esc(d.commessa || '')}: non si rimandano">${nProd} già in produzione</span>` : ''}
-         ${d.n_gia_fatti ? `<span class="lv-lt-n warn" title="Già fatti in Lantek con il numero ${esc(d.commessa || '')}: se mandi l'ordine si rifanno">${d.n_gia_fatti} già fatti in passato</span>` : ''}
-         ${d.n_avvisi - d.n_nuovi > 0 ? `<span class="lv-lt-n warn">${d.n_avvisi - d.n_nuovi} da controllare</span>` : ''}`
-      : `<span class="lv-lt-n" title="${esc(lt.errore || '')}">Lantek non raggiungibile: controlli non disponibili</span>`}
-    <span class="lv-lt-n" title="Nei DXF della cartella dell'ordine ci sono le scritte QTA, MAT, SP, ORD: l'importatore DXF di Lantek compila la griglia da solo">quantità già scritte nei DXF</span>
-    ${linkFile}
-    ${btnXml('ft-btn sm primary')}`;
-  box.querySelectorAll('.lv-lt').forEach(x => x.remove());
-  box.prepend(bar);
-  // Lo stesso pulsante in alto, accanto al cliente: con il PDF aperto
-  // l'elenco dei pezzi (e la barra) non si vede.
-  const act = document.querySelector('.lv-dh-act');
-  if (act) {
-    act.querySelectorAll('.lv-lt-btn').forEach(x => x.remove());
-    act.insertAdjacentHTML('afterbegin', btnXml('ft-btn lg lv-lt-btn'));
+  const esclusi = d.nuovi_esclusi || [];
+  const nDaMes = auto ? esclusi.length : (d.n_nuovi || 0);
+  const nControlla = Math.max(0, (d.n_avvisi || 0) - (d.n_nuovi || 0));
+  const tutto = lt.disponibile && !nTot && !nDaMes && nProd >= d.n_codici;
+  const pill = (cls, testo, tit) => `<span class="p ${cls}"${tit ? ` title="${esc(tit)}"` : ''}>${testo}</span>`;
+  const motivi = Object.entries(esclusi.reduce((m, x) => { m[x.motivo] = (m[x.motivo] || 0) + 1; return m; }, {}))
+    .map(([m, n]) => `${n} ${m}`).join(', ');
+  const box2 = document.getElementById('lz-lantek');
+  if (box2) {
+    box2.className = 'lv-ltst' + (!lt.disponibile ? ' spento' : tutto ? ' tutto' : '');
+    box2.innerHTML = !lt.disponibile
+      ? `<span class="t">Lantek</span><span title="${esc(lt.errore || '')}">non raggiungibile: niente controlli, il file si può scaricare lo stesso</span>`
+        + (nXml ? `<a href="${esc(url)}" download>file XML</a>` : '')
+      : `<span class="t">Lantek</span>`
+        + (tutto ? pill('ok', `<i data-lucide="check"></i> tutti i ${d.n_codici} codici sono in produzione`,
+                        "Ogni codice ha il suo ordine di produzione aperto in Lantek per quest'ordine")
+          : (nProd ? pill('ok', `<i data-lucide="check"></i> ${nProd} in produzione`, "Hanno già l'ordine di produzione aperto in Lantek: non si rimandano") : '')
+            + (nXml ? pill('da', `${nXml} da mandare`, d.n_gia_fatti ? `${d.n_gia_fatti} di questi erano già stati fatti in passato: si rifanno` : '') : '')
+            + (auto && nNuovi ? pill('da', `${nNuovi} nuovi: li crea col disegno`, 'Codici non ancora in Lantek con il disegno pronto: Manda a Lantek li crea') : '')
+            + (nDaMes ? pill('warn', `${nDaMes} nuovi da importare dal MES`, motivi || 'Codici non ancora in Lantek: importa i loro DXF dal MES') : '')
+            + (d.n_gia_fatti ? pill('info', `${d.n_gia_fatti} già fatti in passato`, `Già tagliati con l'ordine ${d.commessa || ''}: se mandi l'ordine si rifanno`) : ''))
+        + (nControlla ? pill('warn', `${nControlla} da controllare`, 'Materiale o spessore diversi da Lantek, o revisioni: vedi i codici con il punto esclamativo') : '')
+        + (tutto && !o.importato_lantek_il && statoLaser(o) === 'coda' ? '<span class="hint">premi «Importato in Lantek»</span>' : '')
+        + (nXml ? `<a href="${esc(url)}" download title="Il file XML, per importarlo a mano con XML Importer">file XML</a>` : '');
   }
+  // il pulsante principale in alto: "Manda a Lantek" se c'e' qualcosa da
+  // mandare, altrimenti resta "Importato in Lantek"
+  const slot = document.getElementById('lz-lt-slot');
+  const imp = document.getElementById('lz-btn-imp');
+  if (slot) {
+    const manda = auto ? nTot : nXml;
+    // gia' segnato "importato": se in Lantek manca ancora qualcosa si puo'
+    // mandare lo stesso, ma non e' l'azione principale
+    slot.innerHTML = manda ? btnXml(slot.dataset.secondario ? 'ft-btn lg lv-lt-btn' : 'ft-btn lg primary lv-lt-btn') : '';
+    if (imp) imp.className = 'ft-btn lg' + (manda ? '' : ' primary');
+  }
+  box.querySelectorAll('.lv-lt').forEach(x => x.remove());
   if (lt.disponibile) {
     const per = new Map(d.righe.map(r => [String(r.codice_ft || r.codice).toLowerCase(), r]));
     box.querySelectorAll('.lt-tag').forEach(x => x.remove());
@@ -1310,8 +1353,12 @@ async function lvQuantitaLantek(o, tok) {
       const r = c && per.get(c.textContent.trim().toLowerCase());
       if (!r) return;
       const altri = r.avvisi.filter(a => !/^non ancora in Lantek/.test(a));
-      let tag = r.stato === 'nuovo' ? '<span class="lt-tag nuovo" title="Non ancora in Lantek: importa prima il disegno">nuovo</span>'
-        : `<span class="lt-tag ok" title="Già nell'archivio pezzi di Lantek${r.codice !== r.codice_ft ? ' come ' + esc(r.codice) : ''}">in Lantek${r.codice !== r.codice_ft ? ' ' + esc(r.codice.slice(-3)) : ''}</span>`;
+      const crea = (d.nuovi_da_creare || []).some(x => x.codice === r.codice);
+      const fuori = (d.nuovi_esclusi || []).find(x => x.codice === r.codice);
+      let tag = r.stato === 'nuovo'
+        ? (crea ? '<span class="lt-tag da" title="Non ancora in Lantek: Manda a Lantek lo crea col suo disegno">nuovo</span>'
+          : `<span class="lt-tag nuovo" title="${esc(fuori ? fuori.motivo + ': importalo dal MES' : 'Non ancora in Lantek: importa il disegno dal MES')}">nuovo · dal MES</span>`)
+        : (r.codice !== r.codice_ft ? `<span class="lt-tag" title="In Lantek si chiama ${esc(r.codice)}">${esc(r.codice.slice(-3))}</span>` : '');
       if (r.in_produzione) tag += `<span class="lt-tag ok" title="Ha già un ordine di produzione aperto in Lantek per l'ordine ${esc(d.commessa || '')}: non si rimanda">in produzione ${esc(String(r.in_produzione))}</span>`;
       else if (r.gia_fatti) tag += `<span class="lt-tag" title="Già fatto in Lantek con l'ordine ${esc(d.commessa || '')}${r.gia_fatti_il ? ' (ultimo il ' + FT.data(r.gia_fatti_il).toLocaleDateString('it-IT') + ')' : ''}: se mandi l'ordine, si rifà">già fatto ${esc(String(r.gia_fatti))}</span>`;
       c.insertAdjacentHTML('beforeend', tag);
