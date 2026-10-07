@@ -175,6 +175,7 @@ def main():
     L.clienti_lantek = lambda: ['DECA', 'B&B', 'POLIFORM']
     # B1-00 ha gia' un ordine di produzione in Lantek per il 1252 (8 pezzi)
     L.ordini_in_lantek = lambda commessa: {'B1-00': 8.0} if commessa == '1252' else {}
+    L.ordini_fatti_in_lantek = lambda commessa: {}
     oid = preventivo_accettato('DECA S.r.l.', '1252')
     check('ordine creato', bool(oid))
     s = models.SessionLocal()
@@ -284,6 +285,15 @@ def main():
           and any('ne chiede 4' in a for a in rr[1]['avvisi']) and rr[2]['in_produzione'] == 0, rr)
     check('quelli in produzione non vanno nel file',
           [r['codice'] for r in L.righe_per_xml([{**r, 'stato': 'in_lantek'} for r in rr])] == ['K3-00'])
+    # ordine 1030: tagliato ad agosto (ordini FATTI) e da rifare -> si rimanda
+    rr = [{'codice': 'K4-00', 'quantita': 3, 'avvisi': [], 'stato': 'in_lantek'}]
+    L.segna_gia_ordinati(rr, {}, {'K4-00': (3.0, '2026-08-06')})
+    check('gia\' fatto in passato: segnato ma va nel file (si rifà)',
+          rr[0]['in_produzione'] == 0 and rr[0]['gia_fatti'] == 3 and rr[0]['gia_fatti_il'] == '2026-08-06'
+          and [r['codice'] for r in L.righe_per_xml(rr)] == ['K4-00'], rr)
+    check('riferimento con l\'invio: mai uguale a uno vecchio',
+          L.riferimento_ordine('1030', 'K4-00', '2610071010') == 'FT1030-K4-00-2610071010'
+          and b'FT1030-K4-00-2610071010' in L.xml_ordini_produzione(rr, '1030', 'DECA', None, invio='2610071010'))
 
     print('\n9) "Manda a Lantek": rapporto dell\'XML Importer e invio')
     rapporto = os.path.join(_CARTELLE, 'r_logERR.html')
@@ -325,7 +335,8 @@ margin-top: 5px;
     L.ordini_in_lantek = lambda commessa: {'B1-00': 8.0} if commessa == '1252' else {}
     d = laser.get(f'/api/orders/{oid}/lantek-quantita').get_json() or {}
     check('per la conferma: elenco da mandare (A1 x 6) e invio automatico possibile',
-          d.get('da_mandare') == [{'codice': 'A1-00', 'quantita': 6}] and d.get('invio_automatico') is True,
+          [(x['codice'], x['quantita']) for x in d.get('da_mandare') or []] == [('A1-00', 6)]
+          and d.get('invio_automatico') is True,
           {k: d.get(k) for k in ('da_mandare', 'invio_automatico')})
     r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00', 'C1-00']})
     check('elenco diverso da quello confermato: non si manda niente (409)',

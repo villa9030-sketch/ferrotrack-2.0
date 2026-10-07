@@ -7153,7 +7153,7 @@ def _quantita_lantek(order, righe=None) -> dict:
     nome = _sanitize_path_part(f'QUANTITA LANTEK - {commessa or order.id[:8]}', 'QUANTITA LANTEK') + '.xlsx'
     noti = _lt.clienti_lantek() if info.get('disponibile') else []
     if info.get('disponibile'):
-        _lt.segna_gia_ordinati(q, _lt.ordini_in_lantek(commessa))
+        _lt.segna_gia_ordinati(q, _lt.ordini_in_lantek(commessa), _lt.ordini_fatti_in_lantek(commessa))
     return {'righe': q, 'lantek': {'disponibile': info.get('disponibile'), 'errore': info.get('errore')},
             'commessa': commessa, 'consegna': consegna.isoformat() if consegna else None,
             'cliente_lantek': _lt.cliente_lantek(order.cliente or '', noti),
@@ -7186,9 +7186,11 @@ def api_ordine_lantek_quantita(order_id):
                         'n_pezzi': sum(r['quantita'] for r in q['righe']),
                         'n_nuovi': sum(1 for r in q['righe'] if r['stato'] == 'nuovo'),
                         'n_in_produzione': sum(1 for r in q['righe'] if r.get('in_produzione')),
+                        'n_gia_fatti': sum(1 for r in q['righe'] if r.get('gia_fatti')),
                         'n_xml': len(_lt.righe_per_xml(q['righe'])),
                         # per la conferma di "Manda a Lantek"
-                        'da_mandare': [{'codice': r['codice'], 'quantita': r['quantita']}
+                        'da_mandare': [{'codice': r['codice'], 'quantita': r['quantita'],
+                                        'gia_fatti': r.get('gia_fatti') or 0, 'gia_fatti_il': r.get('gia_fatti_il')}
                                        for r in _lt.righe_per_xml(q['righe'])],
                         'invio_automatico': _lt.xmlimporter_disponibile(),
                         'n_avvisi': n_avvisi}), 200
@@ -7315,7 +7317,8 @@ def api_ordine_lantek_invia(order_id):
         # 2. ordini di produzione
         rap, presenti = {}, []
         if righe:
-            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'])
+            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'],
+                                            invio=datetime.now().strftime('%y%m%d%H%M'))
             esito = _lt.importa_xml(xml, q['nome_file_xml'].rsplit('.', 1)[0], cartella)
             if not esito.get('eseguito'):
                 _audit('LANTEK_INVIA', 'orders', order_id,

@@ -331,10 +331,16 @@ OPERAZIONE = '2D Cut'
 _FORME_SOCIETA = {'SRL', 'SPA', 'SNC', 'SAS', 'SRLS', 'SS', 'SC', 'SOCIETA'}
 
 
-def ordini_in_lantek(commessa: str) -> dict | None:
-    """Gli ordini di produzione che Lantek ha gia' per quel numero d'ordine
-    (OrdRef "1252", anche "1252 C75"): {codice in maiuscolo: quantita' totale}.
-    None se Lantek non e' leggibile."""
+# Stato degli ordini di produzione: 10 creato, 20 lanciato, 30 in lavoro,
+# 40 fatto. Un ordine FATTO non blocca un nuovo invio (Stefano, 07/10/2026:
+# l'ordine 1030 era stato tagliato ad agosto e va rifatto); uno APERTO si'.
+STATO_FATTO = 40
+
+
+def _ordini_lantek(commessa: str) -> dict | None:
+    """{codice in maiuscolo: {'aperti': qta, 'fatti': qta, 'ultimo_fatto': data}}
+    per gli ordini di produzione con quel numero d'ordine (OrdRef "1252",
+    anche "1252 C75"). None se Lantek non e' leggibile."""
     commessa = str(commessa or '').strip()
     cfg = _config()
     if not commessa or not cfg.get('abilitato'):
@@ -348,10 +354,16 @@ def ordini_in_lantek(commessa: str) -> dict | None:
     try:
         con, cur = _connessione(cfg)
         try:
-            cur.execute('SELECT UPPER(LTRIM(RTRIM(PrdRef))), SUM(Quantity) FROM MMNN_MMOO_00000100 '
+            cur.execute('SELECT UPPER(LTRIM(RTRIM(PrdRef))), '
+                        f'SUM(CASE WHEN MState < {STATO_FATTO} THEN Quantity ELSE 0 END), '
+                        f'SUM(CASE WHEN MState >= {STATO_FATTO} THEN Quantity ELSE 0 END), '
+                        f'MAX(CASE WHEN MState >= {STATO_FATTO} THEN CrtDate END) '
+                        'FROM MMNN_MMOO_00000100 '
                         'WHERE LTRIM(RTRIM(OrdRef)) = ? OR LTRIM(OrdRef) LIKE ? '
                         'GROUP BY UPPER(LTRIM(RTRIM(PrdRef)))', [commessa, like])
-            out = {str(p): float(q or 0) for p, q in cur.fetchall()}
+            out = {str(p): {'aperti': float(a or 0), 'fatti': float(f or 0),
+                            'ultimo_fatto': d.date().isoformat() if d else None}
+                   for p, a, f, d in cur.fetchall()}
         finally:
             con.close()
     except Exception as e:
@@ -362,15 +374,36 @@ def ordini_in_lantek(commessa: str) -> dict | None:
     return out
 
 
-def segna_gia_ordinati(righe: list, ordinati: dict | None) -> None:
-    """Su ogni riga: 'in_produzione' = pezzi che Lantek ha gia' negli ordini
-    di produzione di quell'ordine (0 se nessuno), con l'avviso se la quantita'
-    e' diversa da quella dell'ordine."""
+def ordini_in_lantek(commessa: str) -> dict | None:
+    """Gli ordini di produzione APERTI (non ancora fatti) che Lantek ha per
+    quel numero d'ordine: {codice in maiuscolo: quantita'}. None se Lantek non
+    e' leggibile."""
+    tutti = _ordini_lantek(commessa)
+    if tutti is None:
+        return None
+    return {k: v['aperti'] for k, v in tutti.items() if v['aperti']}
+
+
+def ordini_fatti_in_lantek(commessa: str) -> dict:
+    """Gli ordini di produzione gia' FATTI per quel numero d'ordine:
+    {codice in maiuscolo: (quantita', data dell'ultimo)}."""
+    return {k: (v['fatti'], v['ultimo_fatto']) for k, v in (_ordini_lantek(commessa) or {}).items()
+            if v['fatti']}
+
+
+def segna_gia_ordinati(righe: list, ordinati: dict | None, fatti: dict | None = None) -> None:
+    """Su ogni riga: 'in_produzione' = pezzi negli ordini di produzione APERTI
+    di quell'ordine (0 se nessuno), con l'avviso se la quantita' e' diversa;
+    'gia_fatti' = pezzi gia' fatti in passato con quel numero d'ordine (non
+    blocca un nuovo invio, lo si dice)."""
     for r in righe:
         q = (ordinati or {}).get(str(r['codice']).strip().upper(), 0)
         r['in_produzione'] = int(q) if float(q).is_integer() else q
         if q and abs(q - r['quantita']) > 0.001:
             r['avvisi'].append(f"in Lantek in produzione {r['in_produzione']:g} pz, l'ordine ne chiede {r['quantita']}")
+        f = (fatti or {}).get(str(r['codice']).strip().upper())
+        r['gia_fatti'] = int(f[0]) if f else 0
+        r['gia_fatti_il'] = f[1] if f else None
 
 
 def clienti_lantek() -> list:
@@ -418,11 +451,15 @@ def cliente_lantek(nome: str, noti: list | None = None) -> str:
     return parole[0][:40]
 
 
-def riferimento_ordine(commessa: str, codice: str) -> str:
-    """Il riferimento dell'ordine di produzione (max 40 caratteri in Lantek):
-    sempre lo stesso per ordine+codice, cosi' reimportando il file Lantek
-    aggiorna l'ordine invece di farne un doppione."""
+def riferimento_ordine(commessa: str, codice: str, invio: str = '') -> str:
+    """Il riferimento dell'ordine di produzione (max 40 caratteri in Lantek).
+    Senza `invio` e' sempre lo stesso per ordine+codice (il file scaricato e
+    reimportato aggiorna invece di fare un doppione); con `invio` (data e ora
+    di "Manda a Lantek") e' nuovo ogni volta, cosi' un ordine gia' fatto in
+    passato non viene mai sovrascritto."""
     rif = f'FT{commessa}-{codice}' if commessa else f'FT-{codice}'
+    if invio:
+        rif += '-' + invio
     if len(rif) <= 40:
         return rif
     import hashlib
@@ -439,7 +476,8 @@ def righe_per_xml(righe: list) -> list:
 
 
 def xml_ordini_produzione(righe: list, commessa: str = '', cliente: str = '', consegna=None,
-                          centro: str = CENTRO_LAVORO, operazione: str = OPERAZIONE) -> bytes:
+                          centro: str = CENTRO_LAVORO, operazione: str = OPERAZIONE,
+                          invio: str = '') -> bytes:
     """Il file per l'XML Importer: un comando MANUFACTURING per riga, nel
     formato dell'esempio di Lantek (C:\\Lantek\\System\\Masterlink\\Samples\\
     Import.xml). FldType: 20 testo, 100 numero, 120 data AAAAMMGG."""
@@ -456,7 +494,7 @@ def xml_ordini_produzione(righe: list, commessa: str = '', cliente: str = '', co
     out = ['<?xml version="1.0" encoding="utf-8"?>\n<DATAEX>\n']
     for r in righe:
         out.append('\t<COMMAND Name="Import" TblRef="MANUFACTURING">\n')
-        out.append(campo('Reference', riferimento_ordine(commessa, r['codice']), 20))
+        out.append(campo('Reference', riferimento_ordine(commessa, r['codice'], invio), 20))
         out.append(campo('Product', r['codice'], 20))
         out.append(campo('WorkCenter', centro, 20))
         out.append(campo('Operation', operazione, 20))

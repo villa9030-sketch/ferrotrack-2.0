@@ -1201,6 +1201,13 @@ async function lvMandaLantek(orderId, btn) {
     testo: `Ordine ${d.commessa || '—'} · cliente ${d.cliente_lantek || '—'} · consegna ${cons}.`
       + (nuovi.length ? ` Pezzi nuovi col disegno: ${breve(nuovi, x => `${x.codice} (${x.materiale} ${x.spessore})`)}.` : '')
       + (el.length ? ` Ordini: ${breve(el, x => `${x.codice} × ${x.quantita}`)}${nuovi.length ? ' e i pezzi nuovi' : ''}.` : '')
+      + (() => {
+        const rifatti = el.filter(x => x.gia_fatti);
+        if (!rifatti.length) return '';
+        const ultimo = rifatti.map(x => x.gia_fatti_il).filter(Boolean).sort().pop();
+        return ` ATTENZIONE: ${rifatti.length} di questi codici erano già stati fatti in Lantek con l'ordine ${d.commessa}`
+          + (ultimo ? ` (ultimo il ${FT.data(ultimo).toLocaleDateString('it-IT')})` : '') + ': verranno rifatti.';
+      })()
       + (esclusi.length ? ` Restano fuori ${esclusi.length} codici nuovi: `
         + Object.entries(esclusi.reduce((m, x) => { m[x.motivo] = (m[x.motivo] || 0) + 1; return m; }, {}))
           .map(([mot, n]) => `${n} ${mot}`).join(', ') + ' (importali dal MES).' : '')
@@ -1279,7 +1286,8 @@ async function lvQuantitaLantek(o, tok) {
     <span class="lv-lt-n">${d.n_codici} codici · ${FT.numero(d.n_pezzi)} pz</span>
     ${lt.disponibile
       ? `${d.n_nuovi ? `<span class="lv-lt-n warn">${d.n_nuovi} da importare (nuovi)</span>` : '<span class="lv-lt-n">tutti già in Lantek</span>'}
-         ${nProd ? `<span class="lv-lt-n" title="Hanno già un ordine di produzione in Lantek con il numero ${esc(d.commessa || '')}: non vanno nel file">${nProd} già in produzione</span>` : ''}
+         ${nProd ? `<span class="lv-lt-n" title="Hanno già un ordine di produzione APERTO in Lantek con il numero ${esc(d.commessa || '')}: non si rimandano">${nProd} già in produzione</span>` : ''}
+         ${d.n_gia_fatti ? `<span class="lv-lt-n warn" title="Già fatti in Lantek con il numero ${esc(d.commessa || '')}: se mandi l'ordine si rifanno">${d.n_gia_fatti} già fatti in passato</span>` : ''}
          ${d.n_avvisi - d.n_nuovi > 0 ? `<span class="lv-lt-n warn">${d.n_avvisi - d.n_nuovi} da controllare</span>` : ''}`
       : `<span class="lv-lt-n" title="${esc(lt.errore || '')}">Lantek non raggiungibile: controlli non disponibili</span>`}
     <span class="lv-lt-n" title="Nei DXF della cartella dell'ordine ci sono le scritte QTA, MAT, SP, ORD: l'importatore DXF di Lantek compila la griglia da solo">quantità già scritte nei DXF</span>
@@ -1304,7 +1312,8 @@ async function lvQuantitaLantek(o, tok) {
       const altri = r.avvisi.filter(a => !/^non ancora in Lantek/.test(a));
       let tag = r.stato === 'nuovo' ? '<span class="lt-tag nuovo" title="Non ancora in Lantek: importa prima il disegno">nuovo</span>'
         : `<span class="lt-tag ok" title="Già nell'archivio pezzi di Lantek${r.codice !== r.codice_ft ? ' come ' + esc(r.codice) : ''}">in Lantek${r.codice !== r.codice_ft ? ' ' + esc(r.codice.slice(-3)) : ''}</span>`;
-      if (r.in_produzione) tag += `<span class="lt-tag ok" title="Già negli ordini di produzione di Lantek per l'ordine ${esc(d.commessa || '')}">in produzione ${esc(String(r.in_produzione))}</span>`;
+      if (r.in_produzione) tag += `<span class="lt-tag ok" title="Ha già un ordine di produzione aperto in Lantek per l'ordine ${esc(d.commessa || '')}: non si rimanda">in produzione ${esc(String(r.in_produzione))}</span>`;
+      else if (r.gia_fatti) tag += `<span class="lt-tag" title="Già fatto in Lantek con l'ordine ${esc(d.commessa || '')}${r.gia_fatti_il ? ' (ultimo il ' + FT.data(r.gia_fatti_il).toLocaleDateString('it-IT') + ')' : ''}: se mandi l'ordine, si rifà">già fatto ${esc(String(r.gia_fatti))}</span>`;
       c.insertAdjacentHTML('beforeend', tag);
       // l'avviso nella colonna delle lavorazioni, dove c'e' spazio per leggerlo
       const lav = el.querySelector('.lv-pz-lav');
