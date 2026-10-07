@@ -4045,6 +4045,13 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             '_errore_dxf': ((dxf_info or {}).get('error')
                             if dxf_info and dxf_info.get('success') is False else None),
         }
+        if a.matched_dxf:
+            # come e' stato abbinato il disegno: "per somiglianza" va confermato
+            # (blocca Lantek finche' nessuno lo guarda)
+            tipo = getattr(a, 'abbinamento', None) or 'esatto'
+            item['abbinamento'] = {'tipo': tipo, 'file': a.matched_dxf,
+                                   'score': round(float(getattr(a, '_matched_score', 0) or 0), 3),
+                                   'confermato': tipo in ('esatto', 'senza_revisione')}
         if solo_tecnico:
             # Riga dell'ordine del cliente: dice all'ufficio quali quantita'
             # ricontrollare, e alla conferma quali disegni l'ordine non
@@ -4052,6 +4059,9 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             item['ordine'] = {'stato': _STATO_RIGA_ORDINE.get(item['_qta_fonte'], 'ok'),
                               'pos': len(articoli_db), 'qta': a.quantita,
                               'file': os.path.basename(rfq_pdf_filename)}
+            if len(getattr(a, 'righe_ordine', None) or []) > 1:
+                # codice ripetuto su piu' righe del PDF: quantita' sommate
+                item['ordine']['righe'] = a.righe_ordine
         # Se il PDF NON aveva materiale/spessore, prova a leggerli dal cartiglio DXF
         if not item['materiale'] and dxf_info:
             cart = dxf_info.get('cartiglio') or dxf_info.get('cartiglio_materiale') or {}
@@ -4059,8 +4069,11 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             if cart_mat:
                 item['materiale'] = cart_mat
         if not item['spessore_mm'] and dxf_info:
-            cart_sp = (dxf_info.get('spessore') or {}).get('spessore_mm')
-            if cart_sp:
+            # come per il materiale: dal disegno solo se la lettura e' sicura
+            # almeno a meta' (prima si prendeva anche un tabellare incerto)
+            sp_info = dxf_info.get('spessore') or {}
+            cart_sp = sp_info.get('spessore_mm')
+            if cart_sp and (sp_info.get('confidence') is None or (sp_info.get('confidence') or 0) >= 0.5):
                 item['spessore_mm'] = float(cart_sp)
         # Arrotonda lo spessore agli spessori realmente tagliati (1-1.5-2-3-4-…)
         if item.get('spessore_mm'):
@@ -4339,6 +4352,10 @@ def _avvisi_riga_pacchetto(it, fonte):
         avvisi.append("Quantita' non trovata nell'ordine: messa 1, controllala")
     elif fonte == 'dubbio':
         avvisi.append("Quantita' incerta: sulla stessa riga dell'ordine ci sono piu' codici")
+    ab = it.get('abbinamento') or {}
+    if it.get('dxf_filename') and ab.get('tipo') == 'somiglianza' and not ab.get('confermato'):
+        avvisi.append(f"Disegno abbinato solo per somiglianza: «{it['dxf_filename']}» per il codice "
+                      f"«{it.get('codice')}». Controlla che sia il suo, altrimenti toglilo")
     if not it.get('dxf_filename'):
         avvisi.append('Nessun disegno per questo pezzo')
     elif it.get('_errore_dxf'):

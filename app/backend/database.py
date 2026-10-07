@@ -4777,7 +4777,11 @@ class PreventivoManager:
                       # disegno (PDF/DXF del preventivo) mostrato su un pezzo senza DXF proprio
                       'disegno_rif',
                       # posizione nella lista (scritta dal server al salvataggio)
-                      'riga')
+                      'riga',
+                      # Come il disegno e' stato abbinato al codice (nome uguale,
+                      # senza revisione, o "per somiglianza" da confermare) e
+                      # l'esito della verifica automatica al caricamento.
+                      'abbinamento', 'esito_verifica')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -4976,6 +4980,25 @@ class PreventivoManager:
                                   'commessa': str(r.get('commessa') or '')[:40] or None})
             if righe:
                 out['ordine']['righe'] = righe
+        ab = a.get('abbinamento')
+        if isinstance(ab, dict) and ab.get('tipo') in ('esatto', 'senza_revisione', 'somiglianza', 'manuale'):
+            out['abbinamento'] = {'tipo': ab['tipo'], 'file': os.path.basename(str(ab.get('file') or ''))[:255] or None,
+                                  'score': PreventivoManager._num_o_none(ab.get('score'), 10),
+                                  'confermato': bool(ab.get('confermato'))}
+        ev = a.get('esito_verifica')
+        if isinstance(ev, dict) and ev.get('stato') in ('verificato', 'corretto_da_confermare', 'da_guardare',
+                                                         'non_verificabile', 'confermato'):
+            pulito = {'stato': ev['stato'],
+                      'motivi': [str(x)[:300] for x in (ev.get('motivi') or []) if x][:8],
+                      'fonti': [str(x)[:40] for x in (ev.get('fonti') or []) if x][:6],
+                      'quando': str(ev.get('quando') or '')[:32] or None}
+            lt = ev.get('lantek')
+            if isinstance(lt, dict):
+                n = PreventivoManager._num_o_none
+                pulito['lantek'] = {k: n(lt.get(k), 1e7) for k in ('area_dm2', 'perimetro_m', 'spessore')}
+                pulito['lantek']['codice'] = str(lt.get('codice') or '')[:60] or None
+                pulito['lantek']['materiale'] = str(lt.get('materiale') or '')[:40] or None
+            out['esito_verifica'] = pulito
         vok = a.get('verifica_ok')
         if isinstance(vok, dict):
             vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}

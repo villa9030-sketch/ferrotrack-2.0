@@ -47,6 +47,14 @@ class ArticoloRFQ:
     # quantita', messa 1), 'non_trovato' (disegno che nell'ordine non c'e').
     # Serve all'ufficio per sapere quali quantita' ricontrollare.
     qta_fonte: str = 'pdf'
+    # Come il disegno e' stato abbinato: 'esatto' (nome = codice),
+    # 'senza_revisione' (25NDSPA1979 ↔ 25NDSPA1979-00, unico candidato),
+    # 'somiglianza' (nome solo simile: DA CONFERMARE, puo' essere il disegno
+    # di un altro codice). None se nessun disegno.
+    abbinamento: str | None = None
+    # Righe dell'ordine con lo stesso codice (pos, qta, commessa): il PDF DECA
+    # puo' ripetere un codice su piu' righe, le quantita' si sommano.
+    righe_ordine: list = field(default_factory=list)
 
 
 @dataclass
@@ -142,41 +150,97 @@ def match_dxf_to_articoli(articoli: list[dict], dxf_filenames: list[str]) -> tup
         - articoli_matched: lista ArticoloRFQ con .matched_dxf popolato dove possibile
         - dxf_no_match: DXF nella cartella che non hanno articolo corrispondente nel PDF
     """
-    # Prepara stem (senza estensione) per confronto
-    dxf_stems = {fn: os.path.splitext(fn)[0] for fn in dxf_filenames}
+    # Prima (fino al 07/10/2026) ogni riga prendeva, nell'ordine del PDF, il
+    # file "piu' simile" non ancora usato: un codice senza disegno rubava il
+    # file del vicino e da li' tutto scalava di una riga (ordine A 001252:
+    # 19 disegni su 27 di un altro codice, senza un avviso). Ora:
+    #   1. nome del file = codice (a meno di maiuscole/punteggiatura e di una
+    #      copia " (2)" del file)                                → 'esatto'
+    #   2. stesso codice senza revisione, un solo candidato      → 'senza_revisione'
+    #   3. solo per cio' che avanza: il piu' simile, MA segnato  → 'somiglianza'
+    #      (da confermare: si vede in revisione e blocca Lantek)
+    # I codici ripetuti nel PDF diventano un pezzo solo con le quantita' sommate.
+    dxf_stems = {fn: _stem_disegno(fn) for fn in dxf_filenames}
     used_dxf: set[str] = set()
 
     matched: list[ArticoloRFQ] = []
-    for a in (articoli or []):
+    per_codice: dict[str, ArticoloRFQ] = {}
+    for pos, a in enumerate(articoli or []):
         codice = (a.get('codice') or '').strip()
         if not codice:
             continue
+        qta = int(a.get('quantita') or 1)
+        riga = {'pos': pos, 'qta': qta, 'commessa': a.get('commessa') or a.get('_commessa')}
+        gia = per_codice.get(_normalize_code(codice))
+        if gia is not None:
+            gia.quantita += qta
+            gia.righe_ordine.append(riga)
+            if (a.get('_qta_fonte') or 'pdf') != 'pdf' and gia.qta_fonte == 'pdf':
+                gia.qta_fonte = a.get('_qta_fonte')
+            continue
         art = ArticoloRFQ(
             codice=codice,
-            quantita=int(a.get('quantita') or 1),
+            quantita=qta,
             materiale=(a.get('materiale') or None),
             spessore_mm=(float(a['spessore_mm']) if a.get('spessore_mm') is not None else None),
             descrizione=(a.get('descrizione') or ''),
             qta_fonte=(a.get('_qta_fonte') or 'pdf'),
+            righe_ordine=[riga],
         )
-        # Trova best match tra DXF non ancora usati
+        per_codice[_normalize_code(codice)] = art
+        matched.append(art)
+
+    # 1) nome uguale al codice
+    for art in matched:
+        nc = _normalize_code(art.codice)
+        for fn, stem in dxf_stems.items():
+            if fn not in used_dxf and _normalize_code(stem) == nc:
+                art.matched_dxf, art._matched_score, art.abbinamento = fn, 1.0, 'esatto'
+                used_dxf.add(fn)
+                break
+    # 2) stesso codice, revisione mancante da una delle due parti: solo se il
+    #    candidato e' uno (25NDSPA1979 con -00 e -01 nel pacchetto: non si sceglie)
+    for art in matched:
+        if art.matched_dxf:
+            continue
+        base = _normalize_code(_senza_revisione(art.codice))
+        cand = [fn for fn, stem in dxf_stems.items() if fn not in used_dxf
+                and _normalize_code(_senza_revisione(stem)) == base
+                and (_senza_revisione(stem) == stem or _senza_revisione(art.codice) == art.codice)]
+        if len(cand) == 1:
+            art.matched_dxf, art._matched_score, art.abbinamento = cand[0], 0.95, 'senza_revisione'
+            used_dxf.add(cand[0])
+    # 3) cio' che avanza: il piu' simile, da confermare
+    for art in matched:
+        if art.matched_dxf:
+            continue
         best_fn, best_score = None, 0.0
         for fn, stem in dxf_stems.items():
             if fn in used_dxf:
                 continue
-            score = _fuzzy_score(codice, stem)
+            score = _fuzzy_score(art.codice, stem)
             if score > best_score:
-                best_score = score
-                best_fn = fn
+                best_score, best_fn = score, fn
         if best_fn and best_score >= FUZZY_MATCH_THRESHOLD:
-            art.matched_dxf = best_fn
-            art._matched_score = best_score
+            art.matched_dxf, art._matched_score, art.abbinamento = best_fn, best_score, 'somiglianza'
             used_dxf.add(best_fn)
-        matched.append(art)
 
     # DXF senza match
     dxf_no_match = [fn for fn in dxf_filenames if fn not in used_dxf]
     return matched, dxf_no_match
+
+
+_RX_REV = re.compile(r'-\d{2}$')
+
+
+def _senza_revisione(codice: str) -> str:
+    """"25NDSPA1979-00" → "25NDSPA1979" (revisione a due cifre in fondo)."""
+    return _RX_REV.sub('', (codice or '').strip())
+
+
+def _stem_disegno(fn: str) -> str:
+    """Nome del disegno senza estensione e senza la copia " (2)" di Windows."""
+    return re.sub(r'\s*\(\d+\)$', '', os.path.splitext(os.path.basename(fn))[0]).strip()
 
 
 # ─── ZIP extraction ────────────────────────────────────────────────────────
