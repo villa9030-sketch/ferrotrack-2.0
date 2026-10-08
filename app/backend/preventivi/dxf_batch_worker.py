@@ -183,14 +183,23 @@ def applica_fori_trapano(geo: dict | None, spessore: dict | None) -> dict | None
     Con lo spessore incerto non cambia la geometria: se per almeno una delle
     letture dello spessore un foro andrebbe al trapano, lo segna in
     geometria['fori_trapano_dubbio'] (il controllo del sicuro lo manda in
-    revisione). I contorni piccoli NON tondi restano al laser."""
-    if not geo or not geo.get('fori_tondi') or geo.get('_source') == 'cartiglio_descrizione':
+    revisione). I contorni piccoli NON tondi restano al laser, ma se sono piu'
+    stretti del minimo laser (per una lettura dello spessore) il pezzo va
+    verificato: geometria['fori_stretti_non_tondi'] = quanti."""
+    if not geo or geo.get('_source') == 'cartiglio_descrizione'             or not (geo.get('fori_tondi') or geo.get('fori_non_tondi_mm')):
         return geo
     sp = spessore or {}
     t = sp.get('spessore_mm')
     conf = float(sp.get('confidence') or 0)
-    fori = geo['fori_tondi']
+    fori = geo.get('fori_tondi') or []
+    stretti = geo.get('fori_non_tondi_mm') or []
     if t and conf >= CONF_SPESSORE_TRAPANO:
+        dmin = diametro_min_laser(t)
+        n_stretti = sum(1 for w in stretti if dmin and w < dmin - TOLL_DIAMETRO_MM)
+        if n_stretti:
+            # contorno non tondo piu' stretto del minimo laser: niente trapano,
+            # e il laser non lo taglia bene: lo decide una persona
+            geo = {**geo, 'fori_stretti_non_tondi': n_stretti}
         trapano = fori_sotto_soglia(fori, t)
         if not trapano:
             return geo
@@ -217,6 +226,10 @@ def applica_fori_trapano(geo: dict | None, spessore: dict | None) -> dict | None
         letture = set(SPESSORI_PLAUSIBILI_SENZA_LETTURA)
     if any(fori_sotto_soglia(fori, x) for x in letture):
         geo = {**geo, 'fori_trapano_dubbio': True}
+    n_stretti = max((sum(1 for w in stretti if w < (diametro_min_laser(x) or 0) - TOLL_DIAMETRO_MM)
+                     for x in letture), default=0)
+    if n_stretti:
+        geo = {**geo, 'fori_stretti_non_tondi': n_stretti}
     return geo
 
 

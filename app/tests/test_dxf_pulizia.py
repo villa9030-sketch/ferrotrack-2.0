@@ -463,6 +463,12 @@ def main():
           and abs(per0 - g11t['perimetro_taglio_m'] - 2 * math.pi * 5 / 1000) < 5e-4,
           (a0, g11t['area_dm2'], per0, g11t['perimetro_taglio_m']))
     check('avviso trapano', any('al trapano' in w for w in g11t.get('warnings') or []), g11t.get('warnings'))
+    check('quadretto 4x4 (non tondo) sotto Ø6: resta al laser ma da verificare',
+          g11t.get('fori_stretti_non_tondi') == 1 and g11t['n_fori'] == 3, g11t.get('fori_stretti_non_tondi'))
+    ok, motivi = SI.decidi_sicuro({**base, 'fori_stretti_non_tondi': 1})
+    check('contorno non tondo sotto il minimo laser → da verificare', not ok and 'non tondi' in motivi[0], motivi)
+    check('spessore 5 sicuro: quadretto 4x4 sopra Ø3, nessun dubbio',
+          not W.applica_fori_trapano(g11, {'spessore_mm': 5.0, 'confidence': 0.9}).get('fori_stretti_non_tondi'))
     check('spessore 3 sicuro: nessun foro al trapano',
           not W.applica_fori_trapano(g11, {'spessore_mm': 3.0, 'confidence': 0.9}).get('fori_trapano'))
     incerto = {'spessore_mm': 3.0, 'confidence': 0.55,

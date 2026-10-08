@@ -49,6 +49,7 @@ def raccogli_indizi(dxf_path: str, geo: dict | None, cartiglio: dict | None, spe
         # se lo spessore non e' sicuro (dxf_batch_worker.applica_fori_trapano)
         ind['n_fori_trapano'] = len(geo.get('fori_trapano') or [])
         ind['fori_trapano_dubbio'] = bool(geo.get('fori_trapano_dubbio'))
+        ind['fori_stretti_non_tondi'] = int(geo.get('fori_stretti_non_tondi') or 0)
         # misure del cartiglio (descrizione "120x80 sp.3" o cartiglio tabellare)
         if dim_info and dim_info.get('dim_x_mm') and dim_info.get('dim_y_mm'):
             a = sorted((w, h))
@@ -168,6 +169,11 @@ def decidi_sicuro(ind: dict) -> tuple[bool, list[str]]:
     #    spessore (regola dei 2/3), quindi non si puo' decidere da soli
     if ind.get('fori_trapano_dubbio'):
         motivi.append('fori piccoli: spessore da confermare per decidere laser o trapano')
+    #    Contorni NON tondi piu' stretti del minimo laser: il trapano non li fa
+    #    e il laser non li taglia bene (tagliare, forare o marcare?)
+    if ind.get('fori_stretti_non_tondi'):
+        motivi.append(f"{ind['fori_stretti_non_tondi']} contorni non tondi sotto il minimo laser "
+                      f"(2/3 dello spessore): tagliare, forare o marcare?")
     # 7. Geometria col colore/layer di piega dentro il pezzo: pieghe o contorni da tagliare?
     if (ind.get('pul_n_piega') or 0) > PIEGA_DENTRO_MAX:
         motivi.append(f"{ind['pul_n_piega']} linee di piega dentro il pezzo")

@@ -119,6 +119,7 @@ def misura(path: str, cartella_tmp: str) -> dict:
         'fori_tondi': [[f.get('d_mm'), f.get('area_mm2'), f.get('perim_mm')] for f in (g.get('fori_tondi') or [])],
         'fori_trapano': [f.get('d_mm') for f in (g.get('fori_trapano') or [])],
         'fori_trapano_dubbio': bool(g.get('fori_trapano_dubbio')),
+        'fori_stretti_non_tondi': g.get('fori_stretti_non_tondi'),
         'pul_trapano': {k: (cl.get('cleanup_stats') or {}).get(k) for k in ('n_fori_trapano', 'n_trapano_tolti')},
     }
 

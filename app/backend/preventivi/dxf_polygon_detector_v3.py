@@ -3043,6 +3043,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         # fori tondi tagliati (mm, stesso riferimento del contorno): quelli
         # sotto i 2/3 dello spessore vanno al trapano (dxf_batch_worker)
         'fori_tondi': _fori_tondi(inners),
+        'fori_non_tondi_mm': _fori_non_tondi(inners),
     }
 
 
@@ -3084,6 +3085,26 @@ def _fori_tondi(inners) -> list:
         if f and f['d_mm'] <= FORO_TONDO_D_MAX_MM:
             out.append(f)
     return out
+
+
+def _fori_non_tondi(inners) -> list:
+    """Larghezza (lato corto del rettangolo minimo, mm) dei contorni interni NON
+    tondi e stretti: sotto il minimo del laser non si tagliano bene ne' si
+    fanno col trapano (tagliare, forare o marcare? lo decide una persona)."""
+    out = []
+    for p in inners:
+        if foro_tondo(p):
+            continue
+        try:
+            r = p.minimum_rotated_rectangle
+            xy = list(r.exterior.coords)
+            lati = [math.hypot(xy[i + 1][0] - xy[i][0], xy[i + 1][1] - xy[i][1]) for i in range(2)]
+            w = min(lati)
+        except Exception:
+            continue
+        if w <= FORO_TONDO_D_MAX_MM:
+            out.append(round(w, 2))
+    return sorted(out)
 
 
 def _diagnostica_scelta(outer, inners, base, top_level, outer_esteso, scelto, **extra) -> dict:
