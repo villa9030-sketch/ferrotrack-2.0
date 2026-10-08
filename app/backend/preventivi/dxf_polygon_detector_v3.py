@@ -2624,6 +2624,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     # ---- 6. Pick best outer + confidence
     best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri, base.get('quote'), base.get('testi'))
     outer = candidati[best_idx]
+    conf_scelta = confidence
     if getattr(doc, '_ft_scala_dubbia', False):
         confidence = min(confidence, 0.6)
     elif getattr(doc, '_ft_scala_da_quote', 1.0) != 1.0 and not _quote_sul_contorno(outer, base.get('quote')):
@@ -2635,8 +2636,10 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
 
     # ---- 6b. Sviluppo spezzato dalle linee di piega: riunisci le falde
     scelto = outer
+    n_attaccati = 0
     outer, regione_piena, n_falde = _estendi_oltre_pieghe(outer, msp, cfg)
     if n_falde and not _falde_confermate(scelto, outer, msp, scala, base.get('quote')):
+        n_attaccati = n_falde
         # Contorni attaccati al pezzo ma nessuna prova che siano falde: niente
         # linee di piega a tratti sul confine, quote che non misurano lo
         # sviluppo intero. Di solito sono viste disegnate a contatto: si tiene
@@ -2648,6 +2651,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     if n_falde:
         warnings.append(f'Sviluppo diviso da linee di piega: unite {n_falde} falde al contorno')
     outer = _chiudi_fessure(outer)
+    conf_falde = confidence
 
     # ---- 7. Inner holes (contenuti VERAMENTE nell'outer — BUG FIX D2) + svasature (D4)
     pp_outer = _prep_buf(outer)
@@ -2798,8 +2802,17 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
             'geometry': _raw_coords(coords, scala),
         })
 
+    diagnostica = _diagnostica_scelta(
+        outer_mis, inners, base, top_level, outer, scelto,
+        conf_scelta=conf_scelta, conf_falde=conf_falde, n_falde=n_falde, n_attaccati=n_attaccati,
+        n_scritte=len(scritte), n_scritte_dubbie=len(scritte_dubbie), n_segni=len(segni),
+        n_svas=n_svas, n_intagli=n_intagli,
+        scala_dubbia=bool(getattr(doc, '_ft_scala_dubbia', False)),
+        scala_da_quote=float(getattr(doc, '_ft_scala_da_quote', 1.0) or 1.0))
+
     return {
         **mis,
+        'diagnostica': diagnostica,
         'confidence': confidence,
         'confidence_label': conf_label,
         'needs_manual_select': needs_manual,
@@ -2821,6 +2834,42 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         # contorno (misure del cartiglio) deve riportarlo a "sicuro"
         'fori_dubbi': fori_dubbi,
     }
+
+
+def _diagnostica_scelta(outer, inners, base, top_level, outer_esteso, scelto, **extra) -> dict:
+    """Indizi sulla scelta del contorno, per decidere se il risultato e'
+    "sicuro" (dxf_batch_worker.decidi_sicuro). Solo lettura: non cambia
+    nessuna misura."""
+    d = dict(extra)
+    try:
+        quote = base.get('quote') or []
+        d['n_quote'] = len(quote)
+        d['quote_su_contorno'] = _quote_sul_contorno(outer, quote)
+        d['lati_quotati'] = _lati_quotati(outer, quote)
+        d['testi_dentro'] = _n_testi_dentro(outer, base.get('testi'))
+        d['n_top'] = len(top_level)
+        altri = [c.area for c in top_level if c is not outer_esteso and c is not scelto]
+        d['rivale_rel'] = round(max(altri, default=0.0) / outer.area, 4) if outer.area > 0 else 0.0
+        dims = []
+        tondi = piccoli_non_tondi = 0
+        for f in inners:
+            x1, y1, x2, y2 = f.bounds
+            w, h = x2 - x1, y2 - y1
+            dims.append(max(w, h))
+            if h > 0 and abs(w / h - 1) < 0.05 and f.area > 0.95 * 3.141592653589793 * (w / 2) * (h / 2):
+                tondi += 1
+            elif max(w, h) < 15.0:
+                piccoli_non_tondi += 1
+        d['n_fori_piccoli_non_tondi'] = piccoli_non_tondi
+        d['n_fori'] = len(inners)
+        d['n_fori_tondi'] = tondi
+        d['foro_min_mm'] = round(min(dims), 2) if dims else None
+        d['n_fori_lt2'] = sum(1 for x in dims if x < 2.0)
+        d['n_fori_lt4'] = sum(1 for x in dims if x < 4.0)
+        d['area_fori_rel'] = round(sum(f.area for f in inners) / outer.area, 4) if outer.area > 0 else 0.0
+    except Exception as e:      # noqa: BLE001 - la diagnostica non deve rompere il riconoscimento
+        d['errore'] = str(e)[:80]
+    return d
 
 
 def _empty_result(warnings: list[str]) -> dict:

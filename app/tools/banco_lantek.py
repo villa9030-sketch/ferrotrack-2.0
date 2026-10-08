@@ -114,6 +114,7 @@ def misura(path: str, cartella_tmp: str) -> dict:
         'mat': ca.get('materiale'), 'mat_conf': _num(ca.get('confidence')),
         'tratti': g.get('tratti_aperti'),
         'pulito': cl.get('cleaned_status'), 'pulito_motivo': (cl.get('cleanup_reason') or '')[:160],
+        'indizi': cl.get('indizi'),
     }
 
 

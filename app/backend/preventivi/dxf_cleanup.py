@@ -855,7 +855,7 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     result = {'success': False, 'error': None, 'entities_copied': 0, 'entities_source': 0,
               'entities_skipped_meta': 0, 'n_taglio': 0, 'n_piega': 0, 'n_marcatura': 0,
               'n_simboli_tolti': 0, 'copertura': 0.0, 'w_mm': None, 'h_mm': None,
-              'bbox_mm': None, 'tolerance_mm': 0.0, 'warnings': []}
+              'bbox_mm': None, 'tolerance_mm': 0.0, 'warnings': [], 'n_lung_marcatura_mm': 0.0}
     colori_piega = set(cfg.get('dxf_colori_piega', [2]))
     anelli = [outer.exterior] + list(outer.interiors) + [f.exterior for f in fori]
     bordi = unary_union(anelli)
@@ -993,6 +993,7 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
             else:
                 _copia(e, LAYER_MARCATURA)
                 result['n_marcatura'] += 1
+                result['n_lung_marcatura_mm'] += ls.length
         except Exception as ex:
             logger.debug('copia entita %s fallita: %s', et, ex)
             return
