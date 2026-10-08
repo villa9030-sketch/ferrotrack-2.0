@@ -93,7 +93,11 @@ def valuta(m, g):
         'sp': vicino(m.get('sp_mm'), g['sp'], 0, TOL_SP_MM),
         'mat': famiglia(m.get('mat')) == famiglia(g['mat']) if m.get('mat') else None,
     }
-    e['geo'] = bool(m.get('ok')) and e['area'] and e['perim'] and e['bbox']
+    # pezzo salvato RUOTATO in Lantek: area netta, area esterna e perimetro
+    # uguali ma ingombro diverso -> la lettura e' giusta (non dipende dalla rotazione)
+    e['ruotato'] = (not e['bbox'] and e['area'] and e['perim']
+                    and vicino(m.get('area_lorda_dm2'), g['area_est'], TOL_AREA_REL, TOL_AREA_ABS_DM2))
+    e['geo'] = bool(m.get('ok')) and e['area'] and e['perim'] and (e['bbox'] or e['ruotato'])
     e['tutto'] = e['geo'] and e['inneschi'] is not False and e['sp']
     e['sicuro'] = m.get('pulito') == 'auto'
     e['tipo'] = None if e['geo'] else classifica_errore(m, g)
