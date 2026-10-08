@@ -568,7 +568,7 @@ def _normalize_materiale_strict(s: str) -> str:
         return 'ZINCATO'
     if _re.search(r'\bOTTONE\b|\bBRASS\b|\bCUZN\d|\bCW\d{3}[A-Z]\b', s):
         return 'OTTONE'
-    if _re.search(r'\b(?:AISI|INOX|SS)\s*-?\s*3(?:04|16)L?\b|\b1\.4(?:301|307|401|404)\b|\bX\d+CRNI|\bINOX\b|\bSTAINLESS\b', s):
+    if _re.search(r'\b(?:AISI|INOX|SS)\s*-?\s*3(?:04|16)L?\b|\b1\.4(?:301|307|401|404)\b|\bX\d+CRNI|\bINOX\b|\bSTAINLESS\b|\bINOSSIDABILE\b', s):
         return 'INOX_304'
     if _re.search(r'\b(?:EN\s*-?\s*)?AW\s*-?\s*' + _LEGHE_ALU + r'\b|\bALLUMINIO\b|\bALUMINIUM\b|\bALUMINUM\b|\bALU\b|\bAL\s*MG\s*\d', s):
         return 'ALU'
@@ -625,7 +625,9 @@ def _normalize_materiale_cartiglio(raw: str, strict: bool = False) -> str:
         return 'INOX_304'  # mappato a 304 (no 316 in laser_config attuale)
 
     # ---- INOX 304 (numerazione DIN 1.4301 / nome X5CrNi) ----
-    if _re.search(r'\b304L?\b', s) or '1.4301' in s or 'X5CRNI' in s or 'INOX' in s or 'AISI' in s or 'STAINLESS' in s:
+    # 'INOSSIDABILE' qui, prima del generico 'ACCIAIO' sotto ("Acciaio inossidabile" era S235)
+    if _re.search(r'\b304L?\b', s) or '1.4301' in s or 'X5CRNI' in s or 'INOX' in s or 'AISI' in s or 'STAINLESS' in s \
+            or 'INOSSID' in s or 'ROSTFREI' in s:
         return 'INOX_304'
     if _re.search(r'\bX\d+CRNI\b', s):
         return 'INOX_304'
@@ -678,7 +680,22 @@ _RE_ETICHETTA_MATERIALE = re.compile(
 _DIST_MATERIALE_LENIENT_MM = 60.0
 
 
+# Acciai al carbonio da molla / bonifica (C45…C75, anche "C75 S"): non sono tra
+# le lamiere di officina e la famiglia con cui si tagliano la decide l'officina
+# (sull'archivio Lantek 38 su 40 sono tagliati come INOX): proposti, non applicati.
+_RX_ACCIAIO_MOLLA = re.compile(r'\bC\s?(?:4[5-9]|[5-9]\d)(?:\s?[A-Z])?\b')
+_CONF_MAX_ACCIAIO_MOLLA = 0.6
+
+
 def estrai_materiale_da_cartiglio(path: str) -> dict:
+    r = _estrai_materiale_da_cartiglio(path)
+    if r.get('materiale') and r.get('confidence', 0) > _CONF_MAX_ACCIAIO_MOLLA \
+            and _RX_ACCIAIO_MOLLA.search((r.get('materiale_raw') or '').upper()):
+        r = {**r, 'confidence': _CONF_MAX_ACCIAIO_MOLLA}
+    return r
+
+
+def _estrai_materiale_da_cartiglio(path: str) -> dict:
     """Estrae il materiale dal cartiglio del disegno DXF.
 
     Strategia:
@@ -818,13 +835,17 @@ def _somma_perim_fori_da_circle(path: str, min_r_mm: float = 1.0,
 # Numero con decimali (anche virgola: "45,5")
 _RX_NUM = r'(\d{1,4}(?:[.,]\d+)?)'
 # Etichetta spessore ESPLICITA: sp / sp. / spess. / spessore / s= / thk / thickness
-_RX_ETICHETTA_SP = r'(?<![A-Za-z])(?:sp(?:ess(?:ore)?)?\.?|s\s*=|thk\.?|thickness)\s*(?:/\s*[⌀Øø]\s*)?[:=]?\s*'
+_RX_ETICHETTA_SP = r'(?<![A-Za-z_\-])(?:sp(?:ess(?:ore)?)?\.?|s\s*=|thk\.?|thickness)\s*(?:/\s*[⌀Øø]\s*)?[:=]?\s*'
+# Valore dello spessore: mai con zero iniziale seguito da cifra ("SP01",
+# "SP07" sono progressivi dentro i codici pezzo, es. "1266-...-200-SP07.00").
+# L'etichetta non deve essere attaccata a lettere, '-' o '_' (pezzo di un codice).
+_RX_VAL_SP = r'(?!0\d)(\d+(?:[.,]\d+)?)'
 # "45x12 sp.3", "100x50 sp 4mm", "45,5x12 - SP=2": lo spessore è accettato SOLO
 # con etichetta (BUG FIX D9: prima "sp" era opzionale → "FORMATO 420x297 1:1"
 # dava pezzo 12 dm² sp.1 e "100x50 2 PZ" dava spessore 2).
 RX_RECT_SP = re.compile(
     r'(?<![\d.,])' + _RX_NUM + r'\s*[xX×]\s*' + _RX_NUM + r'\s*(?:mm)?\s*[-,;]?\s*'
-    + _RX_ETICHETTA_SP + r'(\d+(?:[.,]\d+)?)\s*(?:mm)?(?![\d.,]*\s*[xX×])',
+    + _RX_ETICHETTA_SP + _RX_VAL_SP + r'\s*(?:mm)?(?![\d.,]*\s*[xX×])',
     re.IGNORECASE,
 )
 RX_RECT_ONLY = re.compile(
@@ -832,7 +853,7 @@ RX_RECT_ONLY = re.compile(
 )
 # Spessore esplicito in un testo: "SP. 3", "SP=3", "S=2", "SPESSORE 1,5", "sp3", "thk 2"
 RX_INTERNAL_SP = re.compile(
-    _RX_ETICHETTA_SP + r'(\d+(?:[.,]\d+)?)\s*(?:mm)?(?![\d.,]*\s*[xX×])', re.IGNORECASE
+    _RX_ETICHETTA_SP + _RX_VAL_SP + r'\s*(?:mm)?(?![\d.,]*\s*[xX×])', re.IGNORECASE
 )
 # Testi che contengono misure del FOGLIO / scala, non del pezzo
 _RX_TESTO_FORMATO = re.compile(r'\b(?:FORMAT[OI]?|SCALA|SCALE|FOGLIO|SHEET|A[0-4])\b|\b\d+\s*:\s*\d+\b',
@@ -841,6 +862,18 @@ _RX_TESTO_FORMATO = re.compile(r'\b(?:FORMAT[OI]?|SCALA|SCALE|FOGLIO|SHEET|A[0-4
 
 def _num_it(s: str) -> float:
     return float(s.replace(',', '.'))
+
+
+_RX_DECIMI = re.compile(r'\s*/\s*10(?![\d.,])')
+
+
+def _valore_sp(m, gruppo: int = 1) -> float:
+    """Valore dello spessore di un match; "SP. 30/10" e' in decimi di mm = 3 mm
+    (convenzione di officina: 20/10, 15/10...)."""
+    v = _num_it(m.group(gruppo))
+    if _RX_DECIMI.match(m.string, m.end(gruppo)):
+        v = v / 10.0
+    return v
 
 
 def _is_formato_foglio(dx: float, dy: float) -> bool:
@@ -880,7 +913,7 @@ def estrai_dimensioni_da_descrizione_cartiglio(path: str) -> dict:
             try:
                 dx = _num_it(m.group(1))
                 dy = _num_it(m.group(2))
-                sp = _num_it(m.group(3))
+                sp = _valore_sp(m, 3)
                 # Sanity: pezzo lamiera plausibile
                 if 5 <= dx <= 3000 and 5 <= dy <= 3000 and 0.5 <= sp <= 30:
                     area_dm2 = (dx * dy) / 10000.0
@@ -920,7 +953,7 @@ def estrai_dimensioni_da_descrizione_cartiglio(path: str) -> dict:
         m2 = RX_INTERNAL_SP.search(t)
         if m2 and not best_sp:
             try:
-                sp = _num_it(m2.group(1))
+                sp = _valore_sp(m2)
                 if 0.5 <= sp <= 30:
                     best_sp = sp
             except ValueError:
@@ -1341,25 +1374,30 @@ def _cross_material_suggest(peso_kg: float, area_dm2: float,
 
 def estrai_spessore_da_cartiglio(path: str, area_dm2: float | None = None,
                                   materiale: str | None = None,
-                                  area_incerta: bool = False) -> dict:
-    """Estrae/calcola lo spessore lamiera con la migliore strategia disponibile.
+                                  area_incerta: bool = False,
+                                  vista: dict | None = None,
+                                  altre_fonti: list | None = None) -> dict:
+    """Estrae/calcola lo spessore lamiera mettendo a confronto tutte le fonti.
 
-    Priorità:
-    1. PESO + AREA + MATERIALE → calcolo fisico (più affidabile).
-       Il peso si estrae dal cartiglio con pattern univoco "Peso kg".
-    2. Testo con spessore ESPLICITAMENTE etichettato: "SP. 3", "SP=3", "S=2",
-       "SPESSORE 1,5", "sp3", "thk 2" (mai numeri nudi o "3 mm" senza etichetta:
-       la vecchia ricerca generica matchava smussi, tolleranze, quote). Se il
-       cartiglio riporta spessori diversi tra loro → ambiguo, ignorato.
-    3. Fallback: nome file (`_sp3`, `_10mm`).
-    Le fonti disponibili sono confrontate da `scegli_spessore`: se discordano
-    vince la più affidabile (testo etichettato > peso/area > nome file) e il
-    risultato porta un warning con tutti i valori.
+    Fonti (ognuna con una confidenza misurata sull'archivio di Lantek):
+    - testo con etichetta esplicita: "SP. 3", "SP=3", "S=2", "SPESSORE 1,5",
+      "sp3", "thk 2" (mai numeri nudi; mai "SP01" dentro un codice);
+    - cella del cartiglio: etichetta sola ("Sp./Ø:", "Spessore") con il numero
+      nella cella a destra o sotto;
+    - descrizione di un piatto/lamiera "PIATTO 40X5 LG.200", "Lamiera 72x43x2";
+    - vista laterale del pezzo (striscia lunga quanto un lato del pezzo, larga
+      uno spessore a magazzino) — calcolata dal detector, passata in `vista`;
+    - peso del cartiglio / (area x densita'): dipende dall'area del contorno,
+      quindi vale poco se il contorno e' incerto;
+    - nome file (`_sp3`, `_10mm`);
+    - `altre_fonti`: candidati gia' pronti (descrizione "45x12 sp.3" o cartiglio
+      tabellare letti da estrai_dimensioni_da_descrizione_cartiglio).
+    La scelta e la confidenza finale le fa `scegli_spessore`: fonti indipendenti
+    concordi → sicuro; fonti discordi → NON sicuro, con avviso.
 
     Returns:
-        {spessore_mm: float|None, confidence: 0..1,
-         source: 'peso_area'|'testo'|'filename'|'none',
-         details: dict con peso_kg, densita, errore_std_pct, ecc. per debug UI}
+        {spessore_mm: float|None, confidence: 0..1, source, details, warnings,
+         fonti: [{spessore_mm, source, confidence}] tutte le letture}
     """
     candidati = []
     avvisi = []
@@ -1369,8 +1407,15 @@ def estrai_spessore_da_cartiglio(path: str, area_dm2: float | None = None,
     if peso and area_dm2 and materiale:
         sp_info = stima_spessore_da_peso(peso, area_dm2, materiale)
         if sp_info.get('spessore_mm'):
-            # Confidence finale = min(peso, calc) — se peso incerto abbassa
-            conf = min(peso_info['confidence'], sp_info['confidence'])
+            # Confidence finale = min(peso, calc, tetto): il peso diviso l'area
+            # da solo non basta per dirsi sicuri (sull'archivio Lantek torna
+            # l'86% delle volte: peso del cartiglio non aggiornato, area del
+            # contorno sbagliata, densita' diversa)
+            # Calcolato lontano da uno spessore a magazzino (>= 5%) torna la meta'
+            # delle volte: lettura debole, non applicata e non vota.
+            err = sp_info.get('errore_std_pct') or 0
+            tetto = _CONF_MAX_PESO_AREA if err < 5 else (0.45 if err < 15 else 0.3)
+            conf = min(peso_info['confidence'], sp_info['confidence'], tetto)
             candidati.append({
                 'spessore_mm': sp_info['spessore_mm'],
                 'confidence': round(conf, 2),
@@ -1391,10 +1436,19 @@ def estrai_spessore_da_cartiglio(path: str, area_dm2: float | None = None,
             # Stima non riuscita: propago i warning (es. cross-material suggest)
             avvisi.extend(sp_info['warnings'])
 
-    # Spessore scritto esplicitamente nel cartiglio/descrizione
     candidati.append(_spessore_da_testi(path))
-    # Nome file
+    candidati.append(_spessore_da_cella(path))
+    candidati.append(_spessore_da_piatto(path))
+    if vista and vista.get('spessore_mm'):
+        v_vista = float(vista['spessore_mm'])
+        candidati.append({'spessore_mm': v_vista,
+                          'confidence': _CONF_VISTA if v_vista <= _VISTA_MAX_SICURA_MM else _CONF_VISTA_SPESSA,
+                          'source': 'vista_laterale', 'details': {}})
+    elif vista and vista.get('ambigui'):
+        avvisi.append('Viste laterali di spessori diversi nel disegno: '
+                      + ', '.join(f'{v:g}' for v in vista['ambigui']) + ' mm')
     candidati.append(_spessore_from_filename(path))
+    candidati.extend(altre_fonti or [])
 
     scelto = scegli_spessore(candidati, area_incerta=area_incerta)
     if avvisi:
@@ -1404,15 +1458,39 @@ def estrai_spessore_da_cartiglio(path: str, area_dm2: float | None = None,
     return scelto
 
 
-# Affidabilità delle fonti di spessore (0 = più affidabile). Regola usata quando
-# due fonti DISCORDANO: testo con etichetta esplicita ("sp.3", descrizione
-# "45x12 sp.3") > verifica fisica peso/area > nome file > cartiglio tabellare
-# (valore letto in una cella vicina alla label, non nello stesso testo).
+# Confidenze delle singole fonti, misurate contro lo spessore di Lantek su
+# ~9.700 disegni (banco_motore): >= 0.7 = "sicuro" per l'interfaccia, solo per
+# fonti che da sole tornano almeno il 95% delle volte.
+_CONF_TESTO = 0.8            # "Sp. 3" etichettato: 97%
+# vista laterale fino a 6 mm: 94% sul campione casuale (regressione_1500), 97%
+# sull'insieme: da sola NON basta per dirsi sicuri, confermata da un'altra fonte si'
+_CONF_VISTA = 0.65
+_VISTA_MAX_SICURA_MM = 6.0
+_CONF_VISTA_SPESSA = 0.55    # striscia larga 8-30 mm: 80% (spesso una flangia, un piatto, una sezione)
+_CONF_PIATTO = 0.7           # "PIATTO 40X5": 52 su 53
+_CONF_CELLA = 0.6            # cella accanto a "Sp./Ø:": 94%, ma e' spesso un campo non aggiornato
+_CONF_MAX_PESO_AREA = 0.65   # peso/area da solo: 85%
+_CONF_MIN_VOTO = 0.5         # sotto: lettura debole, non conferma e non contraddice
+_CONF_CONFERMATO = 0.9       # due fonti indipendenti concordi
+_CONF_DISCORDE = 0.55        # fonti discordi: si propone il valore, da confermare
+
+# Famiglie di fonti INDIPENDENTI: due letture dello stesso testo del cartiglio
+# (es. "45x12 sp.3" letto come testo e come descrizione) non si confermano a vicenda.
+_FAMIGLIA_SPESSORE = {
+    'testo': 'testo', 'cartiglio_descrizione': 'testo', 'cartiglio_tabellare': 'testo',
+    'cella': 'testo', 'piatto': 'testo',
+    'peso_area': 'peso', 'vista_laterale': 'vista', 'filename': 'nome',
+}
+
+# Affidabilità delle fonti (0 = più affidabile): decide quale valore proporre
+# quando le fonti DISCORDANO (a parità di numero di famiglie concordi). Ordine
+# dall'accuratezza misurata sul campione casuale: testo 97%, tabellare 95%,
+# cella 94%, vista laterale 94%, peso/area 85% (dipende dall'area del contorno).
 _RANGO_SPESSORE = {
     'testo': 0, 'cartiglio_descrizione': 0,
-    'peso_area': 1,
-    'filename': 2,
-    'cartiglio_tabellare': 3,
+    'vista_laterale': 1, 'piatto': 1, 'cartiglio_tabellare': 1,
+    'cella': 2, 'filename': 2,
+    'peso_area': 3,
 }
 _TOL_CONCORDANZA_SP = 0.10   # entro il 10% le fonti concordano
 
@@ -1420,38 +1498,91 @@ _TOL_CONCORDANZA_SP = 0.10   # entro il 10% le fonti concordano
 def scegli_spessore(candidati: list, area_incerta: bool = False) -> dict:
     """Sceglie lo spessore tra più fonti ({spessore_mm, confidence, source, ...}).
 
-    - Fonti concordi (entro 10%): vince la più affidabile, con la confidence
-      più alta tra le concordi.
-    - Fonti discordi: vince la più affidabile secondo _RANGO_SPESSORE e si
-      aggiunge un warning con TUTTI i valori (niente più sostituzioni silenziose).
-    - area_incerta=True (pezzo da selezionare a mano): la stima peso/area dipende
-      da un'area dubbia → scende in fondo alla classifica.
+    - Le letture si raggruppano per valore (entro il 10%).
+    - Un solo valore: confidence = la più alta del gruppo; se lo confermano
+      due famiglie INDIPENDENTI (testo del cartiglio, peso/area, vista laterale,
+      nome file) sale a 0.9.
+    - Valori diversi: si propone il gruppo con più famiglie (poi la fonte più
+      affidabile, _RANGO_SPESSORE), la confidence scende a 0.55 (NON sicuro,
+      "da confermare") e resta un warning con TUTTI i valori.
+    - area_incerta=True (contorno da scegliere a mano): peso/area dipende da
+      un'area dubbia → non vota (resta tra le alternative) e da solo vale 0.4.
     """
-    validi = [c for c in candidati if c and c.get('spessore_mm')]
+    validi = [dict(c) for c in candidati if c and c.get('spessore_mm')]
+    fonti = [{'spessore_mm': c['spessore_mm'], 'source': c.get('source'),
+              'confidence': c.get('confidence'),
+              **({'errore_std_pct': (c.get('details') or {}).get('errore_std_pct')}
+                 if c.get('source') == 'peso_area' else {})} for c in validi]
     if not validi:
-        return {'spessore_mm': None, 'confidence': 0.0, 'source': 'none', 'details': {}}
+        return {'spessore_mm': None, 'confidence': 0.0, 'source': 'none', 'details': {},
+                'fonti': fonti}
+
+    def _src(c):
+        return str(c.get('source') or '').split('+')[0]
 
     def _rango(c):
-        src = str(c.get('source') or '').split('+')[0]
-        r = _RANGO_SPESSORE.get(src, 4)
-        if area_incerta and src == 'peso_area':
-            r = 5
-        return r
+        if _src(c) == 'vista_laterale' and float(c['spessore_mm']) > _VISTA_MAX_SICURA_MM:
+            return 4            # striscia spessa: puo' essere una flangia o una sezione
+        return _RANGO_SPESSORE.get(_src(c), 4)
 
-    validi.sort(key=lambda c: (_rango(c), -(c.get('confidence') or 0)))
-    best = dict(validi[0])
+    def _vota(c):
+        # letture deboli (< 0.5) e peso/area su area incerta non confermano e
+        # non contraddicono: restano tra le alternative
+        return (c.get('confidence') or 0) >= _CONF_MIN_VOTO and not (area_incerta and _src(c) == 'peso_area')
+
+    votanti = [c for c in validi if _vota(c)]
+    if not votanti:
+        best = dict(sorted(validi, key=lambda c: -(c.get('confidence') or 0))[0])
+        best['confidence'] = min(best.get('confidence') or 0, 0.4)
+        best['alternative'] = [{'spessore_mm': c['spessore_mm'], 'source': c.get('source'),
+                                'confidence': c.get('confidence')} for c in validi
+                               if c.get('source') != best.get('source')]
+        best['warnings'] = list(best.get('warnings') or [])
+        best['fonti'] = fonti
+        return best
+
+    # gruppi di valori concordi
+    gruppi: list[list] = []
+    for c in sorted(votanti, key=lambda c: (_rango(c), -(c.get('confidence') or 0))):
+        v = float(c['spessore_mm'])
+        for g in gruppi:
+            v0 = float(g[0]['spessore_mm'])
+            if abs(v - v0) <= _TOL_CONCORDANZA_SP * max(v0, 1e-6):
+                g.append(c)
+                break
+        else:
+            gruppi.append([c])
+
+    def _famiglie(g):
+        return {_FAMIGLIA_SPESSORE.get(_src(c), _src(c)) for c in g}
+
+    gruppi.sort(key=lambda g: (-len(_famiglie(g)), min(_rango(c) for c in g),
+                               -max(c.get('confidence') or 0 for c in g)))
+    g0 = gruppi[0]
+    best = dict(g0[0])
     v0 = float(best['spessore_mm'])
-    concordi = [c for c in validi
-                if abs(float(c['spessore_mm']) - v0) <= _TOL_CONCORDANZA_SP * max(v0, 1e-6)]
-    discordi = [c for c in validi if not any(c is k for k in concordi)]
-    best['confidence'] = max(c.get('confidence') or 0 for c in concordi)
+    conf = max(c.get('confidence') or 0 for c in g0)
+    if len(_famiglie(g0)) >= 2:
+        conf = max(conf, _CONF_CONFERMATO)
+        best['confermato_da'] = sorted({str(c.get('source')) for c in g0})
     warnings = list(best.get('warnings') or [])
+    discordi = [c for g in gruppi[1:] for c in g]
     if discordi:
+        conf = min(conf, _CONF_DISCORDE)
         altri = ', '.join(f"{c['spessore_mm']} mm ({c.get('source')})" for c in discordi)
         warnings.append(f"Spessore discordante: {v0:g} mm ({best.get('source')}) vs {altri} — usato {v0:g} mm")
         best['alternative'] = [{'spessore_mm': c['spessore_mm'], 'source': c.get('source'),
                                 'confidence': c.get('confidence')} for c in discordi]
+    esclusi = [c for c in validi if not _vota(c)
+               and abs(float(c['spessore_mm']) - v0) > _TOL_CONCORDANZA_SP * v0]
+    if esclusi:
+        best.setdefault('alternative', []).extend(
+            {'spessore_mm': c['spessore_mm'], 'source': c.get('source'), 'confidence': c.get('confidence'),
+             'nota': 'area del contorno incerta' if _src(c) == 'peso_area' and area_incerta else 'lettura debole'}
+            for c in esclusi)
+    best['confidence'] = round(conf, 2)
     best['warnings'] = warnings
+    best['fonti'] = fonti
     return best
 
 
@@ -1464,7 +1595,7 @@ def _spessore_da_testi(path: str) -> dict | None:
             continue
         for m in RX_INTERNAL_SP.finditer(t):
             try:
-                v = _num_it(m.group(1))
+                v = _valore_sp(m)
             except ValueError:
                 continue
             if 0.3 <= v <= 30:
@@ -1472,8 +1603,83 @@ def _spessore_da_testi(path: str) -> dict | None:
     if len(valori) != 1:
         return None
     v, raw = next(iter(valori.items()))
-    return {'spessore_mm': v, 'confidence': 0.8, 'source': 'testo',
+    return {'spessore_mm': v, 'confidence': _CONF_TESTO, 'source': 'testo',
             'details': {'raw': raw}}
+
+
+# Etichetta di spessore DA SOLA in una cella del cartiglio ("Sp./Ø:", "SP.",
+# "Spessore", "Thickness (mm)"): il valore e' nella cella a destra o sotto.
+_RX_ETICHETTA_SOLA_SP = re.compile(
+    r'^\s*(?:sp(?:ess(?:ore)?)?\.?|thk\.?|thickness|spessore\s+lamiera)\s*(?:/\s*[⌀Øø]\s*)?'
+    r'\s*(?:\(\s*mm\s*\))?\s*[:=]?\s*$', re.IGNORECASE)
+_RX_CELLA_NUMERO = re.compile(r'^\s*(?!0\d)(\d{1,2}(?:[.,]\d{1,2})?)\s*(?:mm)?\s*$', re.IGNORECASE)
+
+
+def _spessore_da_cella(path: str) -> dict | None:
+    """Etichetta di spessore sola nella sua cella + numero nella cella accanto
+    (stessa riga a destra, |dy| <= 5 mm, entro 100 mm; altrimenti la cella
+    sotto). Come _estrai_da_cartiglio_tabellare ma senza pretendere anche
+    Lunghezza/Larghezza. Etichette con valori diversi → ambiguo, None."""
+    testi = _raccogli_testi_dxf(path)
+    valori = set()
+    for lx, ly, lt in testi:
+        if not _RX_ETICHETTA_SOLA_SP.match(lt):
+            continue
+        riga, sotto = [], []
+        for x, y, t in testi:
+            m = _RX_CELLA_NUMERO.match(t)
+            if not m:
+                continue
+            v = _num_it(m.group(1))
+            if not 0.3 <= v <= 30:
+                continue
+            dx, dy = x - lx, y - ly
+            if abs(dy) <= 5.0 and 0 < dx <= 100.0:
+                riga.append((dx, v))
+            elif abs(dx) <= 30.0 and -15.0 <= dy < 0:
+                sotto.append((-dy, v))
+        for gruppo in (riga, sotto):
+            if gruppo:
+                valori.add(min(gruppo)[1])
+                break
+    if len(valori) != 1:
+        return None
+    return {'spessore_mm': next(iter(valori)), 'confidence': _CONF_CELLA, 'source': 'cella',
+            'details': {}}
+
+
+# "PIATTO 40X5 LG.200", "PIATTO 932x20x4", "Lamiera 72x43x2": sezione o
+# ingombro di un piatto/lamiera; lo spessore e' la misura piu' piccola. Con
+# due sole misure vale solo per PIATTO/BANDELLA (larghezza x spessore): per una
+# lamiera "Lamiera 50x15" sono i lati.
+_RX_PIATTO_3 = re.compile(
+    r'\b(?:piatt[oi]|bandella|lamiera|lam\.?|flat|plate)\s*(?:trafilat[oi]\s*)?'
+    r'(\d{1,4}(?:[.,]\d+)?)\s*[xX×]\s*(\d{1,4}(?:[.,]\d+)?)\s*[xX×]\s*(\d{1,4}(?:[.,]\d+)?)', re.IGNORECASE)
+_RX_PIATTO_2 = re.compile(
+    r'\b(?:piatt[oi]|bandella|flat)\s*(?:trafilat[oi]\s*)?'
+    r'(\d{1,4}(?:[.,]\d+)?)\s*[xX×]\s*(\d{1,4}(?:[.,]\d+)?)(?![\d.,]*\s*[xX×])', re.IGNORECASE)
+
+
+def _spessore_da_piatto(path: str) -> dict | None:
+    valori = set()
+    for _x, _y, t in _raccogli_testi_dxf(path):
+        if len(t) > 200 or RX_INTERNAL_SP.search(t) or _RX_TESTO_FORMATO.search(t):
+            continue        # con "sp." etichettato vale l'etichetta
+        for rx in (_RX_PIATTO_3, _RX_PIATTO_2):
+            m = rx.search(t)
+            if not m:
+                continue
+            try:
+                mis = sorted(_num_it(g) for g in m.groups())
+            except ValueError:
+                break
+            if 0.5 <= mis[0] <= 30 and mis[1] >= 3 * mis[0]:
+                valori.add(mis[0])
+            break
+    if len(valori) != 1:
+        return None
+    return {'spessore_mm': next(iter(valori)), 'confidence': _CONF_PIATTO, 'source': 'piatto',
+            'details': {}}
 
 
 def _spessore_from_filename(path: str) -> dict:
@@ -1482,7 +1688,8 @@ def _spessore_from_filename(path: str) -> dict:
     import os
     name = os.path.basename(path)
     patterns = [
-        re.compile(r'[_\-\s]sp\.?[_\-\s]?(\d+[.,]?\d*)\s*(?:mm)?', re.IGNORECASE),
+        # mai "SP06" con zero iniziale: progressivo di un codice ("...-200-SP06.00")
+        re.compile(r'[_\-\s]sp\.?[_\-\s]?(?!0\d)(\d+[.,]?\d*)\s*(?:mm)?', re.IGNORECASE),
         re.compile(r'[_\-\s](\d+[.,]?\d*)\s*mm(?=[_\-\.]|$)', re.IGNORECASE),
     ]
     for rx in patterns:

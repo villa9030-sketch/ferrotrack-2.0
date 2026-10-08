@@ -1604,6 +1604,66 @@ def contorno_pezzo_mm(doc, cfg: dict | None = None):
     return outer
 
 
+# Spessori di lamiera a magazzino: la larghezza di una vista laterale vale
+# come spessore solo se è uno di questi (una striscia di 11,76 mm è un'altra cosa).
+SPESSORI_STOCK_MM = (0.5, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0,
+                     8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0)
+
+
+def spessore_vista_laterale(polys: list, outer) -> dict | None:
+    """Spessore dalla VISTA LATERALE del pezzo piano: un rettangolo sottile,
+    disegnato fuori dal pezzo, lungo quanto un lato del pezzo (entro 1 mm /
+    1%) e largo uno spessore a magazzino. Regola di disegno: la vista di fianco
+    di una lamiera piana è una striscia L x spessore.
+
+    Le linee nascoste dei fori spezzano la striscia in più rettangoli della
+    stessa larghezza: si riuniscono prima del confronto. Se ci sono strisce di
+    larghezze diverse che tornano tutte → ambiguo, None."""
+    if not _HAS_SHAPELY or outer is None or not polys:
+        return None
+    try:
+        from shapely.ops import unary_union
+        cc = list(outer.minimum_rotated_rectangle.exterior.coords)
+        b = outer.bounds
+        lati = [math.dist(cc[0], cc[1]), math.dist(cc[1], cc[2]), b[2] - b[0], b[3] - b[1]]
+        sottili: dict = {}
+        for p in polys:
+            if p is outer or p.area <= 0:
+                continue
+            r = p.minimum_rotated_rectangle
+            if r.area <= 0 or p.area < 0.97 * r.area:
+                continue                       # non è un rettangolo
+            c = list(r.exterior.coords)
+            a, lung = sorted([math.dist(c[0], c[1]), math.dist(c[1], c[2])])
+            if not (0.4 <= a <= 30.5) or lung < 3 * a:
+                continue
+            if p.intersects(outer):
+                continue                       # dentro / sul pezzo: asola, nervatura…
+            sottili.setdefault(round(a, 1), []).append(p)
+        trovati = set()
+        for _a, ps in sottili.items():
+            u = unary_union([p.buffer(0.02) for p in ps])
+            for g in getattr(u, 'geoms', [u]):
+                c = list(g.minimum_rotated_rectangle.exterior.coords)
+                a, lung = sorted([math.dist(c[0], c[1]), math.dist(c[1], c[2])])
+                a -= 0.04
+                lung -= 0.04
+                if lung < 8 * a:
+                    continue
+                if not any(abs(lung - L) <= max(1.0, 0.01 * L) for L in lati):
+                    continue
+                stock = min(SPESSORI_STOCK_MM, key=lambda s: abs(s - a))
+                if abs(stock - a) <= 0.03:
+                    trovati.add(stock)
+        if len(trovati) == 1:
+            return {'spessore_mm': next(iter(trovati)), 'source': 'vista_laterale'}
+        if len(trovati) > 1:
+            return {'spessore_mm': None, 'source': 'vista_laterale', 'ambigui': sorted(trovati)}
+    except Exception as e:  # mai rompere il detector per una stima di spessore
+        logger.debug('vista laterale: %s', e)
+    return None
+
+
 def _dxf_bbox_raw(msp):
     try:
         from ezdxf.bbox import extents
@@ -2003,6 +2063,8 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         'entita_duplicate_rimosse': base['n_dup'],
         'tipo_disegno': 'v3_shapely',
         'warnings': warnings,
+        # spessore dalla vista laterale (striscia lunga quanto un lato del pezzo)
+        'spessore_vista': spessore_vista_laterale(all_polys, scelto),
         # Bbox globale DXF (unità disegno) — usato dal frontend per scale SVG→mm
         'dxf_bbox_mm': _dxf_bbox_raw(msp),
         '_engine': 'shapely-' + __import__('shapely').__version__,
