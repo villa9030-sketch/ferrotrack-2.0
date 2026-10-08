@@ -3040,7 +3040,50 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         # contorno giusto ma fori da verificare: nessuna conferma esterna del
         # contorno (misure del cartiglio) deve riportarlo a "sicuro"
         'fori_dubbi': fori_dubbi,
+        # fori tondi tagliati (mm, stesso riferimento del contorno): quelli
+        # sotto i 2/3 dello spessore vanno al trapano (dxf_batch_worker)
+        'fori_tondi': _fori_tondi(inners),
     }
+
+
+# Fori tondi del pezzo (cerchi o poligoni che approssimano un cerchio): centro
+# e diametro, per decidere cosa si fa al laser e cosa al trapano
+# (dxf_batch_worker.applica_fori_trapano, dopo la scelta dello spessore).
+FORO_TONDO_D_MAX_MM = 30.0      # oltre nessuno spessore a magazzino lo manda al trapano
+
+
+def foro_tondo(p) -> dict | None:
+    """{'d_mm', 'x', 'y', 'area_mm2', 'perim_mm'} se il contorno `p` (mm) e' un
+    cerchio (o un poligono che lo approssima: vertici alla stessa distanza dal
+    centro entro il 2% e area quella del cerchio entro il 3%), altrimenti None.
+    Il diametro e' quello dei vertici: un cerchio spezzato in corde ha i
+    vertici SUL cerchio."""
+    try:
+        if p is None or p.is_empty or len(p.interiors):
+            return None
+        pts = list(p.exterior.coords)[:-1]
+        if len(pts) < 8:
+            return None
+        c = p.centroid
+        rr = [math.hypot(x - c.x, y - c.y) for x, y in pts]
+        r = sum(rr) / len(rr)
+        if r <= 0 or max(rr) - min(rr) > max(0.02 * r, 0.02):
+            return None
+        if abs(p.area / (math.pi * r * r) - 1) > 0.03:
+            return None
+        return {'d_mm': round(2 * r, 3), 'x': round(c.x, 4), 'y': round(c.y, 4),
+                'area_mm2': round(p.area, 4), 'perim_mm': round(p.length, 4)}
+    except Exception:
+        return None
+
+
+def _fori_tondi(inners) -> list:
+    out = []
+    for p in inners:
+        f = foro_tondo(p)
+        if f and f['d_mm'] <= FORO_TONDO_D_MAX_MM:
+            out.append(f)
+    return out
 
 
 def _diagnostica_scelta(outer, inners, base, top_level, outer_esteso, scelto, **extra) -> dict:

@@ -94,7 +94,9 @@ _INITIALIZED = False
 # v18 (2026-10-08): "sicuro" solo con un riscontro indipendente (peso, misure
 #                  del cartiglio, quote) e senza indizi di taglio dubbio
 #                  (sicurezza_import.decidi_sicuro); il resto va verificato.
-PARSER_VERSION = 18
+# v19 (2026-10-08): fori tondi sotto 2/3 dello spessore = al trapano, fuori
+#                  dal taglio (regola di Stefano; dxf_batch_worker.applica_fori_trapano).
+PARSER_VERSION = 19
 
 
 def _init_db() -> None:

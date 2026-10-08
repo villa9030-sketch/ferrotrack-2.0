@@ -45,6 +45,10 @@ def raccogli_indizi(dxf_path: str, geo: dict | None, cartiglio: dict | None, spe
         w, h = _f(geo.get('bbox_width_mm'), 0.0), _f(geo.get('bbox_height_mm'), 0.0)
         ind['bbox'] = [w, h]
         ind['scala'] = _f(geo.get('scala_unita_mm'), 1.0)
+        # fori da trapano (sotto 2/3 dello spessore): tolti dal taglio, o dubbio
+        # se lo spessore non e' sicuro (dxf_batch_worker.applica_fori_trapano)
+        ind['n_fori_trapano'] = len(geo.get('fori_trapano') or [])
+        ind['fori_trapano_dubbio'] = bool(geo.get('fori_trapano_dubbio'))
         # misure del cartiglio (descrizione "120x80 sp.3" o cartiglio tabellare)
         if dim_info and dim_info.get('dim_x_mm') and dim_info.get('dim_y_mm'):
             a = sorted((w, h))
@@ -105,7 +109,10 @@ def raccogli_indizi(dxf_path: str, geo: dict | None, cartiglio: dict | None, spe
 PESO_TOLL_CONFERMA = 0.08       # peso calcolato entro l'8% del cartiglio = conferma
 PESO_LEGGERO = 0.92             # sotto il 92% del peso del cartiglio = manca materiale
 MARCATURA_MAX_MM = 20.0         # linee dentro il pezzo che non sono ne' taglio ne' piega
-FORO_SU_SPESSORE_MIN = 0.8      # foro piu' piccolo di 0,8 x spessore
+# (la vecchia regola "foro piu' piccolo di 0,8 x spessore" non c'e' piu': i fori
+# sotto i 2/3 dello spessore vanno al trapano e si tolgono dal taglio da soli,
+# dxf_batch_worker.applica_fori_trapano; resta il dubbio solo se lo spessore
+# non e' sicuro)
 PIEGA_DENTRO_MAX = 3            # entita' col colore/layer di piega dentro il pezzo
 SIMBOLI_FORI_MAX = None         # fori con simbolo di filettatura/svasatura: NON e' un dubbio.
                                 # Regola di Stefano (08/10/2026): i fori filettati si tagliano al
@@ -129,8 +136,8 @@ def decidi_sicuro(ind: dict) -> tuple[bool, list[str]]:
     - qualcosa di indipendente dalla scelta lo conferma (peso del cartiglio,
       misure del cartiglio, o almeno un lato dell'ingombro e' una quota);
     - nessun indizio dice che cosa si taglia e' dubbio (fori come lettere,
-      linee dentro il pezzo che non sono ne' taglio ne' piega, fori piu'
-      piccoli dello spessore, geometria col colore di piega, fori filettati);
+      linee dentro il pezzo che non sono ne' taglio ne' piega, fori piccoli
+      con lo spessore incerto, geometria col colore di piega);
     - il peso del cartiglio non dice che manca materiale;
     - il disegno non e' stato riportato in scala."""
     if not ind or ind.get('errore'):
@@ -157,10 +164,10 @@ def decidi_sicuro(ind: dict) -> tuple[bool, list[str]]:
     # 5. Linee dentro il pezzo che non sono ne' taglio ne' piega (tagli aperti, incisioni)
     if (ind.get('pul_n_lung_marcatura_mm') or 0) > MARCATURA_MAX_MM:
         motivi.append(f"{ind['pul_n_lung_marcatura_mm']:.0f} mm di linee dentro il pezzo non chiuse")
-    # 6. Fori piu' piccoli dello spessore: si fanno al laser o col trapano?
-    fm, sp = d.get('foro_min_mm'), ind.get('sp_mm')
-    if fm is not None and sp and fm < FORO_SU_SPESSORE_MIN * sp:
-        motivi.append(f'foro di {fm:g} mm con spessore {sp:g} mm')
+    # 6. Fori piccoli con lo spessore incerto: laser o trapano dipende dallo
+    #    spessore (regola dei 2/3), quindi non si puo' decidere da soli
+    if ind.get('fori_trapano_dubbio'):
+        motivi.append('fori piccoli: spessore da confermare per decidere laser o trapano')
     # 7. Geometria col colore/layer di piega dentro il pezzo: pieghe o contorni da tagliare?
     if (ind.get('pul_n_piega') or 0) > PIEGA_DENTRO_MAX:
         motivi.append(f"{ind['pul_n_piega']} linee di piega dentro il pezzo")

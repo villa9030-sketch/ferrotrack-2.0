@@ -833,6 +833,7 @@ LAYER_TAGLIO = 'TAGLIO'
 LAYER_PIEGA = 'PIEGA'
 LAYER_MARCATURA = 'MARCATURA'
 _LAYER_LANTEK = ((LAYER_TAGLIO, 7), (LAYER_PIEGA, 2), (LAYER_MARCATURA, 3))
+BRACCIO_CROCE_TRAPANO_MM = 2.0   # croce di centro dei fori da fare al trapano
 _LINEE_ASSI = ('center', 'centr', 'dashdot', 'axis', 'asse', 'phantom', 'divide')
 
 
@@ -848,11 +849,17 @@ def _tipo_linea(entity, doc) -> str:
 
 
 def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str,
-                         tipo: int, w_att: float, h_att: float, cfg: dict | None = None) -> dict:
+                         tipo: int, w_att: float, h_att: float, cfg: dict | None = None,
+                         fori_trapano: list | None = None) -> dict:
     """Scrive il DXF pulito del pezzo `outer` (con i fori `fori`, poligoni in mm)
     copiando le entita' VERE del disegno `src` (archi e cerchi restano archi e
     cerchi) sui tre layer, scalate in mm. Verifica prima di scrivere: ingombro
     del TAGLIO = pezzo e contorno coperto per almeno il 90%.
+
+    `fori_trapano` ([{'d_mm', 'x', 'y'}] in mm, da geometria['fori_trapano']):
+    fori sotto i 2/3 dello spessore, fatti dopo al trapano. Il loro cerchio (e
+    i simboli concentrici) NON va sul TAGLIO: al centro si disegna una croce
+    (bracci di 2 mm) sul layer MARCATURA, per puntarli.
 
     Returns: {'success', 'error', 'entities_copied', 'entities_source',
               'n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti',
@@ -891,6 +898,33 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
         r_eq = (f.area / 3.141592653589793) ** 0.5 if fh > 0 and abs(fw / fh - 1) < 0.02 else None
         centri_fori.append((c.x, c.y, max(0.05, 0.02 * fw), r_eq))
     dist = FLATTEN_DISTANCE_MM / (scala or 1.0)
+    trapano = []
+    for f in fori_trapano or []:
+        try:
+            trapano.append((float(f['x']), float(f['y']), float(f['d_mm']) / 2.0))
+        except (KeyError, TypeError, ValueError):
+            pass
+    result['n_fori_trapano'] = len(trapano)
+    result['n_trapano_tolti'] = 0
+    sul_trapano = (prep(unary_union([Point(x, y).buffer(r, 64).exterior for x, y, r in trapano])
+                        .buffer(max(tol_taglio, 0.02 * max(r for _x, _y, r in trapano))))
+                   if trapano else None)
+
+    def _del_trapano(e, et, ls) -> bool:
+        """Il cerchio di un foro da trapano, o un arco/cerchio concentrico"""
+        if sul_trapano is None:
+            return False
+        if sul_trapano.contains(ls):
+            return True
+        if et in ('ARC', 'CIRCLE'):
+            try:
+                ex, ey, er = e.dxf.center.x * scala, e.dxf.center.y * scala, e.dxf.radius * scala
+            except Exception:
+                return False
+            # concentrico (filetto, svasatura, lamatura): come per i fori tagliati
+            return any(abs(ex - x) <= max(0.05, 0.04 * r) and abs(ey - y) <= max(0.05, 0.04 * r)
+                       for x, y, r in trapano)
+        return False
 
     dst = _nuovo_documento(src)
     for nome, col in _LAYER_LANTEK:
@@ -985,6 +1019,9 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
                  round(ls.length, 2))
         if firma in firme:
             return                            # stesso tratto due volte: Lantek lo taglierebbe due volte
+        if not su_taglio and _del_trapano(e, et, ls):
+            result['n_trapano_tolti'] += 1    # foro da trapano: niente taglio, croce sotto
+            return
         try:
             if su_taglio:
                 _copia(e, LAYER_TAGLIO)
@@ -1022,6 +1059,13 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     if result['n_taglio'] == 0:
         result['error'] = 'nessuna entità del DXF giace sul contorno del pezzo'
         return result
+    # croce di centro dei fori da trapano (non conta come marcatura del disegno)
+    col_m = dict(_LAYER_LANTEK)[LAYER_MARCATURA]
+    for x, y, _r in trapano:
+        for (x1, y1), (x2, y2) in (((x - BRACCIO_CROCE_TRAPANO_MM, y), (x + BRACCIO_CROCE_TRAPANO_MM, y)),
+                                   ((x, y - BRACCIO_CROCE_TRAPANO_MM), (x, y + BRACCIO_CROCE_TRAPANO_MM))):
+            dst_ms.add_line((x1, y1), (x2, y2), dxfattribs={'layer': LAYER_MARCATURA, 'color': col_m})
+    result['n_croci_trapano'] = len(trapano)
     try:
         from ezdxf import bbox as _bbox
         bb = _bbox.extents(dst_ms.query(f'*[layer=="{LAYER_TAGLIO}"]'))
@@ -1261,6 +1305,39 @@ def prepara_pulito_lantek(original_path: str, cleaned_path: str | None, articolo
     return v
 
 
+def separa_fori_trapano(fori: list, fori_trapano: list | None) -> tuple[list, list]:
+    """(fori da tagliare, fori da trapano) : i poligoni `fori` (mm) che sono i
+    fori elencati dal motore in geometria['fori_trapano'] (stesso centro e
+    stesso diametro) escono dal taglio. Non si ricalcola nulla: decide il
+    motore (dxf_batch_worker.applica_fori_trapano)."""
+    if not fori_trapano:
+        return list(fori), []
+    from .dxf_polygon_detector_v3 import foro_tondo
+    resto, presi, usati = [], [], set()
+    for p in fori:
+        f = foro_tondo(p)
+        k = None
+        if f:
+            for i, t in enumerate(fori_trapano):
+                if i in usati:
+                    continue
+                try:
+                    d = float(t['d_mm'])
+                    if (abs(f['x'] - float(t['x'])) <= max(0.05, 0.02 * d)
+                            and abs(f['y'] - float(t['y'])) <= max(0.05, 0.02 * d)
+                            and abs(f['d_mm'] - d) <= max(0.05, 0.02 * d)):
+                        k = i
+                        break
+                except (KeyError, TypeError, ValueError):
+                    continue
+        if k is None:
+            resto.append(p)
+        else:
+            usati.add(k)
+            presi.append(fori_trapano[k])
+    return resto, presi
+
+
 def save_cleaned_dxf_pezzo(
     source_path: str,
     cleaned_path: str,
@@ -1314,9 +1391,15 @@ def save_cleaned_dxf_pezzo(
         result['error'] = 'contorno del pezzo non ritrovato nel DXF (detector incoerente)'
         return result
     outer, fori, scala = contorni
+    fori, trapano = separa_fori_trapano(fori, geo.get('fori_trapano'))
+    if len(trapano) != len(geo.get('fori_trapano') or []):
+        result['error'] = (f"fori da trapano non ritrovati nel DXF ({len(trapano)} su "
+                           f"{len(geo.get('fori_trapano') or [])})")
+        return result
     w_att = float(geo.get('bbox_width_mm') or 0) or (outer.bounds[2] - outer.bounds[0])
     h_att = float(geo.get('bbox_height_mm') or 0) or (outer.bounds[3] - outer.bounds[1])
-    r = scrivi_pulito_lantek(src, outer, fori, scala, cleaned_path, TIPO_PULIZIA_AUTO, w_att, h_att, cfg)
+    r = scrivi_pulito_lantek(src, outer, fori, scala, cleaned_path, TIPO_PULIZIA_AUTO, w_att, h_att, cfg,
+                             fori_trapano=trapano)
     result.update({k: v for k, v in r.items() if k in result or k.startswith('n_') or k == 'copertura'})
     return result
 

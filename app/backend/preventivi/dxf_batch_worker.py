@@ -20,6 +20,7 @@ Perché ThreadPool e non ProcessPool:
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Any
 
@@ -67,7 +68,8 @@ def _esegui_cleanup(dxf_path: str, geo: dict | None, filename: str,
                     'bbox_h_mm': r.get('h_mm'),
                     'warnings': r.get('warnings') or [],
                     **{k: r[k] for k in ('n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti',
-                                         'copertura', 'n_lung_marcatura_mm') if k in r},
+                                         'copertura', 'n_lung_marcatura_mm', 'n_fori_trapano',
+                                         'n_trapano_tolti') if k in r},
                 }
                 logger.info('[%s] cleanup auto ok: %d/%d entità (%s)',
                             filename, r['entities_copied'], r['entities_source'],
@@ -141,6 +143,86 @@ def _descrizione_plausibile(dxf_path: str, dim_info: dict) -> bool:
         return True
     except Exception:
         return False
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Fori da trapano. Regola di Stefano (08/10/2026): il laser taglia un foro
+# solo se il diametro e' almeno 2/3 dello spessore, arrotondato per DIFETTO al
+# millimetro (10 mm -> Ø6, 12 -> Ø8, 8 -> Ø5, 5 -> Ø3, 3 -> Ø2); i fori piu'
+# piccoli si fanno dopo al trapano. I fori filettati si tagliano al laser al
+# diametro del preforo (il cerchio intero disegnato) e poi si filettano.
+# ═══════════════════════════════════════════════════════════════════
+FORO_LASER_SU_SPESSORE = 2.0 / 3.0      # diametro minimo tagliabile / spessore
+CONF_SPESSORE_TRAPANO = 0.7             # spessore abbastanza sicuro per decidere
+TOLL_DIAMETRO_MM = 0.05                 # un Ø6 disegnato 5,98 resta un Ø6
+
+
+def diametro_min_laser(spessore_mm) -> int | None:
+    """Diametro minimo (mm interi) che il laser taglia su questo spessore."""
+    try:
+        t = float(spessore_mm)
+    except (TypeError, ValueError):
+        return None
+    if not t or t <= 0:
+        return None
+    return int(math.floor(FORO_LASER_SU_SPESSORE * t + 1e-6))
+
+
+def fori_sotto_soglia(fori_tondi: list, spessore_mm) -> list:
+    """I fori tondi (geometria['fori_tondi']) che su questo spessore vanno al trapano."""
+    dmin = diametro_min_laser(spessore_mm)
+    if not dmin:
+        return []
+    return [f for f in (fori_tondi or []) if float(f.get('d_mm') or 0) < dmin - TOLL_DIAMETRO_MM]
+
+
+def applica_fori_trapano(geo: dict | None, spessore: dict | None) -> dict | None:
+    """Con lo spessore sicuro (>= 0,7) toglie dal taglio i fori tondi sotto i
+    2/3 dello spessore: area += area del foro, perimetro -= circonferenza, un
+    innesco e un foro in meno; li elenca in geometria['fori_trapano'].
+    Con lo spessore incerto non cambia la geometria: se per almeno una delle
+    letture dello spessore un foro andrebbe al trapano, lo segna in
+    geometria['fori_trapano_dubbio'] (il controllo del sicuro lo manda in
+    revisione). I contorni piccoli NON tondi restano al laser."""
+    if not geo or not geo.get('fori_tondi') or geo.get('_source') == 'cartiglio_descrizione':
+        return geo
+    sp = spessore or {}
+    t = sp.get('spessore_mm')
+    conf = float(sp.get('confidence') or 0)
+    fori = geo['fori_tondi']
+    if t and conf >= CONF_SPESSORE_TRAPANO:
+        trapano = fori_sotto_soglia(fori, t)
+        if not trapano:
+            return geo
+        a_mm2 = sum(float(f.get('area_mm2') or 0) for f in trapano)
+        p_mm = sum(float(f.get('perim_mm') or 0) for f in trapano)
+        n = len(trapano)
+        geo = dict(geo)
+        geo['area_dm2'] = round(float(geo.get('area_dm2') or 0) + a_mm2 / 10000.0, 4)
+        geo['perimetro_taglio_m'] = round(max(0.0, float(geo.get('perimetro_taglio_m') or 0) - p_mm / 1000.0), 4)
+        for k in ('n_pierce', 'n_forature', 'n_fori', 'n_inner'):
+            if isinstance(geo.get(k), int):
+                geo[k] = max(0, geo[k] - n)
+        geo['fori_trapano'] = [{'d_mm': round(float(f['d_mm']), 2), 'x': f['x'], 'y': f['y']} for f in trapano]
+        diam = sorted({round(float(f['d_mm']), 1) for f in trapano})
+        geo['warnings'] = list(geo.get('warnings') or []) + [
+            f"{n} fori Ø{'/'.join(f'{d:g}' for d in diam)} da fare al trapano "
+            f"(sotto 2/3 dello spessore {float(t):g} mm: il laser taglia da Ø{diametro_min_laser(t)})"]
+        return geo
+    # spessore incerto o mancante: le letture possibili
+    letture = {float(x['spessore_mm']) for x in (sp.get('fonti') or []) if x and x.get('spessore_mm')}
+    if t:
+        letture.add(float(t))
+    if not letture:
+        letture = set(SPESSORI_PLAUSIBILI_SENZA_LETTURA)
+    if any(fori_sotto_soglia(fori, x) for x in letture):
+        geo = {**geo, 'fori_trapano_dubbio': True}
+    return geo
+
+
+# Nessuna lettura dello spessore: i fori che andrebbero al trapano gia' su uno
+# spessore comune (fino a 3 mm) lasciano il dubbio laser/trapano.
+SPESSORI_PLAUSIBILI_SENZA_LETTURA = (3.0,)
 
 
 def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
@@ -267,6 +349,12 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
             vista=(geo or {}).get('spessore_vista'),
             altre_fonti=altre,
         )
+
+        # ---- Fori da trapano (servono lo spessore): fuori dal taglio ----
+        try:
+            geo = applica_fori_trapano(geo, spessore)
+        except Exception as e:      # noqa: BLE001
+            logger.warning('[%s] fori da trapano: %s', filename, e)
 
         # ---- Auto-cleanup DXF (Fase 1a) ----
         cleaned_info = _esegui_cleanup(dxf_path, geo, filename, dxf_cfg)
