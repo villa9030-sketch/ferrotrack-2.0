@@ -320,7 +320,7 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
         candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if not candidati:
             return dubbio
-        idx, _conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'))
+        idx, _conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'), base.get('testi'))
         if idx < 0:
             return dubbio
         x1, y1, x2, y2 = candidati[idx].bounds
@@ -421,11 +421,15 @@ def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
             a = float(m.group(1).replace(',', '.'))
             b = float(m.group(2).replace(',', '.'))
             if a > 0 and b > 0 and abs(b / a - k) > 0.02 * k:
-                # quote e cartiglio non concordano: misure non affidabili
-                # (archivio: 9 disegni dati per sicuri, 8 sbagliati)
+                # Quote e cartiglio non concordano. Valgono le QUOTE: sono
+                # legate alla vista, la scritta "SCALA" e' quella del foglio
+                # (archivio: 13 disegni su 14 tornano con Lantek usando il
+                # fattore delle quote, 0 leggendo le misure cosi' come sono).
+                # Resta da verificare.
                 _segna_scala_dubbia(doc)
-                return 1.0, (f'Quote in scala x{k:g} ma il cartiglio dice "{m.group(0)}": '
-                             'misure lette cosi\' come sono, verificare')
+                rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
+                return k, (f'Quote in scala {rapporto} ma il cartiglio dice "{m.group(0)}": '
+                           f'misure riportate al vero con le quote (x{k:g}), verificare')
             confermata = True
             break
         if k < 0.2 and not confermata:
@@ -437,6 +441,10 @@ def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
             return 1.0, (f'Quote con fattore x{k:g} (centimetri?) senza scala nel cartiglio: '
                          'misure lette cosi\' come sono, verificare')
         rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
+        try:
+            doc._ft_scala_da_quote = k      # il pezzo scelto dovra' avere quote addosso
+        except Exception:
+            pass
         return k, f'Disegno in scala {rapporto}: misure riportate al vero (x{k:g})'
     except Exception:
         return 1.0, None
@@ -1282,7 +1290,7 @@ def _copia_identica(a, b, all_polys: list, circles_centri: list) -> bool:
 
 
 def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centri: list,
-                                quote: list | None = None) -> tuple[int, float, list]:
+                                quote: list | None = None, testi: list | None = None) -> tuple[int, float, list]:
     """Scelta del contorno (vedi _pick_base) corretta con le QUOTE del foglio.
 
     - Una casella vuota (rettangolo senza fori) che nessuna quota descrive,
@@ -1323,6 +1331,26 @@ def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centr
             alt.append((nd, c.area, s['idx']))
         if alt:
             return max(alt)[2], 0.6, scored
+    if nd_best == 0 and feat['n_inner'] == 0 and _is_rectangle_like(best) \
+            and testi and _n_testi_dentro(best, testi) > 0:
+        # Casella con scritte dentro, senza fori e senza quote: e' una cella
+        # del cartiglio o un'etichetta. Se un'altra vista ha quote addosso, il
+        # pezzo e' quella (lati quotati, poi n. di quote, poi area). Non sicuro.
+        ind_cand = _Indice(candidates)
+        preps = [_prep_buf(c) for c in candidates]
+        alt = []
+        for s in scored:
+            c = s['poly']
+            if s['idx'] == idx or _striscia(c) or ind_cand.contenitori(c, preps):
+                continue
+            nd = _quote_sul_contorno(c, quote)
+            if nd < 1:
+                continue
+            if s['features']['n_inner'] == 0 and _is_rectangle_like(c) and _n_testi_dentro(c, testi) > 0:
+                continue
+            alt.append((_lati_quotati(c, quote), nd, c.area, s['idx']))
+        if alt:
+            return max(alt)[3], 0.6, scored
     if conf >= 0.7 and conf < CONF_ALTA and nd_best == 0 and n_quote >= 3:
         conf = 0.6
     return idx, conf, scored
@@ -1554,7 +1582,7 @@ def contorno_pezzo_mm(doc, cfg: dict | None = None):
         base = _poligoni_documento(doc, cfg or {})
         candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if candidati:
-            idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'))
+            idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'), base.get('testi'))
             outer = candidati[idx] if idx >= 0 and conf >= 0.5 else None
             if outer is None and idx >= 0:
                 # Scelta incerta solo perche' il pezzo e' disegnato piu' volte
@@ -1865,10 +1893,16 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         return _empty_result(warnings + [f'Solo {cartiglio_count} cornici/cartigli rilevati, nessun pezzo'])
 
     # ---- 6. Pick best outer + confidence
-    best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri, base.get('quote'))
+    best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri, base.get('quote'), base.get('testi'))
     outer = candidati[best_idx]
     if getattr(doc, '_ft_scala_dubbia', False):
         confidence = min(confidence, 0.6)
+    elif getattr(doc, '_ft_scala_da_quote', 1.0) != 1.0 and not _quote_sul_contorno(outer, base.get('quote')):
+        # Misure moltiplicate per il fattore delle quote, ma sul contorno
+        # scelto non c'e' nessuna quota: la scala del pezzo non e' confermata
+        # (di solito e' anche la vista sbagliata)
+        confidence = min(confidence, 0.6)
+        warnings.append('Scala presa dalle quote del foglio ma il contorno scelto non ha quote: verificare')
 
     # ---- 6b. Sviluppo spezzato dalle linee di piega: riunisci le falde
     scelto = outer
