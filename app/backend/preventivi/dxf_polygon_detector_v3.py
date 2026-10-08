@@ -108,6 +108,7 @@ _ESTENSIONE_MM_PLAUSIBILE = (5.0, 13000.0)
 # pezzo di lamiera (0.005–6 m) E letta come mm sarebbe assurdamente piccola (<5).
 _METRI_PLAUSIBILI = (0.005, 6.0)
 _MM_IMPLAUSIBILE = 5.0
+_POLLICI_MAX_MM = 1600.0
 
 # Tolleranze
 # BUG FIX #5: TOL_ENDPOINT_MM ora ADATTIVO in base alla dimensione del DXF.
@@ -201,6 +202,11 @@ def scala_unita_mm(doc) -> tuple[float, str | None]:
         if u == 6:
             plausibile = (_METRI_PLAUSIBILI[0] <= est <= _METRI_PLAUSIBILI[1]
                           and est < _MM_IMPLAUSIBILE)
+        elif u == 1:
+            # Pollici: un foglio in pollici (cornice compresa) sta entro ~63"
+            # (1,6 m). I disegni dell'archivio che dichiarano pollici con
+            # 126-446 unita' sono tutti in mm (Lantek: 7 su 7): 446" = 11 m.
+            plausibile = est <= 0 or _ESTENSIONE_MM_PLAUSIBILE[0] <= est * f <= _POLLICI_MAX_MM
         else:
             plausibile = (est <= 0 or
                           _ESTENSIONE_MM_PLAUSIBILE[0] <= est * f <= _ESTENSIONE_MM_PLAUSIBILE[1])
@@ -314,11 +320,19 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
         candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if not candidati:
             return dubbio
-        idx, _conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'])
+        idx, _conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'))
         if idx < 0:
             return dubbio
         x1, y1, x2, y2 = candidati[idx].bounds
-        if _etichetta_dettaglio_vicina(doc, (x1, y1, x2, y2), f_unita):
+        m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
+        sul_pezzo = []
+        for v, d in quote:
+            pts = _punti_quota(d)
+            if pts and all(x1 - m <= px * f_unita <= x2 + m and y1 - m <= py * f_unita <= y2 + m
+                           for px, py in pts):
+                sul_pezzo.append(v)
+        al_vero = bool(sul_pezzo) and all(abs(v - 1.0) < 1e-6 for v in sul_pezzo)
+        if not al_vero and _etichetta_dettaglio_vicina(doc, (x1, y1, x2, y2), f_unita):
             # Il contorno scelto e' un DETTAGLIO ingrandito (33PP00086-00: foglio
             # 1:10, "DETTAGLIO A" 10:1 con l'unica quota a DIMLFAC 0,1): la sua
             # scala non e' quella del pezzo. Prima tutto il disegno veniva
@@ -335,13 +349,6 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
                 return 1.0, None
             rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
             return k, f'Disegno in scala {rapporto}: misure riportate al vero (x{k:g})'
-        m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
-        sul_pezzo = []
-        for v, d in quote:
-            pts = _punti_quota(d)
-            if pts and all(x1 - m <= px * f_unita <= x2 + m and y1 - m <= py * f_unita <= y2 + m
-                           for px, py in pts):
-                sul_pezzo.append(v)
         if not sul_pezzo or any(abs(v - sul_pezzo[0]) > 1e-4 * sul_pezzo[0] for v in sul_pezzo):
             return dubbio
         k = sul_pezzo[0]
@@ -360,6 +367,14 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
             del doc._ft_scala_mm
         except Exception:
             pass
+
+
+def _segna_scala_dubbia(doc):
+    """La scala del disegno e' incerta: il detector non si dira' sicuro."""
+    try:
+        doc._ft_scala_dubbia = True
+    except Exception:
+        pass
 
 
 def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
@@ -394,6 +409,7 @@ def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
         if not (0.05 <= k <= 200):
             return 1.0, None
         # la scritta del cartiglio, se c'e', deve dire la stessa cosa
+        confermata = False
         for t in doc.modelspace().query('TEXT MTEXT'):
             try:
                 testo = t.plain_text() if t.dxftype() == 'MTEXT' else t.dxf.text
@@ -405,9 +421,21 @@ def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
             a = float(m.group(1).replace(',', '.'))
             b = float(m.group(2).replace(',', '.'))
             if a > 0 and b > 0 and abs(b / a - k) > 0.02 * k:
+                # quote e cartiglio non concordano: misure non affidabili
+                # (archivio: 9 disegni dati per sicuri, 8 sbagliati)
+                _segna_scala_dubbia(doc)
                 return 1.0, (f'Quote in scala x{k:g} ma il cartiglio dice "{m.group(0)}": '
                              'misure lette cosi\' come sono, verificare')
+            confermata = True
             break
+        if k < 0.2 and not confermata:
+            # Quote che DIVIDONO per 5 o piu' senza "SCALA 10:1" nel cartiglio:
+            # di solito e' il disegno in mm quotato in centimetri (DIMLFAC 0,1),
+            # non un ingrandimento: un pezzo laser disegnato 10 volte piu'
+            # grande e' raro. Si tengono le misure disegnate, da verificare.
+            _segna_scala_dubbia(doc)
+            return 1.0, (f'Quote con fattore x{k:g} (centimetri?) senza scala nel cartiglio: '
+                         'misure lette cosi\' come sono, verificare')
         rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
         return k, f'Disegno in scala {rapporto}: misure riportate al vero (x{k:g})'
     except Exception:
@@ -989,6 +1017,25 @@ def applica_intagli(outer, inners: list):
     return eff, [p for p in inners if id(p) not in ids], len(intagli)
 
 
+def _tondo(p) -> bool:
+    """Contorno circolare (rapporto isoperimetrico >= 0,85)."""
+    return p.length > 0 and 4 * math.pi * p.area / (p.length ** 2) >= 0.85
+
+
+def _foro_svasato(o, contenuti: list) -> bool:
+    """`o` e' un cerchio che racchiude solo cerchi concentrici (smusso di una
+    svasatura, filetto)?"""
+    if not _tondo(o):
+        return False
+    po = _prep_buf(o)
+    dentro = [x for x in contenuti if x is not o and _contiene(o, x, po)]
+    if not dentro:
+        return False
+    r = (o.area / math.pi) ** 0.5
+    c = o.centroid
+    return all(_tondo(x) and x.centroid.distance(c) <= max(0.5, 0.15 * r) for x in dentro)
+
+
 def _is_cornice_cartiglio(poly, all_polys: list, min_bbox_mm: float = MIN_BBOX_CORNICE_MM,
                           min_contenuti: int = MIN_CONTENUTI_CORNICE) -> bool:
     """Cornice/cartiglio = rettangolo che contiene ALTRO oltre ai propri fori.
@@ -1018,9 +1065,16 @@ def _is_cornice_cartiglio(poly, all_polys: list, min_bbox_mm: float = MIN_BBOX_C
     # e ha celle attaccate ai lati.
     if attaccati and len(attaccati) >= 2 and all(_intaglio_d_angolo(poly, o) for o in attaccati):
         attaccati = []
+    # Un contorno TONDO attaccato al bordo e' un foro tangente o un simbolo,
+    # mai una cella di cartiglio (1119-0109-5071.00: piatto 25x570 con 4
+    # cerchi Ø11,5 a filo del bordo scartato come cornice).
+    attaccati = [o for o in attaccati if not _tondo(o)]
     if attaccati:
         return True  # b) cella attaccata alla cornice
-    grandi = [o for o in contenuti if not _foro_tipico(o, poly)]
+    # Un cerchio con dentro solo cerchi CONCENTRICI e' un foro svasato o
+    # filettato disegnato col suo smusso, non un pezzo dentro una cornice
+    # (13PA00013-00: piastrina 30x140 con due svasature, scartata).
+    grandi = [o for o in contenuti if not _foro_tipico(o, poly) and not _foro_svasato(o, contenuti)]
     for o in grandi:
         po = _prep_buf(o)
         if any(_contiene(o, x, po) for x in contenuti if x is not o):
@@ -1183,9 +1237,17 @@ def _score_candidate(poly, all_polys: list, circles_centri: list, indice: '_Indi
     - area_rel: area relativa (rispetto al max)
     - is_rectangle: penalità se rettangolo puro (potrebbe essere cornice)
     """
-    prep_poly = prep(poly)
     pp = _prep_buf(poly)
-    n_circles = sum(1 for cx, cy in circles_centri if prep_poly.contains(Point(cx, cy)))
+    n_circles = 0
+    if len(circles_centri):
+        # centri dei cerchi: prima l'ingombro (vettori), poi il contenimento
+        # vero solo per quelli dentro (fogli con migliaia di cerchi: prima un
+        # Point per ogni cerchio e ogni contorno, 40 s su 13PA00284-00)
+        arr = circles_centri if isinstance(circles_centri, _np.ndarray) else _np.asarray(circles_centri, dtype=float)
+        x1, y1, x2, y2 = poly.bounds
+        m = (arr[:, 0] >= x1) & (arr[:, 0] <= x2) & (arr[:, 1] >= y1) & (arr[:, 1] <= y2)
+        if m.any():
+            n_circles = int(_shp.contains_xy(poly, arr[m, 0], arr[m, 1]).sum())
     if indice is not None:
         n_inner = len(indice.contenuti(poly, pp))
     else:
@@ -1219,7 +1281,59 @@ def _copia_identica(a, b, all_polys: list, circles_centri: list) -> bool:
         return False
 
 
-def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centri: list) -> tuple[int, float, list]:
+def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centri: list,
+                                quote: list | None = None) -> tuple[int, float, list]:
+    """Scelta del contorno (vedi _pick_base) corretta con le QUOTE del foglio.
+
+    - Una casella vuota (rettangolo senza fori) che nessuna quota descrive,
+      mentre un altro contorno ha entrambi i lati quotati e almeno 2 quote
+      addosso: il pezzo e' quello quotato (19 cartigli "15 x 187,2" con le
+      scritte presi al posto del pezzo). Scelta corretta ma non sicura (0,6).
+    - Striscia larga <= 6 mm: e' quasi sempre la vista di fianco di una
+      lamiera (larghezza = spessore), non il pezzo: non sicura.
+    - Contorno senza nessuna quota, in un foglio con almeno 3 quote e altre
+      viste di dimensione confrontabile (>= 10% dell'area): le quote stanno
+      su un'altra vista, la scelta e' un'ipotesi: non sicura."""
+    idx, conf, scored = _pick_base(candidates, all_polys, circles_centri)
+    if idx < 0 or not quote:
+        if idx >= 0 and conf >= 0.7 and _striscia(candidates[idx]):
+            conf = 0.6
+        return idx, conf, scored
+    best = candidates[idx]
+    feat = next(s['features'] for s in scored if s['idx'] == idx)
+    nd_best = _quote_sul_contorno(best, quote)
+    lati_best = _lati_quotati(best, quote)
+    n_quote = len(quote)
+    if _striscia(best):
+        return idx, min(conf, 0.6), scored
+    if nd_best == 0 and lati_best < 2 and n_quote >= 2 \
+            and feat['n_inner'] == 0 and _is_rectangle_like(best):
+        ind_cand = _Indice(candidates)
+        preps = [_prep_buf(c) for c in candidates]
+        alt = []
+        for s in scored:
+            c = s['poly']
+            if s['idx'] == idx or _striscia(c) or c.area < MIN_AREA_MM2 * 10:
+                continue
+            if _lati_quotati(c, quote) < 2:
+                continue
+            nd = _quote_sul_contorno(c, quote)
+            if nd < 2 or ind_cand.contenitori(c, preps):
+                continue
+            alt.append((nd, c.area, s['idx']))
+        if alt:
+            return max(alt)[2], 0.6, scored
+    if conf >= 0.7 and conf < CONF_ALTA and nd_best == 0 and n_quote >= 3:
+        conf = 0.6
+    return idx, conf, scored
+
+
+def _striscia(poly) -> bool:
+    x1, y1, x2, y2 = poly.bounds
+    return min(x2 - x1, y2 - y1) <= STRISCIA_MAX_MM
+
+
+def _pick_base(candidates: list, all_polys: list, circles_centri: list) -> tuple[int, float, list]:
     """Sceglie l'outer con score composito + confidence globale.
 
     Confidence (BUG FIX D10): prima dipendeva solo dal distacco di score tra i
@@ -1236,6 +1350,8 @@ def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centr
         return -1, 0.0, []
 
     max_area = max(c.area for c in candidates)
+    if len(circles_centri):
+        circles_centri = _np.asarray(circles_centri, dtype=float).reshape(-1, 2)
     scored = []
     indice = _Indice(all_polys)
     for i, poly in enumerate(candidates):
@@ -1354,8 +1470,74 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
     return {
         'polys': polys, 'centri_cerchi': raw['centri_cerchi'], 'scala': scala,
         'testi': _punti_testo_mm(msp, scala),
+        'quote': _quote_mm(msp, scala),
         'warnings': warnings, 'n_raw': n_raw, 'n_dup': n_dup,
     }
+
+
+# ============================================================================
+# Quote: quale contorno descrivono
+# ============================================================================
+
+def _quote_mm(msp, scala: float) -> list:
+    """Quote del foglio: punti con cui toccano il disegno (mm, come i
+    contorni) e misure che possono scrivere (mm veri, in piu' letture:
+    misura x DIMLFAC, misura x scala del disegno). Servono a capire QUALE
+    contorno il disegnatore ha descritto: il pezzo da tagliare e' la vista
+    quotata, non la casella del cartiglio o la vista di fianco."""
+    out = []
+    try:
+        dims = list(msp.query('DIMENSION'))
+    except Exception:
+        return out
+    for d in dims:
+        try:
+            pts = [(px * scala, py * scala) for px, py in _punti_quota(d)]
+        except Exception:
+            pts = []
+        vals = set()
+        try:
+            m = d.get_measurement()
+            m = m if isinstance(m, (int, float)) else m.magnitude
+            lf = float(d.override().get('dimlfac', 1.0) or 1.0)
+            for v in (m * lf, m * scala, m * lf * scala):
+                if v > 0:
+                    vals.add(round(v, 1))
+        except Exception:
+            pass
+        out.append({'pts': pts, 'vals': vals})
+    return out
+
+
+def _quote_sul_contorno(poly, quote: list) -> int:
+    """Numero di quote i cui punti cadono tutti sul contorno (ingombro + 2%)."""
+    if not quote:
+        return 0
+    x1, y1, x2, y2 = poly.bounds
+    m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
+    n = 0
+    for q in quote:
+        pts = q['pts']
+        if pts and all(x1 - m <= px <= x2 + m and y1 - m <= py <= y2 + m for px, py in pts):
+            n += 1
+    return n
+
+
+def _lati_quotati(poly, quote: list) -> int:
+    """Quanti lati dell'ingombro (0-2) compaiono come misura di una quota."""
+    if not quote:
+        return 0
+    x1, y1, x2, y2 = poly.bounds
+    n = 0
+    for lato in (x2 - x1, y2 - y1):
+        if any(abs(v - lato) <= 0.15 for q in quote for v in q['vals']):
+            n += 1
+    return n
+
+
+# Lato corto massimo di una VISTA DI FIANCO di lamiera (larghezza = spessore):
+# in Lantek i pezzi con lato corto <= 6 mm sono 32 su 23.505 (0,14%)
+STRISCIA_MAX_MM = 6.0
 
 
 def contorno_pezzo_mm(doc, cfg: dict | None = None):
@@ -1372,7 +1554,7 @@ def contorno_pezzo_mm(doc, cfg: dict | None = None):
         base = _poligoni_documento(doc, cfg or {})
         candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if candidati:
-            idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'])
+            idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'))
             outer = candidati[idx] if idx >= 0 and conf >= 0.5 else None
             if outer is None and idx >= 0:
                 # Scelta incerta solo perche' il pezzo e' disegnato piu' volte
@@ -1519,6 +1701,83 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
     return esteso, piena, aggiunte
 
 
+def _linetype_tratteggiato(entity) -> bool:
+    """Tipo linea EFFETTIVO (risolve BYLAYER) a tratti: tratteggio, asse,
+    tratto-punto. Le linee di piega si disegnano cosi'."""
+    try:
+        nome = str(entity.dxf.get('linetype', 'BYLAYER') or 'BYLAYER')
+        doc = entity.doc
+        if nome.upper() == 'BYLAYER':
+            lay = doc.layers.get(entity.dxf.get('layer', '0'))
+            nome = str(lay.dxf.get('linetype', 'CONTINUOUS') or 'CONTINUOUS')
+        if nome.upper() in ('BYLAYER', 'BYBLOCK', 'CONTINUOUS', 'SOLID', ''):
+            return False
+        try:
+            lt = doc.linetypes.get(nome)
+            if lt is not None and float(lt.dxf.get('length', 0) or 0) <= 0:
+                return False    # pattern vuoto = linea continua
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _falde_confermate(base, esteso, msp, scala: float, quote: list | None) -> bool:
+    """Le facce attaccate al contorno scelto sono davvero falde dello stesso
+    sviluppo (e non viste del pezzo disegnate a contatto)?
+
+    Su 809 disegni dell'archivio con contorni attaccati: quando il confine
+    comune e' una linea A TRATTI (convenzione delle linee di piega) lo
+    sviluppo intero era giusto 115 volte su 115; quando le quote misurano
+    l'ingombro dello sviluppo intero e non quello del solo contorno, 181 su
+    181. Con confine a linea continua e senza quote dello sviluppo il
+    contorno chiuso era quello giusto 359 volte contro 36."""
+    if quote and _lati_quotati(esteso, quote) == 2 and _lati_quotati(base, quote) < 2:
+        return True
+    try:
+        from shapely.geometry import LineString
+        interno = base.exterior.intersection(esteso.buffer(-0.2))
+        if interno.is_empty or interno.length < 1.0:
+            return False
+        zona = prep(interno.buffer(0.15))
+        zx1, zy1, zx2, zy2 = interno.bounds
+    except Exception:
+        return False
+    f = float(scala or 1.0)
+    tratti = continui = 0.0
+    for e in entita_espanse(msp, solo_geometria=True):
+        if e.dxftype() not in ('LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'SPLINE'):
+            continue
+        try:
+            if _layer_da_escludere(e.dxf.layer):
+                continue
+        except AttributeError:
+            pass
+        vs = _flatten_entity(e, 0.5 / f)
+        if not vs:
+            continue
+        pts = [(x * f, y * f) for x, y in vs]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        if max(xs) < zx1 - 0.2 or min(xs) > zx2 + 0.2 or max(ys) < zy1 - 0.2 or min(ys) > zy2 + 0.2:
+            continue
+        try:
+            ls = LineString(pts)
+            if ls.length < 1.0 or not zona.intersects(ls):
+                continue
+            dentro = interno.buffer(0.15).intersection(ls).length / ls.length
+        except Exception:
+            continue
+        if dentro < 0.8:
+            continue
+        if _linetype_tratteggiato(e):
+            tratti += ls.length
+        else:
+            continui += ls.length
+    return tratti > 0 and tratti >= continui
+
+
 def _misure(outer, inners, scala: float) -> dict:
     """Area netta / perimetro / pierce dall'outer + fori (tutto in mm)."""
     area_outer_mm2 = outer.area
@@ -1606,12 +1865,23 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         return _empty_result(warnings + [f'Solo {cartiglio_count} cornici/cartigli rilevati, nessun pezzo'])
 
     # ---- 6. Pick best outer + confidence
-    best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri)
+    best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri, base.get('quote'))
     outer = candidati[best_idx]
+    if getattr(doc, '_ft_scala_dubbia', False):
+        confidence = min(confidence, 0.6)
 
     # ---- 6b. Sviluppo spezzato dalle linee di piega: riunisci le falde
     scelto = outer
     outer, regione_piena, n_falde = _estendi_oltre_pieghe(outer, msp, cfg)
+    if n_falde and not _falde_confermate(scelto, outer, msp, scala, base.get('quote')):
+        # Contorni attaccati al pezzo ma nessuna prova che siano falde: niente
+        # linee di piega a tratti sul confine, quote che non misurano lo
+        # sviluppo intero. Di solito sono viste disegnate a contatto: si tiene
+        # il contorno chiuso, ma la scelta va verificata.
+        warnings.append(f'{n_falde} contorni attaccati al pezzo senza linee di piega a tratti '
+                        f'ne\' quote dello sviluppo intero: preso il contorno chiuso, verificare')
+        outer, regione_piena, n_falde = scelto, None, 0
+        confidence = min(confidence, 0.6)
     if n_falde:
         warnings.append(f'Sviluppo diviso da linee di piega: unite {n_falde} falde al contorno')
 
@@ -1630,9 +1900,9 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     mis = _misure(outer_mis, inners, scala)
 
     # Più pezzi nello stesso disegno: segnala invece di sceglierne uno in silenzio
-    preps = [(_prep_buf(o), o) for o in candidati]
-    top_level = [c for c in candidati
-                 if not any(o is not c and _contiene(o, c, pp) for pp, o in preps)]
+    ind_c = _Indice(candidati)
+    preps_c = [_prep_buf(o) for o in candidati]
+    top_level = [c for c in candidati if not ind_c.contenitori(c, preps_c)]
     altri_grandi = [c for c in top_level
                     if c is not outer and c is not scelto and c.area >= PEZZI_CONFRONTABILI_REL * outer.area
                     and not _contiene(outer, c, pp_outer)]
