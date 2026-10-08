@@ -363,7 +363,7 @@ def _geometry_from_outer(outer, all_faces: list) -> dict:
     holes = [Polygon(f.exterior) for f in all_faces
              if f is not outer and f.area < outer.area * 0.999 and pp.contains(f)]
     holes, _n = _dedup_poligoni(holes)
-    holes, _n_svas = _riduci_fori_annidati(holes)
+    holes, _n_svas = _riduci_fori_annidati(holes, outer)
 
     area_lorda_mm2 = outer.area
     area_fori_mm2 = sum(h.area for h in holes)

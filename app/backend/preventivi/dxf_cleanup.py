@@ -779,7 +779,7 @@ def _contorni_pezzo(doc, geo: dict, cfg: dict):
             inners = [p for p in candidati if p is not scelto and _contiene(est, p, pp)]
             if piena is not None:
                 inners = [p for p in inners if piena.intersection(p).area < 0.5 * p.area]
-            inners, _n_svas = _riduci_fori_annidati(inners)
+            inners, _n_svas = _riduci_fori_annidati(inners, est)
             est, inners, _ni = applica_intagli(est, inners)
             if _misure_coincidono(_dim(est), (w_att, h_att), 0.05, 0.0):
                 return est, inners, scala
@@ -797,7 +797,7 @@ def _contorni_pezzo(doc, geo: dict, cfg: dict):
         return None
     pp = _prep_buf(outer)
     inners = [p for p in candidati if p is not outer and _contiene(outer, p, pp)]
-    inners, _n_svas = _riduci_fori_annidati(inners)
+    inners, _n_svas = _riduci_fori_annidati(inners, outer)
     return outer, inners, scala
 
 
@@ -1101,7 +1101,7 @@ def converti_pulito_in_lantek(source_path: str, cleaned_path: str,
             return {'success': False, 'error': 'nessun contorno chiuso nel pulito'}
         outer = polys[0]
         pp = _prep_buf(outer)
-        fori, _n = _riduci_fori_annidati([p for p in polys[1:] if _contiene(outer, p, pp)])
+        fori, _n = _riduci_fori_annidati([p for p in polys[1:] if _contiene(outer, p, pp)], outer)
         s_src = float(scala_unita_mm(src)[0] or 1.0)
         s_cl = float(base['scala'] or 1.0)
         f = s_src / s_cl

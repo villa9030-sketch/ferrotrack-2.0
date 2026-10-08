@@ -144,11 +144,22 @@ MIN_CONTENUTI_CORNICE = 6            # (legacy, non più usato come criterio da 
 CORNICE_TOCCO_MM = 0.5               # contenuto a ≤ N mm dal bordo = cella cartiglio
 FORO_AREA_MAX_REL = 0.05             # un "foro tipico" occupa ≤ 5% del contenitore
 PEZZI_CONFRONTABILI_REL = 0.30       # altro contorno ≥ 30% dell'area = pezzo alternativo
+# Scritte incise disegnate come geometria (vedi _separa_scritte)
+SCRITTA_MAX_MM = 15.0                # lettera: lato maggiore al massimo
+SCRITTA_MIN_LETTERE = 2              # una fila di almeno 2 contorni piccoli
+SCRITTA_MIN_CONCAVI = 2              # di cui almeno 2 concavi (lettere, non fori)
+SCRITTA_CONVESSO = 0.97              # area/area dell'inviluppo convesso: >= convesso
+SCRITTA_MARCATA_MM = 8.0             # scritte piu' alte: forse tagliate passanti -> revisione
+SCRITTA_REL_PEZZO = 0.30             # ...o piu' alte del 30% del lato corto del pezzo (targhette)
+SCRITTA_QUOTA_AREA = 0.025           # ...o con lettere che coprono oltre il 2,5% del pezzo
 
 # Confidence thresholds
 CONF_ALTA = 0.85
 CONF_MEDIA = 0.6
 CONF_BASSA = 0.3
+# Pezzo giusto ma fori dubbi (scritta forse tagliata...): sotto lo 0.7 del
+# "pulito auto" -> revisione, ma senza selezione manuale del contorno
+CONF_FORI_DUBBI = 0.65
 
 
 # ============================================================================
@@ -1092,7 +1103,117 @@ def _via_celle_di_testo(candidati: list, n: int, testi: list | None) -> tuple[li
     return tenuti, n + (len(candidati) - len(tenuti))
 
 
-def _riduci_fori_annidati(inners: list) -> tuple[list, int]:
+def _forma_regolare(p) -> bool:
+    """Foro "da officina": tondo, oppure convesso (asola, rettangolo, poligono).
+    Le lettere di una scritta esplosa in linee/spline sono quasi tutte concave
+    (A, B, E, F, K, M, N, P, R, S, T, 1, 2, 3, 4, 5, 7...)."""
+    if p.length <= 0:
+        return True
+    minx, miny, maxx, maxy = p.bounds
+    w, h = maxx - minx, maxy - miny
+    m = max(w, h)
+    if m <= 0:
+        return True
+    if 4 * math.pi * p.area / (p.length ** 2) >= 0.9 and abs(w - h) <= 0.1 * m:
+        return True     # cerchio
+    try:
+        return p.area >= SCRITTA_CONVESSO * p.convex_hull.area
+    except Exception:
+        return True
+
+
+def _separa_scritte(fori: list, outer, dubbi_out: list | None = None) -> tuple[list, list]:
+    """Scritte incise disegnate come geometria (testo esploso in linee/spline:
+    codici, numeri, sigle) dentro il pezzo. Ogni lettera chiusa diventava un
+    "foro": 07PA01525-00 16 fori contro gli 11 tagliati da Lantek, che le
+    lettere le MARCA (mark_perim > 0).
+
+    Una scritta e' una FILA di contorni piccoli (<= SCRITTA_MAX_MM), vicini tra
+    loro (distanza <= 1,5 volte la loro altezza) e di altezza simile, in cui
+    almeno SCRITTA_MIN_CONCAVI lettere hanno forma concava. Un foro vero e'
+    tondo o convesso (asola, quadro): i fori allineati di una foratura non
+    fanno mai scattare la regola da soli; un contorno convesso (O, D, 0) entra
+    solo se sta nella stessa fila di lettere concave. Va chiamata PRIMA di
+    _riduci_fori_annidati: gli occhielli delle lettere (interno di O, A, 8)
+    contano nella fila e se ne vanno con la lettera.
+
+    Si tolgono solo le scritte piccole, sia in assoluto (altezza mediana <=
+    SCRITTA_MARCATA_MM) sia rispetto al pezzo (<= SCRITTA_REL_PEZZO del lato
+    corto, lettere <= SCRITTA_QUOTA_AREA dell'area): una scritta grande, o che
+    occupa il pezzo, puo' essere TAGLIATA
+    passante (insegne, targhette: 2743-05021-0001.03 lettere da 9-15 mm,
+    11TRCF005 targhetta 30x10 con lettere da 6,8 mm, tagliate in Lantek).
+    Quelle restano fori e finiscono in `dubbi_out`: il chiamante chiede la
+    revisione.
+    Returns (fori, scritte)."""
+    ob = outer.bounds
+    lato_corto = min(ob[2] - ob[0], ob[3] - ob[1])
+    piccoli = []
+    for i, p in enumerate(fori):
+        minx, miny, maxx, maxy = p.bounds
+        m = max(maxx - minx, maxy - miny)
+        if m <= SCRITTA_MAX_MM and not (4 * math.pi * p.area / max(p.length ** 2, 1e-9) >= 0.9
+                                        and abs((maxx - minx) - (maxy - miny)) <= 0.1 * m):
+            piccoli.append(i)
+    if len(piccoli) < SCRITTA_MIN_LETTERE:
+        return list(fori), []
+    # gruppi per vicinanza (union-find)
+    padre = {i: i for i in piccoli}
+
+    def radice(i):
+        while padre[i] != i:
+            padre[i] = padre[padre[i]]
+            i = padre[i]
+        return i
+    alt = {i: max(fori[i].bounds[2] - fori[i].bounds[0], fori[i].bounds[3] - fori[i].bounds[1]) for i in piccoli}
+    geo_p = [fori[i] for i in piccoli]
+    albero = _shp.STRtree(geo_p)
+    for a_i, i in enumerate(piccoli):
+        b = fori[i].bounds
+        d = 1.5 * min(SCRITTA_MAX_MM, 2.5 * alt[i])
+        vicini = albero.query(_shp.box(b[0] - d, b[1] - d, b[2] + d, b[3] + d))
+        for b_i in vicini:
+            b_i = int(b_i)
+            if b_i <= a_i:
+                continue
+            j = piccoli[b_i]
+            d_max = 1.5 * max(alt[i], alt[j])
+            if max(alt[i], alt[j]) > 2.5 * min(alt[i], alt[j]):
+                continue    # altezze troppo diverse: non e' la stessa scritta
+            if fori[i].distance(fori[j]) <= d_max:
+                padre[radice(i)] = radice(j)
+    gruppi: dict = {}
+    for i in piccoli:
+        gruppi.setdefault(radice(i), []).append(i)
+    via, dubbi = set(), []
+    for g in gruppi.values():
+        if len(g) < SCRITTA_MIN_LETTERE:
+            continue
+        if sum(1 for i in g if not _forma_regolare(fori[i])) < SCRITTA_MIN_CONCAVI:
+            continue
+        altezze = sorted(alt[i] for i in g)
+        h_med = altezze[len(altezze) // 2]
+        quota = sum(fori[i].area for i in g) / max(outer.area, 1e-9)
+        if h_med <= SCRITTA_MARCATA_MM and h_med <= SCRITTA_REL_PEZZO * lato_corto                 and quota <= SCRITTA_QUOTA_AREA:
+            via.update(g)
+        else:
+            dubbi.extend(fori[i] for i in g)
+    if dubbi_out is not None:
+        dubbi_out.extend(dubbi)
+    if not via:
+        return list(fori), []
+    # gli occhielli (interno di O, A, 8...) stanno dentro una lettera tolta
+    tolte = [fori[k] for k in via]
+    for k, p in enumerate(fori):
+        if k not in via and p.area < SCRITTA_MAX_MM ** 2:
+            for q in tolte:
+                if q.area > p.area and _contiene(q, p):
+                    via.add(k)
+                    break
+    return [p for k, p in enumerate(fori) if k not in via], [fori[k] for k in sorted(via)]
+
+
+def _riduci_fori_annidati(inners: list, outer=None) -> tuple[list, int]:
     """Contorni interni annidati in altri contorni interni.
 
     - Concentrici (svasatura: passante + smusso) → il laser taglia SOLO il
@@ -1100,8 +1221,13 @@ def _riduci_fori_annidati(inners: list) -> tuple[list, int]:
       svasatura dallo scanner. Coerente con pick_part._holes_inside.
     - Non concentrici (isola dentro un foro) → si tiene il foro esterno: l'isola
       cade con lo sfrido, non è un taglio del pezzo.
+    - con `outer` (il contorno del pezzo) toglie anche le lettere delle scritte
+      incise disegnate come geometria (_separa_scritte): si marcano, non si
+      tagliano.
     Returns (fori_tenuti, n_svasature_scartate).
     """
+    if outer is not None:
+        return _riduci_fori_annidati(_separa_scritte(inners, outer)[0])
     if len(inners) < 2:
         return list(inners), 0
     drop = set()
@@ -1621,7 +1747,15 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     if regione_piena is not None:
         # le falde unite sono materiale, non fori: foro = contorno non coperto dalle facce
         inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area]
+    scritte_dubbie: list = []
+    inners, scritte = _separa_scritte(inners, outer, scritte_dubbie)
     inners, n_svas = _riduci_fori_annidati(inners)
+    if scritte:
+        warnings.append(f'{len(scritte)} contorni piccoli in fila come una scritta incisa: '
+                        f'non contati come fori (vanno marcati, non tagliati)')
+    if scritte_dubbie:
+        warnings.append(f'{len(scritte_dubbie)} contorni in fila come una scritta alta: contati come fori '
+                        f'tagliati, verificare se vanno tagliati o marcati')
     outer_mis, inners, n_intagli = applica_intagli(outer, inners)
     if n_intagli:
         warnings.append(f'{n_intagli} intaglio/i sul bordo (scantonati): tolti dal contorno, non contati come fori')
@@ -1646,6 +1780,12 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
                         f'verificare quale pezzo quotare')
     if n_svas:
         warnings.append(f'{n_svas} svasatura/e: tagliato solo il foro passante')
+
+    # ---- 8b. Fori dubbi: il contorno e' giusto ma cosa si taglia dentro no.
+    # Confidenza sotto la soglia del "sicuro" (pulizia 'auto_review'), senza
+    # chiedere la scelta manuale del pezzo.
+    if scritte_dubbie:
+        confidence = min(confidence, CONF_FORI_DUBBI)
 
     # ---- 9. Confidence label
     if confidence >= CONF_ALTA:
@@ -1796,7 +1936,7 @@ def compute_geometry_from_region(path: str, region_bbox: tuple[float, float, flo
     outer = max(in_region, key=_score)
     pp = _prep_buf(outer)
     inners = [p for p in in_region if p is not outer and _contiene(outer, p, pp)]
-    inners, _n_svas = _riduci_fori_annidati(inners)
+    inners, _n_svas = _riduci_fori_annidati(inners, outer)
 
     mis = _misure(outer, inners, scala)
     return {
@@ -1910,7 +2050,7 @@ def compute_geometry_from_point(path: str, x_mm: float, y_mm: float,
     # (13PA00680, rettangolini attorno ai fori) non si contano come tagli.
     pp = _prep_buf(outer)
     inners = [p for p in non_cartiglio if p is not outer and _contiene(outer, p, pp)]
-    inners, _n_svas = _riduci_fori_annidati(inners)
+    inners, _n_svas = _riduci_fori_annidati(inners, outer)
 
     mis = _misure(outer, inners, scala)
     return {
@@ -1971,7 +2111,7 @@ def compute_geometry_from_candidate(path: str, candidate_idx: int,
     pp = _prep_buf(outer_poly)
     # Trova inners: poligoni contenuti in outer che NON siano l'outer stesso
     inners = [p for p in all_polys if p is not outer_poly and _contiene(outer_poly, p, pp)]
-    inners, _n_svas = _riduci_fori_annidati(inners)
+    inners, _n_svas = _riduci_fori_annidati(inners, outer_poly)
     mis = _misure(outer_poly, inners, scala)
 
     r_out = dict(r)
