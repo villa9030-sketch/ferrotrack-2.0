@@ -147,11 +147,16 @@ PEZZI_CONFRONTABILI_REL = 0.30       # altro contorno ≥ 30% dell'area = pezzo 
 # Scritte incise disegnate come geometria (vedi _separa_scritte)
 SCRITTA_MAX_MM = 15.0                # lettera: lato maggiore al massimo
 SCRITTA_MIN_LETTERE = 2              # una fila di almeno 2 contorni piccoli
-SCRITTA_MIN_CONCAVI = 2              # di cui almeno 2 concavi (lettere, non fori)
+SCRITTA_MIN_CONCAVI = 2              # di cui almeno 2 a forma di lettera (concave o ovali), 1 concava
+SCRITTA_SPAZIO = 2.0                 # lettere vicine: distanza <= 2 volte l'altezza
+SCRITTA_LATO_DRITTO = 0.25           # ovale "da lettera": nessun lato dritto >= 25% del lato maggiore
+SEGNO_MAX_MM = 10.0                  # segno isolato (lettera/cifra sola): lato maggiore massimo
+SEGNO_CONCAVO = 0.8                  # ...e area/inviluppo convesso sotto questa soglia
 SCRITTA_CONVESSO = 0.97              # area/area dell'inviluppo convesso: >= convesso
 SCRITTA_MARCATA_MM = 8.0             # scritte piu' alte: forse tagliate passanti -> revisione
 SCRITTA_REL_PEZZO = 0.30             # ...o piu' alte del 30% del lato corto del pezzo (targhette)
-SCRITTA_QUOTA_AREA = 0.025           # ...o con lettere che coprono oltre il 2,5% del pezzo
+SCRITTA_QUOTA_AREA = 0.025           # ...o alte >20% del lato corto e lettere oltre il 2,5% del pezzo
+SCRITTA_QUOTA_MAX = 0.10             # ...o lettere che coprono oltre il 10% del pezzo
 
 # Confidence thresholds
 CONF_ALTA = 0.85
@@ -1122,6 +1127,48 @@ def _forma_regolare(p) -> bool:
         return True
 
 
+def _senza_tratti_dritti(p) -> bool:
+    """Contorno curvo ovunque (ovale da spline: lo 0 o la O di una scritta):
+    nessun lato dritto lungo. Un'asola o un rettangolo hanno lati dritti
+    lunghi almeno un quarto del contorno."""
+    try:
+        xy = list(p.exterior.coords)
+        minx, miny, maxx, maxy = p.bounds
+        m = max(maxx - minx, maxy - miny)
+        lato = max(math.hypot(xy[k + 1][0] - xy[k][0], xy[k + 1][1] - xy[k][1]) for k in range(len(xy) - 1))
+        return lato < SCRITTA_LATO_DRITTO * m
+    except Exception:
+        return False
+
+
+def _forma_lettera(p) -> str:
+    """'concava' (lettera tipica), 'ovale' (O, 0 da spline), '' (foro da officina)."""
+    if not _forma_regolare(p):
+        return 'concava'
+    minx, miny, maxx, maxy = p.bounds
+    w, h = maxx - minx, maxy - miny
+    if abs(w - h) > 0.1 * max(w, h) and _senza_tratti_dritti(p):
+        return 'ovale'
+    return ''
+
+
+def _segni_isolati(fori: list) -> list:
+    """Contorni piccoli e molto concavi rimasti soli (una cifra o una lettera
+    isolata: 07PA01730-00, il '4' inciso). Un foro da officina non ha quella
+    forma, ma da solo non basta per toglierlo: si chiede la revisione."""
+    out = []
+    for p in fori:
+        minx, miny, maxx, maxy = p.bounds
+        if max(maxx - minx, maxy - miny) > SEGNO_MAX_MM:
+            continue
+        try:
+            if p.area < SEGNO_CONCAVO * p.convex_hull.area:
+                out.append(p)
+        except Exception:
+            pass
+    return out
+
+
 def _separa_scritte(fori: list, outer, dubbi_out: list | None = None) -> tuple[list, list]:
     """Scritte incise disegnate come geometria (testo esploso in linee/spline:
     codici, numeri, sigle) dentro il pezzo. Ogni lettera chiusa diventava un
@@ -1129,11 +1176,12 @@ def _separa_scritte(fori: list, outer, dubbi_out: list | None = None) -> tuple[l
     lettere le MARCA (mark_perim > 0).
 
     Una scritta e' una FILA di contorni piccoli (<= SCRITTA_MAX_MM), vicini tra
-    loro (distanza <= 1,5 volte la loro altezza) e di altezza simile, in cui
-    almeno SCRITTA_MIN_CONCAVI lettere hanno forma concava. Un foro vero e'
-    tondo o convesso (asola, quadro): i fori allineati di una foratura non
-    fanno mai scattare la regola da soli; un contorno convesso (O, D, 0) entra
-    solo se sta nella stessa fila di lettere concave. Va chiamata PRIMA di
+    loro (distanza <= SCRITTA_SPAZIO volte la loro altezza) e di altezza
+    simile, con almeno una lettera concava e, se sono solo 2, entrambe a forma
+    di lettera: concava, oppure ovale senza lati dritti (O, 0 da spline). Un foro vero
+    e' tondo o convesso con lati dritti (asola, quadro): i fori allineati di
+    una foratura non fanno mai scattare la regola da soli; un contorno
+    convesso (D, 1, I) entra solo se sta nella stessa fila delle lettere. Va chiamata PRIMA di
     _riduci_fori_annidati: gli occhielli delle lettere (interno di O, A, 8)
     contano nella fila e se ne vanno con la lettera.
 
@@ -1170,14 +1218,14 @@ def _separa_scritte(fori: list, outer, dubbi_out: list | None = None) -> tuple[l
     albero = _shp.STRtree(geo_p)
     for a_i, i in enumerate(piccoli):
         b = fori[i].bounds
-        d = 1.5 * min(SCRITTA_MAX_MM, 2.5 * alt[i])
+        d = SCRITTA_SPAZIO * min(SCRITTA_MAX_MM, 2.5 * alt[i])
         vicini = albero.query(_shp.box(b[0] - d, b[1] - d, b[2] + d, b[3] + d))
         for b_i in vicini:
             b_i = int(b_i)
             if b_i <= a_i:
                 continue
             j = piccoli[b_i]
-            d_max = 1.5 * max(alt[i], alt[j])
+            d_max = SCRITTA_SPAZIO * max(alt[i], alt[j])
             if max(alt[i], alt[j]) > 2.5 * min(alt[i], alt[j]):
                 continue    # altezze troppo diverse: non e' la stessa scritta
             if fori[i].distance(fori[j]) <= d_max:
@@ -1189,12 +1237,18 @@ def _separa_scritte(fori: list, outer, dubbi_out: list | None = None) -> tuple[l
     for g in gruppi.values():
         if len(g) < SCRITTA_MIN_LETTERE:
             continue
-        if sum(1 for i in g if not _forma_regolare(fori[i])) < SCRITTA_MIN_CONCAVI:
+        forme = [_forma_lettera(fori[i]) for i in g]
+        if forme.count('concava') < 1 or (len(forme) - forme.count('') < SCRITTA_MIN_CONCAVI and len(g) < 3):
             continue
         altezze = sorted(alt[i] for i in g)
         h_med = altezze[len(altezze) // 2]
         quota = sum(fori[i].area for i in g) / max(outer.area, 1e-9)
-        if h_med <= SCRITTA_MARCATA_MM and h_med <= SCRITTA_REL_PEZZO * lato_corto                 and quota <= SCRITTA_QUOTA_AREA:
+        h_rel = h_med / max(lato_corto, 1e-9)
+        # scritta che E' il pezzo (targhetta, insegna): alta rispetto al pezzo,
+        # o abbastanza alta e con lettere che ne coprono una parte visibile
+        protagonista = (h_rel > SCRITTA_REL_PEZZO or quota > SCRITTA_QUOTA_MAX
+                        or (h_rel > 0.2 and quota > SCRITTA_QUOTA_AREA))
+        if h_med <= SCRITTA_MARCATA_MM and not protagonista:
             via.update(g)
         else:
             dubbi.extend(fori[i] for i in g)
@@ -1759,6 +1813,10 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     outer_mis, inners, n_intagli = applica_intagli(outer, inners)
     if n_intagli:
         warnings.append(f'{n_intagli} intaglio/i sul bordo (scantonati): tolti dal contorno, non contati come fori')
+    segni = _segni_isolati(inners)
+    if segni:
+        warnings.append(f'{len(segni)} contorno/i piccolo/i a forma di lettera o cifra: contato/i come '
+                        f'foro, verificare se va tagliato o marcato')
 
     # ---- 8. Calcoli finali
     mis = _misure(outer_mis, inners, scala)
@@ -1784,7 +1842,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     # ---- 8b. Fori dubbi: il contorno e' giusto ma cosa si taglia dentro no.
     # Confidenza sotto la soglia del "sicuro" (pulizia 'auto_review'), senza
     # chiedere la scelta manuale del pezzo.
-    if scritte_dubbie:
+    if scritte_dubbie or segni:
         confidence = min(confidence, CONF_FORI_DUBBI)
 
     # ---- 9. Confidence label
