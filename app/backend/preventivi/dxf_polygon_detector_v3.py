@@ -2402,8 +2402,10 @@ def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None
             continue
         if not _domina(S, outer):
             continue        # stendere le falde allunga: lo sviluppo non e' piu' piccolo
-        if S.buffer(0.5).contains(outer) or po.contains(S):
+        if po.contains(S):
             continue
+        if S.buffer(0.5).contains(outer) and lq_outer >= 2:
+            continue        # la contiene ma la vista scelta e' gia' quotata: e' lei
         # la stessa sagoma gia' trovata (silhouette = contorno chiuso)
         if any(_stesso_ingombro(S, a[2], 0.5) and abs(S.area - a[2].area) <= 0.002 * S.area for a in alt):
             continue
