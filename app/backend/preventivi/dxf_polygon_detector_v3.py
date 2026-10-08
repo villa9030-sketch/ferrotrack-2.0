@@ -2183,6 +2183,16 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
                      if not any(b.contains(facce[i].representative_point()) for b in buchi)]
         piena = unary_union(materiale)
         esteso = Polygon(regione.exterior)
+        # Fessure tra le facce unite (contorno dal chain walking, facce dal
+        # polygonize, a qualche centesimo l'una dall'altra): crepe larghe
+        # zero che raddoppiano il perimetro senza area (07PA00327: 191 mm
+        # contro 177). Chiusura morfologica di 0,1 mm, spigoli vivi.
+        try:
+            chiuso = esteso.buffer(0.1, join_style=2).buffer(-0.1, join_style=2)
+            if chiuso.geom_type == 'Polygon' and abs(chiuso.area - esteso.area) <= 0.002 * esteso.area:
+                esteso = Polygon(chiuso.exterior)
+        except Exception:
+            pass
     except Exception:
         return outer, None, 0
     if not esteso.is_valid or esteso.area <= base.area * 1.001:
@@ -2348,13 +2358,13 @@ def _silhouette_viste(msp, cfg: dict) -> list:
         return calcola()
 
 
-def _domina(S, C, margine: float = 0.5) -> bool:
+def _domina(S, C, margine: float = 0.5, fattore_area: float = 1.15) -> bool:
     """L'ingombro di S contiene quello di C in un verso o nell'altro (lato
     corto >= lato corto, lato lungo >= lato lungo) ed e' piu' grande."""
     sb, cb = S.bounds, C.bounds
     s = sorted((sb[2] - sb[0], sb[3] - sb[1]))
     c = sorted((cb[2] - cb[0], cb[3] - cb[1]))
-    return s[0] >= c[0] - margine and s[1] >= c[1] - margine and S.area >= 1.15 * C.area
+    return s[0] >= c[0] - margine and s[1] >= c[1] - margine and S.area >= fattore_area * C.area
 
 
 def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None):
@@ -2400,8 +2410,13 @@ def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None
         if any(_stesso_ingombro(S, a[2], 0.5) and abs(S.area - a[2].area) <= 0.002 * S.area for a in alt):
             continue
         alt.append((nq, S.area, S))
+    if len(alt) > 1:
+        # piu' sagome: lo sviluppo e' quella che le contiene tutte come
+        # ingombro (ogni vista piegata e' piu' corta dello sviluppo disteso)
+        tutte = [a for a in alt if all(b is a or _domina(a[2], b[2], fattore_area=1.0) for b in alt)]
+        alt = tutte
     if len(alt) != 1:
-        return None         # nessuna o piu' sagome quotate: non si sceglie
+        return None         # nessuna sagoma, o nessuna che domini le altre
     S = alt[0][2]
     # contorno chiuso del chain walking (una faccia sola) o sagoma di piu' facce
     chiuso = next((c for c in candidati if _stesso_ingombro(S, c, 0.5)
@@ -2597,8 +2612,14 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     inners = [p for i, p in enumerate(candidati)
               if i != best_idx and p is not outer and _contiene(outer, p, pp_outer)]
     if regione_piena is not None:
-        # le falde unite sono materiale, non fori: foro = contorno non coperto dalle facce
-        inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area]
+        # le falde unite sono materiale, non fori: foro = contorno non coperto
+        # dalle facce, oppure staccato dal bordo del pezzo. Le falde toccano il
+        # bordo (le linee di piega vanno da lato a lato); un foro attraversato
+        # da una linea di piega (scarico) diventa due facce "piene" ma resta un
+        # contorno chiuso staccato dal bordo (27CVPA0066-00: 6 fori persi).
+        bordo_out = outer.exterior
+        inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area
+                  or bordo_out.distance(p.exterior) > 0.1]
     scritte_dubbie: list = []
     inners, scritte = _separa_scritte(inners, outer, scritte_dubbie)
     inners, n_svas = _riduci_fori_annidati(inners)
