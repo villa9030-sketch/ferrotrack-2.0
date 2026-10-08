@@ -1631,20 +1631,25 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
               if esterni[i] is not None and esterni[i].area <= base.area * 1.001 and base_buf.contains(f.representative_point())]
     regione = base
     aggiunte = 0
-    if not dentro:
-        # Nessuna faccia dentro il contorno: il chain walking ha preso una
-        # scorciatoia a un incrocio a T e il contorno scelto e' solo parte di
-        # una faccia (24TPCPA0064: aletta superiore tagliata a meta'). La faccia
-        # che lo racchiude e ne ricalca gran parte del bordo e' il contorno vero.
+    # Nessuna faccia (a parte i fori) riempie il contorno: il chain walking ha
+    # preso una scorciatoia a un incrocio a T e il contorno scelto e' solo parte
+    # di una faccia (24TPCPA0064: aletta superiore tagliata a meta'; 24T30PA0074:
+    # falda con le asole). La faccia che lo racchiude e ne ricalca gran parte
+    # del bordo e' il contorno vero.
+    piu_grande = max((esterni[i].area for i in dentro), default=0.0)
+    cont = []
+    if piu_grande < 0.5 * base.area:
         bordo_buf = base.exterior.buffer(0.1)
         cont = [i for i, fe in enumerate(esterni)
                 if fe is not None and base.area * 1.001 < fe.area <= 2.0 * base.area
-                and fe.buffer(0.1).contains(base)
-                and fe.exterior.intersection(bordo_buf).length >= 0.5 * base.exterior.length]
-        if not cont:
+                and fe.intersects(base)
+                and base.difference(fe.buffer(0.1)).area <= 0.005 * base.area
+                and fe.exterior.intersection(bordo_buf).length >= 0.4 * base.exterior.length]
+        if not cont and not dentro:
             return outer, None, 0
+    if cont:
         i0 = min(cont, key=lambda i: esterni[i].area)
-        dentro = [i0]
+        dentro = dentro + [i0]
         regione = esterni[i0]
         aggiunte = 1
     else:
@@ -1732,6 +1737,38 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
     if not esteso.is_valid or esteso.area <= base.area * 1.001:
         return outer, None, 0
     return esteso, piena, aggiunte
+
+
+def _profilo_piegato_incompatibile(outer, polys: list):
+    """Cerca una vista di fianco piegata: contorno sottile (larghezza media
+    2A/P <= 6 mm, lo spessore) e non diritto (area < meta' del rettangolo
+    minimo che lo contiene). Il suo ingombro maggiore e' la misura del pezzo
+    piegato, meta' del suo perimetro meno lo spessore e' circa lo sviluppo.
+    Se un lato del contorno scelto coincide con l'ingombro del profilo e
+    nessun lato coincide con lo sviluppo, il contorno scelto e' una vista del
+    pezzo piegato. Ritorna (ingombro, sviluppo) del profilo o None."""
+    try:
+        x0, y0, x1, y1 = outer.bounds
+        lati = (x1 - x0, y1 - y0)
+        for p in polys:
+            if p is outer or p.length <= 0:
+                continue
+            w = 2.0 * p.area / p.length
+            if w > 6.0 or p.length < 40.0:
+                continue
+            mrr = p.minimum_rotated_rectangle
+            if mrr.area <= 0 or p.area >= 0.5 * mrr.area:
+                continue                    # profilo diritto (lamiera vista di taglio)
+            px0, py0, px1, py1 = p.bounds
+            span = max(px1 - px0, py1 - py0)
+            svil = p.length / 2.0 - w
+            if svil < span + 3.0 * w + 2.0:
+                continue
+            if any(abs(l - span) <= max(1.0, 0.005 * span) for l in lati) and                     not any(abs(l - svil) <= 0.03 * svil for l in lati):
+                return span, svil
+    except Exception:
+        return None
+    return None
 
 
 def _misure(outer, inners, scala: float) -> dict:
@@ -1861,6 +1898,18 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
                         f'verificare quale pezzo quotare')
     if n_svas:
         warnings.append(f'{n_svas} svasatura/e: tagliato solo il foro passante')
+
+    # Vista di fianco PIEGATA (profilo sottile a L/U) che dice che il pezzo
+    # scelto e' quello gia' piegato: un lato del contorno e' lungo quanto il
+    # profilo da estremo a estremo, ma lo sviluppo (la lunghezza del profilo
+    # disteso) non compare (me01_000447: vista a U di 54 mm, sviluppo 79 mm;
+    # nel disegno manca lo sviluppo e Lantek lo ha calcolato).
+    prof = _profilo_piegato_incompatibile(outer_mis, all_polys)
+    if prof and confidence >= 0.5:
+        confidence = 0.45
+        warnings.append(f'Il disegno mostra il pezzo piegato (profilo lungo {prof[0]:.0f} mm, '
+                        f'disteso circa {prof[1]:.0f} mm) e il contorno trovato ha la misura del '
+                        f'piegato: manca lo sviluppo, verificare')
 
     # Contorno largo meno di 3 mm: e' la vista di fianco della lamiera (lo
     # spessore), non uno sviluppo da tagliare (07PA01517-00: preso il bordo
