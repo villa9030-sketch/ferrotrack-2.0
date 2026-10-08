@@ -833,7 +833,9 @@ LAYER_TAGLIO = 'TAGLIO'
 LAYER_PIEGA = 'PIEGA'
 LAYER_MARCATURA = 'MARCATURA'
 _LAYER_LANTEK = ((LAYER_TAGLIO, 7), (LAYER_PIEGA, 2), (LAYER_MARCATURA, 3))
-BRACCIO_CROCE_TRAPANO_MM = 2.0   # croce di centro dei fori da fare al trapano
+# Croce di marcatura dei fori da trapano: GRANDE QUANTO IL FORO (due linee lunghe
+# il diametro, incrociate nel centro). Stefano: quando fa il foro col trapano la
+# marcatura sparisce.
 _LINEE_ASSI = ('center', 'centr', 'dashdot', 'axis', 'asse', 'phantom', 'divide')
 
 
@@ -858,8 +860,9 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
 
     `fori_trapano` ([{'d_mm', 'x', 'y'}] in mm, da geometria['fori_trapano']):
     fori sotto i 2/3 dello spessore, fatti dopo al trapano. Il loro cerchio (e
-    i simboli concentrici) NON va sul TAGLIO: al centro si disegna una croce
-    (bracci di 2 mm) sul layer MARCATURA, per puntarli.
+    i simboli concentrici) NON va sul TAGLIO: si disegna una croce grande
+    quanto il foro (due linee lunghe il diametro, incrociate nel centro) sul
+    layer MARCATURA: col trapano la marcatura sparisce.
 
     Returns: {'success', 'error', 'entities_copied', 'entities_source',
               'n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti',
@@ -1059,11 +1062,10 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     if result['n_taglio'] == 0:
         result['error'] = 'nessuna entità del DXF giace sul contorno del pezzo'
         return result
-    # croce di centro dei fori da trapano (non conta come marcatura del disegno)
+    # croce grande quanto il foro da trapano (non conta come marcatura del disegno)
     col_m = dict(_LAYER_LANTEK)[LAYER_MARCATURA]
-    for x, y, _r in trapano:
-        for (x1, y1), (x2, y2) in (((x - BRACCIO_CROCE_TRAPANO_MM, y), (x + BRACCIO_CROCE_TRAPANO_MM, y)),
-                                   ((x, y - BRACCIO_CROCE_TRAPANO_MM), (x, y + BRACCIO_CROCE_TRAPANO_MM))):
+    for x, y, r in trapano:
+        for (x1, y1), (x2, y2) in (((x - r, y), (x + r, y)), ((x, y - r), (x, y + r))):
             dst_ms.add_line((x1, y1), (x2, y2), dxfattribs={'layer': LAYER_MARCATURA, 'color': col_m})
     result['n_croci_trapano'] = len(trapano)
     try:

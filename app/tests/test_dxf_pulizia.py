@@ -488,10 +488,10 @@ def main():
         cer = sorted(round(e.dxf.radius, 2) for e in tag if e.dxftype() == 'CIRCLE')
         check('TAGLIO: solo i due Ø8 (niente Ø5)', cer == [4.0, 4.0], cer)
         croci = [e for e in d11 if e.dxf.layer == C.LAYER_MARCATURA and e.dxftype() == 'LINE'
-                 and abs(math.dist(e.dxf.start, e.dxf.end) - 4.0) < 1e-6]
+                 and abs(math.dist(e.dxf.start, e.dxf.end) - 5.0) < 0.02]
         centri = sorted({(round((e.dxf.start.x + e.dxf.end.x) / 2, 2),
                           round((e.dxf.start.y + e.dxf.end.y) / 2, 2)) for e in croci})
-        check('MARCATURA: croce (bracci 2 mm) sul centro di ogni Ø5',
+        check('MARCATURA: croce 5 x 5 mm (grande quanto il foro) sul centro di ogni Ø5',
               len(croci) == 4 and centri == [(50.0, 90.0), (190.0, 90.0)], centri)
         check('filetto attorno al Ø5 non copiato, niente marcatura del disegno',
               not any(e.dxftype() == 'ARC' for e in d11)
