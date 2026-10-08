@@ -91,7 +91,10 @@ _INITIALIZED = False
 #                  (33PP00086-00: tutto ridotto di 10 volte).
 # v17 (2026-10-08): spessore da tutte le fonti (vista laterale, cella, piatto,
 #                  "SP. 30/10"), discordi = non sicuro; "Acciaio inossidabile" = INOX.
-PARSER_VERSION = 17
+# v18 (2026-10-08): "sicuro" solo con un riscontro indipendente (peso, misure
+#                  del cartiglio, quote) e senza indizi di taglio dubbio
+#                  (sicurezza_import.decidi_sicuro); il resto va verificato.
+PARSER_VERSION = 18
 
 
 def _init_db() -> None:

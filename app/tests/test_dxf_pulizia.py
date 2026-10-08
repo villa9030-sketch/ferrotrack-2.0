@@ -415,6 +415,26 @@ def main():
                                    'dxf_bbox_mm': [0, 0, 4.0, 4.0], 'scala_unita_mm': 25.4})
     check('pezzo che riempie il foglio → saltata', not ok and 'area_ratio' in motivo, motivo)
 
+    print('\nP8) sicuro solo con un riscontro indipendente e senza indizi di taglio dubbio')
+    from backend.preventivi import sicurezza_import as SI
+    base = {'diag': {'lati_quotati': 2, 'foro_min_mm': 8.0}, 'area_dm2': 1.0, 'sp_mm': 3.0,
+            'sp_indipendente': 3.0, 'densita': 7.85, 'peso_cart': 0.2355, 'peso_cart_conf': 0.95,
+            'scala': 1.0, 'pul_n_piega': 0, 'pul_n_lung_marcatura_mm': 0.0, 'pul_n_simboli_tolti': 0}
+    ok, motivi = SI.decidi_sicuro(base)
+    check('quotato, peso giusto → sicuro', ok, motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 0}, 'peso_cart': None})
+    check('nessun riscontro → da verificare', not ok and 'riscontro' in motivi[0], motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 0}})
+    check('senza quote ma peso giusto → sicuro', ok, motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'peso_cart': 0.35})
+    check('pesa meno del cartiglio → da verificare', not ok and 'peso' in motivi[0], motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 2, 'foro_min_mm': 2.0}})
+    check('foro piu\' piccolo dello spessore → da verificare', not ok and 'foro' in motivi[0], motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'pul_n_lung_marcatura_mm': 150.0})
+    check('linee aperte dentro il pezzo → da verificare', not ok, motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 2, 'n_segni': 1}})
+    check('foro a forma di lettera → da verificare', not ok, motivi)
+
     print(f'\nRisultato: {OK} ok, {len(KO)} ko')
     for k in KO:
         print('  KO:', k)

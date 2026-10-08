@@ -66,6 +66,8 @@ def _esegui_cleanup(dxf_path: str, geo: dict | None, filename: str,
                     'bbox_w_mm': r.get('w_mm'),
                     'bbox_h_mm': r.get('h_mm'),
                     'warnings': r.get('warnings') or [],
+                    **{k: r[k] for k in ('n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti',
+                                         'copertura', 'n_lung_marcatura_mm') if k in r},
                 }
                 logger.info('[%s] cleanup auto ok: %d/%d entità (%s)',
                             filename, r['entities_copied'], r['entities_source'],
@@ -91,6 +93,31 @@ def _misure_come_cartiglio(geo: dict, dim_info: dict | None) -> bool:
     if min(a) <= 0 or min(b) <= 0:
         return False
     return all(abs(x - y) <= max(1.0, 0.01 * y) for x, y in zip(a, b))
+
+
+def _controllo_sicuro(dxf_path, geo, cartiglio, spessore, dim_info, cleaned_info, conf_detector):
+    """Un disegno con pulizia 'auto' resta SICURO solo se gli indizi
+    indipendenti (sicurezza_import.decidi_sicuro) tornano; altrimenti la
+    confidenza scende sotto 0,7 e la pulizia diventa 'auto_review'
+    (da verificare). Il contorno non cambia."""
+    try:
+        from . import sicurezza_import as si
+        ind = si.raccogli_indizi(dxf_path, geo, cartiglio, spessore, dim_info, cleaned_info, conf_detector)
+        cleaned_info = {**cleaned_info, 'indizi': ind}
+        if cleaned_info.get('cleaned_status') != 'auto' or not geo:
+            return geo, cleaned_info
+        ok, motivi = si.decidi_sicuro(ind)
+        if ok:
+            return geo, cleaned_info
+        testo = '; '.join(motivi)
+        geo = {**geo, 'confidence': min(float(geo.get('confidence') or 0), si.CONF_DA_VERIFICARE),
+               'confidence_label': 'media (da verificare)',
+               'warnings': list(geo.get('warnings') or []) + [f'Da verificare: {testo}']}
+        cleaned_info = {**cleaned_info, 'cleaned_status': 'auto_review',
+                        'cleanup_reason': f"da verificare: {testo}"}
+    except Exception as e:      # noqa: BLE001 - il controllo non deve rompere l'import
+        logger.warning('controllo sicuro %s: %s', dxf_path, e)
+    return geo, cleaned_info
 
 
 def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
@@ -164,6 +191,7 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
         # dimensioni simili (191700034-00: la vista isometrica la rendeva
         # "incerta" e l'area diventava il rettangolo 140x100 = 1,40 dm²
         # invece della piastra a L da 0,50).
+        conf_detector = (geo or {}).get('confidence')
         if geo and _misure_come_cartiglio(geo, dim_info) and geo.get('confidence', 0) < 0.75:
             geo = {**geo, 'confidence': 0.75, 'confidence_label': 'media (misure del cartiglio)',
                    'needs_manual_select': False,
@@ -206,6 +234,8 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
 
         # ---- Auto-cleanup DXF (Fase 1a) ----
         cleaned_info = _esegui_cleanup(dxf_path, geo, filename, dxf_cfg)
+        geo, cleaned_info = _controllo_sicuro(dxf_path, geo, cartiglio, spessore, dim_info,
+                                              cleaned_info, conf_detector)
 
         payload = {
             'success': True,
