@@ -2382,7 +2382,7 @@ def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None
     qs_outer = _quote_sul_contorno(outer, quote)
     po = outer.buffer(0.5)
     alt = []
-    for S in sil:
+    for S in list(sil) + [c for c in candidati if c is not outer]:
         if _is_iso_format(S) or _striscia(S):
             continue        # foglio / vista di fianco (larga uno spessore)
         if _lati_quotati(S, quote) < 2:
@@ -2396,13 +2396,17 @@ def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None
             continue        # la vista scelta e' quotata almeno quanto la sagoma
         if S.buffer(0.5).contains(outer) or po.contains(S):
             continue
-        # gia' un contorno chiuso tra i candidati: lo ha valutato la scelta
-        if any(_stesso_ingombro(S, p, 0.5) and abs(S.area - p.area) <= 0.002 * S.area for p in candidati):
+        # la stessa sagoma gia' trovata (silhouette = contorno chiuso)
+        if any(_stesso_ingombro(S, a[2], 0.5) and abs(S.area - a[2].area) <= 0.002 * S.area for a in alt):
             continue
         alt.append((nq, S.area, S))
     if len(alt) != 1:
         return None         # nessuna o piu' sagome quotate: non si sceglie
-    return alt[0][2]
+    S = alt[0][2]
+    # contorno chiuso del chain walking (una faccia sola) o sagoma di piu' facce
+    chiuso = next((c for c in candidati if _stesso_ingombro(S, c, 0.5)
+                   and abs(S.area - c.area) <= 0.002 * S.area), None)
+    return chiuso if chiuso is not None else S
 
 
 def _stesso_ingombro(a, b, tol: float = 1.0) -> bool:
@@ -2571,19 +2575,27 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     # ---- 6c. Sviluppo con pieghe continue disegnato a parte dalla vista scelta
     sviluppo = _sviluppo_altrove(outer, candidati, msp, cfg, base.get('quote'))
     if sviluppo is not None:
-        piena = _materiale_dentro(sviluppo, _facce(msp, cfg))
+        if any(sviluppo is c for c in candidati):
+            piena = sviluppo        # contorno chiuso: fori = contorni dentro
+        else:
+            piena = _materiale_dentro(sviluppo, _facce(msp, cfg))
         if piena is not None:
             sb_, ob_ = sviluppo.bounds, outer.bounds
             warnings.append(
                 f'Preso lo sviluppo quotato {sb_[2] - sb_[0]:.0f} x {sb_[3] - sb_[1]:.0f} '
-                f'(sagoma divisa da linee di piega continue) invece della vista '
+                f'(piu\' grande della vista scelta in entrambe le direzioni) invece della vista '
                 f'{ob_[2] - ob_[0]:.0f} x {ob_[3] - ob_[1]:.0f}: verificare')
-            outer, scelto, regione_piena = sviluppo, sviluppo, piena
+            outer, scelto = sviluppo, sviluppo
+            regione_piena = None if piena is sviluppo else piena
+            idx_c = next((i for i, c in enumerate(candidati) if c is sviluppo), None)
+            if idx_c is not None:
+                best_idx = idx_c        # il pulito per Lantek lo ritrova cosi'
             confidence = min(confidence, 0.6)
 
     # ---- 7. Inner holes (contenuti VERAMENTE nell'outer — BUG FIX D2) + svasature (D4)
     pp_outer = _prep_buf(outer)
-    inners = [p for i, p in enumerate(candidati) if i != best_idx and _contiene(outer, p, pp_outer)]
+    inners = [p for i, p in enumerate(candidati)
+              if i != best_idx and p is not outer and _contiene(outer, p, pp_outer)]
     if regione_piena is not None:
         # le falde unite sono materiale, non fori: foro = contorno non coperto dalle facce
         inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area]
