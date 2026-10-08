@@ -2395,11 +2395,12 @@ def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None
     for S in list(sil) + [c for c in candidati if c is not outer]:
         if _is_iso_format(S) or _striscia(S):
             continue        # foglio / vista di fianco (larga uno spessore)
-        if _lati_quotati(S, quote) < 2:
+        lq_s = _lati_quotati(S, quote)
+        if lq_s < 1:
             continue
         nq = _quote_sul_contorno(S, quote)
-        if nq < 1:
-            continue
+        if nq < (1 if lq_s >= 2 else 2):
+            continue        # un solo lato quotato: servono almeno 2 quote addosso
         if not _domina(S, outer):
             continue        # stendere le falde allunga: lo sviluppo non e' piu' piccolo
         if po.contains(S):
