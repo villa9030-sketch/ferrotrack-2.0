@@ -143,24 +143,22 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
             geo = dxf_scanner.estrai_geometria_taglio(dxf_path, dxf_cfg)
         cartiglio = dxf_scanner.estrai_materiale_da_cartiglio(dxf_path)
         mat_for_calc = cartiglio.get('materiale') if cartiglio.get('confidence', 0) >= 0.5 else None
-        area_incerta = bool(geo and geo.get('needs_manual_select'))
-        spessore = dxf_scanner.estrai_spessore_da_cartiglio(
-            dxf_path,
-            area_dm2=(geo or {}).get('area_dm2'),
-            materiale=mat_for_calc,
-            area_incerta=area_incerta,
-        )
-        # Se l'area del detector è inaffidabile, abbatto la confidenza
-        # dello spessore (dipende dall'area) — solo per la stima peso/area.
-        if area_incerta and spessore.get('source') == 'peso_area':
-            spessore = {**spessore, 'confidence': min(spessore.get('confidence', 0), 0.4)}
-
+        # Descrizione "45x12 sp.3" / cartiglio tabellare: misure e spessore
+        dim_info = dxf_scanner.estrai_dimensioni_da_descrizione_cartiglio(dxf_path)
+        altre = []
+        if dim_info and dim_info.get('spessore_mm'):
+            altre.append({
+                'spessore_mm': dim_info['spessore_mm'],
+                'confidence': dim_info.get('confidence', 0) or 0,
+                'source': dim_info.get('source') or 'cartiglio_descrizione',
+                'warnings': [],
+                'details': {'raw': dim_info.get('raw_text')},
+            })
         # Fallback cartiglio-descrizione: parsing testuale "45x12 sp.3".
         # - area/perimetro solo se detector geometrico è debole
         # - spessore anche se il detector area è OK ma spessore diretto null
         #   (es. 20PA00690: detector area OK, ma spessore diretto null e
         #   cartiglio contiene 'Sp.3' → deve popolare spessore)
-        dim_info = dxf_scanner.estrai_dimensioni_da_descrizione_cartiglio(dxf_path)
         # Il contorno trovato ha proprio le misure scritte nel cartiglio: la
         # scelta non e' dubbia anche se nel foglio ci sono altre viste di
         # dimensioni simili (191700034-00: la vista isometrica la rendeva
@@ -191,26 +189,20 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
                 '_dim_x_mm': dim_info['dim_x_mm'],
                 '_dim_y_mm': dim_info['dim_y_mm'],
             }
-        # Spessore dal cartiglio (descrizione "sp.3" o tabella Lunghezza/Larghezza/
-        # Sp.) confrontato con quello già stimato. Regola in scegli_spessore:
-        # testo etichettato > peso/area > nome file > cartiglio tabellare; se
-        # discordano vince il più affidabile e resta un warning con entrambi i
-        # valori (prima il tabellare 1.0mm sostituiva in silenzio il 3.0 da
-        # peso/area su 20R201N0401). Con area incerta peso/area va in coda.
-        if dim_info and dim_info.get('spessore_mm'):
-            dim_cand = {
-                'spessore_mm': dim_info['spessore_mm'],
-                'confidence': dim_info.get('confidence', 0) or 0,
-                'source': dim_info.get('source') or 'cartiglio_descrizione',
-                'warnings': [],
-                'details': {'raw': dim_info.get('raw_text')},
-            }
-            prima = spessore.get('spessore_mm')
-            spessore = dxf_scanner.scegli_spessore(
-                [spessore, dim_cand], area_incerta=area_incerta)
-            if spessore.get('spessore_mm') != prima:
-                logger.info('[%s] spessore da cartiglio: %s mm (%s) al posto di %s',
-                            filename, spessore.get('spessore_mm'), spessore.get('source'), prima)
+        # Tutte le fonti di spessore insieme (testo, cella, piatto, vista
+        # laterale, peso/area, nome file, descrizione/tabellare): scegli_spessore
+        # le confronta, concordi = sicuro, discordi = da confermare. Con area
+        # incerta peso/area non vota. Calcolato DOPO la conferma del contorno con le
+        # misure del cartiglio: un contorno confermato non e' piu' incerto.
+        area_incerta = bool(geo and geo.get('needs_manual_select'))
+        spessore = dxf_scanner.estrai_spessore_da_cartiglio(
+            dxf_path,
+            area_dm2=(geo or {}).get('area_dm2'),
+            materiale=mat_for_calc,
+            area_incerta=area_incerta,
+            vista=(geo or {}).get('spessore_vista'),
+            altre_fonti=altre,
+        )
 
         # ---- Auto-cleanup DXF (Fase 1a) ----
         cleaned_info = _esegui_cleanup(dxf_path, geo, filename, dxf_cfg)

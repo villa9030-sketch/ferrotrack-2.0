@@ -89,7 +89,9 @@ _INITIALIZED = False
 #                  celle del cartiglio (13PA00680-00: sviluppo scartato).
 # v16 (2026-10-06): un DETTAGLIO ingrandito non decide la scala del foglio
 #                  (33PP00086-00: tutto ridotto di 10 volte).
-PARSER_VERSION = 16
+# v17 (2026-10-08): spessore da tutte le fonti (vista laterale, cella, piatto,
+#                  "SP. 30/10"), discordi = non sicuro; "Acciaio inossidabile" = INOX.
+PARSER_VERSION = 17
 
 
 def _init_db() -> None:

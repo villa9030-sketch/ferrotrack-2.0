@@ -110,6 +110,7 @@ def misura(path: str, cartella_tmp: str) -> dict:
         'avvisi': [str(w)[:160] for w in (g.get('warnings') or [])][:8],
         'sp_mm': _num(sp.get('spessore_mm')), 'sp_conf': _num(sp.get('confidence')),
         'sp_fonte': sp.get('source'),
+        'sp_fonti': sp.get('fonti'), 'sp_avvisi': [str(w)[:160] for w in (sp.get('warnings') or [])][:4],
         'mat': ca.get('materiale'), 'mat_conf': _num(ca.get('confidence')),
         'pulito': cl.get('cleaned_status'), 'pulito_motivo': (cl.get('cleanup_reason') or '')[:160],
     }
