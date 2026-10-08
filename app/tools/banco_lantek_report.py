@@ -51,7 +51,7 @@ def carica_gt(path):
         gt[r['code']] = {
             'area': f('area_m2') * 100, 'area_est': f('ext_area_m2') * 100,
             'perim': f('cut_perim_m'), 'bbox': sorted([f('bbox_len_mm'), f('bbox_wid_mm')]),
-            'inneschi': int(float(r['cam_cut_starts'])) if r.get('cam_cut_starts') else None,
+            'inneschi': int(float(r['cam_cut_starts'])) if r.get('cam_cut_starts') not in (None, '', '0') else None,
             'sp': f('thickness_mm'), 'mat': r['material'].replace('GEN_', ''),
         }
     return gt
@@ -89,12 +89,12 @@ def valuta(m, g):
         'perim': vicino(m.get('perim_m'), g['perim'], TOL_PERIM_REL, TOL_PERIM_ABS_M),
         'bbox': len(bb) == 2 and vicino(bb[0], g['bbox'][0], TOL_BBOX_REL, TOL_BBOX_ABS_MM)
         and vicino(bb[1], g['bbox'][1], TOL_BBOX_REL, TOL_BBOX_ABS_MM),
-        'inneschi': g['inneschi'] is not None and m.get('n_pierce') == g['inneschi'],
+        'inneschi': None if g['inneschi'] is None else m.get('n_pierce') == g['inneschi'],
         'sp': vicino(m.get('sp_mm'), g['sp'], 0, TOL_SP_MM),
         'mat': famiglia(m.get('mat')) == famiglia(g['mat']) if m.get('mat') else None,
     }
     e['geo'] = bool(m.get('ok')) and e['area'] and e['perim'] and e['bbox']
-    e['tutto'] = e['geo'] and e['inneschi'] and e['sp']
+    e['tutto'] = e['geo'] and e['inneschi'] is not False and e['sp']
     e['sicuro'] = m.get('pulito') == 'auto'
     e['tipo'] = None if e['geo'] else classifica_errore(m, g)
     return e
