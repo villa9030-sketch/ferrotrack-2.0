@@ -112,6 +112,7 @@ def misura(path: str, cartella_tmp: str) -> dict:
         'sp_fonte': sp.get('source'),
         'sp_fonti': sp.get('fonti'), 'sp_avvisi': [str(w)[:160] for w in (sp.get('warnings') or [])][:4],
         'mat': ca.get('materiale'), 'mat_conf': _num(ca.get('confidence')),
+        'tratti': g.get('tratti_aperti'),
         'pulito': cl.get('cleaned_status'), 'pulito_motivo': (cl.get('cleanup_reason') or '')[:160],
     }
 

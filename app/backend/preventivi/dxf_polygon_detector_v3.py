@@ -175,6 +175,9 @@ CONF_BASSA = 0.3
 # Pezzo giusto ma fori dubbi (scritta forse tagliata...): sotto lo 0.7 del
 # "pulito auto" -> revisione, ma senza selezione manuale del contorno
 CONF_FORI_DUBBI = 0.65
+ARCHI_GIRO_MIN = 1.5 * math.pi        # archi liberi coassiali che coprono 270 gradi = foro tondo (_fori_da_archi)
+GIOCO_TRATTI_MM = 2.0               # estremi di linee aperte accostati per vedere se chiudono una zona
+FESSURA_MAX_MM = 0.1                 # fessure del contorno piu' strette: non si tagliano (_chiudi_fessure)
 
 
 # ============================================================================
@@ -1761,6 +1764,9 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
         'testi': _punti_testo_mm(msp, scala),
         'quote': _quote_mm(msp, scala),
         'warnings': warnings, 'n_raw': n_raw, 'n_dup': n_dup,
+        # tratti aperti (colore normale, senza doppioni): servono a trovare le
+        # linee rimaste fuori dai contorni chiusi (_tratti_aperti_dentro)
+        'aperti': opens, 'tol_chain': _tol,
     }
 
 
@@ -2298,6 +2304,237 @@ def _profilo_piegato_incompatibile(outer, polys: list):
     return None
 
 
+def _chiudi_fessure(poly, larghezza: float = FESSURA_MAX_MM):
+    """Toglie dal contorno le fessure piu' strette di `larghezza` (il bordo
+    entra nel pezzo e torna indietro quasi sullo stesso tratto). Nascono quando
+    facce che si toccano sono unite con qualche centesimo di gioco (falde
+    riunite, linee di piega sul bordo): non c'e' materiale da togliere, il
+    laser non le taglia, ma il loro doppio bordo allungava il perimetro
+    (08PA03797-00: 93 mm invece di 78). Se la chiusura cambia l'area piu'
+    dello 0,1% o spezza il contorno, si tiene quello originale."""
+    try:
+        r = larghezza / 2.0
+        q = poly.buffer(r, join_style=2, mitre_limit=10.0).buffer(-r, join_style=2, mitre_limit=10.0)
+        if q.geom_type != 'Polygon' or q.is_empty or not q.is_valid:
+            return poly
+        q = Polygon(q.exterior)
+        if abs(q.area - poly.area) > 0.001 * poly.area or poly.length - q.length < 0.5:
+            return poly
+        return q
+    except Exception:
+        return poly
+
+
+def _tratti_aperti_dentro(aperti: list, outer, coperti: list, scritte: list | None = None) -> list:
+    """Linee aperte (colore normale, non tratteggiate) che stanno DENTRO il
+    pezzo e non fanno parte ne' del contorno ne' di un foro/scritta/svasatura
+    riconosciuti: il disegno dice qualcosa che i contorni chiusi non spiegano
+    (un foro rimasto aperto, un'asola spezzata, un taglio a linea).
+
+    `coperti`: contorni gia' spiegati (esterno e tutti i contorni interni).
+    Ritorna [{'tipo', 'lung', 'linea'}] con tipo:
+      'filetto'  arco concentrico a un foro tondo (simbolo di filetto/svasatura)
+      'asse'     segmento dritto che passa per il centro di un foro (croce d'asse)
+      'scritta'  dentro la zona di una scritta incisa riconosciuta
+      'bordo2'   va da bordo a bordo del pezzo (linea di piega continua o divisione)
+      'bordo1'   parte dal bordo e finisce dentro (taglio a linea, intaglio)
+      'libero'   staccato da tutto
+    """
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    if not aperti:
+        return []
+    ob = outer.bounds
+    cand = []
+    for s, e, v in aperti:
+        xs = [p[0] for p in v]
+        ys = [p[1] for p in v]
+        if min(xs) < ob[0] - 0.5 or max(xs) > ob[2] + 0.5 or min(ys) < ob[1] - 0.5 or max(ys) > ob[3] + 0.5:
+            continue
+        cand.append((s, e, v))
+    if not cand or len(cand) > 5000:
+        return []
+    try:
+        dentro = prep(outer.buffer(0.3))
+        nucleo = prep(outer.buffer(-0.3))
+        bordi = [c.exterior for c in coperti if c is not None]
+        albero = _shp.STRtree(bordi) if bordi else None
+        tondi = [(p.centroid, (p.area / math.pi) ** 0.5) for p in coperti
+                 if p is not outer and p.length > 0 and 4 * math.pi * p.area / p.length ** 2 >= 0.85]
+        zona_scr = unary_union([p.envelope.buffer(max(p.bounds[2] - p.bounds[0], p.bounds[3] - p.bounds[1]))
+                                for p in scritte]) if scritte else None
+    except Exception:
+        return []
+    out = []
+    for s, e, v in cand:
+        try:
+            ls = LineString(v)
+            if ls.length < 0.5 or not dentro.contains(ls) or not nucleo.intersects(ls):
+                continue
+            resto = ls
+            if albero is not None:
+                finestra = _shp.box(*ls.buffer(0.3).bounds)
+                vic = [bordi[int(j)].intersection(finestra) for j in albero.query(finestra)]
+                vic = [g for g in vic if not g.is_empty]
+                if vic:
+                    resto = ls.difference(unary_union(vic).buffer(0.15))
+            if resto.length <= 0.5:
+                continue
+            tipo = None
+            for c, r in tondi:
+                if len(v) > 2:
+                    ds = [math.hypot(x - c.x, y - c.y) for x, y in v[::max(1, len(v) // 8)]]
+                    if max(ds) - min(ds) < 0.15 and 0.9 * r <= min(ds) <= 3 * r + 2:
+                        tipo = 'filetto'
+                        break
+                elif ls.distance(c) < 0.3 and ls.length <= 4 * r + 12:
+                    tipo = 'asse'
+                    break
+            if tipo is None and zona_scr is not None and zona_scr.contains(ls):
+                tipo = 'scritta'
+            if tipo is None:
+                ext = outer.exterior
+                n_b = (ext.distance(Point(s)) < 0.5) + (ext.distance(Point(e)) < 0.5)
+                tipo = ('libero', 'bordo1', 'bordo2')[n_b]
+            # curvo: non sta su una retta (archi, spline); le linee di
+            # marcatura (posizioni di saldatura, assi) sono quasi sempre dritte
+            curvo = len(v) > 2 and LineString([v[0], v[-1]]).hausdorff_distance(ls) > 0.2
+            out.append({'tipo': tipo, 'lung': resto.length, 'linea': ls, 'curvo': curvo})
+        except Exception:
+            continue
+    return out
+
+
+def _cerchio_per_3_punti(a, b, c):
+    """Centro e raggio del cerchio per tre punti, o None se allineati."""
+    d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]))
+    if abs(d) < 1e-9:
+        return None
+    ux = ((a[0] ** 2 + a[1] ** 2) * (b[1] - c[1]) + (b[0] ** 2 + b[1] ** 2) * (c[1] - a[1])
+          + (c[0] ** 2 + c[1] ** 2) * (a[1] - b[1])) / d
+    uy = ((a[0] ** 2 + a[1] ** 2) * (c[0] - b[0]) + (b[0] ** 2 + b[1] ** 2) * (a[0] - c[0])
+          + (c[0] ** 2 + c[1] ** 2) * (b[0] - a[0])) / d
+    return ux, uy, math.hypot(a[0] - ux, a[1] - uy)
+
+
+def _fori_da_archi(tratti: list, outer, fori: list) -> list:
+    """Fori tondi disegnati a pezzi e rimasti aperti: archi liberi dentro il
+    pezzo con lo stesso centro e lo stesso raggio che insieme fanno quasi
+    tutto il giro (>= ARCHI_GIRO_MIN). Succede quando altri contorni
+    sovrapposti (svasature, lobi) interrompono il cerchio e il disegnatore
+    ha tagliato via i tratti in comune (06PA00239-00: foro da 80 in 4 archi,
+    perso; Lantek lo taglia intero). Ritorna i cerchi ricostruiti."""
+    archi = []
+    for tr in tratti:
+        if tr['tipo'] != 'libero' or not tr.get('curvo'):
+            continue
+        xy = list(tr['linea'].coords)
+        if len(xy) < 4:
+            continue
+        c = _cerchio_per_3_punti(xy[0], xy[len(xy) // 2], xy[-1])
+        if c is None or c[2] < 0.5:
+            continue
+        cx, cy, r = c
+        if any(abs(math.hypot(x - cx, y - cy) - r) > max(0.05, 0.005 * r) for x, y in xy):
+            continue
+        archi.append((cx, cy, r, tr['linea'].length / r))
+    nuovi = []
+    usati = set()
+    for i, (cx, cy, r, _s) in enumerate(archi):
+        if i in usati:
+            continue
+        gruppo = [j for j, (x, y, rr, _) in enumerate(archi)
+                  if j not in usati and math.hypot(x - cx, y - cy) <= 0.2 and abs(rr - r) <= 0.2]
+        giro = sum(archi[j][3] for j in gruppo)
+        if giro < ARCHI_GIRO_MIN or giro > 2.05 * math.pi:
+            continue
+        usati.update(gruppo)
+        cerchio = Point(cx, cy).buffer(r, 64)
+        if not outer.buffer(-0.1).contains(cerchio):
+            continue
+        if any(abs(f.area - cerchio.area) <= 0.02 * cerchio.area and f.centroid.distance(cerchio.centroid) <= 0.5
+               for f in fori):
+            continue
+        nuovi.append(cerchio)
+    return nuovi
+
+
+def _facce_da_tratti(tratti: list, outer, fori: list, gioco: float = GIOCO_TRATTI_MM) -> list:
+    """Zone chiuse che le linee aperte rimaste formano tra loro (o con i fori
+    che toccano), accostando gli estremi distanti fino a `gioco` mm: un foro o
+    un'asola disegnati con il contorno spezzato (22PA0001-00: mezzelune a 1,6
+    mm l'una dall'altra; 250200014: foro da 5 in quattro archi staccati).
+    Le linee di marcatura (assi, posizioni di saldatura) restano aperte e non
+    chiudono niente. Ritorna [(zona, curva)] delle zone non gia' fori;
+    curva = il bordo passa per un tratto curvo (arco, spline)."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union, polygonize
+    scelti = [tr for tr in tratti if tr['tipo'] in ('libero', 'bordo1', 'bordo2')]
+    usa = [tr['linea'] for tr in scelti]
+    if not usa or len(usa) > 2000:
+        return []
+    curvi = [tr['linea'] for tr in scelti if tr.get('curvo')]
+    try:
+        tocca = unary_union(usa).buffer(gioco)
+        bordi_fori = [f.exterior for f in fori if f.intersects(tocca)]
+        # estremi vicini -> stesso punto (union-find sugli estremi)
+        linee = [list(l.coords) for l in usa] + [list(b.coords) for b in bordi_fori]
+        estremi = []
+        for k, xy in enumerate(linee):
+            if xy[0] != xy[-1]:
+                estremi.append((k, 0, xy[0]))
+                estremi.append((k, -1, xy[-1]))
+        padre = list(range(len(estremi)))
+
+        def rad(i):
+            while padre[i] != i:
+                padre[i] = padre[padre[i]]
+                i = padre[i]
+            return i
+        if estremi:
+            alb = _shp.STRtree([Point(p) for _, _, p in estremi])
+            for i, (_, _, p) in enumerate(estremi):
+                for j in alb.query(Point(p).buffer(gioco)):
+                    j = int(j)
+                    if j > i and math.hypot(p[0] - estremi[j][2][0], p[1] - estremi[j][2][1]) <= gioco:
+                        padre[rad(i)] = rad(j)
+            gruppi: dict = {}
+            for i in range(len(estremi)):
+                gruppi.setdefault(rad(i), []).append(i)
+            for g in gruppi.values():
+                if len(g) < 2:
+                    continue
+                cx = sum(estremi[i][2][0] for i in g) / len(g)
+                cy = sum(estremi[i][2][1] for i in g) / len(g)
+                for i in g:
+                    k, pos, _ = estremi[i]
+                    linee[k][pos] = (cx, cy)
+        from shapely.geometry import MultiLineString
+        from shapely.ops import snap
+        geoms = MultiLineString([xy for xy in linee if len(xy) >= 2])
+        # estremi che cadono su un'altra linea (asola chiusa da una linea lunga)
+        geoms = snap(geoms, geoms, 0.5)
+        facce = [f for f in polygonize(unary_union(geoms)) if f.area >= MIN_AREA_MM2]
+    except Exception:
+        return []
+    try:
+        zona_curvi = unary_union(curvi).buffer(0.3) if curvi else None
+    except Exception:
+        zona_curvi = None
+    out = []
+    for f in facce:
+        if f.length <= 0 or 2.0 * f.area / f.length < MIN_LARGHEZZA_MM:
+            continue
+        if f.area > 0.5 * outer.area:
+            continue
+        if any(abs(h.area - f.area) <= 0.02 * max(h.area, f.area) and h.centroid.distance(f.centroid) <= 0.5
+               for h in fori):
+            continue
+        curva = bool(zona_curvi is not None and f.exterior.intersection(zona_curvi).length > 1.0)
+        out.append((f, curva))
+    return out
+
+
 def _misure(outer, inners, scala: float) -> dict:
     """Area netta / perimetro / pierce dall'outer + fori (tutto in mm)."""
     area_outer_mm2 = outer.area
@@ -2410,6 +2647,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         confidence = min(confidence, 0.6)
     if n_falde:
         warnings.append(f'Sviluppo diviso da linee di piega: unite {n_falde} falde al contorno')
+    outer = _chiudi_fessure(outer)
 
     # ---- 7. Inner holes (contenuti VERAMENTE nell'outer — BUG FIX D2) + svasature (D4)
     pp_outer = _prep_buf(outer)
@@ -2417,6 +2655,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     if regione_piena is not None:
         # le falde unite sono materiale, non fori: foro = contorno non coperto dalle facce
         inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area]
+    contorni_interni = list(inners)   # tutti, prima di scritte/svasature/intagli
     scritte_dubbie: list = []
     inners, scritte = _separa_scritte(inners, outer, scritte_dubbie)
     inners, n_svas = _riduci_fori_annidati(inners)
@@ -2433,6 +2672,42 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     if segni:
         warnings.append(f'{len(segni)} contorno/i piccolo/i a forma di lettera o cifra: contato/i come '
                         f'foro, verificare se va tagliato o marcato')
+
+    # ---- 7b. Linee aperte rimaste dentro il pezzo (non spiegate dai contorni)
+    tratti = _tratti_aperti_dentro(base.get('aperti') or [], outer,
+                                   [outer, outer_mis, scelto] + contorni_interni, scritte)
+    tratti_stat: dict = {}
+    for tr in tratti:
+        st = tratti_stat.setdefault(tr['tipo'] + ('~' if tr['curvo'] else ''), [0, 0.0])
+        st[0] += 1
+        st[1] = round(st[1] + tr['lung'], 1)
+    fori_ricostruiti = _fori_da_archi(tratti, outer_mis, inners)
+    if fori_ricostruiti:
+        # i contorni che stanno dentro un foro ricostruito cadono con lo sfrido
+        pp_r = [_prep_buf(c) for c in fori_ricostruiti]
+        inners = [p for p in inners if not any(_contiene(c, p, pc) for c, pc in zip(fori_ricostruiti, pp_r))]
+        inners = inners + fori_ricostruiti
+        warnings.append(f'{len(fori_ricostruiti)} foro/i tondo/i disegnato/i ad archi staccati: ricostruito/i '
+                        f'intero/i, verificare')
+    facce_aperte = _facce_da_tratti(tratti, outer_mis, inners)
+    if facce_aperte:
+        tratti_stat['facce'] = [len(facce_aperte), round(sum(f.area for f, _c in facce_aperte), 1)]
+        fc = [f for f, c in facce_aperte if c and f.area <= 0.01 * outer_mis.area]
+        if fc:
+            tratti_stat['facce_c'] = [len(fc), round(sum(f.area for f in fc), 1)]
+    tratti_stat['_conf0'] = confidence
+    # Fori dubbi per linee aperte: (a) zone grandi come un foro chiuse da linee
+    # aperte con almeno un tratto curvo (foro/asola spezzati: Lantek di solito
+    # li taglia, il motore non li vede); (b) una linea CURVA da bordo a bordo
+    # del pezzo: non e' una piega (le pieghe sono dritte), e' un taglio o una
+    # marcatura. In entrambi i casi cosa si taglia lo decide una persona.
+    curve_bordo = tratti_stat.get('bordo2~', [0, 0.0])[1]
+    if 'facce_c' in tratti_stat:
+        warnings.append(f"{tratti_stat['facce_c'][0]} zona/e chiusa/e da linee aperte (archi spezzati) dentro "
+                        f"il pezzo: foro/i non riconosciuto/i, verificare")
+    if curve_bordo > 10.0:
+        warnings.append('Linea curva da bordo a bordo dentro il pezzo: taglio o marcatura? verificare')
+    tratti_dubbi = 'facce_c' in tratti_stat or curve_bordo > 10.0
 
     # ---- 8. Calcoli finali
     mis = _misure(outer_mis, inners, scala)
@@ -2480,7 +2755,8 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     # ---- 8b. Fori dubbi: il contorno e' giusto ma cosa si taglia dentro no.
     # Confidenza sotto la soglia del "sicuro" (pulizia 'auto_review'), senza
     # chiedere la scelta manuale del pezzo.
-    if scritte_dubbie or segni:
+    fori_dubbi = bool(scritte_dubbie or segni or tratti_dubbi)
+    if fori_dubbi:
         confidence = min(confidence, CONF_FORI_DUBBI)
 
     # ---- 9. Confidence label
@@ -2540,6 +2816,10 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         # Bbox globale DXF (unità disegno) — usato dal frontend per scale SVG→mm
         'dxf_bbox_mm': _dxf_bbox_raw(msp),
         '_engine': 'shapely-' + __import__('shapely').__version__,
+        'tratti_aperti': tratti_stat,
+        # contorno giusto ma fori da verificare: nessuna conferma esterna del
+        # contorno (misure del cartiglio) deve riportarlo a "sicuro"
+        'fori_dubbi': fori_dubbi,
     }
 
 

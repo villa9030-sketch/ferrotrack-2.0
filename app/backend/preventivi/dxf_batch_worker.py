@@ -164,8 +164,13 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
         # dimensioni simili (191700034-00: la vista isometrica la rendeva
         # "incerta" e l'area diventava il rettangolo 140x100 = 1,40 dm²
         # invece della piastra a L da 0,50).
+        # Con i fori dubbi (scritte forse tagliate, fori spezzati) il cartiglio
+        # conferma il contorno ma non cosa si taglia dentro: confidenza sotto
+        # la soglia del "sicuro", senza perdere il contorno trovato.
         if geo and _misure_come_cartiglio(geo, dim_info) and geo.get('confidence', 0) < 0.75:
-            geo = {**geo, 'confidence': 0.75, 'confidence_label': 'media (misure del cartiglio)',
+            c_conf = 0.65 if geo.get('fori_dubbi') else 0.75
+            geo = {**geo, 'confidence': max(c_conf, geo.get('confidence', 0) or 0),
+                   'confidence_label': 'media (misure del cartiglio)',
                    'needs_manual_select': False,
                    'warnings': list(geo.get('warnings') or []) + [
                        f"Contorno confermato dalle misure del cartiglio "
