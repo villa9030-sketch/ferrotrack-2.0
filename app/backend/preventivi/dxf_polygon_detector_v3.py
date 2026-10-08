@@ -87,6 +87,12 @@ _BLOCCHI_ANNOTAZIONE_PATTERNS = (
     'sw_', 'note', 'nota', 'table', 'tabell', 'title', 'titol', 'cartig',
     'logo', 'datum', 'symb', 'simbol', 'format', 'border', 'frame', 'cornice',
     'revis', 'weld', 'sald', 'rugos', 'rough', 'arrow', 'frecc',
+    # gruppi di quote/annotazioni esportati come blocchi con nome (Solid Edge:
+    # GDIMGGROUP = quote, SEANNOT_GROUP = assi/annotazioni). Espansi come
+    # geometria, le linee di richiamo delle quote chiudevano finte "falde"
+    # attaccate al pezzo (1890400210: +3 falde, 12,4 dm2 invece di 9,6).
+    # Non 'dim' da solo: 'DIMA' e' un nome di pezzo.
+    'gdim', 'dimens', 'annot', 'quot',
 )
 MAX_PROFONDITA_BLOCCHI = 8
 
@@ -144,6 +150,8 @@ MIN_CONTENUTI_CORNICE = 6            # (legacy, non più usato come criterio da 
 CORNICE_TOCCO_MM = 0.5               # contenuto a ≤ N mm dal bordo = cella cartiglio
 FORO_AREA_MAX_REL = 0.05             # un "foro tipico" occupa ≤ 5% del contenitore
 PEZZI_CONFRONTABILI_REL = 0.30       # altro contorno ≥ 30% dell'area = pezzo alternativo
+MIN_LATO_PEZZO_MM = 3.0              # pezzo laser piu' stretto = vista di fianco (spessore)
+MAX_FALDA_REL = 25.0                 # falda/regione unita al massimo 25 volte il contorno scelto
 
 # Confidence thresholds
 CONF_ALTA = 0.85
@@ -460,6 +468,7 @@ def entita_espanse(layout, solo_geometria: bool = True, _depth: int = 0):
             refs = [e]
         layer = e.dxf.get('layer', '0')
         colore = e.dxf.get('color', 256)
+        lt_ins = linetype_effettivo(e)
         for ref in refs:
             try:
                 virt = list(ref.virtual_entities())
@@ -472,11 +481,70 @@ def entita_espanse(layout, solo_geometria: bool = True, _depth: int = 0):
                         ve.dxf.layer = layer
                     if ve.dxf.get('color', 256) == 0:
                         ve.dxf.color = colore
+                    if str(ve.dxf.get('linetype', 'BYLAYER')).upper() == 'BYBLOCK':
+                        ve._ft_lt_blocco = lt_ins
                     if annot:
                         ve._ft_annotazione = True
                 except Exception:
                     pass
             yield from entita_espanse(virt, solo_geometria, _depth + 1)
+
+
+_LINETYPE_CONTINUI = {'', 'CONTINUOUS', 'BYLAYER', 'BYBLOCK'}
+_LINETYPE_NOMI_TRATTEGGIATI = ('HIDDEN', 'DASH', 'CENTER', 'PHANTOM', 'DOT', 'CHAIN',
+                               'TRATT', 'ASSE', 'BORDER', 'DIVIDE', 'NASCOST')
+
+
+def linetype_effettivo(entity) -> str:
+    """Nome del tipo di linea reale (BYLAYER risolto col layer; BYBLOCK = quello
+    dell'INSERT, propagato da entita_espanse)."""
+    try:
+        lt = str(entity.dxf.get('linetype', 'BYLAYER') or 'BYLAYER')
+    except Exception:
+        return 'CONTINUOUS'
+    u = lt.upper()
+    if u == 'BYBLOCK':
+        return str(getattr(entity, '_ft_lt_blocco', 'CONTINUOUS') or 'CONTINUOUS')
+    if u == 'BYLAYER':
+        try:
+            lay = entity.doc.layers.get(entity.dxf.get('layer', '0'))
+            return str(lay.dxf.get('linetype', 'CONTINUOUS') or 'CONTINUOUS')
+        except Exception:
+            return 'CONTINUOUS'
+    return lt
+
+
+def linea_tratteggiata(entity) -> bool:
+    """True se l'entita' e' disegnata con un tipo di linea a tratti (nascosta,
+    asse, fantasma, tratteggio): nel disegno tecnico queste linee sono spigoli
+    nascosti, assi, linee di piega o ingombri, mai il profilo da tagliare, che
+    e' sempre a linea continua."""
+    nome = linetype_effettivo(entity)
+    u = nome.strip().upper()
+    if u in _LINETYPE_CONTINUI:
+        return False
+    doc = getattr(entity, 'doc', None)
+    cache = getattr(doc, '_ft_lt_tratti', None) if doc is not None else None
+    if cache is None:
+        cache = {}
+        try:
+            doc._ft_lt_tratti = cache
+        except Exception:
+            pass
+    if u in cache:
+        return cache[u]
+    esito = None
+    try:
+        lt = doc.linetypes.get(nome)
+        tags = [t for t in lt.pattern_tags.tags if t.code == 49]
+        # un elemento negativo = un vuoto nel tratto
+        esito = any(float(t.value) < 0 for t in tags)
+    except Exception:
+        esito = None
+    if esito is None:
+        esito = any(k in u for k in _LINETYPE_NOMI_TRATTEGGIATI)
+    cache[u] = esito
+    return esito
 
 
 def colore_effettivo(entity) -> int:
@@ -542,7 +610,8 @@ def _is_closed_geom(verts: list[tuple[float, float]], tol: float = TOL_ENDPOINT_
 # Estrazione poligoni raw
 # ============================================================================
 
-def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0) -> dict:
+def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0,
+                      escludi_tratteggi: bool = True) -> dict:
     """Raccoglie i contorni dal layout (INSERT espansi), già scalati in mm.
 
     Returns dict:
@@ -550,7 +619,8 @@ def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0) -> dict
         chiusi_col, aperti_col  — entità con colore piega/saldatura (effettivo)
         centri_cerchi           — centri (mm) dei CIRCLE normali (per lo scoring)
     """
-    out = {'chiusi': [], 'aperti': [], 'chiusi_col': [], 'aperti_col': [], 'centri_cerchi': []}
+    out = {'chiusi': [], 'aperti': [], 'chiusi_col': [], 'aperti_col': [], 'centri_cerchi': [],
+           'n_tratteggiati': 0}
     f = float(scala or 1.0)
     dist = FLATTEN_DISTANCE_MM / f  # deflessione costante in mm anche per DXF in pollici
 
@@ -568,6 +638,12 @@ def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0) -> dict
                 continue
         except AttributeError:
             pass
+        # Linee a tratti (nascoste, assi, pieghe, ingombri): non sono profili di
+        # taglio (25NDSPA0223-00: il rettangolo d'ingombro a tratto-punto attorno
+        # allo sviluppo; 08PA03722-00: spigoli nascosti della vista piegata)
+        if escludi_tratteggi and et != 'POINT' and linea_tratteggiata(entity):
+            out['n_tratteggiati'] += 1
+            continue
         col = _entity_color_excluded(entity, colori_esclusi)
         chiusi = out['chiusi_col'] if col else out['chiusi']
         aperti = out['aperti_col'] if col else out['aperti']
@@ -1302,6 +1378,10 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
     msp = doc.modelspace()
 
     raw = _extract_polygons(msp, colori_esclusi, scala)
+    if raw['n_tratteggiati'] and not (raw['chiusi'] or raw['aperti'] or raw['chiusi_col'] or raw['aperti_col']):
+        # disegno tutto a linee tratteggiate: e' comunque il pezzo
+        raw = _extract_polygons(msp, colori_esclusi, scala, escludi_tratteggi=False)
+        warnings.append('Disegno solo a linee tratteggiate: usate come contorno')
     opens, n_dup_a = _dedup_aperti(raw['aperti'])
     opens_col, _ = _dedup_aperti(raw['aperti_col'])
 
@@ -1439,6 +1519,66 @@ def _percorso_vuoto_mm(outer, inners) -> float:
         return 0.0
 
 
+def _linee_che_attraversano(msp, colori, base):
+    """Unione (buffer 0,1 mm) dei segmenti che hanno piu' di 1 mm dentro e
+    piu' di 1 mm fuori dal contorno `base`, o None."""
+    from .pick_part import _collect_segments
+    from shapely.geometry import LineString
+    from shapely.strtree import STRtree
+    from shapely.ops import unary_union
+    segs = _collect_segments(msp, colori)
+    if not segs or len(segs) > 60000:
+        return None
+    lines = [LineString([(a, b), (c, d)]) for (a, b, c, d) in segs]
+    albero = STRtree(lines)
+    fuori = base.buffer(0.2)
+    dentro = base.buffer(-0.2)
+    if dentro.is_empty:
+        return None
+    presi = []
+    for j in albero.query(base.exterior, predicate='intersects'):
+        ln = lines[j]
+        try:
+            if ln.difference(fuori).length > 1.0 and ln.intersection(dentro).length > 1.0:
+                presi.append(ln)
+        except Exception:
+            continue
+    if not presi:
+        return None
+    return unary_union(presi).buffer(0.1)
+
+
+def _cerchi_che_attraversano(msp, base):
+    """Unione (buffer 0,2 mm) dei CIRCLE che attraversano il bordo di `base`
+    (in parte dentro, in parte fuori), o None."""
+    try:
+        f = scala_unita_mm(msp.doc)[0]
+    except Exception:
+        f = 1.0
+    anelli = []
+    bordo = base.exterior
+    for e in entita_espanse(msp, solo_geometria=True):
+        if e.dxftype() != 'CIRCLE':
+            continue
+        try:
+            c = e.ocs().to_wcs(e.dxf.center)
+            r = float(e.dxf.radius) * f
+            p = Point(c.x * f, c.y * f)
+        except Exception:
+            continue
+        d = bordo.distance(p)
+        if r <= 0 or d >= r:
+            continue        # il cerchio non tocca il bordo
+        cerchio = p.buffer(r, 32)
+        if base.contains(cerchio) or cerchio.contains(base):
+            continue
+        anelli.append(cerchio.exterior.buffer(0.2))
+    if not anelli:
+        return None
+    from shapely.ops import unary_union
+    return unary_union(anelli)
+
+
 def _estendi_oltre_pieghe(outer, msp, cfg: dict):
     """Sviluppo spezzato dalle linee di piega disegnate sul layer di taglio.
 
@@ -1464,21 +1604,77 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
     base = Polygon(outer.exterior)
     base_buf = prep(base.buffer(0.1))
     esterni = [Polygon(f.exterior) for f in facce]
+    # Cerchi che attraversano il contorno: richiami di dettaglio (vista
+    # ingrandita), non falde. Le facce chiuse da un loro arco non si uniscono
+    # (33PP00852-00: il cerchio del dettaglio sull'angolo diventava una falda).
+    anelli_dettaglio = _cerchi_che_attraversano(msp, base)
+    try:
+        from .pick_part import linee_con_coda
+        coda = linee_con_coda(msp, colori)
+    except Exception:
+        coda = None
+    # Linee che ATTRAVERSANO il bordo del contorno (in parte dentro e in parte
+    # fuori): richiami di note, linee di quota. Il bordo di una falda arriva sul
+    # contorno e si ferma li', non lo scavalca (25NDSPA1945-00: il richiamo di
+    # una nota chiudeva un triangolo preso per falda).
+    try:
+        trav = _linee_che_attraversano(msp, colori, base)
+        if trav is not None:
+            coda = trav if coda is None else coda.union(trav)
+    except Exception:
+        pass
+    if anelli_dettaglio is not None:
+        esterni = [None if fe.exterior.intersection(anelli_dettaglio).length >= 0.2 * fe.exterior.length
+                   else fe for fe in esterni]
     # facce che compongono il contorno scelto (esclusa la zona del foglio che lo racchiude)
     dentro = [i for i, f in enumerate(facce)
-              if esterni[i].area <= base.area * 1.001 and base_buf.contains(f.representative_point())]
-    if not dentro:
-        return outer, None, 0
-    usate = set(dentro)
+              if esterni[i] is not None and esterni[i].area <= base.area * 1.001 and base_buf.contains(f.representative_point())]
     regione = base
     aggiunte = 0
+    if not dentro:
+        # Nessuna faccia dentro il contorno: il chain walking ha preso una
+        # scorciatoia a un incrocio a T e il contorno scelto e' solo parte di
+        # una faccia (24TPCPA0064: aletta superiore tagliata a meta'). La faccia
+        # che lo racchiude e ne ricalca gran parte del bordo e' il contorno vero.
+        bordo_buf = base.exterior.buffer(0.1)
+        cont = [i for i, fe in enumerate(esterni)
+                if fe is not None and base.area * 1.001 < fe.area <= 2.0 * base.area
+                and fe.buffer(0.1).contains(base)
+                and fe.exterior.intersection(bordo_buf).length >= 0.5 * base.exterior.length]
+        if not cont:
+            return outer, None, 0
+        i0 = min(cont, key=lambda i: esterni[i].area)
+        dentro = [i0]
+        regione = esterni[i0]
+        aggiunte = 1
+    else:
+        # Facce "dentro" che sporgono dal contorno: il chain walking ha tagliato
+        # una faccia a un incrocio a T (07PA00692-00: falda inferiore con i fori
+        # rimasta fuori). La faccia intera e' il contorno vero.
+        reg_buf0 = base.buffer(0.1)
+        sporgenti = []
+        for i in dentro:
+            try:
+                if esterni[i].difference(reg_buf0).area >= 1.0:
+                    sporgenti.append(i)
+            except Exception:
+                continue
+        if sporgenti:
+            try:
+                u = unary_union([base] + [esterni[i] for i in sporgenti])
+                if u.geom_type == 'Polygon':
+                    regione = u
+                    aggiunte = len(sporgenti)
+            except Exception:
+                pass
+    usate = set(dentro)
     for _giro in range(40):
         nuove = []
         reg_buf = regione.buffer(0.1)
         for i, fe in enumerate(esterni):
-            if i in usate:
+            if i in usate or fe is None:
                 continue
-            if fe.area > 4 * base.area:
+            if fe.area > MAX_FALDA_REL * base.area:
                 continue  # zona del foglio / cornice
             if not fe.bounds[0] < regione.bounds[2] + 1 or not regione.bounds[0] < fe.bounds[2] + 1                     or not fe.bounds[1] < regione.bounds[3] + 1 or not regione.bounds[1] < fe.bounds[3] + 1:
                 continue  # lontana
@@ -1493,14 +1689,33 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
                 comune = fe.exterior.intersection(reg_buf).length
             except Exception:
                 continue
-            if comune >= 2.0:
-                nuove.append(i)
+            if comune < 2.0:
+                continue
+            if coda is not None:
+                # chiusa da linee che finiscono nel vuoto (richiami di note,
+                # frecce, linee di quota): non e' una falda (25NDSPA1945-00)
+                try:
+                    libero = fe.exterior.difference(reg_buf)
+                    if libero.length > 0 and libero.intersection(coda).length >= 0.6 * libero.length:
+                        continue
+                except Exception:
+                    pass
+            nuove.append(i)
         if not nuove:
             break
         usate.update(nuove)
         aggiunte += len(nuove)
         regione = unary_union([regione] + [esterni[i] for i in nuove])
-        if regione.geom_type != 'Polygon' or regione.area > 4 * base.area:
+        if regione.geom_type == 'MultiPolygon':
+            # falde che toccano il contorno lungo un lato ma staccate di qualche
+            # centesimo (contorno dal chain walking, falda dal polygonize): sono
+            # attaccate, si chiude la fessura (27SLPA0017: aletta superiore persa)
+            try:
+                regione = unary_union([regione.buffer(0.05, join_style=2)] + [
+                    esterni[i].buffer(0.05, join_style=2) for i in nuove]).buffer(-0.05, join_style=2)
+            except Exception:
+                pass
+        if regione.geom_type != 'Polygon' or regione.area > MAX_FALDA_REL * base.area:
             return outer, None, 0
     if not aggiunte:
         return outer, None, 0
@@ -1646,6 +1861,16 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
                         f'verificare quale pezzo quotare')
     if n_svas:
         warnings.append(f'{n_svas} svasatura/e: tagliato solo il foro passante')
+
+    # Contorno largo meno di 3 mm: e' la vista di fianco della lamiera (lo
+    # spessore), non uno sviluppo da tagliare (07PA01517-00: preso il bordo
+    # 1,4 x 82 della vista isometrica). In Lantek 6 pezzi su 23.505 sono cosi'.
+    sb = scelto.bounds
+    lato_min = min(mis['bbox_width_mm'], mis['bbox_height_mm'], sb[2] - sb[0], sb[3] - sb[1])
+    if lato_min < MIN_LATO_PEZZO_MM and confidence >= 0.5:
+        confidence = 0.45
+        warnings.append(f'Contorno largo meno di {MIN_LATO_PEZZO_MM:g} mm: probabile vista di '
+                        f'fianco (spessore), non lo sviluppo — scegliere il pezzo')
 
     # ---- 9. Confidence label
     if confidence >= CONF_ALTA:
