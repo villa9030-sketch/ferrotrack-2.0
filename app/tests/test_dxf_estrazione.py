@@ -482,6 +482,10 @@ def main():
         m.add_text('1266-09721-200-SP07.00', dxfattribs={'insert': (500, 10)})
     sp = S.estrai_spessore_da_cartiglio(dxf('d11_codice_sp.dxf', _d11g))
     check('"...-SP07.00" in un codice non e\' uno spessore', sp.get('spessore_mm') is None, sp)
+    sp = S.estrai_spessore_da_cartiglio(dxf('1266-200-SP06.00.dxf', _d11g))
+    check('"...-SP06.00" nel nome file non e\' uno spessore', sp.get('spessore_mm') is None, sp)
+    sp = S.estrai_spessore_da_cartiglio(dxf('staffa_sp3.dxf', _d11g))
+    check('"staffa_sp3" nel nome file = 3', sp.get('spessore_mm') == 3.0, sp)
 
     def _d11h(doc, m):
         rett(m, 0, 0, 200, 40)

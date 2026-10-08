@@ -1688,7 +1688,8 @@ def _spessore_from_filename(path: str) -> dict:
     import os
     name = os.path.basename(path)
     patterns = [
-        re.compile(r'[_\-\s]sp\.?[_\-\s]?(\d+[.,]?\d*)\s*(?:mm)?', re.IGNORECASE),
+        # mai "SP06" con zero iniziale: progressivo di un codice ("...-200-SP06.00")
+        re.compile(r'[_\-\s]sp\.?[_\-\s]?(?!0\d)(\d+[.,]?\d*)\s*(?:mm)?', re.IGNORECASE),
         re.compile(r'[_\-\s](\d+[.,]?\d*)\s*mm(?=[_\-\.]|$)', re.IGNORECASE),
     ]
     for rx in patterns:
