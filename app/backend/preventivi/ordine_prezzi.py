@@ -51,6 +51,7 @@ _POLI_RIGA = re.compile(
 _POLI_NUMERO = re.compile(r'^N\.\s*([\d ]{6,20})', re.M)
 _POLI_DATA = re.compile(r'Data\s*/\s*Date\s+(\d{2}/\d{2}/\d{4})')
 _POLI_CONSEGNA = re.compile(r'Consegna richiesta.*\n\s*\d{2}/\d{2}/\d{4}\s+(\d{2}/\d{2}/\d{4})')
+_POLI_FINE_DESC = re.compile(r'^(Pagina\s*/\s*Page|Importo Netto|N\.\s*\d{3}\s)')
 _POLI_NETTO = re.compile(rf'Importo Netto\s*/\s*Net amount.*\n\s*({_IMP})')
 
 # B&B Italia: pos codice descrizione UM qta prezzo consegna (importo = qta x prezzo)
@@ -93,15 +94,26 @@ def _poliform(pagine: list[str]) -> dict | None:
         return None
     righe = []
     for testo in pagine:
+        aperta = None   # la riga a cui vanno le righe di descrizione sotto
         for r in (x.strip() for x in testo.splitlines()):
             m = _POLI_RIGA.match(r)
             if m:
-                righe.append({
+                aperta = {
                     'pos': int(m['pos']), 'codice': m['cod'], 'descrizione': m['desc'].strip(),
                     'quantita': _num(m['qta']), 'prezzo_unitario': _num(m['prezzo']),
                     'importo': _num(m['imp']), 'consegna': _data_iso(m['cons']),
                     'sconti': [_num(s) for s in m['sconti'].split()] or None,
-                })
+                    'dettaglio': None,
+                }
+                righe.append(aperta)
+            elif aperta is not None:
+                # Il seguito della descrizione, sulle righe sotto: le misure
+                # ("P.640/600 L.1050") sono li', e 11 telai diversi hanno la
+                # stessa prima riga. Fino al piede della pagina o del totale.
+                if _POLI_FINE_DESC.match(r) or len((aperta['dettaglio'] or '').split(' · ')) >= 6:
+                    aperta = None
+                elif r:
+                    aperta['dettaglio'] = (aperta['dettaglio'] + ' · ' + r) if aperta['dettaglio'] else r
     if not righe:
         return None
     mn = _POLI_NUMERO.search(tutto)

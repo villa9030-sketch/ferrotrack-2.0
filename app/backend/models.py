@@ -356,6 +356,26 @@ class OfficinaScan(Base):
     # 'altro_ordine' | 'cambio_fase' | 'fine_turno' | 'manuale'
 
 
+class AssiemeLantek(Base):
+    """Cosa diventa in Lantek una riga dell'ordine del cliente che in Lantek
+    non c'e' col suo codice (Stefano, 07/10/2026): un assieme saldato fatto
+    di piu' pezzi laser, ognuno coi suoi pezzi per assieme. Una riga per
+    pezzo; `non_laser` = la riga non va al laser (pezzo_lantek vuoto).
+
+    Lo abbina Stefano la prima volta, dalla guida "Metti in Lantek"; alle
+    forniture dopo FerroTrack scompone da solo la riga nei suoi pezzi."""
+    __tablename__ = 'assiemi_lantek'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    codice = Column(String, nullable=False, index=True)   # codice del cliente, in maiuscolo
+    pezzo_lantek = Column(String, nullable=True)           # PrdRef esatto in Lantek
+    quantita = Column(Integer, nullable=False, default=1)  # pezzi per un assieme
+    non_laser = Column(Boolean, nullable=False, default=False)
+    descrizione = Column(String, nullable=True)            # come la scrive il cliente
+    cliente = Column(String, nullable=True)                # solo per sapere da dove viene
+    creato_il = Column(DateTime, default=datetime.utcnow)
+    creato_da = Column(String, nullable=True)
+
+
 # ============================================================================
 #  PREVENTIVI — moduli portati dal Preventivatore desktop (Tkinter → web)
 # ============================================================================

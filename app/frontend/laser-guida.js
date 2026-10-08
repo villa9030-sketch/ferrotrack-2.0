@@ -38,7 +38,11 @@ function guidaAnalisi(d) {
   const daVerif = new Map((d.nuovi_esclusi || []).filter(x => x.verifica).map(x => [x.codice, x]));
   const auto = d.invio_automatico && (d.lantek || {}).disponibile;
   const bloccati = [], decidere = [], nuovi = [], pronti = [], aperti = [], verificare = [];
+  // ordine solo PDF: righe che in Lantek non ci sono col loro codice (assiemi)
+  const abbinare = (d.pdf || {}).da_abbinare || [];
+  const daAbbinare = new Set(abbinare.map(x => x.codice));
   for (const r of d.righe || []) {
+    if (r.stato === 'nuovo' && daAbbinare.has(r.codice_ft || r.codice)) continue;
     if (r.stato === 'nuovo' && daVerif.has(r.codice)) {
       // disegno dubbio (verifica al caricamento): si guarda e si conferma qui
       verificare.push({ r, x: daVerif.get(r.codice) });
@@ -60,7 +64,7 @@ function guidaAnalisi(d) {
     else if (creare.has(r.codice)) nuovi.push(r);
     else pronti.push(r);
   }
-  return { bloccati, decidere, nuovi, pronti, aperti, verificare, auto };
+  return { bloccati, decidere, nuovi, pronti, aperti, verificare, abbinare, auto };
 }
 
 async function guidaCarica(o, fresco) {
@@ -141,7 +145,14 @@ function guidaElenco(righe, colonna) {
 function guidaPasso1(o, g) {
   const d = g.dati;
   const lt = d.lantek || {};
-  if (!d.n_codici) {
+  if (!d.n_codici && d.pdf && d.pdf.n_righe && !(d.pdf.da_abbinare || []).length) {
+    return {
+      corpo: guidaMsg('info', 'Nessuna riga va al laser', `Le ${d.pdf.n_righe} righe del PDF sono segnate «non va al laser».`)
+        + guidaAbbinatiFatti(o, d.pdf),
+      piede: `<button class="ft-btn lg primary" onclick="guidaSegnaFatto('${o.id}')"><i data-lucide="check"></i> Segna in Lantek e vai avanti</button>`,
+    };
+  }
+  if (!d.n_codici && !(d.pdf && (d.pdf.da_abbinare || []).length)) {
     return {
       corpo: guidaMsg('info', 'Quest’ordine non ha l’elenco dei pezzi con i codici',
         'Va messo in Lantek a mano dal MES, guardando il PDF dell’ordine. Quando hai finito, premi il pulsante qui sotto.'),
@@ -160,6 +171,8 @@ function guidaPasso1(o, g) {
   const correggo = a.decidere.filter(x => g.decisioni[x.r.codice] === 'correggo');
   const nMandare = (d.da_mandare || []).length + (d.nuovi_da_creare || []).length;
   let corpo = '';
+  // 0) ordine solo PDF: righe da abbinare ai pezzi di Lantek
+  if (a.abbinare.length) corpo += guidaSezAbbina(o, g, a.abbinare, d.pdf);
   // 1) cosa blocca
   if (a.bloccati.length) {
     corpo += `<section class="lg-sez err"><h3><i data-lucide="x-circle"></i> Da sistemare prima di andare avanti <em>${a.bloccati.length}</em></h3>
@@ -209,15 +222,17 @@ function guidaPasso1(o, g) {
   }
   if (a.aperti.length) ok.push(`<li><b>${a.aperti.length}</b> codici hanno già l’ordine di produzione aperto in Lantek: <b>non li rimando</b></li>`);
   if (ok.length) {
-    corpo += `<section class="lg-sez ok"><h3><i data-lucide="check-circle-2"></i> A posto</h3><ul class="lg-ok">${ok.join('')}</ul></section>`;
+    corpo += `<section class="lg-sez ok"><h3><i data-lucide="check-circle-2"></i> A posto</h3><ul class="lg-ok">${ok.join('')}</ul>
+      ${d.pdf ? guidaAbbinatiFatti(o, d.pdf) : ''}</section>`;
   }
-  const bloccato = a.bloccati.length || daDecidere.length || a.verificare.length;
+  const bloccato = a.bloccati.length || daDecidere.length || a.verificare.length || a.abbinare.length;
   let piede = `<button class="ft-btn lg" onclick="guidaCarica(ordineAperto(), true)" title="Rileggi Lantek (dopo aver importato o corretto qualcosa)"><i data-lucide="refresh-cw"></i> Ricontrolla</button>`;
   if (!nMandare && !bloccato) {
     corpo = guidaMsg('ok', 'È già tutto in Lantek', `Tutti i ${d.n_codici} codici hanno il loro ordine di produzione aperto in Lantek.`) + corpo;
     piede += `<button class="ft-btn lg primary" onclick="guidaSegnaFatto('${o.id}')"><i data-lucide="check"></i> Segna in Lantek e vai avanti</button>`;
   } else {
-    const perche = a.bloccati.length ? `prima sistema i ${a.bloccati.length} codici in rosso`
+    const perche = a.abbinare.length ? `prima abbina le ${a.abbinare.length} righe dell’ordine`
+      : a.bloccati.length ? `prima sistema i ${a.bloccati.length} codici in rosso`
       : a.verificare.length ? `prima guarda i ${a.verificare.length} disegni dubbi`
       : correggo.length ? `prima correggi i ${correggo.length} codici e premi Ricontrolla`
       : daDecidere.length ? `prima decidi i ${daDecidere.length} codici in giallo` : '';
@@ -230,21 +245,6 @@ function guidaPasso1(o, g) {
   return { corpo, piede };
 }
 
-async function guidaConfermaPezzo(id, articoloId) {
-  if (!articoloId) { FT.toast('Pezzo non trovato', 'err'); return; }
-  let r;
-  try { r = await _post(`${API_URL}/api/orders/${id}/pezzi/${articoloId}/conferma`, {}); }
-  catch (e) { r = { success: false, error: 'Server non raggiungibile' }; }
-  if (!r.success) { FT.toast('Non riuscito: ' + (r.error || 'errore'), 'err'); return; }
-  FT.toast('Contorno confermato', 'ok');
-  const o = ordineAperto();
-  if (o && o.id === id) guidaCarica(o, true);
-}
-
-function guidaDecidi(id, codice, scelta) {
-  const g = _guida[id];
-  if (!g) return;
-  g.decisioni[codice] = g.decisioni[codice] === scelta ? undefined : scelta;
 /* "Scegli il contorno": lo strumento CAD in modalita' ordine (dxf-editor.html
    ?ordine=...): si clicca il contorno giusto, il server ricalcola il pezzo e
    rifa' il DXF pulito per Lantek; poi si ricontrolla. */
@@ -281,6 +281,21 @@ function guidaApriCad(id, articoloId, disegno) {
   FT.icone();
 }
 
+async function guidaConfermaPezzo(id, articoloId) {
+  if (!articoloId) { FT.toast('Pezzo non trovato', 'err'); return; }
+  let r;
+  try { r = await _post(`${API_URL}/api/orders/${id}/pezzi/${articoloId}/conferma`, {}); }
+  catch (e) { r = { success: false, error: 'Server non raggiungibile' }; }
+  if (!r.success) { FT.toast('Non riuscito: ' + (r.error || 'errore'), 'err'); return; }
+  FT.toast('Contorno confermato', 'ok');
+  const o = ordineAperto();
+  if (o && o.id === id) guidaCarica(o, true);
+}
+
+function guidaDecidi(id, codice, scelta) {
+  const g = _guida[id];
+  if (!g) return;
+  g.decisioni[codice] = g.decisioni[codice] === scelta ? undefined : scelta;
   const o = ordineAperto();
   if (o && o.id === id) guidaDisegna(o);
 }
@@ -398,4 +413,151 @@ async function guidaSegnaFatto(id) {
   FT.toast('In Lantek: ora è fra quelli da tagliare', 'ok', { testo: 'Annulla', fn: () => segnaImportato(id, true) });
   await loadOrders(true);
   if (dopo) selectOrder(dopo); else deselectOrder();
+}
+
+/* ── Ordine solo PDF: righe da abbinare ai pezzi di Lantek ─────────────
+   Stefano (07/10/2026): nel PDF le righe hanno lo stesso codice dei pezzi in
+   Lantek; quelle che in Lantek non ci sono sono assiemi. Si abbinano UNA
+   volta ai loro pezzi (o si segnano "non va al laser"): dalla fornitura dopo
+   FerroTrack le scompone da solo. */
+function guidaSezAbbina(o, g, righe, pdf) {
+  g.abbina = g.abbina || {};
+  const liberi = (pdf && pdf.liberi) || [];
+  return `<section class="lg-sez err"><h3><i data-lucide="link"></i> Righe dell’ordine da abbinare <em>${righe.length}</em></h3>
+    <p>Queste righe del PDF non sono in Lantek col loro codice. Dimmi tu cosa sono: me lo ricordo per le prossime forniture.</p>
+    <ul class="lg-abb">${righe.map(r => {
+      const ed = g.abbina[r.codice];
+      const cod = esc(JSON.stringify(r.codice));
+      return `<li><div class="lg-abb-riga"><div><span class="ft-mono">${esc(r.codice)}</span> <small>${esc(String(r.quantita))} pz</small>
+          <p>${esc(r.descrizione || '')}</p></div>
+        <div class="lg-dec-az">
+          <button class="ft-btn sm ${ed ? 'primary' : ''}" onclick="guidaAbbinaApri('${o.id}', ${cod})"><i data-lucide="layers"></i> È un assieme</button>
+          <button class="ft-btn sm" onclick="guidaAbbinaNonLaser('${o.id}', ${cod})">Non va al laser</button>
+        </div></div>
+        ${ed ? guidaAbbinaEditor(o, r, ed, liberi) : `<small class="lg-ver-no">Se invece è un pezzo singolo: disegnalo in Lantek con lo stesso codice, poi premi Ricontrolla.</small>`}</li>`;
+    }).join('')}</ul></section>`;
+}
+
+function guidaAbbinaEditor(o, r, ed, liberi) {
+  const cod = esc(JSON.stringify(r.codice));
+  const scelti = ed.pezzi;
+  const righePezzo = (c, qLantek) => {
+    const q = scelti[c];
+    const cc = esc(JSON.stringify(c));
+    return `<label class="lg-abb-p"><input type="checkbox" ${q != null ? 'checked' : ''} onchange="guidaAbbinaSpunta('${o.id}', ${cod}, ${cc}, this.checked)">
+      <span class="ft-mono">${esc(c)}</span>
+      <small>${qLantek != null ? `in Lantek ${esc(String(qLantek))} pz` : ''}</small>
+      <span><input class="ft-input" type="number" min="1" max="9999" value="${esc(String(q != null ? q : 1))}" ${q != null ? '' : 'disabled'}
+        aria-label="Pezzi per un assieme" onchange="guidaAbbinaQta('${o.id}', ${cod}, ${cc}, this.value)"> per assieme</span></label>`;
+  };
+  const liberiCod = new Set(liberi.map(x => x.codice));
+  const extra = Object.keys(scelti).filter(c => !liberiCod.has(c));
+  const trovati = (ed.trovati || []).filter(x => !liberiCod.has(x.codice) && scelti[x.codice] == null);
+  const n = Object.keys(scelti).length;
+  return `<div class="lg-abb-ed">
+    <h4>Di quali pezzi di Lantek è fatto ${esc(r.codice)}? (quanti per UN assieme)</h4>
+    ${liberi.length ? `<p>Pezzi che hai messo in Lantek con quest’ordine e che nessuna riga spiega:</p>${liberi.map(x => righePezzo(x.codice, x.quantita)).join('')}`
+      : `<p>In Lantek non ci sono pezzi di quest’ordine senza riga: cercali per codice.</p>`}
+    ${extra.map(c => righePezzo(c, null)).join('')}
+    <div class="lg-abb-cerca"><input class="ft-input" placeholder="Cerca un pezzo in Lantek (almeno 3 caratteri del codice)"
+        value="${esc(ed.q || '')}" onkeydown="if(event.key==='Enter')guidaAbbinaCerca('${o.id}', ${cod}, this.value)">
+      <button class="ft-btn sm" onclick="guidaAbbinaCerca('${o.id}', ${cod}, this.previousElementSibling.value)"><i data-lucide="search"></i> Cerca</button></div>
+    ${ed.cercaErr ? `<small class="lg-ver-no">${esc(ed.cercaErr)}</small>` : ''}
+    ${trovati.map(x => `<div class="lg-abb-p"><span></span><span class="ft-mono">${esc(x.codice)}</span>
+        <small>${esc(x.materiale || '')} ${x.spessore != null ? esc(String(x.spessore)) + ' mm' : ''}</small>
+        <button class="ft-btn sm" onclick="guidaAbbinaSpunta('${o.id}', ${cod}, ${esc(JSON.stringify(x.codice))}, true)">Aggiungi</button></div>`).join('')}
+    <div class="lg-dec-az">
+      <button class="ft-btn sm" onclick="guidaAbbinaChiudi('${o.id}', ${cod})">Annulla</button>
+      <button class="ft-btn sm primary" ${n ? '' : 'disabled'} onclick="guidaAbbinaSalva('${o.id}', ${cod})"><i data-lucide="check"></i> Salva: ${n} pezzi per assieme</button>
+    </div></div>`;
+}
+
+/* Gia' abbinati (si possono rifare se sbagliati). */
+function guidaAbbinatiFatti(o, pdf) {
+  const ass = pdf.assiemi || [], nl = pdf.non_laser || [];
+  if (!ass.length && !nl.length) return '';
+  const li = (x, testo) => `<li><div><span class="ft-mono">${esc(x.codice)}</span> <small>${esc(String(x.quantita))} pz</small><br><small>${testo}</small></div>
+    <button class="ft-btn sm" onclick="guidaAbbinaDimentica('${o.id}', ${esc(JSON.stringify(x.codice))})">Rifai</button></li>`;
+  return `<details class="lg-abb-fatti"><summary>${ass.length ? `<b>${ass.length}</b> assiemi scomposti nei loro pezzi Lantek` : ''}${ass.length && nl.length ? ' · ' : ''}${nl.length ? `<b>${nl.length}</b> righe che non vanno al laser` : ''}</summary>
+    <ul class="lg-ok">${ass.map(x => li(x, x.pezzi.map(p => `${esc(p.codice)} ×${esc(String(p.quantita))}`).join(', '))).join('')}
+      ${nl.map(x => li(x, 'non va al laser')).join('')}</ul></details>`;
+}
+
+function _guidaRidisegna(id) {
+  const o = ordineAperto();
+  if (o && o.id === id) guidaDisegna(o);
+}
+
+function guidaAbbinaApri(id, codice) {
+  const g = _guida[id];
+  if (!g) return;
+  g.abbina = g.abbina || {};
+  if (g.abbina[codice]) { delete g.abbina[codice]; _guidaRidisegna(id); return; }
+  const r = ((g.dati.pdf || {}).da_abbinare || []).find(x => x.codice === codice) || {};
+  const pezzi = {};
+  for (const p of r.proposta || []) pezzi[p.codice] = p.quantita;
+  g.abbina[codice] = { pezzi };
+  _guidaRidisegna(id);
+}
+
+function guidaAbbinaChiudi(id, codice) {
+  const g = _guida[id];
+  if (g && g.abbina) delete g.abbina[codice];
+  _guidaRidisegna(id);
+}
+
+function guidaAbbinaSpunta(id, codice, pezzo, si) {
+  const ed = ((_guida[id] || {}).abbina || {})[codice];
+  if (!ed) return;
+  if (si) {
+    const r = ((_guida[id].dati.pdf || {}).da_abbinare || []).find(x => x.codice === codice) || {};
+    const lib = ((_guida[id].dati.pdf || {}).liberi || []).find(x => x.codice === pezzo);
+    ed.pezzi[pezzo] = lib && r.quantita ? Math.max(1, Math.round(lib.quantita / r.quantita)) : 1;
+  } else delete ed.pezzi[pezzo];
+  _guidaRidisegna(id);
+}
+
+function guidaAbbinaQta(id, codice, pezzo, v) {
+  const ed = ((_guida[id] || {}).abbina || {})[codice];
+  const n = parseInt(v, 10);
+  if (ed && ed.pezzi[pezzo] != null && n >= 1) ed.pezzi[pezzo] = n;
+}
+
+async function guidaAbbinaCerca(id, codice, testo) {
+  const ed = ((_guida[id] || {}).abbina || {})[codice];
+  if (!ed) return;
+  ed.q = String(testo || '').trim();
+  if (ed.q.length < 3) { ed.cercaErr = 'Scrivi almeno 3 caratteri del codice'; ed.trovati = []; _guidaRidisegna(id); return; }
+  const { ok, d } = await _getJson(`${API_URL}/api/lantek/pezzi?q=${encodeURIComponent(ed.q)}`);
+  ed.trovati = ok && d && d.success ? d.pezzi : [];
+  ed.cercaErr = !(ok && d && d.success) ? ((d && d.error) || 'Lantek non risponde')
+    : !ed.trovati.length ? 'Nessun pezzo in Lantek con questo codice' : null;
+  _guidaRidisegna(id);
+}
+
+async function _guidaAbbinaManda(id, corpo, messaggio) {
+  let r;
+  try { r = await _post(`${API_URL}/api/orders/${id}/lantek-abbina`, corpo); }
+  catch (e) { r = { success: false, error: 'Server non raggiungibile' }; }
+  if (!r.success) { FT.toast('Non salvato: ' + (r.error || 'errore'), 'err'); return; }
+  const g = _guida[id];
+  if (g && g.abbina) delete g.abbina[corpo.codice];
+  FT.toast(messaggio, 'ok');
+  const o = ordineAperto();
+  if (o && o.id === id) guidaCarica(o, true);
+}
+
+function guidaAbbinaSalva(id, codice) {
+  const ed = ((_guida[id] || {}).abbina || {})[codice];
+  if (!ed) return;
+  const pezzi = Object.entries(ed.pezzi).map(([c, q]) => ({ codice: c, quantita: q }));
+  _guidaAbbinaManda(id, { codice, pezzi }, `${codice}: me lo ricordo per le prossime forniture`);
+}
+
+function guidaAbbinaNonLaser(id, codice) {
+  _guidaAbbinaManda(id, { codice, non_laser: true }, `${codice}: non va al laser, la prossima volta la salto`);
+}
+
+function guidaAbbinaDimentica(id, codice) {
+  _guidaAbbinaManda(id, { codice, dimentica: true }, `${codice}: da abbinare di nuovo`);
 }
