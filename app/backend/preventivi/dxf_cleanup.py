@@ -849,7 +849,7 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     from ezdxf.math import Matrix44
     from .dxf_polygon_detector_v3 import (
         TIPI_ANNOTAZIONE, _layer_da_escludere, _layer_piega, _flatten_entity,
-        FLATTEN_DISTANCE_MM, colore_effettivo,
+        FLATTEN_DISTANCE_MM, colore_effettivo, linea_tratteggiata,
     )
     cfg = cfg or {}
     result = {'success': False, 'error': None, 'entities_copied': 0, 'entities_source': 0,
@@ -951,7 +951,10 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
                         return
             except Exception:
                 pass
-        su_taglio = not piega_dichiarata and not escluso and sul_contorno.contains(ls)
+        # una linea a tratti sul contorno (spigolo nascosto, ingombro) non e' il
+        # taglio: il detector costruisce il contorno solo dalle linee continue
+        su_taglio = (not piega_dichiarata and not escluso and sul_contorno.contains(ls)
+                     and not linea_tratteggiata(e))
         if not su_taglio and not parte and et in ('LWPOLYLINE', 'POLYLINE'):
             # polilinea che segue in parte il contorno e in parte una piega
             # (sviluppi a falde unite, 191700606-00): si divide nei suoi tratti
