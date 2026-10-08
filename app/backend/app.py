@@ -7538,6 +7538,31 @@ def api_laser_cartella_disegni():
         percorso = str(data.get('percorso') or '').strip().strip('"')
         if percorso and not (os.path.isabs(percorso) or percorso.startswith('\\\\')):
             return jsonify({'success': False, 'error': 'Serve un percorso completo, es. C:\\Commesse'}), 400
+        from .database import cartella_non_consentita
+        motivo = cartella_non_consentita(percorso)
+        if motivo:
+            return jsonify({'success': False, 'codice': 'non_consentita',
+                            'error': 'Cartella non consentita: ' + motivo}), 400
+        if request.method == 'POST' or percorso:
+            # prova di scrittura (anche prima di salvare)
+            try:
+                os.makedirs(percorso, exist_ok=True)
+                prova = os.path.join(percorso, '.ferrotrack_prova')
+                with open(prova, 'w', encoding='utf-8') as fp:
+                    fp.write('ok')
+                os.remove(prova)
+            except OSError as oe:
+                return jsonify({'success': False, 'error': f'Il server non riesce a scrivere in {percorso}: {oe.strerror or oe}'}), 400
+            if request.method == 'POST':
+                return jsonify({'success': True, 'percorso': os.path.normpath(percorso)}), 200
+        ConfigManager.save_config({'disegni_export_root': os.path.normpath(percorso) if percorso else ''})
+        _audit('CARTELLA_DISEGNI', 'config', 'disegni_export_root', percorso or '(tolta)')
+        return jsonify({'success': True, 'percorso': os.path.normpath(percorso) if percorso else ''}), 200
+    except Exception as e:
+        logger.exception('cartella-disegni fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 def _articolo_ordine(order, articolo_id):
     """(pezzo, percorso del suo DXF fra i disegni dell'ordine) o (None, None)."""
     if not order.preventivo_id_origine:
@@ -7604,31 +7629,6 @@ def api_ordine_pezzo_contorno_svg(order_id, articolo_id):
         return resp
     except Exception as e:
         logger.exception('svg contorno pezzo fallito')
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-        from .database import cartella_non_consentita
-        motivo = cartella_non_consentita(percorso)
-        if motivo:
-            return jsonify({'success': False, 'codice': 'non_consentita',
-                            'error': 'Cartella non consentita: ' + motivo}), 400
-        if request.method == 'POST' or percorso:
-            # prova di scrittura (anche prima di salvare)
-            try:
-                os.makedirs(percorso, exist_ok=True)
-                prova = os.path.join(percorso, '.ferrotrack_prova')
-                with open(prova, 'w', encoding='utf-8') as fp:
-                    fp.write('ok')
-                os.remove(prova)
-            except OSError as oe:
-                return jsonify({'success': False, 'error': f'Il server non riesce a scrivere in {percorso}: {oe.strerror or oe}'}), 400
-            if request.method == 'POST':
-                return jsonify({'success': True, 'percorso': os.path.normpath(percorso)}), 200
-        ConfigManager.save_config({'disegni_export_root': os.path.normpath(percorso) if percorso else ''})
-        _audit('CARTELLA_DISEGNI', 'config', 'disegni_export_root', percorso or '(tolta)')
-        return jsonify({'success': True, 'percorso': os.path.normpath(percorso) if percorso else ''}), 200
-    except Exception as e:
-        logger.exception('cartella-disegni fallita')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
