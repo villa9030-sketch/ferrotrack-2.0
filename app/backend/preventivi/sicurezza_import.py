@@ -107,7 +107,9 @@ PESO_LEGGERO = 0.92             # sotto il 92% del peso del cartiglio = manca ma
 MARCATURA_MAX_MM = 20.0         # linee dentro il pezzo che non sono ne' taglio ne' piega
 FORO_SU_SPESSORE_MIN = 0.8      # foro piu' piccolo di 0,8 x spessore
 PIEGA_DENTRO_MAX = 3            # entita' col colore/layer di piega dentro il pezzo
-SIMBOLI_FORI_MAX = 3            # fori con simbolo di filettatura/svasatura
+SIMBOLI_FORI_MAX = None         # fori con simbolo di filettatura/svasatura: NON e' un dubbio.
+                                # Regola di Stefano (08/10/2026): i fori filettati si tagliano al
+                                # laser e poi si filettano. Archivio: +398 sicuri, precisione 99,0%
 
 
 def rapporto_peso(ind: dict) -> float | None:
@@ -166,6 +168,6 @@ def decidi_sicuro(ind: dict) -> tuple[bool, list[str]]:
     if abs((ind.get('scala') or 1.0) - 1.0) > 1e-6:
         motivi.append(f"disegno in scala (x{ind['scala']:g})")
     # 9. Molti fori con simbolo di filettatura/svasatura
-    if (ind.get('pul_n_simboli_tolti') or 0) > SIMBOLI_FORI_MAX:
+    if SIMBOLI_FORI_MAX is not None and (ind.get('pul_n_simboli_tolti') or 0) > SIMBOLI_FORI_MAX:
         motivi.append(f"{ind['pul_n_simboli_tolti']} simboli di filettatura/svasatura sui fori")
     return (not motivi), motivi
