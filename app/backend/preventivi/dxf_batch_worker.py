@@ -93,6 +93,29 @@ def _misure_come_cartiglio(geo: dict, dim_info: dict | None) -> bool:
     return all(abs(x - y) <= max(1.0, 0.01 * y) for x, y in zip(a, b))
 
 
+def _descrizione_plausibile(dxf_path: str, dim_info: dict) -> bool:
+    """Il rettangolo Lunghezza x Larghezza letto nel cartiglio descrive il
+    pezzo disegnato? Entrambe le misure devono comparire come QUOTE del
+    disegno: il disegnatore quota lo sviluppo che descrive. Altrimenti e' un
+    altro numero del cartiglio (115 dm2 su un pezzo di 48 x 58)."""
+    try:
+        import ezdxf
+        from .dxf_polygon_detector_v3 import scala_unita_mm, _quote_mm
+        dx = float(dim_info.get('dim_x_mm') or 0)
+        dy = float(dim_info.get('dim_y_mm') or 0)
+        if dx <= 0 or dy <= 0:
+            return False
+        doc = ezdxf.readfile(dxf_path)
+        msp = doc.modelspace()
+        f, _ = scala_unita_mm(doc)
+        vals = {v for q in _quote_mm(msp, f) for v in q['vals']}
+        if not all(any(abs(v - d) <= 0.15 for v in vals) for d in (dx, dy)):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
     """Esegue il pipeline completo di parsing su un singolo file DXF.
 
@@ -164,13 +187,24 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
         # dimensioni simili (191700034-00: la vista isometrica la rendeva
         # "incerta" e l'area diventava il rettangolo 140x100 = 1,40 dm²
         # invece della piastra a L da 0,50).
-        if geo and _misure_come_cartiglio(geo, dim_info) and geo.get('confidence', 0) < 0.75:
-            geo = {**geo, 'confidence': 0.75, 'confidence_label': 'media (misure del cartiglio)',
+        # Con fori dubbi (scritte contate come fori) la conferma vale per il
+        # contorno ma non per i fori: resta da verificare (0,65, non sicuro).
+        conf_cartiglio = 0.65 if (geo or {}).get('dubbi_fori') else 0.75
+        if geo and _misure_come_cartiglio(geo, dim_info) and geo.get('confidence', 0) < conf_cartiglio:
+            geo = {**geo, 'confidence': conf_cartiglio, 'confidence_label': 'media (misure del cartiglio)',
                    'needs_manual_select': False,
                    'warnings': list(geo.get('warnings') or []) + [
                        f"Contorno confermato dalle misure del cartiglio "
                        f"({dim_info['dim_x_mm']:g} x {dim_info['dim_y_mm']:g} mm)"]}
         geo_weak = geo and (geo.get('confidence', 0) < 0.5 or geo.get('area_dm2', 0) < 0.01)
+        if dim_info and dim_info.get('area_dm2') and geo_weak \
+                and not _descrizione_plausibile(dxf_path, dim_info):
+            # Le misure scritte nel cartiglio non sono quote del disegno: area
+            # non credibile (archivio: cosi' era giusta 1 volta su 119)
+            geo = {**geo, 'warnings': list(geo.get('warnings') or []) + [
+                f"Misure {dim_info.get('dim_x_mm'):g} x {dim_info.get('dim_y_mm'):g} lette nel cartiglio "
+                f"ma non quotate nel disegno: non usate per l'area"]}
+            dim_info = {**dim_info, 'area_dm2': None}
         if dim_info and dim_info.get('area_dm2') and geo_weak:
             logger.info('[%s] cartiglio fallback area: %s', filename, dim_info.get('raw_text'))
             geo = {

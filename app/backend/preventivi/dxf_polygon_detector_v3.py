@@ -2266,6 +2266,153 @@ def _falde_confermate(base, esteso, msp, scala: float, quote: list | None) -> bo
             continui += ls.length
     return tratti > 0 and tratti >= continui
 
+def _facce(msp, cfg: dict) -> list:
+    """Facce del polygonize (flatten -> noding -> polygonize), con cache."""
+    try:
+        from .pick_part import _faces_from_msp
+        colori = set(cfg.get('dxf_colori_piega', [2])) | set(cfg.get('dxf_colori_saldatura', [1]))
+        return _faces_from_msp(msp, colori)
+    except Exception as e:
+        logger.debug('facce non disponibili: %s', e)
+        return []
+
+
+def _materiale_dentro(S, facce: list):
+    """Unione delle facce dentro S che sono lamiera (non stanno nel buco di
+    un'altra faccia: quelle sono i fori), o None."""
+    try:
+        from shapely.ops import unary_union
+        from shapely.strtree import STRtree
+        ps = prep(S.buffer(0.2))
+        albero = STRtree(facce)
+        dentro = [facce[j] for j in albero.query(S) if ps.contains(facce[j])]
+        buchi = [Polygon(r) for f in dentro for r in f.interiors]
+        if buchi:
+            alb_b = STRtree(buchi)
+            mat = [f for f in dentro
+                   if not any(buchi[k].contains(f.representative_point())
+                              for k in alb_b.query(f.representative_point()))]
+        else:
+            mat = dentro
+        return unary_union(mat) if mat else None
+    except Exception:
+        return None
+
+
+def _silhouette_viste(msp, cfg: dict) -> list:
+    """Contorno esterno di ogni gruppo di linee collegate del disegno (una
+    vista): il buco che il gruppo lascia nella faccia che lo racchiude, o il
+    bordo dell'unione delle sue facce se non e' racchiuso. Tiene solo quelle
+    fatte di PIU' facce: le altre sono gia' contorni chiusi del chain walking.
+    Lo sviluppo con le linee di piega continue e' cosi': una sagoma chiusa
+    divisa in strisce, che il chain walking spezza nelle singole falde."""
+    def calcola():
+        facce = _facce(msp, cfg)
+        if not facce or len(facce) > 5000:
+            return []
+        from shapely.ops import unary_union
+        anelli = []
+        for f in facce:
+            for r in f.interiors:
+                anelli.append(Polygon(r))
+        try:
+            u = unary_union(facce)
+            for g in getattr(u, 'geoms', [u]):
+                anelli.append(Polygon(g.exterior))
+        except Exception:
+            pass
+        from shapely.strtree import STRtree
+        albero = STRtree(facce)
+        out = []
+        for S in anelli:
+            if not S.is_valid or S.area < MIN_AREA_MM2 * 100:
+                continue
+            ps = prep(S.buffer(0.2))
+            n = 0
+            for j in albero.query(S):
+                f = facce[j]
+                if f.area < S.area * 0.999 and ps.contains(f):
+                    n += 1
+                    if n >= 2:
+                        break
+            if n < 2:
+                continue
+            if any(_stesso_ingombro(S, q, 0.05) and abs(S.area - q.area) <= 1e-3 * S.area for q in out):
+                continue
+            out.append(S)
+        return out
+    try:
+        from .pick_part import _cache_doc
+        return _cache_doc(msp, ('silhouette',), calcola)
+    except Exception:
+        return calcola()
+
+
+def _domina(S, C, margine: float = 0.5) -> bool:
+    """L'ingombro di S contiene quello di C in un verso o nell'altro (lato
+    corto >= lato corto, lato lungo >= lato lungo) ed e' piu' grande."""
+    sb, cb = S.bounds, C.bounds
+    s = sorted((sb[2] - sb[0], sb[3] - sb[1]))
+    c = sorted((cb[2] - cb[0], cb[3] - cb[1]))
+    return s[0] >= c[0] - margine and s[1] >= c[1] - margine and S.area >= 1.15 * C.area
+
+
+def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None):
+    """Sviluppo disegnato con le linee di piega CONTINUE, mentre il contorno
+    scelto e' un'altra vista (di solito il pezzo piegato, che e' un contorno
+    chiuso unico). Lo sviluppo e' la sagoma (silhouette) di un gruppo di
+    linee, che il chain walking divide in falde: nessuna falda da sola vince.
+
+    Prove:
+    - le quote del foglio misurano entrambi i lati della sagoma e almeno una
+      ci sta sopra (quante quelle sul contorno scelto, se e' quotato anche lui);
+    - la sagoma DOMINA il contorno scelto: stendere le falde allunga il pezzo,
+      quindi lo sviluppo e' almeno grande quanto la vista piegata in entrambe
+      le direzioni (24T15PA0282-00: vista 145 x 15, sviluppo 145 x 30). Una
+      sagoma piu' piccola e' un particolare o una vista di fianco.
+    Una sola sagoma deve passare, altrimenti non si sceglie. Ritorna la
+    silhouette o None."""
+    if not quote:
+        return None
+    try:
+        sil = _silhouette_viste(msp, cfg)
+    except Exception:
+        return None
+    lq_outer = _lati_quotati(outer, quote)
+    qs_outer = _quote_sul_contorno(outer, quote)
+    po = outer.buffer(0.5)
+    alt = []
+    for S in sil:
+        if _is_iso_format(S) or _striscia(S):
+            continue        # foglio / vista di fianco (larga uno spessore)
+        if _lati_quotati(S, quote) < 2:
+            continue
+        nq = _quote_sul_contorno(S, quote)
+        if nq < 1:
+            continue
+        if not _domina(S, outer):
+            continue        # stendere le falde allunga: lo sviluppo non e' piu' piccolo
+        if nq < qs_outer and lq_outer >= 2:
+            continue        # la vista scelta e' quotata almeno quanto la sagoma
+        if S.buffer(0.5).contains(outer) or po.contains(S):
+            continue
+        # gia' un contorno chiuso tra i candidati: lo ha valutato la scelta
+        if any(_stesso_ingombro(S, p, 0.5) and abs(S.area - p.area) <= 0.002 * S.area for p in candidati):
+            continue
+        alt.append((nq, S.area, S))
+    if len(alt) != 1:
+        return None         # nessuna o piu' sagome quotate: non si sceglie
+    return alt[0][2]
+
+
+def _stesso_ingombro(a, b, tol: float = 1.0) -> bool:
+    """Stesso rettangolo d'ingombro (tutti e 4 i lati entro `tol` mm)."""
+    try:
+        return all(abs(x - y) <= tol for x, y in zip(a.bounds, b.bounds))
+    except Exception:
+        return False
+
+
 def _profilo_piegato_incompatibile(outer, polys: list):
     """Cerca una vista di fianco piegata: contorno sottile (larghezza media
     2A/P <= 6 mm, lo spessore) e non diritto (area < meta' del rettangolo
@@ -2399,7 +2546,18 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
     # ---- 6b. Sviluppo spezzato dalle linee di piega: riunisci le falde
     scelto = outer
     outer, regione_piena, n_falde = _estendi_oltre_pieghe(outer, msp, cfg)
-    if n_falde and not _falde_confermate(scelto, outer, msp, scala, base.get('quote')):
+    falde_ok = bool(n_falde) and _falde_confermate(scelto, outer, msp, scala, base.get('quote'))
+    if n_falde and not falde_ok and _stesso_ingombro(scelto, outer):
+        # Le facce attaccate stanno tutte DENTRO l'ingombro del contorno
+        # chiuso: non sono viste disegnate a fianco (allargherebbero
+        # l'ingombro) ma pezzi di lamiera tra il contorno e il bordo vero, che
+        # il chain walking ha saltato prendendo una scorciatoia a un incrocio a
+        # T. Il bordo esterno disegnato e' il taglio (archivio: 36 volte giusto
+        # il contorno intero, 0 volte quello chiuso). Da verificare comunque.
+        warnings.append(f'{n_falde} facce dentro l\'ingombro del contorno unite al pezzo '
+                        f'(bordo esterno disegnato): verificare')
+        confidence = min(confidence, 0.6)
+    elif n_falde and not falde_ok:
         # Contorni attaccati al pezzo ma nessuna prova che siano falde: niente
         # linee di piega a tratti sul confine, quote che non misurano lo
         # sviluppo intero. Di solito sono viste disegnate a contatto: si tiene
@@ -2410,6 +2568,18 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         confidence = min(confidence, 0.6)
     if n_falde:
         warnings.append(f'Sviluppo diviso da linee di piega: unite {n_falde} falde al contorno')
+    # ---- 6c. Sviluppo con pieghe continue disegnato a parte dalla vista scelta
+    sviluppo = _sviluppo_altrove(outer, candidati, msp, cfg, base.get('quote'))
+    if sviluppo is not None:
+        piena = _materiale_dentro(sviluppo, _facce(msp, cfg))
+        if piena is not None:
+            sb_, ob_ = sviluppo.bounds, outer.bounds
+            warnings.append(
+                f'Preso lo sviluppo quotato {sb_[2] - sb_[0]:.0f} x {sb_[3] - sb_[1]:.0f} '
+                f'(sagoma divisa da linee di piega continue) invece della vista '
+                f'{ob_[2] - ob_[0]:.0f} x {ob_[3] - ob_[1]:.0f}: verificare')
+            outer, scelto, regione_piena = sviluppo, sviluppo, piena
+            confidence = min(confidence, 0.6)
 
     # ---- 7. Inner holes (contenuti VERAMENTE nell'outer — BUG FIX D2) + svasature (D4)
     pp_outer = _prep_buf(outer)
@@ -2535,6 +2705,9 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         'entita_duplicate_rimosse': base['n_dup'],
         'tipo_disegno': 'v3_shapely',
         'warnings': warnings,
+        # fori dubbi (scritte/lettere contate come fori): la conferma delle
+        # misure del cartiglio riguarda il contorno, non toglie questo dubbio
+        'dubbi_fori': bool(scritte_dubbie or segni),
         # spessore dalla vista laterale (striscia lunga quanto un lato del pezzo)
         'spessore_vista': spessore_vista_laterale(all_polys, scelto),
         # Bbox globale DXF (unità disegno) — usato dal frontend per scale SVG→mm

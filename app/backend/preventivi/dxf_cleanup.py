@@ -783,6 +783,21 @@ def _contorni_pezzo(doc, geo: dict, cfg: dict):
             est, inners, _ni = applica_intagli(est, inners)
             if _misure_coincidono(_dim(est), (w_att, h_att), 0.05, 0.0):
                 return est, inners, scala
+            # ... o preso lo sviluppo quotato diviso da pieghe continue
+            # (silhouette di un gruppo di linee): stessa sagoma, stesse misure
+            from .dxf_polygon_detector_v3 import _silhouette_viste, _materiale_dentro, _facce
+            for S in _silhouette_viste(doc.modelspace(), cfg):
+                if not _misure_coincidono(_dim(S), (w_att, h_att), 0.05, 0.0):
+                    continue
+                piena = _materiale_dentro(S, _facce(doc.modelspace(), cfg))
+                if piena is None:
+                    continue
+                pp = _prep_buf(S)
+                inners = [p for p in candidati if _contiene(S, p, pp)
+                          and piena.intersection(p).area < 0.5 * p.area]
+                inners, _n_svas = _riduci_fori_annidati(inners, S)
+                S, inners, _ni = applica_intagli(S, inners)
+                return S, inners, scala
     if outer is None:
         # Riconoscimento dal bbox del candidato selezionato (unità disegno → mm)
         bb = get_pezzo_bbox(geo)
