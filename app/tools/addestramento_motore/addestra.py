@@ -283,6 +283,7 @@ def main():
     sic_fin['soglia'] = (soglia_per(pS, yS, args.prec) if args.politica == 'sostituisce'
                          else soglia_per(pS[~bS], yS[~bS], args.prec))
     sic_fin['politica'] = args.politica
+    sic_fin['soglie'] = {str(pr): float(soglia_per(pS, yS, pr)) for pr in PRECS}
     iso = IsotonicRegression(out_of_bounds='clip', y_min=0, y_max=1).fit(pS, yS)
     cal = {'x': [float(v) for v in iso.X_thresholds_], 'y': [float(v) for v in iso.y_thresholds_]}
     for m_ in [sic_fin] + list(sic_fold.values()):
@@ -376,7 +377,10 @@ def main():
                   open(os.path.join(args.out, f'fold{k}.json'), 'w'), separators=(',', ':'))
     mappa = {f"{d['fonte']}:{d['codice']}": d['fold'] for d in rec}
     json.dump(mappa, open(os.path.join(args.out, 'fold_codici.json'), 'w'))
-    json.dump({'tab': righe_tab}, open(os.path.join(args.out, 'tabella.json'), 'w'))
+    json.dump({'tab': righe_tab,
+               'soglie_annidate': {str(k): {f'{a_}|{b_}': float(v) for (a_, b_), v in sn.items()}
+                                   for k, sn in soglie_nested.items()}},
+              open(os.path.join(args.out, 'tabella.json'), 'w'))
     # OOF per analisi
     with open(os.path.join(args.out, 'oof_sicuro.csv'), 'w', encoding='utf-8') as fh:
         fh.write('fonte;codice;fold;cliente;p;geo_ok;sicuro_base;manuale;conf\n')

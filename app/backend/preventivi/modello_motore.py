@@ -370,7 +370,14 @@ def prob_sicuro(x: list, calibrata: bool = False) -> float | None:
 
 
 def soglia_sicuro() -> float:
-    return float(((carica() or {}).get('sicuro') or {}).get('soglia', 2.0))
+    """Soglia sulla probabilita' grezza. Predefinita: 99,5% di precisione sui
+    fold tenuti fuori. FT_MOTORE_PRECISIONE=0.99 / 0.998 sceglie un altro punto
+    della curva (0.99: circa +60% di sicuri, con gli stessi errori delle regole)."""
+    m = (carica() or {}).get('sicuro') or {}
+    alt = os.environ.get('FT_MOTORE_PRECISIONE')
+    if alt and str(alt) in (m.get('soglie') or {}):
+        return float(m['soglie'][str(alt)])
+    return float(m.get('soglia', 2.0))
 
 
 def politica_sicuro() -> str:
