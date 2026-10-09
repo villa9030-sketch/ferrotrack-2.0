@@ -177,7 +177,7 @@ CONF_BASSA = 0.3
 CONF_FORI_DUBBI = 0.65
 # Tipo di disegno (tipo_disegno.py): SINGOLO / PIU_PEZZI / DA_SVILUPPARE /
 # NON_LASER. Disattivabile da config con dxf_tipo_disegno = False.
-TIPO_DISEGNO_ATTIVO = True
+TIPO_DISEGNO_ATTIVO = False     # SPENTO (09/10/2026): sbaglia ancora il 5% dei pezzi singoli (10% altri clienti); si riaccende quando avra' piu' esempi di Stefano (tasti V/P/N del controllo)
 ARCHI_GIRO_MIN = 1.5 * math.pi        # archi liberi coassiali che coprono 270 gradi = foro tondo (_fori_da_archi)
 GIOCO_TRATTI_MM = 2.0               # estremi di linee aperte accostati per vedere se chiudono una zona
 FESSURA_MAX_MM = 0.1                 # fessure del contorno piu' strette: non si tagliano (_chiudi_fessure)
