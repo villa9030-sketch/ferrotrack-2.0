@@ -280,6 +280,37 @@ def _togli_da_preparare(cartella_lantek, nome) -> int:
     return tolti
 
 
+def _pulito_dal_contorno_scelto(dest, outer_xy, holes_xy) -> dict:
+    """DXF per Lantek scritto direttamente dal contorno scelto (in mm): il
+    contorno esterno e i fori come polilinee chiuse sul layer TAGLIO, come il
+    pulito normale. Le linee di piega non ci sono: per il taglio non servono."""
+    try:
+        import ezdxf
+        from .preventivi import dxf_cleanup as _dxc
+        doc = ezdxf.new('R2010')
+        doc.header['$INSUNITS'] = 4
+        for nome, colore in (('TAGLIO', 7), ('PIEGA', 2), ('MARCATURA', 3)):
+            if nome not in doc.layers:
+                doc.layers.add(nome, color=colore)
+        xs = [float(p[0]) for p in outer_xy]
+        ys = [float(p[1]) for p in outer_xy]
+        _dxc._marca_pulito(doc, _dxc.TIPO_PULIZIA_MANUALE, max(xs) - min(xs), max(ys) - min(ys))
+        doc.header['$USERI3'] = _dxc.FORMATO_LANTEK
+        msp = doc.modelspace()
+        for anello in [outer_xy] + list(holes_xy or []):
+            pts = [(float(x), float(y)) for x, y in anello]
+            if len(pts) >= 2 and pts[0] == pts[-1]:
+                pts = pts[:-1]
+            if len(pts) < 3:
+                continue
+            msp.add_lwpolyline(pts, close=True, dxfattribs={'layer': 'TAGLIO'})
+        doc.saveas(dest)
+        return {'success': True}
+    except Exception as e:      # noqa: BLE001
+        logger.warning('DXF dal contorno scelto non scritto: %s', e)
+        return {'success': False, 'error': str(e)[:160]}
+
+
 def _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo) -> dict:
     """Rifa' il DXF pulito per Lantek dal contorno scelto, lo controlla e, se e'
     pronto, lo mette in uploads/drawings/<ordine>/LANTEK/<lamiera>/ (dove lo
@@ -293,17 +324,22 @@ def _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo) -> dict:
     tmp = tempfile.mkdtemp(prefix='ft_contorno_')
     try:
         pulito = os.path.join(tmp, nome)
+        attesi = {'bbox_w_mm': geo['bbox_width_mm'], 'bbox_h_mm': geo['bbox_height_mm'], 'area_dm2': geo['area_dm2']}
         rp = _dxc.pulito_da_contorno(percorso, pulito, outer_xy, holes_xy, _cfg_riconoscimento())
-        if not rp.get('success'):
-            return {'pronto': False, 'file': None,
-                    'motivo': 'DXF pulito non creato (' + str(rp.get('error') or 'motivo sconosciuto')
-                              + '): il pezzo resta da preparare in Lantek'}
-        v = _dxc.verifica_lantek(pulito, {'bbox_w_mm': geo['bbox_width_mm'], 'bbox_h_mm': geo['bbox_height_mm'],
-                                          'area_dm2': geo['area_dm2']})
+        v = _dxc.verifica_lantek(pulito, attesi) if rp.get('success') else {}
+        nota = ''
         if v.get('stato') != 'pronto':
-            return {'pronto': False, 'file': None,
-                    'motivo': 'DXF pulito da guardare (' + '; '.join(v.get('motivi') or ['?'])
-                              + '): il pezzo resta da preparare in Lantek'}
+            # Ricopiare le linee del disegno non basta (contorno fatto di pezzi
+            # che non si chiudono, 11PCOPA0030-03): il contorno l'ha scelto una
+            # persona, quindi il DXF per Lantek si scrive da quello.
+            primo = (str(rp.get('error')) if not rp.get('success')
+                     else '; '.join(v.get('motivi') or ['?']))
+            rp2 = _pulito_dal_contorno_scelto(pulito, outer_xy, holes_xy)
+            v = _dxc.verifica_lantek(pulito, attesi) if rp2.get('success') else {}
+            if v.get('stato') != 'pronto':
+                return {'pronto': False, 'file': None,
+                        'motivo': 'DXF pulito non creato (' + primo + '): il pezzo resta da preparare in Lantek'}
+            nota = ' (scritto dal contorno scelto: le linee del disegno non si chiudevano)'
         cartella_lantek = os.path.join(DRAWINGS_FOLDER, order.id, 'LANTEK')
         lamiera = _nome_lamiera(art.get('materiale'), art.get('spessore_mm'))
         dest_dir = os.path.join(cartella_lantek, lamiera)
@@ -313,7 +349,7 @@ def _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo) -> dict:
         tolti = _togli_da_preparare(cartella_lantek, nome)
         rel = '/'.join(['LANTEK', lamiera, nome])
         return {'pronto': True, 'file': rel,
-                'motivo': f'pronto per Lantek in {rel}' + (' (tolto da _DA PREPARARE)' if tolti else '')}
+                'motivo': f'pronto per Lantek in {rel}' + nota + (' (tolto da _DA PREPARARE)' if tolti else '')}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -331,6 +331,19 @@ def main():
     ev = [e for e in esempi() if e['evento'] == 'dati_scelti_dal_laser']
     check('nel registro degli esempi', ev and ev[-1]['codice'] == 'P-MANCA-00' and '2.5 mm' in str(ev[-1]['decisione']), ev[-1:])
 
+    print('\n9) Contorno scelto a mano su un disegno con linee che non si chiudono')
+    from backend import api_contorno_ordine as ACO
+    from backend.preventivi import dxf_cleanup as DXC
+    d9 = os.path.join(tempfile.mkdtemp(), 'p9.dxf')
+    esterno = [[0, 0], [300, 0], [300, 60], [0, 60]]
+    foro = [[20, 20], [40, 20], [40, 40], [20, 40]]
+    r9 = ACO._pulito_dal_contorno_scelto(d9, esterno, [foro])
+    v9 = DXC.verifica_lantek(d9, {'bbox_w_mm': 300, 'bbox_h_mm': 60, 'area_dm2': (300 * 60 - 400) / 1e4})
+    check('DXF scritto dal contorno scelto: pronto per Lantek', r9.get('success') and v9.get('stato') == 'pronto', (r9, v9))
+    doc9 = ezdxf.readfile(d9)
+    check('due polilinee chiuse sul TAGLIO, in mm',
+          sorted(e.dxf.layer for e in doc9.modelspace()) == ['TAGLIO', 'TAGLIO'] and doc9.header.get('$INSUNITS') == 4)
+
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     if KO:
         print('Falliti: ' + ', '.join(KO))
