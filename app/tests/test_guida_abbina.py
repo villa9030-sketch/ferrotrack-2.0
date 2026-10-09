@@ -110,7 +110,7 @@ with sync_playwright() as p:
     pg = ctx.new_page()
     err = []
     pg.on('pageerror', lambda e: err.append(str(e)))
-    pg.goto(B + '/laser.html')
+    pg.goto(B + '/laser-vecchio.html')  # pagina vecchia, tenuta una settimana
     pg.wait_for_load_state('networkidle')
     pg.wait_for_timeout(1500)
     ids = pg.evaluate("ordiniFase('importare').map(o => o.id)")

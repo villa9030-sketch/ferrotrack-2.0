@@ -104,7 +104,7 @@ with sync_playwright() as p:
         b.close()
         sys.exit(0)
 
-    pg.goto(B + '/laser.html')
+    pg.goto(B + '/laser-vecchio.html')  # pagina vecchia, tenuta una settimana
     pg.wait_for_load_state('networkidle')
     pg.wait_for_timeout(2500)
     check('la pagina del laser si apre senza errori', not err, err[:1])

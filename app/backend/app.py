@@ -1556,6 +1556,10 @@ def _stato_motore(a: dict) -> dict:
         return {'stato': 'sicuro', 'motivi': [], 'decisione': None}
     if a.get('dxf_needs_verify'):
         grezzi.append('selezione pezzo incerta')
+    if a.get('spessore_mm'):
+        # avviso del caricamento ormai superato: lo spessore adesso c'e'
+        grezzi = [m for m in grezzi if 'manca spessore' not in str(m).lower()
+                  and 'spessore mancante' not in str(m).lower()]
     return {'stato': 'verificare', 'motivi': motivi_brevi(grezzi), 'decisione': None}
 
 

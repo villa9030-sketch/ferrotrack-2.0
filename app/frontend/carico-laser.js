@@ -1,12 +1,14 @@
 /* Carico del laser: quante ore di taglio pesano su ogni giorno.
-   Stesse regole del calendario della pagina laser (laser.html, modulo
-   "saturazione"): taglio dei pezzi x correzione verso Lantek + carico/scarico
-   (minuti a lamiera, secondi a pezzo), lamiere stimate col Banco lamiere.
-   Lo usa l'ufficio per promettere consegne realistiche e vedere gli ordini a
-   rischio. Se cambia il calcolo nella pagina laser, va cambiato anche qui. */
+   E' l'UNICO calcolo della saturazione: lo usano l'ufficio (impiegata.html,
+   per promettere consegne realistiche e vedere gli ordini a rischio) e la
+   pagina laser (laser-saturazione.js, la riga "Questa settimana").
+   Ore = taglio dei pezzi (tempi del server, gia' tarati su Lantek col fattore
+   foglio ~1,03: vedi preventivi/tempi_laser.py) + carico/scarico (minuti a
+   lamiera, secondi a pezzo), lamiere stimate dagli ingombri dei pezzi.
+   La "correzione" fattore_tempo ora vale 1 (prima 1,18 sui tempi vecchi). */
 window.CaricoLaser = (() => {
   const S = { banco: null, cfg: null, cache: {}, t: 0 };
-  const DEF = { ore_turno: 8, ore_riserva: 2, giorni: [1, 2, 3, 4, 5], carico_min_lamiera: 5, scarico_s_pezzo: 3, fattore_tempo: 1.18 };
+  const DEF = { ore_turno: 8, ore_riserva: 2, giorni: [1, 2, 3, 4, 5], carico_min_lamiera: 5, scarico_s_pezzo: 3, fattore_tempo: 1 };
 
   const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const giornoConsegna = o => (o && o.data_consegna ? String(o.data_consegna).slice(0, 10) : null);

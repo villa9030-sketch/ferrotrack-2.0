@@ -40,7 +40,7 @@ from tests.accesso_server import contesto_stazione, PIN_ADMIN  # noqa: E402
 
 # Da quale stazione si apre ciascuna pagina ('admin' = Ufficio + PIN admin).
 STAZIONE = {
-    'laser.html': 'laser', 'capo-officina.html': 'laser',
+    'laser.html': 'laser', 'laser-vecchio.html': 'laser', 'capo-officina.html': 'laser',
     'impiegata.html': 'ufficio', 'archivio.html': 'ufficio', 'ufficio-ore.html': 'ufficio',
     'admin.html': 'admin',
     'preventivi.html': 'commerciale', 'dxf-editor.html': 'commerciale',
