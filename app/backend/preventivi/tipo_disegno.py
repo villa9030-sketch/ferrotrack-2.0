@@ -90,6 +90,7 @@ def _scansione_entita(msp, scala: float, cfg: dict) -> dict:
     testi = []          # (x, y, h, s)
     cerchi = []         # (x, y, r)
     segmenti = []       # (x0, y0, x1, y1) mm, linee continue
+    tutti = []          # (x0, y0, x1, y1) mm, anche a tratti/colorate (linee di piega)
     archi = []          # (x, y, r) mm
     parole = {k: 0 for k in _PAROLE}
     n = 0
@@ -167,6 +168,7 @@ def _scansione_entita(msp, scala: float, cfg: dict) -> dict:
                 lung = math.hypot(dx, dy) * f
                 if lung <= 0:
                     continue
+                tutti.append((s.x * f, s.y * f, en.x * f, en.y * f))
                 if not tratteggiata:
                     segmenti.append((s.x * f, s.y * f, en.x * f, en.y * f))
                 a = math.degrees(math.atan2(dy, dx)) % 90.0
@@ -223,7 +225,60 @@ def _scansione_entita(msp, scala: float, cfg: dict) -> dict:
         c['kw_' + k] = v
     c.update(_pallini_e_tabelle(testi, cerchi))
     c.update(_spessore_nelle_viste(segmenti, archi))
+    c.update(_tubi(cerchi))
+    c['_tutti'] = tutti
     return c
+
+
+def _tubi(cerchi: list) -> dict:
+    """Sezioni di TUBO: due cerchi concentrici con parete sottile (raggio
+    interno >= 75% dell'esterno, parete 0,4-6 mm). Un foro svasato ha il
+    cerchio esterno quasi doppio: non conta."""
+    g: dict = {}
+    for x, y, r in cerchi[:20000]:
+        g.setdefault((round(x, 1), round(y, 1)), []).append(r)
+    n = 0
+    for rr in g.values():
+        if len(rr) < 2:
+            continue
+        rr = sorted(set(round(r, 3) for r in rr))
+        for a, b in zip(rr, rr[1:]):
+            if b >= 5.0 and a >= 0.75 * b and SPESSORE_VISTA[0] <= b - a <= SPESSORE_VISTA[1]:
+                n += 1
+                break
+    return {'n_tubi': n}
+
+
+def linee_piega_dentro(poly, segmenti: list) -> int:
+    """Linee dritte (di qualsiasi tipo: continue, a tratti, colorate) che
+    attraversano il contorno da bordo a bordo: in uno SVILUPPO sono le linee
+    di piega. Un pezzo piegato disegnato senza sviluppo non le ha."""
+    if poly is None or not segmenti:
+        return 0
+    from shapely.geometry import Point
+    from shapely.prepared import prep as _prep
+    x0, y0, x1, y1 = poly.bounds
+    lato_min = min(x1 - x0, y1 - y0)
+    bordo = poly.exterior
+    pp = _prep(poly)
+    n = 0
+    for a, b, c, d in segmenti:
+        if min(a, c) < x0 - 1 or max(a, c) > x1 + 1 or min(b, d) < y0 - 1 or max(b, d) > y1 + 1:
+            continue
+        if math.hypot(c - a, d - b) < max(5.0, 0.2 * lato_min):
+            continue
+        try:
+            if bordo.distance(Point(a, b)) > 0.5 or bordo.distance(Point(c, d)) > 0.5:
+                continue
+            m = Point((a + c) / 2, (b + d) / 2)
+            if bordo.distance(m) <= 0.5 or not pp.contains(m):
+                continue
+        except Exception:
+            continue
+        n += 1
+        if n >= 50:
+            break
+    return n
 
 
 SPESSORE_VISTA = (0.4, 6.0)      # distanza tra le due linee di un bordo di lamiera visto di fianco
@@ -400,8 +455,10 @@ def caratteristiche(doc, msp, base: dict, candidati: list, top_level: list, oute
     cfg = cfg or {}
     scala = base.get('scala') or 1.0
     feat = {}
+    tutti = []
     try:
         feat.update(_scansione_entita(msp, scala, cfg))
+        tutti = feat.pop('_tutti', [])
     except Exception as e:     # noqa: BLE001
         logger.debug('tipo disegno, scansione: %s', e)
     polys = base.get('polys') or []
@@ -493,6 +550,10 @@ def caratteristiche(doc, msp, base: dict, candidati: list, top_level: list, oute
         feat['n_pezzi_30'] = sum(1 for g in gr if g['poly'].area >= 0.30 * a0)
         feat['n_pezzi_fori'] = sum(1 for g in gr if g['fori'])
         feat['q_max'] = max((g['quantita'] for g in gr), default=0)
+        # linee di piega da bordo a bordo: nel contorno scelto e nel pezzo
+        # del foglio che ne ha di piu' (lo sviluppo, se c'e')
+        feat['pieghe_scelto'] = linee_piega_dentro(outer, tutti)
+        feat['pieghe_max'] = max([feat['pieghe_scelto']] + [linee_piega_dentro(g['poly'], tutti) for g in gr[:6]])
     except Exception as e:     # noqa: BLE001
         logger.debug('tipo disegno, pezzi: %s', e)
     try:
