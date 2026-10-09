@@ -699,7 +699,7 @@ def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0,
         centri_cerchi           — centri (mm) dei CIRCLE normali (per lo scoring)
     """
     out = {'chiusi': [], 'aperti': [], 'chiusi_col': [], 'aperti_col': [], 'centri_cerchi': [],
-           'n_tratteggiati': 0}
+           'n_tratteggiati': 0, 'punti_tratteggi': []}
     f = float(scala or 1.0)
     dist = FLATTEN_DISTANCE_MM / f  # deflessione costante in mm anche per DXF in pollici
 
@@ -722,6 +722,13 @@ def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0,
         # allo sviluppo; 08PA03722-00: spigoli nascosti della vista piegata)
         if escludi_tratteggi and et != 'POINT' and linea_tratteggiata(entity):
             out['n_tratteggiati'] += 1
+            if et == 'LINE':
+                # punto medio (solo per le feature del modello: dove stanno le linee a tratti)
+                try:
+                    s_, e_ = entity.dxf.start, entity.dxf.end
+                    out['punti_tratteggi'].append(((s_.x + e_.x) * f / 2, (s_.y + e_.y) * f / 2))
+                except AttributeError:
+                    pass
             continue
         col = _entity_color_excluded(entity, colori_esclusi)
         chiusi = out['chiusi_col'] if col else out['chiusi']
@@ -1840,6 +1847,9 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
         # tratti aperti (colore normale, senza doppioni): servono a trovare le
         # linee rimaste fuori dai contorni chiusi (_tratti_aperti_dentro)
         'aperti': opens, 'tol_chain': _tol,
+        # per le feature del modello (modello_motore): tratti col colore di
+        # piega/saldatura e punti medi delle linee a tratti
+        'aperti_col': opens_col, 'punti_tratteggi': raw.get('punti_tratteggi') or [],
     }
 
 
@@ -2949,6 +2959,28 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
 
     # ---- 6. Pick best outer + confidence
     best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri, base.get('quote'), base.get('testi'))
+    # ---- 6a. Modello addestrato (modello_motore): feature dei candidati e,
+    # in modo 'on', scelta del ranker quando distacca quella a regole
+    info_modello = None
+    try:
+        from . import modello_motore as _mm
+        _modo_m = _mm.modo(cfg)
+        if _modo_m != 'off':
+            _fc = _mm.feature_candidati(candidati, all_scored, best_idx, base)
+            _rk = _mm.valuta_ranker(_fc, best_idx)
+            info_modello = {'modo': _modo_m, 'idx_base': best_idx,
+                            'rank': {k: v for k, v in (_rk or {}).items() if k != 'p'} or None}
+            if _modo_m == 'dump':
+                info_modello['cand'] = _fc
+            elif _rk:
+                nuovo = _mm.scelta_ranker(_rk, best_idx)
+                if nuovo != best_idx:
+                    info_modello['cambiato'] = True
+                    warnings.append('Contorno scelto dal modello addestrato invece di quello a regole: verificare')
+                    best_idx = nuovo
+                    confidence = min(confidence, 0.6)
+    except Exception as _e:      # noqa: BLE001 - il modello non deve rompere il riconoscimento
+        logger.warning('modello motore: %s', _e)
     outer = candidati[best_idx]
     conf_scelta = confidence
     if getattr(doc, '_ft_scala_dubbia', False):
@@ -3246,6 +3278,7 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         # sotto i 2/3 dello spessore vanno al trapano (dxf_batch_worker)
         'fori_tondi': _fori_tondi(inners),
         'fori_non_tondi_mm': _fori_non_tondi(inners),
+        '_modello': info_modello,
     }
 
 
