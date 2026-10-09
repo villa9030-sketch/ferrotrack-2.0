@@ -444,3 +444,15 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 @media (max-width: 1100px) {
   body.lz .ft-brand-area, body.lz .ft-live { display: none; }
 }
+
+/* spessore / materiale scelto dal laser sulla riga bloccata */
+.lz-dati { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.lz-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.lz-chip { min-width: 38px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px;
+  background: #fff; color: var(--lz-ink); font: 600 13px/1 inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.lz-chip:hover { border-color: var(--lz-ink-3); }
+.lz-chip.on { background: var(--lz-accent); border-color: var(--lz-accent); color: #fff; }
+.lz-sp { display: inline-flex; align-items: center; gap: 6px; color: var(--lz-ink-2); font-size: 13px; }
+.lz-sp input { width: 64px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; }
+.lz-dati select { height: 32px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; background: #fff; }
+.lz-chip:focus-visible, .lz-sp input:focus-visible, .lz-dati select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 2px; }

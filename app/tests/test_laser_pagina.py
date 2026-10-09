@@ -105,6 +105,7 @@ L.ordini_in_lantek = lambda commessa: dict(ORDINI_LT)
 L.ordini_fatti_in_lantek = lambda commessa: {}
 L.pezzi_dell_ordine = lambda commessa: {}
 L.procesos_disponibile = lambda: True
+L.materiali_lantek_noti = lambda: {'FERRO', 'INOX', 'ALLUMINIO', 'ZINCATO'}
 L.xmlimporter_disponibile = lambda: True
 L.importa_pezzi_dxf = pezzi_finti
 L.importa_xml = xml_finto
@@ -310,6 +311,25 @@ def main():
           == 'Contorno scelto dal modello: controlla che sia il pezzo')
     check('piegato', mb('Il disegno mostra il pezzo piegato (profilo...): manca lo sviluppo') == 'Disegnato piegato: forse manca lo sviluppo')
     check('al massimo tre, senza doppioni', len(A.motivi_brevi(['scala 1:4', 'scala 1:2', 'linee aperte', 'nessun riscontro', 'facce dentro'])) == 3)
+
+    print('\n8) Spessore e materiale decisi dal laser (pezzo nuovo da creare in Lantek)')
+    check('cosa fare: si scrive qui, non nel MES', 'MES' not in AL._cosa_fare('spessore mancante', 'X')
+          and 'MES' not in AL._cosa_fare('materiale XYZ da scegliere in Lantek', 'X'))
+    aid = arts['P-MANCA-00']
+    url = f'/api/orders/{oid}/pezzi/{aid}/dati'
+    check('vuoto: 400', laser.post(url, json={}).status_code == 400)
+    check('spessore non numerico: 400', laser.post(url, json={'spessore_mm': 'tre'}).status_code == 400)
+    check('spessore assurdo: 400', laser.post(url, json={'spessore_mm': 80}).status_code == 400)
+    check('materiale sconosciuto a Lantek: 400', laser.post(url, json={'materiale': 'OTTONE'}).status_code == 400)
+    check("il tablet officina non puo'", rep.post(url, json={'spessore_mm': 4}).status_code in (401, 403))
+    r = laser.post(url, json={'spessore_mm': '2,5', 'materiale': 'inox'})
+    s = models.SessionLocal()
+    riga = s.execute(text('SELECT spessore_mm, materiale FROM preventivo_articoli WHERE id = :i'), {'i': aid}).fetchone()
+    s.close()
+    check('salvato sulla riga del pezzo: 2,5 mm INOX', r.status_code == 200 and riga[0] == 2.5 and riga[1] == 'INOX',
+          (r.status_code, r.get_json(), tuple(riga)))
+    ev = [e for e in esempi() if e['evento'] == 'dati_scelti_dal_laser']
+    check('nel registro degli esempi', ev and ev[-1]['codice'] == 'P-MANCA-00' and '2.5 mm' in str(ev[-1]['decisione']), ev[-1:])
 
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     if KO:

@@ -176,7 +176,7 @@
     const bl = st === 'coda' ? (info.bloccati || []) : [];
     if (bl.length) {
       h += `<ul class="lz-blocchi" aria-label="Cosa blocca l'ordine">${bl.map(b => `<li><span class="mono">${esc(b.codice)}</span>
-        <span class="mot">${esc(capo(b.motivo))}<small>${esc(b.cosa)}</small></span></li>`).join('')}</ul>`;
+        <span class="mot">${esc(capo(b.motivo))}<small>${esc(b.cosa)}</small>${campoDati(b, info)}</span></li>`).join('')}</ul>`;
     }
     if (st === 'coda' && D.dati && (D.dati.differenze || []).length && !info.n_controllare && !info.n_abbinare) {
       const n = new Set(D.dati.differenze.map(x => x.codice)).size;
@@ -186,6 +186,43 @@
     return h;
   }
   const capo = s => { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); };
+
+  // Spessore / materiale di un pezzo nuovo: lo decide il laser guardando il
+  // disegno, e FerroTrack lo crea cosi' in Lantek (non si passa dal MES).
+  const SPESSORI = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15];
+  function campoDati(b, info) {
+    if (!b.campo || !b.articolo_id) return '';
+    const aid = esc(b.articolo_id), cod = esc(b.codice);
+    const vedi = b.disegno ? `<button class="lz-btn piccolo ghost" type="button" data-vedi="${aid}" title="Apri il disegno grande">${LZ.ico('maximize-2')}Guarda il disegno</button>` : '';
+    if (b.campo === 'spessore') {
+      return `<span class="lz-dati" data-dati="${aid}" data-codice="${cod}">
+        <span class="lz-chips">${SPESSORI.map(s => `<button class="lz-chip" type="button" data-sp="${s}">${String(s).replace('.', ',')}</button>`).join('')}</span>
+        <label class="lz-sp">altro <input type="text" inputmode="decimal" placeholder="mm" aria-label="Spessore in mm di ${cod}"></label>
+        <button class="lz-btn piccolo pri" type="button" data-salva-dati>Salva</button>${vedi}</span>`;
+    }
+    const mats = (info.materiali_lantek || []);
+    return `<span class="lz-dati" data-dati="${aid}" data-codice="${cod}">
+      <select aria-label="Materiale di ${cod}"><option value="">Scegli il materiale…</option>${mats.map(m => `<option${String(b.materiale || '').toUpperCase() === m ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select>
+      <button class="lz-btn piccolo pri" type="button" data-salva-dati>Salva</button>${vedi}</span>`;
+  }
+  O.salvaDati = (id, box) => LZ.azione(async () => {
+    const aid = box.dataset.dati, cod = box.dataset.codice;
+    const sel = box.querySelector('select');
+    const inp = box.querySelector('input');
+    const chip = box.querySelector('.lz-chip.on');
+    const corpo = {};
+    if (sel) { if (!sel.value) { FT.toast('Scegli il materiale', 'warn'); sel.focus(); return; } corpo.materiale = sel.value; }
+    else {
+      const v = (inp && inp.value.trim()) || (chip && chip.dataset.sp) || '';
+      const n = parseFloat(String(v).replace(',', '.'));
+      if (!(n > 0)) { FT.toast('Scegli o scrivi lo spessore', 'warn'); if (inp) inp.focus(); return; }
+      corpo.spessore_mm = n;
+    }
+    const r = await LZ.post(`/api/orders/${id}/pezzi/${encodeURIComponent(aid)}/dati`, corpo);
+    if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore'), 'err'); return; }
+    FT.toast(`${cod}: ${corpo.spessore_mm != null ? String(corpo.spessore_mm).replace('.', ',') + ' mm' : corpo.materiale} salvato`, 'ok');
+    await O.dopo(id);
+  });
 
   function schede(o) {
     const D = S.dett[o.id] || {};
@@ -306,6 +343,15 @@
     if (!dett || !dett.contains(e.target)) return;
     const o = LZ.trova(S.aperto);
     if (!o) return;
+    const chip = e.target.closest('.lz-dati .lz-chip');
+    if (chip) {
+      const box = chip.closest('.lz-dati');
+      box.querySelectorAll('.lz-chip').forEach(c => c.classList.toggle('on', c === chip));
+      const inp = box.querySelector('input'); if (inp) inp.value = '';
+      return;
+    }
+    const sv = e.target.closest('[data-salva-dati]');
+    if (sv) { O.salvaDati(o.id, sv.closest('.lz-dati')); return; }
     const sc = e.target.closest('[data-scheda]');
     if (sc) { O.mostraScheda(sc.dataset.scheda); return; }
     const pm = e.target.closest('[data-pezzo-menu]');
@@ -314,6 +360,17 @@
     if (az && !az.closest('.lz-abb')) { O.esegui(az.dataset.az, o.id, az); return; }
     const v = e.target.closest('[data-vedi]');
     if (v && !e.target.closest('.lz-abb')) LZ.controllo.vedi(o.id, v.dataset.vedi);
+  });
+  document.addEventListener('keydown', e => {
+    const box = e.target.closest && e.target.closest('.lz-dati');
+    if (!box || e.key !== 'Enter') return;
+    e.preventDefault(); e.stopPropagation();
+    const o = LZ.trova(S.aperto);
+    if (o) O.salvaDati(o.id, box);
+  }, true);
+  document.addEventListener('input', e => {
+    const box = e.target.closest && e.target.closest('.lz-dati');
+    if (box && e.target.matches('input')) box.querySelectorAll('.lz-chip.on').forEach(c => c.classList.remove('on'));
   });
   document.addEventListener('change', e => {
     const inp = e.target.closest('input[data-durata]');

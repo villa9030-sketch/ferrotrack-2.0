@@ -113,9 +113,9 @@ def _cosa_fare(motivo: str, codice_ft: str) -> str:
     if 'revisioni' in m:
         return "Scrivi nell'ordine la revisione giusta del codice, poi premi Ricontrolla."
     if 'materiale' in m:
-        return 'Importalo dal MES scegliendo il materiale, poi premi Ricontrolla.'
+        return 'Scegli qui il materiale guardando il disegno: lo creo io in Lantek.'
     if 'spessore' in m:
-        return 'Importalo dal MES indicando lo spessore, poi premi Ricontrolla.'
+        return 'Scrivi qui lo spessore guardando il disegno: lo creo io in Lantek.'
     if 'questo pc' in m:
         return 'Importalo dal MES (Importa → Files DXF), poi premi Ricontrolla.'
     return 'Importalo dal MES, poi premi Ricontrolla.'
@@ -210,6 +210,14 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                           'cosa': _cosa_fare('questo pc', cod)}
             elif no and not no.get('verifica'):
                 blocco = {'motivo': no['motivo'], 'cosa': _cosa_fare(no['motivo'], cod)}
+                mot = str(no['motivo']).lower()
+                campo = 'spessore' if 'spessore' in mot else 'materiale' if 'materiale' in mot else None
+                if campo and r.get('articolo_id'):
+                    # lo decide il laser qui, guardando il disegno (non nel MES)
+                    blocco.update({'campo': campo, 'articolo_id': r.get('articolo_id'),
+                                   'disegno': bool(r.get('disegno')),
+                                   'materiale': (x or {}).get('materiale') or r.get('materiale'),
+                                   'spessore': (x or {}).get('spessore') or r.get('spessore_mm')})
             elif no and no.get('verifica') and mt.get('stato') == 'deciso':
                 blocco = {'motivo': no['motivo'], 'cosa': 'Riapri il disegno e scegli il contorno (tasto S).'}
         chiave = cod.lower()
@@ -252,6 +260,8 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         'n_controllare': n_controllare, 'n_abbinare': da_abbinare_n,
         'n_esclusi': len(esclusi),
         'bloccati': bloccati,
+        'materiali_lantek': (sorted(_lt.materiali_lantek_noti() or [])
+                             if any(b.get('campo') == 'materiale' for b in bloccati) else []),
         'lantek': {'letto': q is not None, 'disponibile': bool(lt.get('disponibile')),
                    'errore': lt.get('errore'), 'crea_pezzi': bool(procesos),
                    'invio_automatico': bool(q is not None and _lt.xmlimporter_disponibile())},
@@ -698,4 +708,84 @@ def api_pezzo_decisione(order_id, articolo_id):
         return jsonify({'success': True, 'scelta': scelta, 'prima': esito.get('prima')}), 200
     except Exception as e:
         logger.exception('decisione sul pezzo fallita')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
+SPESSORE_MIN_MM, SPESSORE_MAX_MM = 0.3, 50.0
+
+
+@bp_laser.route('/api/orders/<order_id>/pezzi/<articolo_id>/dati', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_pezzo_dati(order_id, articolo_id):
+    """Spessore e/o materiale di un pezzo nuovo, decisi dal laser guardando il
+    disegno (il cartiglio non li dice): servono per crearlo in Lantek.
+
+    Corpo: {"spessore_mm": 3} e/o {"materiale": "INOX"} (un materiale che
+    Lantek conosce). Si scrivono sulla riga del pezzo; finiscono anche nel
+    registro degli esempi del motore."""
+    A = _app()
+    try:
+        corpo = request.get_json(silent=True) or {}
+        sp, mat = corpo.get('spessore_mm'), corpo.get('materiale')
+        if sp is None and not mat:
+            return jsonify({'success': False, 'error': 'Scrivi lo spessore o scegli il materiale'}), 400
+        if sp is not None:
+            try:
+                sp = round(float(str(sp).replace(',', '.')), 2)
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'error': 'Spessore non valido: scrivi un numero in mm'}), 400
+            if not SPESSORE_MIN_MM <= sp <= SPESSORE_MAX_MM:
+                return jsonify({'success': False,
+                                'error': f'Spessore fuori misura: tra {SPESSORE_MIN_MM:g} e {SPESSORE_MAX_MM:g} mm'}), 400
+        if mat:
+            mat = str(mat).strip().upper()
+            from . import lantek as _lt
+            noti = {str(m).upper() for m in (_lt.materiali_lantek_noti() or [])}
+            if noti and mat not in noti:
+                return jsonify({'success': False, 'error': f'Materiale {mat} non presente in Lantek'}), 400
+        order = A._ordine_esistente(order_id)
+        if not order:
+            return A._non_trovato_ordine()
+        if not order.preventivo_id_origine:
+            return jsonify({'success': False, 'error': "Quest'ordine non ha pezzi con la distinta"}), 404
+        art, _percorso = A._articolo_ordine(order, articolo_id)
+        if not art:
+            return jsonify({'success': False, 'error': "Pezzo non trovato in quest'ordine"}), 404
+        from sqlalchemy import text as _text
+        from .database import get_session
+        session = get_session()
+        try:
+            campi, val = [], {'i': articolo_id, 'p': order.preventivo_id_origine}
+            if sp is not None:
+                campi.append('spessore_mm = :sp')
+                val['sp'] = sp
+            if mat:
+                campi.append('materiale = :mat')
+                val['mat'] = mat
+            n = session.execute(_text(f"UPDATE preventivo_articoli SET {', '.join(campi)} "
+                                      'WHERE id = :i AND preventivo_id = :p'), val).rowcount
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+        if not n:
+            return jsonify({'success': False, 'error': 'Pezzo non trovato'}), 404
+        chi = A._chi_nome()
+        scelta = ', '.join(x for x in (f'{sp:g} mm' if sp is not None else '', mat or '') if x)
+        A._registra_decisione_laser(order, articolo_id, 'dati_scelti_dal_laser', scelta, chi)
+        A._audit('PEZZO_DATI', 'orders', order_id,
+                 f"Pezzo {art.get('codice') or articolo_id}: "
+                 + (f"spessore {art.get('spessore_mm')} -> {sp:g} mm " if sp is not None else '')
+                 + (f"materiale {art.get('materiale')} -> {mat}" if mat else '') + ' (dal laser, guardando il disegno)')
+        try:
+            from . import lantek as _lt
+            _lt._svuota_cache()
+        except Exception:
+            pass
+        invalida(order_id)
+        return jsonify({'success': True, 'spessore_mm': sp, 'materiale': mat}), 200
+    except Exception as e:
+        logger.exception('dati del pezzo non salvati')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
