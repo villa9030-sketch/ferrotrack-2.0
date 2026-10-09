@@ -134,6 +134,10 @@ def _decisione_modello(dxf_path, geo, cartiglio, spessore, dim_info, cleaned_inf
             fisse.append('fori piccoli: spessore da confermare per decidere laser o trapano')
         if ind.get('fori_stretti_non_tondi'):
             fisse.append('contorni non tondi sotto il minimo laser')
+        if geo.get('fori_dubbi'):
+            # lettere/scritte alte contate come fori, archi spezzati: cosa si
+            # taglia lo decide una persona (il modello qui sbaglia 1 volta su 50)
+            fisse.append('fori dubbi: tagliare o marcare?')
         if descr:
             fisse.append('misure dalla descrizione del cartiglio')
         if motivo.startswith('area_ratio') or motivo.startswith('no detector'):
@@ -153,6 +157,9 @@ def _decisione_modello(dxf_path, geo, cartiglio, spessore, dim_info, cleaned_inf
             info.pop('ombra_stats', None)
             return {**geo, '_modello': info}, cleaned_info
         sicuro = p is not None and p >= mm.soglia_sicuro() and not fisse
+        if mm.politica_sicuro() == 'promuove' and cleaned_info.get('cleaned_status') == 'auto':
+            # politica "promuove": il modello aggiunge sicuri, quelli a regole restano
+            sicuro = True
         if sicuro:
             if not pulito:
                 cleaned_info = {**cleaned_info, 'cleaned_dxf_filename': os.path.basename(ombra),

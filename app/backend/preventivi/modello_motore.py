@@ -371,3 +371,8 @@ def prob_sicuro(x: list, calibrata: bool = False) -> float | None:
 
 def soglia_sicuro() -> float:
     return float(((carica() or {}).get('sicuro') or {}).get('soglia', 2.0))
+
+
+def politica_sicuro() -> str:
+    """'sostituisce' (il modello decide da solo) o 'promuove' (aggiunge sicuri a quelli a regole)."""
+    return str(((carica() or {}).get('sicuro') or {}).get('politica') or 'sostituisce')
