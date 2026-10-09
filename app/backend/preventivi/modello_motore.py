@@ -369,14 +369,25 @@ def prob_sicuro(x: list, calibrata: bool = False) -> float | None:
     return probabilita(m, x, calibrata)
 
 
+# PUNTO DI LAVORO del modello del sicuro: UNA costante da cambiare per
+# scegliere quanti disegni dare per sicuri (soglie in modello_motore.json,
+# 'sicuro' -> 'soglie'). Misure sulle cartelle d'ordine tenute fuori
+# (banco_motore/agente_I, DXF + DWG):
+#   'prec_998'    precisione ~99,8%, pochi sicuri
+#   'prec_995'    precisione >= 99,5%
+#   'sicuri_3000' / 'sicuri_4000' / 'sicuri_5000': ~3.000 / 4.000 / 5.000 sicuri sull'archivio
+#   'prec_990'    precisione ~99,0%: gli stessi errori delle regole di oggi, molti piu' sicuri
+# La variabile d'ambiente FT_MOTORE_PUNTO la sostituisce (prove al banco).
+PUNTO_DI_LAVORO = 'prec_995'
+
+
 def soglia_sicuro() -> float:
-    """Soglia sulla probabilita' grezza. Predefinita: 99,5% di precisione sui
-    fold tenuti fuori. FT_MOTORE_PRECISIONE=0.99 / 0.998 sceglie un altro punto
-    della curva (0.99: circa +60% di sicuri, con gli stessi errori delle regole)."""
+    """Soglia sulla probabilita' grezza del punto di lavoro scelto."""
     m = (carica() or {}).get('sicuro') or {}
-    alt = os.environ.get('FT_MOTORE_PRECISIONE')
-    if alt and str(alt) in (m.get('soglie') or {}):
-        return float(m['soglie'][str(alt)])
+    punto = os.environ.get('FT_MOTORE_PUNTO') or PUNTO_DI_LAVORO
+    soglie = m.get('soglie') or {}
+    if punto in soglie:
+        return float(soglie[punto])
     return float(m.get('soglia', 2.0))
 
 

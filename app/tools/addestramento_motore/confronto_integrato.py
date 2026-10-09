@@ -57,18 +57,39 @@ if len(sys.argv) > 5:
     righe = []
     for fonte, p_on, p_base in coppie:
         on = comune.leggi_jsonl(p_on)
+        bs = comune.leggi_jsonl(p_base)
         for c, r in on.items():
             if c not in gt[fonte]:
                 continue
+            e0 = comune.rep.valuta(bs[c], gt[fonte][c]) if c in bs else {'sicuro': False, 'geo': True}
+            base_sbagliato = e0['sicuro'] and not e0['geo']
             m = r.get('modello') or {}
             k = (info.get((fonte, c)) or {}).get('fold')
             e1 = comune.rep.valuta(r, gt[fonte][c])
-            righe.append((k, m.get('p_sicuro'), not m.get('fisse'), e1['geo'], fonte))
+            cl = (info.get((fonte, c)) or {}).get('cliente')
+            righe.append((k, m.get('p_sicuro'), not m.get('fisse'), e1['geo'],
+                          ('DECA' if comune.deca(cl) else 'altri') + '/' + fonte, base_sbagliato))
+    fin = json.load(open(sys.argv[6]))['sicuro']['soglie'] if len(sys.argv) > 6 else {}
+    for nome, t in sorted(fin.items(), key=lambda x: -x[1]):
+        n = ok = 0
+        for k, p, amm, geo, fonte, bsb in righe:
+            if p is not None and amm and p >= t:
+                n += 1
+                ok += geo
+        gg = collections.Counter()
+        for k, p, amm, geo, fonte, bsb in righe:
+            if p is not None and amm and p >= t:
+                gg[fonte, 0] += 1
+                gg[fonte, 1] += not geo
+                gg['nuovi_silenziosi', 0] += (not geo) and not bsb
+        print(f'what-if punto {nome} (soglia {t:.5f}): sicuri {n}, sbagliati {n - ok}, '
+              f'precisione {100 * ok / max(n, 1):.2f}%, giusti e sicuri {ok}  | '
+              + ', '.join(f'{g} {gg[g, 0]}/{gg[g, 1]} sbagl' for g in sorted({x[0] for x in gg})))
     for pr in ('0.99', '0.995', '0.998'):
         n = ok = 0
-        for k, p, amm, geo, fonte in righe:
+        for k, p, amm, geo, fonte, bsb in righe:
             if p is not None and amm and p >= tab[str(k)][f'sostituisce|{pr}']:
                 n += 1
                 ok += geo
-        print(f'what-if obiettivo {pr}: sicuri {n}, sbagliati {n - ok}, precisione {100 * ok / max(n, 1):.2f}%, '
+        print(f'what-if soglia ANNIDATA obiettivo {pr}: sicuri {n}, sbagliati {n - ok}, precisione {100 * ok / max(n, 1):.2f}%, '
               f'giusti e sicuri {ok}')

@@ -278,12 +278,19 @@ def main():
         controlla_export(sic_fold[k], clf, XS[te])
         sic_fold[k]['soglia'] = soglie_nested[k][args.politica, args.prec]
         sic_fold[k]['politica'] = args.politica
+        sic_fold[k]['soglie'] = {f'prec_{int(round(pr * 1000))}': float(soglie_nested[k]['sostituisce', pr])
+                                 for pr in PRECS}
     clf_s = fit_s(XS, yS)
     sic_fin = esporta(clf_s, FD)
     sic_fin['soglia'] = (soglia_per(pS, yS, args.prec) if args.politica == 'sostituisce'
                          else soglia_per(pS[~bS], yS[~bS], args.prec))
     sic_fin['politica'] = args.politica
-    sic_fin['soglie'] = {str(pr): float(soglia_per(pS, yS, pr)) for pr in PRECS}
+    # punti di lavoro con nome (modello_motore.PUNTO_DI_LAVORO): precisione
+    # sui fold tenuti fuori, oppure numero di sicuri sulla curva OOF
+    sic_fin['soglie'] = {f'prec_{int(round(pr * 1000))}': float(soglia_per(pS, yS, pr)) for pr in PRECS}
+    ord_p = np.sort(pS)[::-1]
+    for nn in (3000, 4000, 5000):
+        sic_fin['soglie'][f'sicuri_{nn}'] = float(ord_p[min(nn, len(ord_p)) - 1])
     iso = IsotonicRegression(out_of_bounds='clip', y_min=0, y_max=1).fit(pS, yS)
     cal = {'x': [float(v) for v in iso.X_thresholds_], 'y': [float(v) for v in iso.y_thresholds_]}
     for m_ in [sic_fin] + list(sic_fold.values()):
