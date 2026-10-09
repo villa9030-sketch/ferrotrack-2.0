@@ -104,48 +104,42 @@ with sync_playwright() as p:
         b.close()
         sys.exit(0)
 
-    pg.goto(B + '/laser-vecchio.html')  # pagina vecchia, tenuta una settimana
-    pg.wait_for_load_state('networkidle')
+    pg.goto(B + '/laser.html')
+    pg.wait_for_selector('.lz-r[data-id]', timeout=20000)
     pg.wait_for_timeout(2500)
     check('la pagina del laser si apre senza errori', not err, err[:1])
+    check('nessun ordine si apre da solo', pg.evaluate('LZ.s.aperto') is None)
 
-    # --- si apre sulla vista "da smistare" ---
-    check('si apre su "Da smistare"',
-          pg.locator('#vt-smistare').get_attribute('class').find('active') >= 0)
-    titolo = pg.locator('#vt-smistare').inner_text()
-    check('la scheda lo dice', 'smistare' in titolo.lower(), titolo)
+    def da_smistare():
+        return pg.evaluate("LZ.ordiniLaser().filter(o => LZ.statoLaser(o) === 'smistare').map(o => o.id)")
 
     scartati_prima = len([o for o in ordini() if o.get('taglio_richiesto') is False])
-    prima = len(pg.locator('.riga-smista').all())
+    ids = da_smistare()
+    prima = len(ids)
     print('  ordini da smistare: %d' % prima)
-    check('c\'e\' qualcosa da smistare', prima > 0)
-    conta = pg.locator('#conta-smistare').inner_text()
-    check('la scheda porta il conteggio', str(prima) in conta, conta)
-
+    check('c\'e\' qualcosa da smistare, con l\'etichetta "Da smistare"', prima > 0
+          and 'Da smistare' in pg.locator(f'.lz-r[data-id="{ids[0]}"]').inner_text())
     # Le righe servono a scegliere: nessun pulsante (07/10/2026). Si apre
-    # l'ordine e si decide nell'intestazione, accanto al nome del cliente.
-    check('nelle righe della lista non ci sono pulsanti', pg.locator('tr.lv-r button').count() == 0)
+    # l'ordine e si decide nel prossimo passo.
+    check('nelle righe della lista non ci sono pulsanti', pg.locator('.lz-r button').count() == 0)
 
-    # --- "non passa da qui": chiede conferma, poi esce dalla coda ---
-    pg.locator('.riga-smista').first.click()
+    # --- "non passa dal laser": chiede conferma, poi esce dalla coda ---
+    pg.click(f'.lz-r[data-id="{ids[0]}"]')
     pg.wait_for_timeout(1500)
-    pg.locator('.lv-dh-act .btn-no').click()
+    check('il prossimo passo chiede "Passa dal laser?"', 'Passa dal laser?' in pg.locator('.lz-passo').inner_text())
+    pg.locator('[data-az="smista-no"]').click()
     pg.wait_for_timeout(400)
-    check('"Non passa dal laser" chiede conferma',
-          pg.locator('.ft-modal-bg.open').count() == 1)
+    check('"No" chiede conferma', pg.locator('.ft-modal-bg.open').count() == 1)
     pg.locator('.ft-modal-bg.open button[data-v="0"]').click()     # ci ripenso
     pg.wait_for_timeout(1500)
-    check('annullando la conferma non cambia niente',
-          len(pg.locator('.riga-smista').all()) == prima)
-    pg.locator('.lv-dh-act .btn-no').click()
+    check('annullando la conferma non cambia niente', len(da_smistare()) == prima)
+    pg.locator('[data-az="smista-no"]').click()
     pg.wait_for_timeout(400)
     pg.locator('.ft-modal-bg.open button[data-v="1"]').click()
     pg.wait_for_timeout(3000)
-    check('dopo l\'azione non si apre da solo un altro ordine',
-          pg.evaluate('selectedOrderId') is None and 'Annulla' in pg.locator('#lz-work').inner_text())
-    dopo = len(pg.locator('.riga-smista').all())
-    check('scartandolo esce dall\'elenco da smistare', dopo == prima - 1,
-          '%d -> %d' % (prima, dopo))
+    check('scartandolo esce dall\'elenco', len(da_smistare()) == prima - 1 and ids[0] not in
+          pg.evaluate("LZ.ordiniLaser().map(o => o.id)"), '%d -> %d' % (prima, len(da_smistare())))
+    check('e non si apre da solo un altro ordine', pg.evaluate('LZ.s.aperto') in (None, ids[0]))
 
     # Uno IN PIU', non "esattamente uno": la copia del database conserva le
     # esecuzioni precedenti, e pretendere di partire da zero renderebbe il test
@@ -155,27 +149,17 @@ with sync_playwright() as p:
           len(scartati) == scartati_prima + 1,
           '%d -> %d' % (scartati_prima, len(scartati)))
 
-    # --- "va tagliato": entra nella coda (senza conferma) ---
-    pg.locator('.riga-smista').first.click()
+    # --- "va tagliato": entra nella coda (senza conferma, Invio) ---
+    resto = da_smistare()
+    pg.click(f'.lz-r[data-id="{resto[0]}"]')
     pg.wait_for_timeout(1500)
-    pg.locator('.lv-dh-act .btn-si').click()
+    pg.keyboard.press('Enter')
     pg.wait_for_timeout(3000)
     accettati = [o for o in ordini()
                  if o.get('taglio_richiesto') is True and not o.get('taglio_completato')]
     check('l\'altro entra nella coda di taglio', len(accettati) >= 1, len(accettati))
-
-    pg.locator('#vt-importare').click()
-    pg.wait_for_timeout(1500)
-    check('e si vede fra quelli "Da importare in Lantek"',
-          pg.locator('tr.lv-r').count() > 0)
-    # In Lantek si entra solo dalla procedura guidata: niente scorciatoie
-    pg.locator('tr.lv-r').first.click()
-    pg.wait_for_timeout(2500)
-    testo = pg.locator('#lz-work').inner_text()
-    check('aprendolo parte la procedura guidata, senza "Già in Lantek"',
-          pg.locator('#lg').count() == 1 and 'Già in Lantek' not in testo, testo[:200])
-    check('nella coda non ci sono piu\' i due pulsanti di smistamento',
-          pg.locator('.riga-smista').count() == 0)
+    check('e resta aperto, ora da mettere in Lantek', pg.evaluate('LZ.s.aperto') == resto[0]
+          and 'Da smistare' not in pg.locator(f'.lz-r[data-id="{resto[0]}"]').inner_text())
     check('nessun errore JavaScript in tutta la prova', not err, err[:1])
     pg.close()
 

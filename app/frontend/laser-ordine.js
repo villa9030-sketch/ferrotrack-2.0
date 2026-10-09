@@ -389,11 +389,22 @@
     else LZ.ridisegna();
   };
 
-  O.smista = (id, si) => LZ.azione(async () => {
+  O.smista = async function (id, si) {
+    if (!si) {
+      // "non passa dal laser" manda l'ordine in officina: si chiede (07/10/2026)
+      const o = LZ.trova(id);
+      const ok = await FT.conferma({ titolo: 'Non passa dal laser?', ok: 'Sì, va in officina',
+        testo: (o ? `${o.cliente || ''} · ${LZ.numero(o)}. ` : '') + "L'ordine esce dal laser e diventa subito lavorabile in officina." });
+      if (!ok) return;
+    }
+    return O._smista(id, si);
+  };
+  O._smista = (id, si) => LZ.azione(async () => {
     const r = await LZ.post(`/api/orders/${id}/smistamento`, { va_tagliato: !!si });
     if (!r.ok) { FT.toast('Non riuscito: ' + (r.d.error || 'errore del server'), 'err'); return; }
     FT.toast(si ? 'Va al laser: ora è fra quelli da mettere in Lantek' : 'Non passa dal laser: va subito in officina', 'ok',
       { testo: 'Annulla', fn: () => O.annullaSmista(id, true) });
+    if (!si && S.aperto === id) S.aperto = null;      // non e' piu' del laser: a destra torna la scelta
     await O.dopo(id);
   });
   O.annullaSmista = (id, daToast) => LZ.azione(async () => {
