@@ -3204,6 +3204,10 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
             feat['n_nascosti_dentro'] = n_nasc
             feat['n_interruzioni'] = n_interr
             feat['n_illeggibili'] = n_illeggibili
+            # confidenza del detector sul contorno (dopo tutti i dubbi): il
+            # tipo di disegno si decide diversamente quando il contorno e'
+            # chiaro e quando il motore e' gia' indeciso
+            feat['conf_detector'] = round(float(confidence), 3)
             gruppi = feat.pop('_gruppi', None)
             tipo, conf_tipo, prob = _td.classifica(feat)
             tipo_info = {'tipo': tipo, 'conf': conf_tipo, 'prob': prob, 'feat': feat}
