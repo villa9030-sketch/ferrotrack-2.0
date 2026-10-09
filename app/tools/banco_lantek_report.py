@@ -82,7 +82,40 @@ def classifica_errore(m, g):
     return 'forma_simile_non_uguale'
 
 
+def con_fori_trapano(m):
+    """La lettura come se i fori da trapano fossero tagliati al laser (per il
+    confronto con Lantek: la regola di Stefano dei 2/3 dello spessore vale da
+    ottobre 2026, lo storico di Lantek spesso li tagliava)."""
+    ft = m.get('fori_trapano') or []
+    if not ft or not m.get('ok'):
+        return None
+    tondi = list(m.get('fori_tondi') or [])
+    a = p = 0.0
+    for d in ft:
+        if not tondi:
+            return None
+        k = min(range(len(tondi)), key=lambda i: abs((tondi[i][0] or 0) - (d or 0)))
+        _d, ar, pe = tondi.pop(k)
+        a += ar or 0
+        p += pe or 0
+    return {**m, 'area_dm2': (m.get('area_dm2') or 0) - a / 1e4, 'perim_m': (m.get('perim_m') or 0) + p / 1e3,
+            'n_pierce': (m.get('n_pierce') or 0) + len(ft), 'fori_trapano': []}
+
+
 def valuta(m, g):
+    e = _valuta(m, g)
+    if not e['geo']:
+        m2 = con_fori_trapano(m)
+        if m2 is not None:
+            e2 = _valuta(m2, g)
+            if e2['geo']:
+                e2['sicuro'] = e['sicuro']
+                e2['trapano_regola'] = True
+                return e2
+    return e
+
+
+def _valuta(m, g):
     bb = sorted(x for x in (m.get('bbox') or []) if x)
     e = {
         'area': vicino(m.get('area_dm2'), g['area'], TOL_AREA_REL, TOL_AREA_ABS_DM2),
