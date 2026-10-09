@@ -196,7 +196,7 @@ def _dentro_al_disegno(percorso, geo_bounds) -> bool:
         return True
 
 
-def _aggiorna_pezzo(preventivo_id, articolo_id, geo, chi) -> dict:
+def _aggiorna_pezzo(preventivo_id, articolo_id, geo, chi, scelta='scelto') -> dict:
     """Scrive la geometria scelta a mano su UNA riga del pezzo (colonne +
     campi extra), come conferma_controllo_articolo: il preventivo accettato
     non si riscrive (replace_articoli e' bloccato, giustamente)."""
@@ -216,7 +216,8 @@ def _aggiorna_pezzo(preventivo_id, articolo_id, geo, chi) -> dict:
         except (TypeError, ValueError):
             extra = {}
         quando = datetime.utcnow().isoformat(timespec='seconds')
-        motivo = f"contorno scelto a mano ({chi or 'operatore'})"
+        motivo = (f"contorno del motore confermato ({chi or 'operatore'})" if scelta == 'giusto'
+                  else f"contorno scelto a mano ({chi or 'operatore'})")
         extra['bbox_w_mm'] = geo['bbox_width_mm']
         extra['bbox_h_mm'] = geo['bbox_height_mm']
         # Il contorno ora e' quello giusto: non serve piu' rivederlo
@@ -233,7 +234,12 @@ def _aggiorna_pezzo(preventivo_id, articolo_id, geo, chi) -> dict:
         ab = extra.get('abbinamento')
         if isinstance(ab, dict):
             ab['confermato'] = True
+        # decisione del laser (pagina laser): il contorno ora e' deciso
+        extra['decisione_laser'] = {'scelta': scelta, 'chi': chi or None, 'quando': quando}
+        riga_n = extra.get('riga')
         extra = PreventivoManager._extra_articolo(extra)
+        if isinstance(riga_n, int):
+            extra['riga'] = riga_n
         session.execute(_text(
             'UPDATE preventivo_articoli SET area_dm2 = :a, perimetro_taglio_m = :pm, n_forature = :nf, '
             "geometry_source = 'manual-click', geometria_manuale_confermata = 1, area_stimata_piega = 0, "
@@ -312,19 +318,86 @@ def _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo) -> dict:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, pagina='cad'):
+    """Salva il contorno di un pezzo dell'ordine: ricalcola area/perimetro/fori,
+    aggiorna la riga del pezzo, rifa' il DXF pulito per Lantek, registra
+    l'esempio e l'audit. outer_xy/holes_xy in mm, gia' validati (_punti).
+
+    dal_motore=True: il laser conferma il contorno proposto dal motore (pagina
+    laser, "Si', e' il pezzo giusto" su un pezzo senza DXF pulito): stesso
+    salvataggio, ma nel registro e' una conferma, non una correzione.
+
+    Ritorna (corpo, stato_http)."""
+    from .app import _audit, _chi_nome, _invalida_analisi_laser
+    order, art, percorso, err = _pezzo_ordine(order_id, articolo_id)
+    if err:
+        corpo, stato = err
+        return corpo.get_json(), stato
+    geo = _geometria_dal_contorno(outer_xy, holes_xy)
+    if not geo or not geo.get('area_dm2') or geo['area_dm2'] <= 0:
+        return {'success': False, 'error': 'Il contorno scelto non è chiuso o si incrocia: scegline un altro'}, 400
+    xs = [p[0] for p in outer_xy]
+    ys = [p[1] for p in outer_xy]
+    if not _dentro_al_disegno(percorso, (min(xs), min(ys), max(xs), max(ys))):
+        return {'success': False,
+                'error': 'Il contorno non sta nel disegno di questo pezzo: riapri il CAD dal pezzo giusto'}, 400
+
+    chi = _chi_nome()
+    nome = os.path.basename(percorso)
+    prima = (art.get('area_dm2'), art.get('perimetro_taglio_m'), art.get('n_forature'))
+    esito = _aggiorna_pezzo(order.preventivo_id_origine, articolo_id, geo, chi,
+                            scelta='giusto' if dal_motore else 'scelto')
+    if not esito.get('success'):
+        return {'success': False, 'error': esito.get('error') or 'Pezzo non salvato'}, 500
+
+    try:
+        lt = _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo)
+    except Exception as e:
+        logger.exception('pulito per Lantek dal contorno non preparato')
+        lt = {'pronto': False, 'file': None,
+              'motivo': f'DXF pulito non preparato ({e}): il pezzo resta da preparare in Lantek'}
+
+    from .preventivi.registro_esempi import registra
+    registra('contorno_confermato' if dal_motore else 'contorno_scelto_a_mano', percorso,
+             codice=art.get('codice'), chi=chi,
+             motore={'area_dm2': prima[0], 'perimetro_taglio_m': prima[1], 'n_forature': prima[2],
+                     'spessore_mm': art.get('spessore_mm'), 'materiale': art.get('materiale')},
+             decisione={'area_dm2': geo['area_dm2'], 'perimetro_taglio_m': geo['perimetro_taglio_m'],
+                        'n_forature': geo['n_forature'], 'bbox': [geo['bbox_width_mm'], geo['bbox_height_mm']],
+                        'outer_xy': outer_xy, 'holes_xy': holes_xy,
+                        'scelta': 'giusto' if dal_motore else 'scelto'},
+             contesto={'ordine': order_id, 'articolo_id': articolo_id, 'pagina': pagina or 'cad'})
+    _audit('PEZZO_CONTORNO', 'orders', order_id,
+           f"Pezzo {art.get('codice') or articolo_id} ({nome}): "
+           f"{'contorno del motore confermato' if dal_motore else 'contorno scelto a mano'}. "
+           f"Area {prima[0]} -> {geo['area_dm2']:.4f} dm2, perimetro {prima[1]} -> "
+           f"{geo['perimetro_taglio_m']:.3f} m, inneschi {prima[2]} -> {geo['n_forature']}. "
+           f"Lantek: {lt['motivo']}")
+    _invalida_analisi_laser(order_id)
+    return {'success': True,
+            'area_dm2': round(geo['area_dm2'], 4),
+            'perimetro_taglio_m': round(geo['perimetro_taglio_m'], 4),
+            'n_forature': int(geo['n_forature']),
+            'bbox_w_mm': round(geo['bbox_width_mm'], 2),
+            'bbox_h_mm': round(geo['bbox_height_mm'], 2),
+            'pronto_lantek': bool(lt['pronto']),
+            'motivo': lt['motivo'],
+            'file_lantek': lt.get('file')}, 200
+
+
 @bp_contorno_ordine.route('/api/orders/<order_id>/pezzi/<articolo_id>/contorno', methods=['POST'])
 @richiede('laser', 'ufficio')
 def contorno_pezzo(order_id, articolo_id):
-    """Conferma del contorno scelto nel CAD sul disegno dell'ordine.
+    """Conferma del contorno scelto nel CAD (o sul disegno grande della pagina
+    laser) sul disegno dell'ordine.
 
-    Corpo: {outer_xy: [[x,y]...], holes_xy: [[[x,y]...]...]} in mm, come li
-    manda il CAD. Area, perimetro e fori si RICALCOLANO qui (non ci si fida
-    dei numeri della pagina).
+    Corpo: {outer_xy: [[x,y]...], holes_xy: [[[x,y]...]...], pagina?} in mm,
+    come li manda il CAD. Area, perimetro e fori si RICALCOLANO qui (non ci si
+    fida dei numeri della pagina).
 
     Risposta: {success, area_dm2, perimetro_taglio_m, n_forature, bbox_w_mm,
     bbox_h_mm, pronto_lantek, motivo, file_lantek}"""
     try:
-        from .app import _audit, _chi_nome
         data = request.get_json(silent=True) or {}
         try:
             outer_xy = _punti(data.get('outer_xy'), 3)
@@ -337,54 +410,9 @@ def contorno_pezzo(order_id, articolo_id):
             holes_xy = [_punti(h, 3) for h in fori_in]
         except (TypeError, ValueError):
             return _errore('Un foro del contorno non è valido: scegli di nuovo il contorno del pezzo')
-
-        order, art, percorso, err = _pezzo_ordine(order_id, articolo_id)
-        if err:
-            return err
-        geo = _geometria_dal_contorno(outer_xy, holes_xy)
-        if not geo or not geo.get('area_dm2') or geo['area_dm2'] <= 0:
-            return _errore('Il contorno scelto non è chiuso o si incrocia: scegline un altro')
-        xs = [p[0] for p in outer_xy]
-        ys = [p[1] for p in outer_xy]
-        if not _dentro_al_disegno(percorso, (min(xs), min(ys), max(xs), max(ys))):
-            return _errore('Il contorno non sta nel disegno di questo pezzo: riapri il CAD dal pezzo giusto')
-
-        chi = _chi_nome()
-        nome = os.path.basename(percorso)
-        prima = (art.get('area_dm2'), art.get('perimetro_taglio_m'), art.get('n_forature'))
-        esito = _aggiorna_pezzo(order.preventivo_id_origine, articolo_id, geo, chi)
-        if not esito.get('success'):
-            return _errore(esito.get('error') or 'Pezzo non salvato', 500)
-
-        try:
-            lt = _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo)
-        except Exception as e:
-            logger.exception('pulito per Lantek dal contorno non preparato')
-            lt = {'pronto': False, 'file': None,
-                  'motivo': f'DXF pulito non preparato ({e}): il pezzo resta da preparare in Lantek'}
-
-        from .preventivi.registro_esempi import registra
-        registra('contorno_scelto_a_mano', percorso, codice=art.get('codice'), chi=chi,
-                 motore={'area_dm2': prima[0], 'perimetro_taglio_m': prima[1], 'n_forature': prima[2],
-                         'spessore_mm': art.get('spessore_mm'), 'materiale': art.get('materiale')},
-                 decisione={'area_dm2': geo['area_dm2'], 'perimetro_taglio_m': geo['perimetro_taglio_m'],
-                            'n_forature': geo['n_forature'], 'bbox': [geo['bbox_width_mm'], geo['bbox_height_mm']],
-                            'outer_xy': outer_xy, 'holes_xy': holes_xy},
-                 contesto={'ordine': order_id, 'articolo_id': articolo_id})
-        _audit('PEZZO_CONTORNO', 'orders', order_id,
-               f"Pezzo {art.get('codice') or articolo_id} ({nome}): contorno scelto a mano. "
-               f"Area {prima[0]} -> {geo['area_dm2']:.4f} dm2, perimetro {prima[1]} -> "
-               f"{geo['perimetro_taglio_m']:.3f} m, inneschi {prima[2]} -> {geo['n_forature']}. "
-               f"Lantek: {lt['motivo']}")
-        return jsonify({'success': True,
-                        'area_dm2': round(geo['area_dm2'], 4),
-                        'perimetro_taglio_m': round(geo['perimetro_taglio_m'], 4),
-                        'n_forature': int(geo['n_forature']),
-                        'bbox_w_mm': round(geo['bbox_width_mm'], 2),
-                        'bbox_h_mm': round(geo['bbox_height_mm'], 2),
-                        'pronto_lantek': bool(lt['pronto']),
-                        'motivo': lt['motivo'],
-                        'file_lantek': lt.get('file')}), 200
+        corpo, stato = salva_contorno(order_id, articolo_id, outer_xy, holes_xy,
+                                      dal_motore=False, pagina=str(data.get('pagina') or 'cad')[:20])
+        return jsonify(corpo), stato
     except Exception:
-        logger.exception('contorno del pezzo dell\'ordine non salvato')
+        logger.exception("contorno del pezzo dell'ordine non salvato")
         return _errore('Contorno non salvato per un errore imprevisto: riprova o avvisa Stefano', 500)

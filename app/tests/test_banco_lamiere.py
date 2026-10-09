@@ -59,6 +59,9 @@ _CARTELLE = tempfile.mkdtemp(prefix='ft_banco_')
 A.UPLOAD_FOLDER = os.path.join(_CARTELLE, 'uploads')
 A.DRAWINGS_FOLDER = os.path.join(A.UPLOAD_FOLDER, 'drawings')
 os.makedirs(A.DRAWINGS_FOLDER, exist_ok=True)
+# Lantek simulato: spento (i tempi vengono dal modello o dal preventivo)
+from backend.preventivi import tempi_laser as _TL  # noqa: E402
+_TL._leggi_lantek = lambda codici: None
 
 OK = 0
 KO = []
@@ -162,10 +165,13 @@ def main():
     check('A1: 3 x lotto 2 = 6 pezzi', a1['quantita'] == 6, a1)
     check('A1: ingombro dal disegno 200 x 100', a1['w_mm'] == 200 and a1['h_mm'] == 100
           and a1['ingombro'] == 'disegno', a1)
-    check('A1: tempo per pezzo dalla stima', a1['tempo_min'] == 0.5, a1)
+    # senza perimetro il modello tarato su Lantek non sa fare il pezzo: si usa
+    # la stima del preventivo corretta verso Lantek (x 1,18)
+    check('A1: tempo per pezzo dalla stima, corretta', abs(a1['tempo_min'] - 0.59) < 1e-9
+          and a1['tempo_fonte'] == 'preventivo', a1)
     g = gruppi['S235|3.0']
     check('totali del gruppo: pezzi, area, tempo', g['n_pezzi'] == 6
-          and abs(g['area_dm2'] - 10.8) < 1e-6 and abs(g['tempo_min'] - 3.0) < 1e-6, g)
+          and abs(g['area_dm2'] - 10.8) < 1e-6 and abs(g['tempo_min'] - 3.54) < 0.05, g)
     b1 = gruppi['INOX_304|2.0']['pezzi'][0]
     check('B1 nell assieme x4: 8 pezzi', b1['quantita'] == 8, b1)
     check('B1 senza ingombro: quadrato di pari area (100 x 100), segnato stimato',

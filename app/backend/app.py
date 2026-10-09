@@ -111,6 +111,9 @@ app.register_blueprint(bp_accesso)
 # Verifica al laser: "Scegli il contorno" sul disegno di un pezzo dell'ordine.
 from .api_contorno_ordine import bp_contorno_ordine  # noqa: E402
 app.register_blueprint(bp_contorno_ordine)
+
+from .api_laser import bp_laser  # noqa: E402
+app.register_blueprint(bp_laser)
 # Il controllo unico degli accessi, prima di qualunque altra cosa.
 from . import accesso  # noqa: E402
 from .accesso import richiede, identita, ADMIN, PUBBLICO, UFFICI  # noqa: E402,F401
@@ -621,6 +624,7 @@ def mark_laser_done(order_id):
     try:
         # Solo la stazione Laser (regola sopra): chi ha tagliato e' il laser
         result = OrderManager.mark_laser_done(order_id, user_id=_chi())
+        _invalida_analisi_laser(order_id)
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
         logger.exception('mark_laser_done endpoint failed')
@@ -648,6 +652,7 @@ def smista_ordine(order_id):
                 return jsonify({'error': 'va_tagliato obbligatorio'}), 400
             result = OrderManager.smista(
                 order_id, bool(data.get('va_tagliato')), user_id=user_id)
+        _invalida_analisi_laser(order_id)
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
         logger.exception('smistamento endpoint fallito')
@@ -662,6 +667,7 @@ def segna_importato_lantek(order_id):
     try:
         data = request.get_json(silent=True) or {}
         r = OrderManager.segna_importato(order_id, user_id=_chi(), annulla=bool(data.get('annulla')))
+        _invalida_analisi_laser(order_id)
         return jsonify(r), (200 if r.get('success') else (404 if r.get('codice') == 'non_trovato' else 400))
     except Exception as e:
         logger.exception('importato endpoint fallito')
@@ -710,17 +716,26 @@ def pianifica_taglio(order_id):
 
 
 _CAL_DEFAULT = {'ore_turno': 8, 'ore_riserva': 2, 'giorni': [1, 2, 3, 4, 5],
-                'carico_min_lamiera': 5, 'scarico_s_pezzo': 3, 'fattore_tempo': 1.18,
+                'carico_min_lamiera': 5, 'scarico_s_pezzo': 3,
+                # Correzione dei tempi verso Lantek: era 1,18 coi tempi del
+                # preventivatore. Dal 09/10/2026 i tempi del banco sono quelli
+                # tarati su Lantek, gia' col fattore foglio (~1,03): qui resta 1
+                # e non si cambia piu' a mano (le pagine moltiplicano ancora per
+                # questo numero: carico-laser.js, laser-vecchio.html).
+                'fattore_tempo': 1.0,
                 # giorni speciali: {'2026-10-20': {'ore': 0, 'nota': 'manutenzione'}}
                 # (ore UTILI di quel giorno: 0 = laser fermo)
                 'eccezioni': {}}
 _CAL_LIMITI = {'ore_turno': (1, 24), 'ore_riserva': (0, 23), 'carico_min_lamiera': (0, 120),
-               'scarico_s_pezzo': (0, 600), 'fattore_tempo': (0.5, 3)}
+               'scarico_s_pezzo': (0, 600)}
 
 
 def _cal_config() -> dict:
     v = (ConfigManager.load_config() or {}).get('laser_calendario') or {}
-    return {**_CAL_DEFAULT, **{k: v[k] for k in _CAL_DEFAULT if k in v}}
+    cfg = {**_CAL_DEFAULT, **{k: v[k] for k in _CAL_DEFAULT if k in v}}
+    # un 1,18 salvato prima resta nel file ma non vale piu': i tempi lo contengono gia'
+    cfg['fattore_tempo'] = 1.0
+    return cfg
 
 
 @app.route('/api/laser/calendario-config', methods=['GET', 'PUT'])
@@ -781,6 +796,7 @@ def mark_laser_undone(order_id):
     """Rollback marcatura taglio completato (errore, va re-tagliato)."""
     try:
         result = OrderManager.mark_laser_undone(order_id, user_id=_chi())
+        _invalida_analisi_laser(order_id)
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
         logger.exception('mark_laser_undone endpoint failed')
@@ -1385,27 +1401,40 @@ def _cfg_per_tempi() -> dict:
     return _CFG_TEMPO['cfg']
 
 
-def _tempo_pezzo_laser(a: dict, tempo_preventivo) -> dict:
-    """Tempo di taglio di un pezzo per il calendario del laser.
+# Il tempo stimato dal preventivatore stava sotto Lantek di circa il 18%: si
+# usa solo se il modello tarato su Lantek non sa fare il pezzo (vedi sotto).
+_CORREZIONE_TEMPO_PREVENTIVO = 1.18
 
-    'preventivo': stimato dal preventivatore; 'calcolato': ordini che non ci
-    passano (pacchetto PDF + DXF), stesso calcolo SENZA prezzo;
-    'da_verificare': calcolato ma col contorno incerto; 'mancante': non
-    calcolabile (niente perimetro, spessore o materiale)."""
+
+def _tempo_pezzo_laser(a: dict, tempo_preventivo) -> dict:
+    """Minuti di laser di un pezzo per il calendario (saturazione).
+
+    Dal 09/10/2026 con i tempi tarati su Lantek (preventivi/tempi_laser.py):
+    il tempo CAM di Lantek se il codice c'e' gia' (e Lantek e' gia' stato
+    letto: qui non lo si interroga, lo fa una volta per tutti chi serve i
+    tempi), altrimenti il modello tarato, gia' moltiplicato per il fattore
+    foglio (~1,03). Il calendario NON deve piu' moltiplicare per 1,18.
+
+    tempo_fonte: 'lantek' | 'modello' | 'stima' (materiale/spessore lontani
+    dai dati) | 'da_verificare' (calcolato col contorno incerto) |
+    'preventivo' (modello non applicabile: tempo del preventivatore corretto)
+    | 'mancante' (niente perimetro o spessore)."""
+    from .preventivi import tempi_laser as _tl
     incerto = _contorno_incerto(a, {})
-    if tempo_preventivo:
-        return {'tempo_min': tempo_preventivo, 'tempo_fonte': 'da_verificare' if incerto else 'preventivo'}
-    chiave = tuple(str(a.get(k)) for k in ('materiale', 'spessore_mm', 'perimetro_taglio_m', 'n_forature',
-                                             'area_dm2', 'bbox_w_mm', 'bbox_h_mm', 'lunghezza_vuoto_mm'))
-    if chiave not in _TEMPO_CACHE:
-        try:
-            _TEMPO_CACHE[chiave] = _laser_estimator.tempo_taglio_min(a, _cfg_per_tempi())
-        except Exception as e:
-            _TEMPO_CACHE[chiave] = (None, str(e))
-    t, motivo = _TEMPO_CACHE[chiave]
-    if t is None:
-        return {'tempo_min': None, 'tempo_fonte': 'mancante', 'tempo_motivo': motivo}
-    return {'tempo_min': t, 'tempo_fonte': 'da_verificare' if incerto else 'calcolato'}
+    try:
+        t = _tl.minuti_pezzo(a.get('codice'), a, solo_cache=True)
+    except Exception as e:  # il calendario non deve mai rompere la distinta
+        logger.warning('tempo laser del pezzo non calcolato: %s', e)
+        t = {'minuti': None, 'fonte': 'mancante', 'nota': str(e)}
+    if t.get('minuti') is None:
+        if tempo_preventivo:
+            return {'tempo_min': round(float(tempo_preventivo) * _CORREZIONE_TEMPO_PREVENTIVO, 4),
+                    'tempo_fonte': 'da_verificare' if incerto else 'preventivo'}
+        return {'tempo_min': None, 'tempo_fonte': 'mancante', 'tempo_motivo': t.get('nota') or ''}
+    fonte = t['fonte']
+    if incerto and fonte != 'lantek':
+        fonte = 'da_verificare'
+    return {'tempo_min': t['minuti'], 'tempo_fonte': fonte}
 
 
 def _controllo_pezzo(a: dict) -> dict | None:
@@ -1427,6 +1456,107 @@ def _controllo_pezzo(a: dict) -> dict | None:
             motivi.append('contorno corretto in automatico col peso del cartiglio')
         stato = stato or 'da_confermare'
     return {'stato': stato, 'motivi': motivi[:6]} if stato else None
+
+
+# Decisioni del laser che tengono un pezzo FUORI da "Manda a Lantek", col
+# motivo mostrato nella conferma (pagina laser, controllo disegni).
+_ESCLUSE_LASER = {'sviluppo': 'va sviluppato', 'piu_pezzi': 'più pezzi nel disegno: da fare a mano in Lantek',
+                  'non_laser': 'non è da laser'}
+
+
+def motivo_breve(m: str) -> str | None:
+    """Un avviso del motore di riconoscimento in una frase corta, per chi
+    controlla il disegno al laser. None = avviso tecnico che non serve a lui."""
+    import re as _re
+    t = str(m or '').lower().strip()
+    if not t:
+        return None
+    if 'entità duplicate' in t or 'entita duplicate' in t or 'entit' in t and 'duplicat' in t \
+            or ('unite' in t and 'falde' in t) or 'confermato dalle misure' in t \
+            or t.startswith('confermato a mano') or t.startswith('contorno scelto a mano') \
+            or t.startswith('contorno del motore confermato'):
+        return None
+    if 'contorni esterni' in t and 'confrontabili' in t:
+        n = _re.match(r'\s*(\d+)', str(m))
+        return f"Nel foglio ci sono {n.group(1) if n else 'più'} viste simili: è questo il pezzo?"
+    if 'manca lo sviluppo' in t or 'pezzo piegato' in t or 'mostra il pezzo piegato' in t:
+        return 'Disegnato piegato: forse manca lo sviluppo'
+    if 'linee dentro il pezzo' in t or 'non chiuse' in t:
+        return 'Ci sono linee aperte dentro il pezzo: tagli o tracciatura?'
+    if 'nessun riscontro' in t:
+        return 'Né peso né quote nel disegno per confermare le misure'
+    if 'facce dentro' in t:
+        return 'Contorno ricomposto da più pezzi di linea: controlla la forma'
+    if 'unità del disegno' in t or 'unita del disegno' in t or 'insunits' in t:
+        return 'Il disegno non dice le unità: controlla che le misure siano giuste'
+    if 'linee aperte' in t or 'archi spezzati' in t:
+        return 'Fori disegnati spezzati: controlla i fori'
+    if 'linee di piega' in t:
+        return 'Linee del colore delle pieghe dentro il pezzo: pieghe o tagli?'
+    if 'spessore da confermare' in t:
+        return 'Fori piccoli e spessore incerto: laser o trapano?'
+    if 'manca spessore' in t or 'spessore mancante' in t:
+        return 'Manca lo spessore'
+    if 'scala' in t:
+        return 'Disegno in scala: controlla le misure'
+    if 'peso calcolato' in t or 'peso del cartiglio' in t or ('peso' in t and 'cartiglio' in t):
+        return 'Il peso non torna col cartiglio: forse manca materiale'
+    if 'somiglianza' in t:
+        return 'Disegno abbinato al codice solo per somiglianza del nome'
+    if 'corretto in automatico' in t:
+        return 'Contorno corretto in automatico col peso del cartiglio'
+    if 'confidence' in t or 'confidenza' in t or 'selezione pezzo' in t or 'selezione manuale' in t:
+        return 'Il motore non è sicuro di quale sia il pezzo'
+    if 'svasatur' in t:
+        return 'Svasature: si taglia solo il foro passante'
+    if t.startswith('diverso da lantek'):
+        return 'Diverso da Lantek' + str(m).strip()[len('diverso da lantek'):][:100]
+    testo = str(m).strip()[:110]
+    return testo[:1].upper() + testo[1:]
+
+
+def motivi_brevi(motivi) -> list:
+    """Avvisi del motore -> frasi corte, senza doppioni, al massimo tre."""
+    out = []
+    for m in motivi or []:
+        b = motivo_breve(m)
+        if b and b not in out:
+            out.append(b)
+    return out[:3]
+
+
+def _stato_motore(a: dict) -> dict:
+    """Cosa dice il motore del disegno di un pezzo, per la pagina laser.
+
+    {'stato': 'sicuro' | 'verificare' | 'manca' | 'deciso', 'motivi': [frasi],
+     'decisione': scelta del laser o None}
+    'deciso': il laser ha gia' risposto (giusto, scelto, sviluppo, piu' pezzi,
+    non da laser). 'verificare': il motore non e' sicuro (pulizia non
+    automatica, verifica da guardare, abbinamento o contorno da confermare)."""
+    dl = a.get('decisione_laser') if isinstance(a.get('decisione_laser'), dict) else {}
+    if dl.get('scelta'):
+        return {'stato': 'deciso', 'motivi': [], 'decisione': dl['scelta']}
+    manuale = (a.get('geometria_manuale_confermata') or a.get('pezzo_manuale')
+               or a.get('geometry_source') in ('manual-click', 'sviluppo', 'step'))
+    if not a.get('dxf_filename'):
+        return {'stato': 'sicuro' if manuale else 'manca', 'motivi': [], 'decisione': None}
+    if manuale:
+        return {'stato': 'sicuro', 'motivi': [], 'decisione': None}
+    grezzi = []
+    ctrl = _controllo_pezzo(a)
+    if ctrl:
+        grezzi.extend(ctrl.get('motivi') or [])
+    ev = a.get('esito_verifica') if isinstance(a.get('esito_verifica'), dict) else {}
+    if ev.get('stato') == 'da_guardare':
+        grezzi.extend(ev.get('motivi') or [])
+    verificato = ev.get('stato') in ('verificato', 'confermato')
+    sicuro = not ctrl and ev.get('stato') != 'da_guardare' and (
+        verificato or (a.get('cleaned_status') == 'auto' and not a.get('dxf_needs_verify')))
+    if sicuro:
+        return {'stato': 'sicuro', 'motivi': [], 'decisione': None}
+    if a.get('dxf_needs_verify'):
+        grezzi.append('selezione pezzo incerta')
+    return {'stato': 'verificare', 'motivi': motivi_brevi(grezzi), 'decisione': None}
 
 
 def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
@@ -1524,6 +1654,8 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
                       'disegno': disegno_di(a.get('dxf_filename')),
                       'articolo_id': a.get('id'),
                       'controllo': _controllo_pezzo(a),
+                      # pagina laser: cosa dice il motore e cosa ha deciso il laser
+                      'motore': _stato_motore(a),
                       **geo})
 
     for t in prev.get('tubolari') or []:
@@ -1968,6 +2100,27 @@ def _formati_lamiera():
             for w, h in (formati or _FORMATI_LAMIERA)]
 
 
+def _precarica_tempi_lantek(session, ordini) -> None:
+    """Legge da Lantek (sola lettura, con cache) i tempi CAM dei codici dei
+    pezzi di questi ordini, tutti insieme: _tempo_pezzo_laser li usa solo se
+    sono gia' in memoria. Se Lantek non risponde si va col modello."""
+    try:
+        from sqlalchemy import text as _text
+        from .preventivi import tempi_laser as _tl
+        pids = sorted({o.preventivo_id_origine for o in ordini if getattr(o, 'preventivo_id_origine', None)})
+        codici = set()
+        for i in range(0, len(pids), 400):
+            blocco = pids[i:i + 400]
+            segni = ','.join(':p%d' % k for k in range(len(blocco)))
+            righe = session.execute(_text('SELECT codice FROM preventivo_articoli WHERE preventivo_id IN (%s)' % segni),
+                                    {'p%d' % k: v for k, v in enumerate(blocco)}).fetchall()
+            codici.update(str(r[0]).strip() for r in righe if r[0])
+        if codici:
+            _tl.dati_lantek(sorted(codici))
+    except Exception:
+        logger.warning('tempi di Lantek non precaricati', exc_info=True)
+
+
 @app.route('/api/laser/banco', methods=['GET'])
 @richiede('laser', 'ufficio')
 def api_laser_banco():
@@ -2007,6 +2160,9 @@ def api_laser_banco():
                     Order.is_deleted == False,  # noqa: E712
                     Order.taglio_completato == True,  # noqa: E712
                     Order.data_taglio_completato >= dal).all()
+            # Tempi CAM di Lantek per tutti i codici in una lettura sola: poi
+            # la distinta di ogni ordine li trova gia' in memoria
+            _precarica_tempi_lantek(session, ordini)
             gruppi, senza = {}, []
             for o in ordini:
                 righe, origine, _prev = _distinta_ordine(o)
@@ -7242,13 +7398,22 @@ def _nuovi_per_lantek(order, q, righe=None) -> tuple:
     except Exception:
         logger.warning('DXF dei pezzi nuovi non trovati', exc_info=True)
     noti = _lt.materiali_lantek_noti()
+    # cosa dice il motore del disegno (pagina laser): un disegno di cui il
+    # motore non e' sicuro, e che il laser non ha ancora guardato, non parte
+    motore = {str(x.get('codice') or '').strip().lower(): (x.get('motore') or {})
+              for x in righe or [] if x.get('tipo') == 'lamiera'}
     si, no = [], []
     for r in nuovi:
         cod = r['codice']
+        mt = motore.get(str(r.get('codice_ft') or cod).strip().lower()) or {}
         if any('scegli' in a for a in r['avvisi']):
             no.append({'codice': cod, 'motivo': 'in Lantek ci sono più revisioni: scegli quella giusta'})
-        elif r.get('controllo'):
+        elif r.get('controllo') and mt.get('stato') != 'deciso':
             no.append({'codice': cod, 'motivo': 'disegno da verificare: ' + '; '.join(r['controllo']['motivi']),
+                       'verifica': True, 'articolo_id': r.get('articolo_id'), 'disegno': r.get('disegno')})
+        elif mt.get('stato') == 'verificare':
+            no.append({'codice': cod, 'motivo': 'disegno da controllare: '
+                       + ('; '.join(mt.get('motivi') or []) or 'il motore non è sicuro del contorno'),
                        'verifica': True, 'articolo_id': r.get('articolo_id'), 'disegno': r.get('disegno')})
         elif not dxf.get(cod.lower()):
             no.append({'codice': cod, 'motivo': 'disegno da preparare in FerroTrack' if cod.lower() in da_preparare
@@ -7283,20 +7448,40 @@ def _righe_pdf_ordine(order) -> list | None:
 
 def _distinta_lantek(order) -> tuple:
     """(righe della distinta, righe del PDF o None) per mettere l'ordine in
-    Lantek. Di norma e' la distinta dell'ordine; un ordine arrivato solo in PDF
-    non ce l'ha: si usano le righe del PDF, con gli assiemi gia' abbinati
-    scomposti nei loro pezzi Lantek (ordine_pdf_lantek). Solo per il flusso
-    di Lantek: le altre pagine (tablet, distinta) restano come prima."""
+    Lantek, senza i pezzi che il laser ha tenuto fuori (vedi
+    _distinta_lantek_con_esclusi)."""
+    righe, righe_pdf, _esclusi = _distinta_lantek_con_esclusi(order)
+    return righe, righe_pdf
+
+
+def _distinta_lantek_con_esclusi(order) -> tuple:
+    """(righe per Lantek, righe del PDF o None, pezzi tenuti fuori).
+
+    Di norma e' la distinta dell'ordine; un ordine arrivato solo in PDF non ce
+    l'ha: si usano le righe del PDF, con gli assiemi gia' abbinati scomposti
+    nei loro pezzi Lantek (ordine_pdf_lantek). I pezzi che il laser ha deciso
+    "va sviluppato", "piu' pezzi" o "non e' da laser" restano FUORI (terzo
+    elemento: [{codice, articolo_id, quantita, decisione, motivo}]). Solo per
+    il flusso di Lantek: le altre pagine (tablet, distinta) restano come prima."""
     righe = _distinta_ordine(order)[0]
     if righe:
-        return righe, None
+        dentro, fuori = [], []
+        for r in righe:
+            dec = ((r.get('motore') or {}).get('decisione')) if r.get('tipo') == 'lamiera' else None
+            if dec in _ESCLUSE_LASER:
+                fuori.append({'codice': r.get('codice'), 'articolo_id': r.get('articolo_id'),
+                              'quantita': r.get('quantita'), 'decisione': dec, 'motivo': _ESCLUSE_LASER[dec],
+                              '_riga': r})
+            else:
+                dentro.append(r)
+        return dentro, None, fuori
     righe_pdf = _righe_pdf_ordine(order)
     if not righe_pdf:
-        return righe, None
+        return righe, None, []
     from . import ordine_pdf_lantek as _opl
     from . import lantek as _lt
     codici = [r['codice'] for r in righe_pdf]
-    return _opl.distinta(righe_pdf, _opl.abbinamenti(codici), _lt.pezzi_in_lantek(codici)), righe_pdf
+    return _opl.distinta(righe_pdf, _opl.abbinamenti(codici), _lt.pezzi_in_lantek(codici)), righe_pdf, []
 
 
 def _quantita_lantek(order, righe=None) -> dict:
@@ -7343,7 +7528,7 @@ def api_ordine_lantek_quantita(order_id):
         if request.args.get('fresco'):
             # "Ricontrolla": rileggere Lantek adesso (dopo un import dal MES)
             _lt._svuota_cache()
-        righe_dist, righe_pdf = _distinta_lantek(order)
+        righe_dist, righe_pdf, esclusi_laser = _distinta_lantek_con_esclusi(order)
         q = _quantita_lantek(order, righe_dist)
         n_avvisi = sum(1 for r in q['righe'] if r['avvisi'])
         nuovi_si, nuovi_no = [], []
@@ -7372,6 +7557,8 @@ def api_ordine_lantek_quantita(order_id):
                                         'gia_fatti': r.get('gia_fatti') or 0, 'gia_fatti_il': r.get('gia_fatti_il')}
                                        for r in _lt.righe_per_xml(q['righe'])],
                         'invio_automatico': _lt.xmlimporter_disponibile(),
+                        # pezzi che il laser ha tenuto fuori (va sviluppato, piu' pezzi, non da laser)
+                        'esclusi_laser': [{k: v for k, v in x.items() if k != '_riga'} for x in esclusi_laser],
                         'n_avvisi': n_avvisi}), 200
     except Exception as e:
         logger.exception('quantita Lantek fallite')
@@ -7402,6 +7589,7 @@ def api_ordine_lantek_abbina(order_id):
             return jsonify({'success': False, 'error': "Codice non trovato nelle righe del PDF dell'ordine"}), 404
         if corpo.get('dimentica'):
             n = _opl.dimentica_abbinamento(codice)
+            _invalida_analisi_laser(order_id)
             _audit('LANTEK_ASSIEME', 'orders', order_id, f'Abbinamento di {codice} tolto ({n} voci)')
             return jsonify({'success': True}), 200
         non_laser = bool(corpo.get('non_laser'))
@@ -7434,6 +7622,7 @@ def api_ordine_lantek_abbina(order_id):
             for p in pezzi:
                 p['codice'] = info['pezzi'][p['codice']]['codice_lantek'] or p['codice']
         _opl.salva_abbinamento(codice, pezzi, non_laser, riga['descrizione'], order.cliente or '', _chi_nome())
+        _invalida_analisi_laser(order_id)
         _audit('LANTEK_ASSIEME', 'orders', order_id,
                f'{codice}: non va al laser' if non_laser else
                f"{codice} = " + ', '.join(f"{p['codice']} x{p['quantita']}" for p in pezzi))
@@ -7528,14 +7717,48 @@ def api_ordine_pezzo_conferma(order_id, articolo_id):
             return _non_trovato_ordine()
         if not order.preventivo_id_origine:
             return jsonify({'success': False, 'error': "Quest'ordine non ha pezzi da verificare"}), 404
-        esito = PreventivoManager.conferma_controllo_articolo(order.preventivo_id_origine, articolo_id, _chi_nome())
+        chi = _chi_nome()
+        esito = PreventivoManager.conferma_controllo_articolo(order.preventivo_id_origine, articolo_id, chi)
         if not esito.get('success'):
             return jsonify({'success': False, 'error': esito.get('error') or 'non riuscito'}), 400
+        # la decisione del laser (pagina laser: "Sì, e' il pezzo giusto")
+        PreventivoManager.decisione_laser_articolo(order.preventivo_id_origine, articolo_id, 'giusto', chi)
+        _registra_decisione_laser(order, articolo_id, 'contorno_confermato', 'giusto', chi)
+        _invalida_analisi_laser(order_id)
         _audit('PEZZO_VERIFICATO', 'orders', order_id, f'Disegno del pezzo {articolo_id} confermato giusto')
         return jsonify({'success': True}), 200
     except Exception as e:
         logger.exception('conferma pezzo fallita')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _registra_decisione_laser(order, articolo_id, evento, scelta, chi) -> None:
+    """Ogni decisione del laser su un disegno va anche nel registro degli
+    esempi del motore (preventivi/registro_esempi): cosa aveva letto il motore
+    e cosa ha deciso la persona. Non blocca mai il salvataggio."""
+    try:
+        from .preventivi.registro_esempi import registra
+        art, percorso = _articolo_ordine(order, articolo_id)
+        art = art or {}
+        registra(evento, percorso, codice=art.get('codice'), chi=chi,
+                 motore={'area_dm2': art.get('area_dm2'), 'perimetro_taglio_m': art.get('perimetro_taglio_m'),
+                         'n_forature': art.get('n_forature'), 'spessore_mm': art.get('spessore_mm'),
+                         'materiale': art.get('materiale'), 'cleaned_status': art.get('cleaned_status'),
+                         'dxf_confidence': art.get('dxf_confidence'),
+                         'bbox': [art.get('bbox_w_mm'), art.get('bbox_h_mm')]},
+                 decisione={'scelta': scelta},
+                 contesto={'ordine': order.id, 'articolo_id': articolo_id, 'pagina': 'laser'})
+    except Exception:
+        logger.warning('decisione del laser non registrata negli esempi', exc_info=True)
+
+
+def _invalida_analisi_laser(order_id) -> None:
+    """Dopo una modifica all'ordine la pagina laser lo rilegge subito."""
+    try:
+        from . import api_laser
+        api_laser.invalida(order_id)
+    except Exception:
+        pass
 
 
 def _articolo_ordine(order, articolo_id):
@@ -7615,8 +7838,11 @@ def api_ordine_lantek_invia(order_id):
     2. gli ordini di produzione con le quantita' (XmlImporter).
     Poi si rilegge Lantek per dire cosa c'e' davvero.
 
-    Corpo: {"codici": [...], "nuovi": [...]} = cio' che si e' visto nella
-    conferma; se nel frattempo e' cambiato non si manda niente (409)."""
+    Corpo: {"codici": [...], "nuovi": [...], "esclusi": [...]} = cio' che si
+    e' visto nella conferma; "esclusi" = codici gia' in Lantek che chi
+    conferma tiene fuori (es. spessore diverso fra ordine e Lantek: lo
+    corregge lui). codici + esclusi devono essere esattamente quelli da
+    mandare: se nel frattempo e' cambiato qualcosa non si manda niente (409)."""
     try:
         from . import lantek as _lt
         order = _ordine_esistente(order_id)
@@ -7629,14 +7855,22 @@ def api_ordine_lantek_invia(order_id):
         nuovi_si = []
         if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
             nuovi_si = _nuovi_per_lantek(order, q, righe_dist)[0]
+        tenuti_fuori = {str(c) for c in (corpo.get('esclusi') or [])}
+        if not tenuti_fuori.isdisjoint({str(c) for c in (corpo.get('codici') or [])}):
+            return jsonify({'success': False, 'codice': 'cambiato',
+                            'error': 'Un codice non può essere sia da mandare sia tenuto fuori'}), 400
         if not righe and not nuovi_si:
             return jsonify({'success': False, 'codice': 'niente_da_mandare',
                             'error': 'Niente da mandare: i codici sono già in produzione in Lantek '
                                      'o i nuovi non si possono creare in automatico'}), 409
-        if (sorted(str(c) for c in (corpo.get('codici') or [])) != sorted(r['codice'] for r in righe)
+        if (sorted({str(c) for c in (corpo.get('codici') or [])} | tenuti_fuori) != sorted(r['codice'] for r in righe)
                 or sorted(str(c) for c in (corpo.get('nuovi') or [])) != sorted(x['codice'] for x in nuovi_si)):
             return jsonify({'success': False, 'codice': 'cambiato',
                             'error': "L'elenco è cambiato da quando l'hai visto: ricontrolla e conferma di nuovo"}), 409
+        righe = [r for r in righe if r['codice'] not in tenuti_fuori]
+        if not righe and not nuovi_si:
+            return jsonify({'success': False, 'codice': 'niente_da_mandare',
+                            'error': 'Hai tenuto fuori tutti i codici: niente da mandare'}), 409
         if not _lt.xmlimporter_disponibile():
             return jsonify({'success': False, 'codice': 'no_xmlimporter',
                             'error': "XML Importer di Lantek non trovato su questo PC: scarica il file "
@@ -7657,7 +7891,7 @@ def api_ordine_lantek_invia(order_id):
             creati = [x['codice'] for x in nuovi_si if (visti.get(x['codice']) or {}).get('esiste')]
             # ora ci sono: rientrano negli ordini di produzione
             q = _quantita_lantek(order, righe_dist)
-            ammessi = {str(c) for c in (corpo.get('codici') or [])} | set(creati)
+            ammessi = ({str(c) for c in (corpo.get('codici') or [])} | set(creati)) - tenuti_fuori
             righe = [r for r in _lt.righe_per_xml(q['righe']) if r['codice'] in ammessi]
         # 2. ordini di produzione
         rap, presenti = {}, []
@@ -7676,7 +7910,9 @@ def api_ordine_lantek_invia(order_id):
             presenti = [r['codice'] for r in righe if ora.get(str(r['codice']).strip().upper())]
         _audit('LANTEK_INVIA', 'orders', order_id,
                f"Mandati a Lantek (ordine {q['commessa']}): {len(creati)} di {len(nuovi_si)} pezzi nuovi creati, "
-               f"{len(presenti)} di {len(righe)} ordini di produzione verificati")
+               f"{len(presenti)} di {len(righe)} ordini di produzione verificati"
+               + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else ''))
+        _invalida_analisi_laser(order_id)
         return jsonify({'success': True,
                         'pezzi_nuovi': len(nuovi_si), 'pezzi_creati': len(creati),
                         'pezzi_non_creati': [x['codice'] for x in nuovi_si if x['codice'] not in creati],

@@ -214,9 +214,14 @@ def _leggi_lantek(codici: list) -> dict | None:
     return out
 
 
-def dati_lantek(codici, lettore=None) -> dict:
+def dati_lantek(codici, lettore=None, solo_cache: bool = False) -> dict:
     """Dati CAM e geometria di Lantek per i codici (dalla cache se recenti).
-    Codici sconosciuti o Lantek spento -> assenti dal risultato. Non solleva."""
+    Codici sconosciuti o Lantek spento -> assenti dal risultato. Non solleva.
+
+    solo_cache=True: non interroga Lantek, usa solo quello che c'e' gia' in
+    memoria (per chi calcola i tempi a ogni richiesta, es. la distinta del
+    tablet: la lettura vera la fa prima, una volta per tutti, chi serve i
+    tempi, vedi /api/laser/banco)."""
     lettore = lettore or _leggi_lantek
     codici = sorted({str(c).strip().upper() for c in codici if c and str(c).strip()})
     ora = time.time()
@@ -229,7 +234,7 @@ def dati_lantek(codici, lettore=None) -> dict:
                     out[c] = v[1]
             else:
                 mancano.append(c)
-    if not mancano or ora - _ULTIMO_ERRORE['t'] < _PAUSA_DOPO_ERRORE_S:
+    if solo_cache or not mancano or ora - _ULTIMO_ERRORE['t'] < _PAUSA_DOPO_ERRORE_S:
         return out
     try:
         letti = lettore(mancano)
@@ -331,6 +336,36 @@ def tempo_pezzo(codice=None, articolo: dict | None = None, materiale=None, spess
     return _tempo_con_dati(codice, articolo, materiale, spessore, lk, modello)
 
 
+def fattore_foglio(materiale, modello: dict | None = None) -> float:
+    """Correzione dal tempo del pezzo al tempo sul foglio (movimenti fra un
+    pezzo e l'altro): circa 1,03 secondo i nesting di Lantek. 1 se manca."""
+    modello = modello or carica_modello() or {}
+    ff = modello.get('fattore_foglio') or {}
+    mat = materiale_lantek(materiale)
+    return _num(ff.get(mat) if mat else None) or _num(ff.get('*')) or 1.0
+
+
+def minuti_pezzo(codice=None, articolo: dict | None = None, solo_cache: bool = True,
+                 modello: dict | None = None, lettore=None) -> dict:
+    """Minuti di laser di UN pezzo come pesano sul foglio (tempo del pezzo x
+    fattore foglio): e' il numero che usa il calendario del laser.
+
+    solo_cache=True (predefinito): Lantek solo se gia' letto (dati_lantek),
+    altrimenti il modello. Ritorna {'minuti': float|None, 'fonte':
+    'lantek'|'modello'|'stima'|'mancante', 'incertezza', 'nota'}."""
+    modello = modello or carica_modello()
+    articolo = articolo or {}
+    lk = None
+    if codice:
+        lk = dati_lantek([codice], lettore, solo_cache=solo_cache).get(str(codice).strip().upper())
+    t = _tempo_con_dati(codice, articolo, articolo.get('materiale'), articolo.get('spessore_mm'), lk, modello)
+    if t.get('secondi') is None:
+        return {'minuti': None, 'fonte': 'mancante', 'incertezza': None, 'nota': t.get('nota') or ''}
+    f = fattore_foglio(t.get('materiale') or articolo.get('materiale'), modello)
+    return {'minuti': round(t['secondi'] * f / 60.0, 4), 'fonte': t['fonte'],
+            'incertezza': t.get('incertezza'), 'nota': t.get('nota') or ''}
+
+
 def lamiere_stimate(area_m2: float, materiale, spessore, modello: dict | None = None) -> float:
     """Fogli per un'area di pezzi (stessa lamiera): area / (area foglio x resa).
     Frazionario: la lamiera si divide con gli altri ordini dello stesso spessore."""
@@ -387,10 +422,9 @@ def tempo_ordine(righe: list, usa_lantek: bool = True, carico_min_lamiera: float
         g['area_m2'] += area_dm2 / 100.0 * q
         g['secondi_taglio'] += t['secondi'] * q
         g['pezzi'] += q
-    ff = (modello or {}).get('fattore_foglio') or {}
     taglio = 0.0
     for g in gruppi.values():
-        f = _num(ff.get(g['mat']) or ff.get('*')) or 1.0
+        f = fattore_foglio(g['mat'], modello)
         g['secondi_taglio'] = round(g['secondi_taglio'] * f, 1)
         taglio += g['secondi_taglio']
     lamiere = 0.0

@@ -4781,7 +4781,12 @@ class PreventivoManager:
                       # Come il disegno e' stato abbinato al codice (nome uguale,
                       # senza revisione, o "per somiglianza" da confermare) e
                       # l'esito della verifica automatica al caricamento.
-                      'abbinamento', 'esito_verifica')
+                      'abbinamento', 'esito_verifica',
+                      # Decisione del laser sul disegno (pagina laser, controllo
+                      # disegni): giusto / scelto a mano / va sviluppato / piu'
+                      # pezzi / non e' da laser. Le ultime tre lo tengono fuori
+                      # da "Manda a Lantek".
+                      'decisione_laser')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -4999,6 +5004,10 @@ class PreventivoManager:
                 pulito['lantek']['codice'] = str(lt.get('codice') or '')[:60] or None
                 pulito['lantek']['materiale'] = str(lt.get('materiale') or '')[:40] or None
             out['esito_verifica'] = pulito
+        dl = a.get('decisione_laser')
+        if isinstance(dl, dict) and dl.get('scelta') in PreventivoManager.DECISIONI_LASER:
+            out['decisione_laser'] = {'scelta': dl['scelta'], 'chi': str(dl.get('chi') or '')[:80] or None,
+                                      'quando': str(dl.get('quando') or '')[:32] or None}
         vok = a.get('verifica_ok')
         if isinstance(vok, dict):
             vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}
@@ -5183,6 +5192,52 @@ class PreventivoManager:
         finally:
             session.close()
 
+    # giusto = il contorno del motore va bene; scelto = contorno scelto a mano;
+    # le altre tre tengono il pezzo fuori da Lantek (vedi app._ESCLUSE_LASER)
+    DECISIONI_LASER = ('giusto', 'scelto', 'sviluppo', 'piu_pezzi', 'non_laser')
+
+    @staticmethod
+    def decisione_laser_articolo(preventivo_id, articolo_id, scelta, chi: str = '') -> dict:
+        """Scrive (o toglie, scelta None) la decisione del laser su un pezzo:
+        solo il campo extra `decisione_laser`, niente prezzi ne' geometria.
+        Come conferma_controllo_articolo vale anche su un preventivo accettato:
+        e' il lavoro sull'ordine, non una modifica dell'offerta."""
+        from sqlalchemy import text as _text
+        if scelta is not None and scelta not in PreventivoManager.DECISIONI_LASER:
+            return {'error': 'Decisione non valida'}
+        session = get_session()
+        try:
+            if not PreventivoManager._colonna_extra_pronta(session):
+                return {'error': 'colonna extra non pronta'}
+            riga = session.execute(_text(
+                'SELECT extra_campi FROM preventivo_articoli WHERE id = :i AND preventivo_id = :p'),
+                {'i': articolo_id, 'p': preventivo_id}).fetchone()
+            if riga is None:
+                return {'error': 'Pezzo non trovato'}
+            try:
+                extra = json.loads(riga[0] or '{}') or {}
+            except (TypeError, ValueError):
+                extra = {}
+            prima = (extra.get('decisione_laser') or {}).get('scelta') if isinstance(extra.get('decisione_laser'), dict) else None
+            if scelta is None:
+                extra.pop('decisione_laser', None)
+            else:
+                extra['decisione_laser'] = {'scelta': scelta, 'chi': chi or None,
+                                            'quando': datetime.utcnow().isoformat(timespec='seconds')}
+            riga_n = extra.get('riga')
+            extra = PreventivoManager._extra_articolo(extra)
+            if isinstance(riga_n, int):
+                extra['riga'] = riga_n      # la posizione nella lista resta quella
+            session.execute(_text('UPDATE preventivo_articoli SET extra_campi = :j WHERE id = :i'),
+                            {'j': json.dumps(extra, ensure_ascii=False), 'i': articolo_id})
+            session.commit()
+            return {'success': True, 'prima': prima}
+        except Exception as e:
+            session.rollback()
+            return {'error': str(e)}
+        finally:
+            session.close()
+
     @staticmethod
     def conferma_controllo_articolo(preventivo_id, articolo_id, chi: str = '') -> dict:
         """Verifica tecnica di un pezzo dubbio (disegno abbinato per
@@ -5218,7 +5273,10 @@ class PreventivoManager:
             ca = extra.get('contorno_auto')
             if isinstance(ca, dict) and ca.get('stato') == 'da_confermare':
                 ca['stato'] = 'confermato'
+            riga_n = extra.get('riga')
             extra = PreventivoManager._extra_articolo(extra)
+            if isinstance(riga_n, int):
+                extra['riga'] = riga_n      # la posizione nella lista resta quella
             session.execute(_text('UPDATE preventivo_articoli SET extra_campi = :j WHERE id = :i'),
                             {'j': json.dumps(extra, ensure_ascii=False), 'i': articolo_id})
             session.commit()

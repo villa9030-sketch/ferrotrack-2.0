@@ -59,6 +59,9 @@ Base.metadata.create_all(bind=_ENG)
 
 import importlib  # noqa: E402
 A = importlib.import_module('backend.app')
+# Lantek simulato: spento (i tempi vengono dal modello tarato)
+from backend.preventivi import tempi_laser as _TL  # noqa: E402
+_TL._leggi_lantek = lambda codici: None
 from backend.database import PreventivoManager, ConfigManager  # noqa: E402
 from backend.preventivi import laser_cost_estimator as L  # noqa: E402
 from tests.accesso_aiuto import postazioni, entra, modalita  # noqa: E402
@@ -179,9 +182,17 @@ def main():
     print('\n4) Banco lamiere per il calendario')
     d = c.get('/api/laser/banco?da_smistare=1').get_json()
     pezzi = {p['codice']: p for g in d['gruppi'] for p in g['pezzi']}
-    check('pezzo col tempo del preventivo', pezzi['A1']['tempo_fonte'] == 'preventivo' and pezzi['A1']['tempo_min'] == 0.5)
-    check('pezzo da pacchetto: tempo calcolato', pezzi['P1']['tempo_fonte'] == 'calcolato'
-          and abs(pezzi['P1']['tempo_min'] - ref) < 1e-3, pezzi['P1'])
+    # tempi tarati su Lantek (preventivi/tempi_laser): il modello vince sulla
+    # stima del preventivo, ed e' gia' moltiplicato per il fattore foglio
+    from backend.preventivi import tempi_laser as TL
+    atteso = TL.minuti_pezzo(None, dict(PEZZO))['minuti']
+    check('modello: tempo del pezzo x fattore foglio (~1,03)', atteso and abs(
+        atteso - TL.tempo_pezzo(None, dict(PEZZO), usa_lantek=False)['secondi'] / 60 * TL.fattore_foglio('S235')) < 1e-3
+        and 1.0 < TL.fattore_foglio('S235') < 1.1, atteso)
+    check('pezzo con stima del preventivo: vince il modello tarato', pezzi['A1']['tempo_fonte'] == 'modello'
+          and abs(pezzi['A1']['tempo_min'] - atteso) < 1e-3, pezzi['A1'])
+    check('pezzo da pacchetto: modello tarato', pezzi['P1']['tempo_fonte'] == 'modello'
+          and abs(pezzi['P1']['tempo_min'] - atteso) < 1e-3, pezzi['P1'])
     check('pezzo senza perimetro: mancante', pezzi['X1']['tempo_fonte'] == 'mancante' and pezzi['X1']['tempo_min'] is None)
     s = models.SessionLocal()
     try:
@@ -199,8 +210,12 @@ def main():
 
     print('\n5) Impostazioni del calendario')
     g = c.get('/api/laser/calendario-config').get_json()['config']
-    check('default: 8 h, riserva 2, 5 min, 3 s, +18%', (g['ore_turno'], g['ore_riserva'], g['carico_min_lamiera'],
-                                                     g['scarico_s_pezzo'], g['fattore_tempo']) == (8, 2, 5, 3, 1.18), g)
+    check('default: 8 h, riserva 2, 5 min, 3 s, correzione 1 (i tempi sono già tarati)',
+          (g['ore_turno'], g['ore_riserva'], g['carico_min_lamiera'],
+           g['scarico_s_pezzo'], g['fattore_tempo']) == (8, 2, 5, 3, 1.0), g)
+    r = c.put('/api/laser/calendario-config', json={'fattore_tempo': 1.18})
+    check('il vecchio +18% non si rimette più', r.status_code == 200
+          and r.get_json()['config']['fattore_tempo'] == 1.0, r.get_json())
     laser_prima = json.dumps((ConfigManager.load_config() or {}).get('laser_config'), sort_keys=True)
     check('il tablet officina non salva', tab.put('/api/laser/calendario-config', json={'ore_turno': 9}).status_code == 403)
     check('riserva >= turno rifiutata', c.put('/api/laser/calendario-config',
