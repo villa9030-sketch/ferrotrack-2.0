@@ -1450,6 +1450,37 @@ def _separa_scritte(fori: list, outer, dubbi_out: list | None = None) -> tuple[l
     return [p for k, p in enumerate(fori) if k not in via], [fori[k] for k in sorted(via)]
 
 
+def _togli_segni_sui_fori(inners: list) -> list:
+    """Contorno interno NON tondo il cui bordo attraversa un foro tondo: e' un
+    segno disegnato attorno ai fori (riquadro di tracciatura), non un taglio.
+    Due tagli che si incrociano dentro il pezzo non si fanno: il riquadro
+    staccherebbe pezzi di foro (13PA00680-00: riquadri 100x15 sulle coppie di
+    fori svasati; Lantek taglia solo finestra e fori, 10 inneschi)."""
+    def tondo(p):
+        try:
+            return p.length > 0 and 4 * math.pi * p.area / (p.length ** 2) >= 0.9
+        except Exception:
+            return False
+    tondi = [p for p in inners if tondo(p)]
+    if not tondi:
+        return list(inners)
+    tenuti = []
+    for p in inners:
+        if tondo(p):
+            tenuti.append(p)
+            continue
+        try:
+            bordo = p.exterior
+            incrocia = any(bordo.crosses(t.exterior) or (bordo.intersects(t.exterior) and not p.contains(t)
+                                                          and not t.contains(p))
+                           for t in tondi)
+        except Exception:
+            incrocia = False
+        if not incrocia:
+            tenuti.append(p)
+    return tenuti
+
+
 def _riduci_fori_annidati(inners: list, outer=None) -> tuple[list, int]:
     """Contorni interni annidati in altri contorni interni.
 
@@ -1467,6 +1498,7 @@ def _riduci_fori_annidati(inners: list, outer=None) -> tuple[list, int]:
         return _riduci_fori_annidati(_separa_scritte(inners, outer)[0])
     if len(inners) < 2:
         return list(inners), 0
+    inners = _togli_segni_sui_fori(inners)
     drop = set()
     n_svas = 0
     order = sorted(range(len(inners)), key=lambda k: -inners[k].area)
