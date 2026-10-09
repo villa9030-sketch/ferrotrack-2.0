@@ -363,6 +363,14 @@ def contorno_pezzo(order_id, articolo_id):
             lt = {'pronto': False, 'file': None,
                   'motivo': f'DXF pulito non preparato ({e}): il pezzo resta da preparare in Lantek'}
 
+        from .preventivi.registro_esempi import registra
+        registra('contorno_scelto_a_mano', percorso, codice=art.get('codice'), chi=chi,
+                 motore={'area_dm2': prima[0], 'perimetro_taglio_m': prima[1], 'n_forature': prima[2],
+                         'spessore_mm': art.get('spessore_mm'), 'materiale': art.get('materiale')},
+                 decisione={'area_dm2': geo['area_dm2'], 'perimetro_taglio_m': geo['perimetro_taglio_m'],
+                            'n_forature': geo['n_forature'], 'bbox': [geo['bbox_width_mm'], geo['bbox_height_mm']],
+                            'outer_xy': outer_xy, 'holes_xy': holes_xy},
+                 contesto={'ordine': order_id, 'articolo_id': articolo_id})
         _audit('PEZZO_CONTORNO', 'orders', order_id,
                f"Pezzo {art.get('codice') or articolo_id} ({nome}): contorno scelto a mano. "
                f"Area {prima[0]} -> {geo['area_dm2']:.4f} dm2, perimetro {prima[1]} -> "

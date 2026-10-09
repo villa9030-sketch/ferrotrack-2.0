@@ -51,3 +51,6 @@ Thumbs.db
 # Temp files
 .claude/skills/*/.temp-*
 .claude/skills/*/mockup_*.png
+
+# Esempi per il motore di riconoscimento (disegni dei clienti): solo su questo PC
+app/dati_motore/

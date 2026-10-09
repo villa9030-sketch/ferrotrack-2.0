@@ -68,6 +68,7 @@ def main(filtri: list[str]) -> int:
             continue
         tmpdb = Path(tempfile.gettempdir()) / f'ft_test_{os.getpid()}_{f.stem}.db'
         env = dict(os.environ, FERROTRACK_SKIP_DB_INIT='1', FERROTRACK_DB=str(tmpdb),
+                   FERROTRACK_ESEMPI_DIR=str(Path(tempfile.gettempdir()) / 'ferrotrack_test_esempi'),
                    PYTHONIOENCODING='utf-8', PYTHONWARNINGS='ignore')
         s = time.time()
         try:
