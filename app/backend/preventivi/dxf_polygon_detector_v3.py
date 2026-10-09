@@ -547,6 +547,24 @@ def entita_espanse(layout, solo_geometria: bool = True, _depth: int = 0):
 
 
 _LINETYPE_CONTINUI = {'', 'CONTINUOUS', 'BYLAYER', 'BYBLOCK'}
+# Layer che il modello del CAD (Solid Edge, Inventor, AutoCAD ISO) dedica a
+# linee che NON sono il profilo da tagliare: spigoli nascosti e tangenti,
+# assi e centri dei fori, linee di interruzione delle viste accorciate. Nei
+# DWG di altri clienti questi layer arrivano spesso col tipo linea Continuous
+# (il tratteggio lo mette la stampa), quindi il tipo di linea non basta: conta
+# il nome che il disegnatore ha dato al layer.
+_RE_LAYER_NON_TAGLIO = re.compile(
+    r"nascost|hidden|tangent|interruz|\bbreak|centro|\bcent(er|re)\b|center ?line|\baxis|\baxes\b"
+    r"|(^|[^a-z])ass[ei]([^a-z]|$)|d'asse", re.IGNORECASE)
+_RE_LAYER_INTERRUZIONE = re.compile(r'interruz|\bbreak', re.IGNORECASE)
+
+
+def layer_non_taglio(layer_name: str) -> bool:
+    """True se il nome del layer dice spigolo nascosto/tangente, asse/centro o
+    linea di interruzione (vedi _RE_LAYER_NON_TAGLIO). I layer di piega no:
+    hanno la loro gestione (_layer_piega)."""
+    n = (layer_name or '').strip()
+    return bool(n) and not _layer_piega(n) and bool(_RE_LAYER_NON_TAGLIO.search(n))
 _LINETYPE_NOMI_TRATTEGGIATI = ('HIDDEN', 'DASH', 'CENTER', 'PHANTOM', 'DOT', 'CHAIN',
                                'TRATT', 'ASSE', 'BORDER', 'DIVIDE', 'NASCOST')
 
@@ -575,6 +593,11 @@ def linea_tratteggiata(entity) -> bool:
     asse, fantasma, tratteggio): nel disegno tecnico queste linee sono spigoli
     nascosti, assi, linee di piega o ingombri, mai il profilo da tagliare, che
     e' sempre a linea continua."""
+    try:
+        if layer_non_taglio(entity.dxf.get('layer', '')):
+            return True
+    except Exception:
+        pass
     nome = linetype_effettivo(entity)
     u = nome.strip().upper()
     if u in _LINETYPE_CONTINUI:
@@ -1228,6 +1251,24 @@ def _separa_cartiglio(all_polys: list, testi: list | None = None) -> tuple[list,
             and q.exterior.distance(c.exterior) > CORNICE_TOCCO_MM
             for q in all_polys)
     vere = [c for c in cornici if not _segno_sul_pezzo(c)]
+    # Cornice a DOPPIA linea: il bordo interno e' un rettangolo parallelo a
+    # quello esterno, a pochi mm su tutti e quattro i lati (fascia del
+    # foglio). Non tocca la cornice, quindi passava come "pezzo" e la fascia
+    # fra le due linee veniva unita al contorno (RTF: 190x287 / 180x277).
+    # Un pezzo vero non sta a distanza costante e piccola da tutti i lati.
+    for c in list(vere):
+        cx1, cy1, cx2, cy2 = c.bounds
+        marg = max(15.0, 0.05 * min(cx2 - cx1, cy2 - cy1))
+        pc = _prep_buf(c)
+        for p in all_polys:
+            if id(p) in ids_cornici or p.area < 0.6 * c.area or not _is_rectangle_like(p):
+                continue
+            px1, py1, px2, py2 = p.bounds
+            off = (px1 - cx1, py1 - cy1, cx2 - px2, cy2 - py2)
+            if all(0.2 <= o <= marg for o in off) and _contiene(c, p, pc):
+                cornici.append(p)
+                ids_cornici.add(id(p))
+                vere.append(p)
     candidati = []
     n = len(cornici)
     for p in all_polys:
@@ -1795,7 +1836,36 @@ def _quote_mm(msp, scala: float) -> list:
         dims = list(msp.query('DIMENSION'))
     except Exception:
         return out
+    # Quote COORDINATE (ordinate, dimtype 6): ognuna scrive la distanza di un
+    # punto da un'origine lungo X o lungo Y, non una lunghezza. Il disegnatore
+    # che quota cosi' (Solid Edge, Inventor: tutto da uno spigolo del pezzo)
+    # scrive l'ingombro come la coordinata piu' lontana dall'origine: per ogni
+    # origine e asse vale l'ESTENSIONE (max - min, origine compresa). Prima la
+    # misura era la lunghezza del vettore origine-punto: un numero mai scritto.
+    ordinate: dict = {}
     for d in dims:
+        if (d.dxf.get('dimtype', 0) & 7) == 6:
+            try:
+                v = d.get_measurement()
+                o = d.dxf.defpoint
+                lf = float(d.override().get('dimlfac', 1.0) or 1.0)
+                asse_x = bool(d.dxf.get('dimtype', 0) & 64)
+                k = (round(o[0], 2), round(o[1], 2), asse_x, round(lf, 6))
+                ordinate.setdefault(k, [0.0]).append(float(v[0] if asse_x else v[1]))
+                # tocca il disegno nell'origine e nel punto quotato
+                p2 = d.dxf.defpoint2
+                out.append({'pts': [(float(o[0]) * scala, float(o[1]) * scala),
+                                    (float(p2[0]) * scala, float(p2[1]) * scala)], 'vals': set()})
+            except Exception:
+                pass
+            continue
+    for (_ox, _oy, _ax, lf), vs in ordinate.items():
+        est = max(vs) - min(vs)
+        if est > 0:
+            out.append({'pts': [], 'vals': {round(x, 1) for x in (est * lf, est * scala, est * lf * scala)}})
+    for d in dims:
+        if (d.dxf.get('dimtype', 0) & 7) == 6:
+            continue
         try:
             pts = [(px * scala, py * scala) for px, py in _punti_quota(d)]
         except Exception:
@@ -2216,6 +2286,51 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
     return esteso, piena, aggiunte
 
 
+_RE_LAYER_NASCOSTI = re.compile(r'nascost|hidden|tangent', re.IGNORECASE)
+
+
+def _spigoli_nascosti_dentro(msp, outer, scala: float) -> int:
+    """Entita' su un layer di spigoli NASCOSTI o TANGENTI che stanno dentro il
+    contorno scelto (mm). Uno sviluppo piano non ha niente dietro ne' superfici
+    curve: spigoli nascosti o tangenti (raggi di piega visti di fronte) dentro
+    la vista vogliono dire pezzo piegato o 3D."""
+    from shapely.geometry import LineString
+    try:
+        zona = prep(outer.buffer(0.5))
+        x1, y1, x2, y2 = outer.bounds
+    except Exception:
+        return 0
+    f = float(scala or 1.0)
+    n = 0
+    for e in entita_espanse(msp, solo_geometria=True):
+        try:
+            if e.dxftype() not in ('LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'SPLINE', 'ELLIPSE', 'CIRCLE')                     or not _RE_LAYER_NASCOSTI.search(e.dxf.get('layer', '') or ''):
+                continue
+            vs = _flatten_entity(e, 0.5 / f)
+            if not vs or len(vs) < 2:
+                continue
+            pts = [(x * f, y * f) for x, y in vs]
+            if min(p[0] for p in pts) < x1 - 1 or max(p[0] for p in pts) > x2 + 1                     or min(p[1] for p in pts) < y1 - 1 or max(p[1] for p in pts) > y2 + 1:
+                continue
+            if zona.contains(LineString(pts)):
+                n += 1
+        except Exception:
+            continue
+    return n
+
+
+def _linee_interruzione(msp) -> int:
+    """Entita' su un layer di linee d'interruzione (vista accorciata)."""
+    n = 0
+    for e in entita_espanse(msp, solo_geometria=True):
+        try:
+            if e.dxftype() in ('LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'SPLINE')                     and _RE_LAYER_INTERRUZIONE.search(e.dxf.get('layer', '') or ''):
+                n += 1
+        except Exception:
+            continue
+    return n
+
+
 def _linetype_tratteggiato(entity) -> bool:
     """Tipo linea EFFETTIVO (risolve BYLAYER) a tratti: tratteggio, asse,
     tratto-punto. Le linee di piega si disegnano cosi'."""
@@ -2421,8 +2536,12 @@ def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None
             continue        # stendere le falde allunga: lo sviluppo non e' piu' piccolo
         if po.contains(S):
             continue
-        if S.buffer(0.5).contains(outer) and lq_outer >= 2:
+        if S.buffer(0.5).contains(outer) and lq_outer >= 2                 and not (nq > qs_outer and _lato_comune(S, outer)):
             continue        # la contiene ma la vista scelta e' gia' quotata: e' lei
+            # (se pero' la sagoma ha un lato uguale alla vista e porta PIU'
+            # quote, la vista e' una sua falda che condivide il lato quotato:
+            # 38APA077-00, falda 56 x 55 dentro lo sviluppo 116,5 x 55 con 19
+            # quote addosso)
         # la stessa sagoma gia' trovata (silhouette = contorno chiuso)
         if any(_stesso_ingombro(S, a[2], 0.5) and abs(S.area - a[2].area) <= 0.002 * S.area for a in alt):
             continue
@@ -2439,6 +2558,14 @@ def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None
     chiuso = next((c for c in candidati if _stesso_ingombro(S, c, 0.5)
                    and abs(S.area - c.area) <= 0.002 * S.area), None)
     return chiuso if chiuso is not None else S
+
+
+def _lato_comune(a, b, tol: float = 0.5) -> bool:
+    """I due contorni hanno lo stesso lato (stessa larghezza o stessa altezza
+    dell'ingombro): una falda e lo sviluppo che la contiene lungo la piega."""
+    ax0, ay0, ax1, ay1 = a.bounds
+    bx0, by0, bx1, by1 = b.bounds
+    return abs((ax1 - ax0) - (bx1 - bx0)) <= tol or abs((ay1 - ay0) - (by1 - by0)) <= tol
 
 
 def _stesso_ingombro(a, b, tol: float = 1.0) -> bool:
@@ -2991,6 +3118,49 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         confidence = 0.45
         warnings.append(f'Contorno largo meno di {MIN_LATO_PEZZO_MM:g} mm: probabile vista di '
                         f'fianco (spessore), non lo sviluppo — scegliere il pezzo')
+
+    # Linee di INTERRUZIONE (layer "Linee di interruzione", "break"): nel
+    # foglio c'e' una vista ACCORCIATA per starci dentro. Se e' il pezzo,
+    # l'ingombro disegnato non e' quello vero; se il pezzo lungo e' spezzato
+    # in tratti aperti, il contorno scelto e' un'altra vista (SO39250-02-169:
+    # preso 11 x 30, il pezzo e' 37 x 920). Le misure vanno lette dalle
+    # quote: da verificare. Solo se qualche quota misura piu' del lato
+    # maggiore del contorno scelto (la vista accorciata e' quotata al vero):
+    # se l'interruzione e' su un'altra vista, il pezzo scelto resta valido.
+    n_interr = _linee_interruzione(msp)
+    if n_interr:
+        lato_max = max(mis['bbox_width_mm'], mis['bbox_height_mm'])
+        q_max = max((v for q in (base.get('quote') or []) for v in q['vals']), default=0.0)
+        if q_max <= max(lato_max * 1.02, lato_max + 1.0):
+            n_interr = 0
+    if n_interr and confidence >= 0.5:
+        confidence = min(confidence, 0.6)
+        warnings.append(f'{n_interr} linee di interruzione nel foglio: vista accorciata, '
+                        f"l'ingombro disegnato puo' non essere quello vero — verificare con le quote")
+
+    # Geometria che il motore NON sa leggere (solidi/regioni ACIS, oggetti
+    # proxy di applicazioni verticali): una parte del disegno e' invisibile,
+    # il contorno trovato puo' non essere il pezzo (DWG: 7 disegni cosi', 7
+    # sbagliati). Da verificare.
+    try:
+        n_illeggibili = len(msp.query('REGION 3DSOLID BODY SURFACE ACAD_PROXY_ENTITY'))
+    except Exception:
+        n_illeggibili = 0
+    if n_illeggibili and confidence >= 0.5:
+        confidence = min(confidence, 0.6)
+        warnings.append(f'{n_illeggibili} oggetti non leggibili (solidi/regioni/proxy) nel disegno: '
+                        f'il contorno trovato puo\' non essere il pezzo — verificare')
+
+    # Spigoli NASCOSTI o TANGENTI (layer "Spigoli nascosti/tangenti",
+    # "hidden") dentro il contorno scelto: dietro la vista c'e' altro
+    # materiale o una piega vista di fronte, quindi e' la vista di un pezzo
+    # piegato o 3D, non lo sviluppo piano (DWG di altri clienti: con nascosti
+    # dentro la geometria era giusta 19 volte su 87, con tangenti 2 su 5).
+    n_nasc = _spigoli_nascosti_dentro(msp, outer, scala)
+    if n_nasc and confidence >= 0.5:
+        confidence = min(confidence, 0.6)
+        warnings.append(f'{n_nasc} spigoli nascosti dentro il contorno scelto: e\' la vista di un pezzo '
+                        f'piegato, non lo sviluppo — verificare')
 
     # ---- 8b. Fori dubbi: il contorno e' giusto ma cosa si taglia dentro no.
     # Confidenza sotto la soglia del "sicuro" (pulizia 'auto_review'), senza

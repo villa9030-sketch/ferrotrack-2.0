@@ -874,7 +874,7 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     from ezdxf.math import Matrix44
     from .dxf_polygon_detector_v3 import (
         TIPI_ANNOTAZIONE, _layer_da_escludere, _layer_piega, _flatten_entity,
-        FLATTEN_DISTANCE_MM, colore_effettivo, linea_tratteggiata,
+        FLATTEN_DISTANCE_MM, colore_effettivo, linea_tratteggiata, layer_non_taglio,
     )
     cfg = cfg or {}
     result = {'success': False, 'error': None, 'entities_copied': 0, 'entities_source': 0,
@@ -891,6 +891,7 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
     tol_bordo = max(0.5, min(2.0, 0.003 * lato))
     result['tolerance_mm'] = round(tol_taglio, 3)
     sul_contorno = prep(bordi.buffer(tol_taglio))
+    sul_esterno = prep(outer.exterior.buffer(tol_taglio))
     vicino_bordo = prep(bordi.buffer(tol_bordo))
     dentro = prep(Polygon(outer.exterior).buffer(tol_bordo))
     centri_fori = []
@@ -993,7 +994,10 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
             col = None
         piega_dichiarata = _layer_piega(layer) or col in colori_piega
         escluso = _layer_da_escludere(layer)
-        if et in ('ARC', 'CIRCLE'):
+        if et in ('ARC', 'CIRCLE') and not sul_esterno.contains(ls):
+            # (un cerchio/arco che E' il contorno esterno non e' un simbolo
+            # anche se concentrico a un foro: rondella, disco col foro al
+            # centro -> prima si tagliava solo il foro, pulizia fallita)
             try:
                 ex, ey, er = e.dxf.center.x * scala, e.dxf.center.y * scala, e.dxf.radius * scala
                 for cx, cy, t, r_eq in centri_fori:
@@ -1043,6 +1047,13 @@ def scrivi_pulito_lantek(src, outer, fori: list, scala: float, cleaned_path: str
                 _copia(e, LAYER_PIEGA)
                 result['n_piega'] += 1
             elif escluso:
+                result['entities_skipped_meta'] += 1
+                return
+            elif layer_non_taglio(layer) and 'raggiat' not in layer.lower():
+                # spigolo nascosto/tangente, asse, interruzione (dal nome del
+                # layer): non si taglia e non si marca. Le linee d'asse delle
+                # pieghe (Solid Edge: "giunzione raggiata lamiera") restano
+                # come prima: sono pieghe, non vanno perse
                 result['entities_skipped_meta'] += 1
                 return
             else:
