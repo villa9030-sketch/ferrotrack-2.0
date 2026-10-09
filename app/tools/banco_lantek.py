@@ -121,12 +121,23 @@ def misura(path: str, cartella_tmp: str) -> dict:
         'fori_trapano_dubbio': bool(g.get('fori_trapano_dubbio')),
         'fori_stretti_non_tondi': g.get('fori_stretti_non_tondi'),
         'pul_trapano': {k: (cl.get('cleanup_stats') or {}).get(k) for k in ('n_fori_trapano', 'n_trapano_tolti')},
+        **({'modello': g['_modello']} if g.get('_modello') else {}),
     }
 
 
-def _lavoratore(id_w: int, compiti, risultati, timeout: float):
+def _lavoratore(id_w: int, compiti, risultati, timeout: float, modello: str = 'off',
+                modello_fold: str | None = None):
     _priorita_bassa()
+    DXF_CFG['motore_modello'] = modello
     _carica_moduli()
+    # Misura onesta del modello: ogni disegno e' giudicato dal modello del suo
+    # fold (addestrato SENZA la sua cartella d'ordine). Solo banco.
+    fold_di, modelli_fold = {}, {}
+    if modello_fold:
+        from backend.preventivi import modello_motore as mm
+        fold_di = json.load(open(os.path.join(modello_fold, 'fold_codici.json'), encoding='utf-8'))
+        for k in set(fold_di.values()):
+            modelli_fold[k] = mm.carica(os.path.join(modello_fold, f'fold{k}.json'))
     tmp = tempfile.mkdtemp(prefix=f'banco_w{id_w}_')
     while True:
         try:
@@ -137,6 +148,10 @@ def _lavoratore(id_w: int, compiti, risultati, timeout: float):
             break
         codice, path = item
         esito = {}
+        if modelli_fold:
+            from backend.preventivi import modello_motore as mm
+            fonte = 'dwg' if 'dwg_dxf' in path.replace(chr(92), '/') else 'dxf'
+            mm._MODELLO = modelli_fold.get(fold_di.get(f'{fonte}:{codice}'), {})
 
         def corri():
             try:
@@ -184,6 +199,11 @@ def main():
     ap.add_argument('--codici')
     ap.add_argument('--timeout', type=float, default=120)
     ap.add_argument('--nome', default='risultati')
+    ap.add_argument('--modello', default='off', choices=('off', 'dump', 'on'),
+                    help="modello addestrato (modello_motore): 'dump' salva le feature "
+                         "di candidati e disegno senza cambiare le decisioni, 'on' lo usa")
+    ap.add_argument('--modello-fold', help="cartella con fold_codici.json e fold<k>.json: ogni disegno "
+                                           "giudicato dal modello che non ha visto la sua cartella d'ordine")
     args = ap.parse_args()
     _priorita_bassa()
 
@@ -209,7 +229,7 @@ def main():
         compiti.put(None)
 
     def avvia(i):
-        p = ctx.Process(target=_lavoratore, args=(i, compiti, risultati, args.timeout), daemon=True)
+        p = ctx.Process(target=_lavoratore, args=(i, compiti, risultati, args.timeout, args.modello, args.modello_fold), daemon=True)
         p.start()
         return p
 
