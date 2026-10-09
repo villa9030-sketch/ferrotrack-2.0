@@ -122,6 +122,35 @@ def _controllo_sicuro(dxf_path, geo, cartiglio, spessore, dim_info, cleaned_info
     return geo, cleaned_info
 
 
+CONF_TIPO_NON_SINGOLO = 0.6     # sotto la soglia del "sicuro" (0,7)
+
+
+def applica_tipo_disegno(geo, cleaned_info):
+    """Il disegno non e' un pezzo piano singolo (tipo_disegno.py): pezzo
+    piegato senza sviluppo, assieme / pezzo non da laser, o piu' pezzi nello
+    stesso foglio. Il contorno trovato resta (misure invariate) ma non e' mai
+    "sicuro" e l'avviso lo dice in chiaro, per primo."""
+    try:
+        from .tipo_disegno import AVVISO_TIPO
+        tipo = (geo or {}).get('tipo_disegno')
+        if tipo not in AVVISO_TIPO:
+            return geo, cleaned_info
+        avviso = AVVISO_TIPO[tipo]
+        if tipo == 'PIU_PEZZI' and geo.get('pezzi'):
+            pz = geo['pezzi']
+            avviso += f" ({len(pz)} diversi, {sum(int(p.get('quantita') or 1) for p in pz)} in tutto)"
+        geo = {**geo, 'confidence': min(float(geo.get('confidence') or 0), CONF_TIPO_NON_SINGOLO),
+               'warnings': [avviso] + list(geo.get('warnings') or [])}
+        if float(geo.get('confidence') or 0) >= 0.3 and geo.get('confidence_label') in ('alta', None):
+            geo['confidence_label'] = 'media (da verificare)'
+        if (cleaned_info or {}).get('cleaned_status') == 'auto':
+            cleaned_info = {**cleaned_info, 'cleaned_status': 'auto_review',
+                            'cleanup_reason': f"da verificare: {avviso}"}
+    except Exception as e:      # noqa: BLE001
+        logger.warning('tipo disegno: %s', e)
+    return geo, cleaned_info
+
+
 def _descrizione_plausibile(dxf_path: str, dim_info: dict) -> bool:
     """Il rettangolo Lunghezza x Larghezza letto nel cartiglio descrive il
     pezzo disegnato? Entrambe le misure devono comparire come QUOTE del
@@ -373,6 +402,8 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
         cleaned_info = _esegui_cleanup(dxf_path, geo, filename, dxf_cfg)
         geo, cleaned_info = _controllo_sicuro(dxf_path, geo, cartiglio, spessore, dim_info,
                                               cleaned_info, conf_detector)
+
+        geo, cleaned_info = applica_tipo_disegno(geo, cleaned_info)
 
         payload = {
             'success': True,
