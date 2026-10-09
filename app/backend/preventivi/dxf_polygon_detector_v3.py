@@ -87,6 +87,12 @@ _BLOCCHI_ANNOTAZIONE_PATTERNS = (
     'sw_', 'note', 'nota', 'table', 'tabell', 'title', 'titol', 'cartig',
     'logo', 'datum', 'symb', 'simbol', 'format', 'border', 'frame', 'cornice',
     'revis', 'weld', 'sald', 'rugos', 'rough', 'arrow', 'frecc',
+    # gruppi di quote/annotazioni esportati come blocchi con nome (Solid Edge:
+    # GDIMGGROUP = quote, SEANNOT_GROUP = assi/annotazioni). Espansi come
+    # geometria, le linee di richiamo delle quote chiudevano finte "falde"
+    # attaccate al pezzo (1890400210: +3 falde, 12,4 dm2 invece di 9,6).
+    # Non 'dim' da solo: 'DIMA' e' un nome di pezzo.
+    'gdim', 'dimens', 'annot', 'quot',
 )
 MAX_PROFONDITA_BLOCCHI = 8
 
@@ -108,6 +114,7 @@ _ESTENSIONE_MM_PLAUSIBILE = (5.0, 13000.0)
 # pezzo di lamiera (0.005–6 m) E letta come mm sarebbe assurdamente piccola (<5).
 _METRI_PLAUSIBILI = (0.005, 6.0)
 _MM_IMPLAUSIBILE = 5.0
+_POLLICI_MAX_MM = 1600.0
 
 # Tolleranze
 # BUG FIX #5: TOL_ENDPOINT_MM ora ADATTIVO in base alla dimensione del DXF.
@@ -144,11 +151,33 @@ MIN_CONTENUTI_CORNICE = 6            # (legacy, non più usato come criterio da 
 CORNICE_TOCCO_MM = 0.5               # contenuto a ≤ N mm dal bordo = cella cartiglio
 FORO_AREA_MAX_REL = 0.05             # un "foro tipico" occupa ≤ 5% del contenitore
 PEZZI_CONFRONTABILI_REL = 0.30       # altro contorno ≥ 30% dell'area = pezzo alternativo
+MIN_LATO_PEZZO_MM = 3.0              # pezzo laser piu' stretto = vista di fianco (spessore)
+MAX_FALDA_REL = 25.0                 # falda/regione unita al massimo 25 volte il contorno scelto
+
+# Scritte incise disegnate come geometria (vedi _separa_scritte)
+SCRITTA_MAX_MM = 15.0                # lettera: lato maggiore al massimo
+SCRITTA_MIN_LETTERE = 2              # una fila di almeno 2 contorni piccoli
+SCRITTA_MIN_CONCAVI = 2              # di cui almeno 2 a forma di lettera (concave o ovali), 1 concava
+SCRITTA_SPAZIO = 2.0                 # lettere vicine: distanza <= 2 volte l'altezza
+SCRITTA_LATO_DRITTO = 0.25           # ovale "da lettera": nessun lato dritto >= 25% del lato maggiore
+SEGNO_MAX_MM = 10.0                  # segno isolato (lettera/cifra sola): lato maggiore massimo
+SEGNO_CONCAVO = 0.8                  # ...e area/inviluppo convesso sotto questa soglia
+SCRITTA_CONVESSO = 0.97              # area/area dell'inviluppo convesso: >= convesso
+SCRITTA_MARCATA_MM = 8.0             # scritte piu' alte: forse tagliate passanti -> revisione
+SCRITTA_REL_PEZZO = 0.30             # ...o piu' alte del 30% del lato corto del pezzo (targhette)
+SCRITTA_QUOTA_AREA = 0.025           # ...o alte >20% del lato corto e lettere oltre il 2,5% del pezzo
+SCRITTA_QUOTA_MAX = 0.10             # ...o lettere che coprono oltre il 10% del pezzo
 
 # Confidence thresholds
 CONF_ALTA = 0.85
 CONF_MEDIA = 0.6
 CONF_BASSA = 0.3
+# Pezzo giusto ma fori dubbi (scritta forse tagliata...): sotto lo 0.7 del
+# "pulito auto" -> revisione, ma senza selezione manuale del contorno
+CONF_FORI_DUBBI = 0.65
+ARCHI_GIRO_MIN = 1.5 * math.pi        # archi liberi coassiali che coprono 270 gradi = foro tondo (_fori_da_archi)
+GIOCO_TRATTI_MM = 2.0               # estremi di linee aperte accostati per vedere se chiudono una zona
+FESSURA_MAX_MM = 0.1                 # fessure del contorno piu' strette: non si tagliano (_chiudi_fessure)
 
 
 # ============================================================================
@@ -201,6 +230,11 @@ def scala_unita_mm(doc) -> tuple[float, str | None]:
         if u == 6:
             plausibile = (_METRI_PLAUSIBILI[0] <= est <= _METRI_PLAUSIBILI[1]
                           and est < _MM_IMPLAUSIBILE)
+        elif u == 1:
+            # Pollici: un foglio in pollici (cornice compresa) sta entro ~63"
+            # (1,6 m). I disegni dell'archivio che dichiarano pollici con
+            # 126-446 unita' sono tutti in mm (Lantek: 7 su 7): 446" = 11 m.
+            plausibile = est <= 0 or _ESTENSIONE_MM_PLAUSIBILE[0] <= est * f <= _POLLICI_MAX_MM
         else:
             plausibile = (est <= 0 or
                           _ESTENSIONE_MM_PLAUSIBILE[0] <= est * f <= _ESTENSIONE_MM_PLAUSIBILE[1])
@@ -314,11 +348,19 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
         candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if not candidati:
             return dubbio
-        idx, _conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'])
+        idx, _conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'), base.get('testi'))
         if idx < 0:
             return dubbio
         x1, y1, x2, y2 = candidati[idx].bounds
-        if _etichetta_dettaglio_vicina(doc, (x1, y1, x2, y2), f_unita):
+        m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
+        sul_pezzo = []
+        for v, d in quote:
+            pts = _punti_quota(d)
+            if pts and all(x1 - m <= px * f_unita <= x2 + m and y1 - m <= py * f_unita <= y2 + m
+                           for px, py in pts):
+                sul_pezzo.append(v)
+        al_vero = bool(sul_pezzo) and all(abs(v - 1.0) < 1e-6 for v in sul_pezzo)
+        if not al_vero and _etichetta_dettaglio_vicina(doc, (x1, y1, x2, y2), f_unita):
             # Il contorno scelto e' un DETTAGLIO ingrandito (33PP00086-00: foglio
             # 1:10, "DETTAGLIO A" 10:1 con l'unica quota a DIMLFAC 0,1): la sua
             # scala non e' quella del pezzo. Prima tutto il disegno veniva
@@ -335,13 +377,6 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
                 return 1.0, None
             rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
             return k, f'Disegno in scala {rapporto}: misure riportate al vero (x{k:g})'
-        m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
-        sul_pezzo = []
-        for v, d in quote:
-            pts = _punti_quota(d)
-            if pts and all(x1 - m <= px * f_unita <= x2 + m and y1 - m <= py * f_unita <= y2 + m
-                           for px, py in pts):
-                sul_pezzo.append(v)
         if not sul_pezzo or any(abs(v - sul_pezzo[0]) > 1e-4 * sul_pezzo[0] for v in sul_pezzo):
             return dubbio
         k = sul_pezzo[0]
@@ -360,6 +395,14 @@ def _calcola_scala_vista_pezzo(doc, quote: list, f_unita: float) -> tuple[float,
             del doc._ft_scala_mm
         except Exception:
             pass
+
+
+def _segna_scala_dubbia(doc):
+    """La scala del disegno e' incerta: il detector non si dira' sicuro."""
+    try:
+        doc._ft_scala_dubbia = True
+    except Exception:
+        pass
 
 
 def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
@@ -394,6 +437,7 @@ def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
         if not (0.05 <= k <= 200):
             return 1.0, None
         # la scritta del cartiglio, se c'e', deve dire la stessa cosa
+        confermata = False
         for t in doc.modelspace().query('TEXT MTEXT'):
             try:
                 testo = t.plain_text() if t.dxftype() == 'MTEXT' else t.dxf.text
@@ -405,10 +449,30 @@ def _scala_disegno(doc, f_unita: float = 1.0) -> tuple[float, str | None]:
             a = float(m.group(1).replace(',', '.'))
             b = float(m.group(2).replace(',', '.'))
             if a > 0 and b > 0 and abs(b / a - k) > 0.02 * k:
-                return 1.0, (f'Quote in scala x{k:g} ma il cartiglio dice "{m.group(0)}": '
-                             'misure lette cosi\' come sono, verificare')
+                # Quote e cartiglio non concordano. Valgono le QUOTE: sono
+                # legate alla vista, la scritta "SCALA" e' quella del foglio
+                # (archivio: 13 disegni su 14 tornano con Lantek usando il
+                # fattore delle quote, 0 leggendo le misure cosi' come sono).
+                # Resta da verificare.
+                _segna_scala_dubbia(doc)
+                rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
+                return k, (f'Quote in scala {rapporto} ma il cartiglio dice "{m.group(0)}": '
+                           f'misure riportate al vero con le quote (x{k:g}), verificare')
+            confermata = True
             break
+        if k < 0.2 and not confermata:
+            # Quote che DIVIDONO per 5 o piu' senza "SCALA 10:1" nel cartiglio:
+            # di solito e' il disegno in mm quotato in centimetri (DIMLFAC 0,1),
+            # non un ingrandimento: un pezzo laser disegnato 10 volte piu'
+            # grande e' raro. Si tengono le misure disegnate, da verificare.
+            _segna_scala_dubbia(doc)
+            return 1.0, (f'Quote con fattore x{k:g} (centimetri?) senza scala nel cartiglio: '
+                         'misure lette cosi\' come sono, verificare')
         rapporto = f'1:{k:g}' if k >= 1 else f'{1 / k:g}:1'
+        try:
+            doc._ft_scala_da_quote = k      # il pezzo scelto dovra' avere quote addosso
+        except Exception:
+            pass
         return k, f'Disegno in scala {rapporto}: misure riportate al vero (x{k:g})'
     except Exception:
         return 1.0, None
@@ -460,6 +524,7 @@ def entita_espanse(layout, solo_geometria: bool = True, _depth: int = 0):
             refs = [e]
         layer = e.dxf.get('layer', '0')
         colore = e.dxf.get('color', 256)
+        lt_ins = linetype_effettivo(e)
         for ref in refs:
             try:
                 virt = list(ref.virtual_entities())
@@ -472,11 +537,93 @@ def entita_espanse(layout, solo_geometria: bool = True, _depth: int = 0):
                         ve.dxf.layer = layer
                     if ve.dxf.get('color', 256) == 0:
                         ve.dxf.color = colore
+                    if str(ve.dxf.get('linetype', 'BYLAYER')).upper() == 'BYBLOCK':
+                        ve._ft_lt_blocco = lt_ins
                     if annot:
                         ve._ft_annotazione = True
                 except Exception:
                     pass
             yield from entita_espanse(virt, solo_geometria, _depth + 1)
+
+
+_LINETYPE_CONTINUI = {'', 'CONTINUOUS', 'BYLAYER', 'BYBLOCK'}
+# Layer che il modello del CAD (Solid Edge, Inventor, AutoCAD ISO) dedica a
+# linee che NON sono il profilo da tagliare: spigoli nascosti e tangenti,
+# assi e centri dei fori, linee di interruzione delle viste accorciate. Nei
+# DWG di altri clienti questi layer arrivano spesso col tipo linea Continuous
+# (il tratteggio lo mette la stampa), quindi il tipo di linea non basta: conta
+# il nome che il disegnatore ha dato al layer.
+_RE_LAYER_NON_TAGLIO = re.compile(
+    r"nascost|hidden|tangent|interruz|\bbreak|centro|\bcent(er|re)\b|center ?line|\baxis|\baxes\b"
+    r"|(^|[^a-z])ass[ei]([^a-z]|$)|d'asse", re.IGNORECASE)
+_RE_LAYER_INTERRUZIONE = re.compile(r'interruz|\bbreak', re.IGNORECASE)
+
+
+def layer_non_taglio(layer_name: str) -> bool:
+    """True se il nome del layer dice spigolo nascosto/tangente, asse/centro o
+    linea di interruzione (vedi _RE_LAYER_NON_TAGLIO). I layer di piega no:
+    hanno la loro gestione (_layer_piega)."""
+    n = (layer_name or '').strip()
+    return bool(n) and not _layer_piega(n) and bool(_RE_LAYER_NON_TAGLIO.search(n))
+_LINETYPE_NOMI_TRATTEGGIATI = ('HIDDEN', 'DASH', 'CENTER', 'PHANTOM', 'DOT', 'CHAIN',
+                               'TRATT', 'ASSE', 'BORDER', 'DIVIDE', 'NASCOST')
+
+
+def linetype_effettivo(entity) -> str:
+    """Nome del tipo di linea reale (BYLAYER risolto col layer; BYBLOCK = quello
+    dell'INSERT, propagato da entita_espanse)."""
+    try:
+        lt = str(entity.dxf.get('linetype', 'BYLAYER') or 'BYLAYER')
+    except Exception:
+        return 'CONTINUOUS'
+    u = lt.upper()
+    if u == 'BYBLOCK':
+        return str(getattr(entity, '_ft_lt_blocco', 'CONTINUOUS') or 'CONTINUOUS')
+    if u == 'BYLAYER':
+        try:
+            lay = entity.doc.layers.get(entity.dxf.get('layer', '0'))
+            return str(lay.dxf.get('linetype', 'CONTINUOUS') or 'CONTINUOUS')
+        except Exception:
+            return 'CONTINUOUS'
+    return lt
+
+
+def linea_tratteggiata(entity) -> bool:
+    """True se l'entita' e' disegnata con un tipo di linea a tratti (nascosta,
+    asse, fantasma, tratteggio): nel disegno tecnico queste linee sono spigoli
+    nascosti, assi, linee di piega o ingombri, mai il profilo da tagliare, che
+    e' sempre a linea continua."""
+    try:
+        if layer_non_taglio(entity.dxf.get('layer', '')):
+            return True
+    except Exception:
+        pass
+    nome = linetype_effettivo(entity)
+    u = nome.strip().upper()
+    if u in _LINETYPE_CONTINUI:
+        return False
+    doc = getattr(entity, 'doc', None)
+    cache = getattr(doc, '_ft_lt_tratti', None) if doc is not None else None
+    if cache is None:
+        cache = {}
+        try:
+            doc._ft_lt_tratti = cache
+        except Exception:
+            pass
+    if u in cache:
+        return cache[u]
+    esito = None
+    try:
+        lt = doc.linetypes.get(nome)
+        tags = [t for t in lt.pattern_tags.tags if t.code == 49]
+        # un elemento negativo = un vuoto nel tratto
+        esito = any(float(t.value) < 0 for t in tags)
+    except Exception:
+        esito = None
+    if esito is None:
+        esito = any(k in u for k in _LINETYPE_NOMI_TRATTEGGIATI)
+    cache[u] = esito
+    return esito
 
 
 def colore_effettivo(entity) -> int:
@@ -542,7 +689,8 @@ def _is_closed_geom(verts: list[tuple[float, float]], tol: float = TOL_ENDPOINT_
 # Estrazione poligoni raw
 # ============================================================================
 
-def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0) -> dict:
+def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0,
+                      escludi_tratteggi: bool = True) -> dict:
     """Raccoglie i contorni dal layout (INSERT espansi), già scalati in mm.
 
     Returns dict:
@@ -550,7 +698,8 @@ def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0) -> dict
         chiusi_col, aperti_col  — entità con colore piega/saldatura (effettivo)
         centri_cerchi           — centri (mm) dei CIRCLE normali (per lo scoring)
     """
-    out = {'chiusi': [], 'aperti': [], 'chiusi_col': [], 'aperti_col': [], 'centri_cerchi': []}
+    out = {'chiusi': [], 'aperti': [], 'chiusi_col': [], 'aperti_col': [], 'centri_cerchi': [],
+           'n_tratteggiati': 0}
     f = float(scala or 1.0)
     dist = FLATTEN_DISTANCE_MM / f  # deflessione costante in mm anche per DXF in pollici
 
@@ -568,6 +717,12 @@ def _extract_polygons(msp, colori_esclusi: set[int], scala: float = 1.0) -> dict
                 continue
         except AttributeError:
             pass
+        # Linee a tratti (nascoste, assi, pieghe, ingombri): non sono profili di
+        # taglio (25NDSPA0223-00: il rettangolo d'ingombro a tratto-punto attorno
+        # allo sviluppo; 08PA03722-00: spigoli nascosti della vista piegata)
+        if escludi_tratteggi and et != 'POINT' and linea_tratteggiata(entity):
+            out['n_tratteggiati'] += 1
+            continue
         col = _entity_color_excluded(entity, colori_esclusi)
         chiusi = out['chiusi_col'] if col else out['chiusi']
         aperti = out['aperti_col'] if col else out['aperti']
@@ -989,6 +1144,25 @@ def applica_intagli(outer, inners: list):
     return eff, [p for p in inners if id(p) not in ids], len(intagli)
 
 
+def _tondo(p) -> bool:
+    """Contorno circolare (rapporto isoperimetrico >= 0,85)."""
+    return p.length > 0 and 4 * math.pi * p.area / (p.length ** 2) >= 0.85
+
+
+def _foro_svasato(o, contenuti: list) -> bool:
+    """`o` e' un cerchio che racchiude solo cerchi concentrici (smusso di una
+    svasatura, filetto)?"""
+    if not _tondo(o):
+        return False
+    po = _prep_buf(o)
+    dentro = [x for x in contenuti if x is not o and _contiene(o, x, po)]
+    if not dentro:
+        return False
+    r = (o.area / math.pi) ** 0.5
+    c = o.centroid
+    return all(_tondo(x) and x.centroid.distance(c) <= max(0.5, 0.15 * r) for x in dentro)
+
+
 def _is_cornice_cartiglio(poly, all_polys: list, min_bbox_mm: float = MIN_BBOX_CORNICE_MM,
                           min_contenuti: int = MIN_CONTENUTI_CORNICE) -> bool:
     """Cornice/cartiglio = rettangolo che contiene ALTRO oltre ai propri fori.
@@ -1018,9 +1192,16 @@ def _is_cornice_cartiglio(poly, all_polys: list, min_bbox_mm: float = MIN_BBOX_C
     # e ha celle attaccate ai lati.
     if attaccati and len(attaccati) >= 2 and all(_intaglio_d_angolo(poly, o) for o in attaccati):
         attaccati = []
+    # Un contorno TONDO attaccato al bordo e' un foro tangente o un simbolo,
+    # mai una cella di cartiglio (1119-0109-5071.00: piatto 25x570 con 4
+    # cerchi Ø11,5 a filo del bordo scartato come cornice).
+    attaccati = [o for o in attaccati if not _tondo(o)]
     if attaccati:
         return True  # b) cella attaccata alla cornice
-    grandi = [o for o in contenuti if not _foro_tipico(o, poly)]
+    # Un cerchio con dentro solo cerchi CONCENTRICI e' un foro svasato o
+    # filettato disegnato col suo smusso, non un pezzo dentro una cornice
+    # (13PA00013-00: piastrina 30x140 con due svasature, scartata).
+    grandi = [o for o in contenuti if not _foro_tipico(o, poly) and not _foro_svasato(o, contenuti)]
     for o in grandi:
         po = _prep_buf(o)
         if any(_contiene(o, x, po) for x in contenuti if x is not o):
@@ -1063,6 +1244,24 @@ def _separa_cartiglio(all_polys: list, testi: list | None = None) -> tuple[list,
             and q.exterior.distance(c.exterior) > CORNICE_TOCCO_MM
             for q in all_polys)
     vere = [c for c in cornici if not _segno_sul_pezzo(c)]
+    # Cornice a DOPPIA linea: il bordo interno e' un rettangolo parallelo a
+    # quello esterno, a pochi mm su tutti e quattro i lati (fascia del
+    # foglio). Non tocca la cornice, quindi passava come "pezzo" e la fascia
+    # fra le due linee veniva unita al contorno (RTF: 190x287 / 180x277).
+    # Un pezzo vero non sta a distanza costante e piccola da tutti i lati.
+    for c in list(vere):
+        cx1, cy1, cx2, cy2 = c.bounds
+        marg = max(15.0, 0.05 * min(cx2 - cx1, cy2 - cy1))
+        pc = _prep_buf(c)
+        for p in all_polys:
+            if id(p) in ids_cornici or p.area < 0.6 * c.area or not _is_rectangle_like(p):
+                continue
+            px1, py1, px2, py2 = p.bounds
+            off = (px1 - cx1, py1 - cy1, cx2 - px2, cy2 - py2)
+            if all(0.2 <= o <= marg for o in off) and _contiene(c, p, pc):
+                cornici.append(p)
+                ids_cornici.add(id(p))
+                vere.append(p)
     candidati = []
     n = len(cornici)
     for p in all_polys:
@@ -1092,7 +1291,166 @@ def _via_celle_di_testo(candidati: list, n: int, testi: list | None) -> tuple[li
     return tenuti, n + (len(candidati) - len(tenuti))
 
 
-def _riduci_fori_annidati(inners: list) -> tuple[list, int]:
+def _forma_regolare(p) -> bool:
+    """Foro "da officina": tondo, oppure convesso (asola, rettangolo, poligono).
+    Le lettere di una scritta esplosa in linee/spline sono quasi tutte concave
+    (A, B, E, F, K, M, N, P, R, S, T, 1, 2, 3, 4, 5, 7...)."""
+    if p.length <= 0:
+        return True
+    minx, miny, maxx, maxy = p.bounds
+    w, h = maxx - minx, maxy - miny
+    m = max(w, h)
+    if m <= 0:
+        return True
+    if 4 * math.pi * p.area / (p.length ** 2) >= 0.9 and abs(w - h) <= 0.1 * m:
+        return True     # cerchio
+    try:
+        return p.area >= SCRITTA_CONVESSO * p.convex_hull.area
+    except Exception:
+        return True
+
+
+def _senza_tratti_dritti(p) -> bool:
+    """Contorno curvo ovunque (ovale da spline: lo 0 o la O di una scritta):
+    nessun lato dritto lungo. Un'asola o un rettangolo hanno lati dritti
+    lunghi almeno un quarto del contorno."""
+    try:
+        xy = list(p.exterior.coords)
+        minx, miny, maxx, maxy = p.bounds
+        m = max(maxx - minx, maxy - miny)
+        lato = max(math.hypot(xy[k + 1][0] - xy[k][0], xy[k + 1][1] - xy[k][1]) for k in range(len(xy) - 1))
+        return lato < SCRITTA_LATO_DRITTO * m
+    except Exception:
+        return False
+
+
+def _forma_lettera(p) -> str:
+    """'concava' (lettera tipica), 'ovale' (O, 0 da spline), '' (foro da officina)."""
+    if not _forma_regolare(p):
+        return 'concava'
+    minx, miny, maxx, maxy = p.bounds
+    w, h = maxx - minx, maxy - miny
+    if abs(w - h) > 0.1 * max(w, h) and _senza_tratti_dritti(p):
+        return 'ovale'
+    return ''
+
+
+def _segni_isolati(fori: list) -> list:
+    """Contorni piccoli e molto concavi rimasti soli (una cifra o una lettera
+    isolata: 07PA01730-00, il '4' inciso). Un foro da officina non ha quella
+    forma, ma da solo non basta per toglierlo: si chiede la revisione."""
+    out = []
+    for p in fori:
+        minx, miny, maxx, maxy = p.bounds
+        if max(maxx - minx, maxy - miny) > SEGNO_MAX_MM:
+            continue
+        try:
+            if p.area < SEGNO_CONCAVO * p.convex_hull.area:
+                out.append(p)
+        except Exception:
+            pass
+    return out
+
+
+def _separa_scritte(fori: list, outer, dubbi_out: list | None = None) -> tuple[list, list]:
+    """Scritte incise disegnate come geometria (testo esploso in linee/spline:
+    codici, numeri, sigle) dentro il pezzo. Ogni lettera chiusa diventava un
+    "foro": 07PA01525-00 16 fori contro gli 11 tagliati da Lantek, che le
+    lettere le MARCA (mark_perim > 0).
+
+    Una scritta e' una FILA di contorni piccoli (<= SCRITTA_MAX_MM), vicini tra
+    loro (distanza <= SCRITTA_SPAZIO volte la loro altezza) e di altezza
+    simile, con almeno una lettera concava e, se sono solo 2, entrambe a forma
+    di lettera: concava, oppure ovale senza lati dritti (O, 0 da spline). Un foro vero
+    e' tondo o convesso con lati dritti (asola, quadro): i fori allineati di
+    una foratura non fanno mai scattare la regola da soli; un contorno
+    convesso (D, 1, I) entra solo se sta nella stessa fila delle lettere. Va chiamata PRIMA di
+    _riduci_fori_annidati: gli occhielli delle lettere (interno di O, A, 8)
+    contano nella fila e se ne vanno con la lettera.
+
+    Si tolgono solo le scritte piccole, sia in assoluto (altezza mediana <=
+    SCRITTA_MARCATA_MM) sia rispetto al pezzo (<= SCRITTA_REL_PEZZO del lato
+    corto, lettere <= SCRITTA_QUOTA_AREA dell'area): una scritta grande, o che
+    occupa il pezzo, puo' essere TAGLIATA
+    passante (insegne, targhette: 2743-05021-0001.03 lettere da 9-15 mm,
+    11TRCF005 targhetta 30x10 con lettere da 6,8 mm, tagliate in Lantek).
+    Quelle restano fori e finiscono in `dubbi_out`: il chiamante chiede la
+    revisione.
+    Returns (fori, scritte)."""
+    ob = outer.bounds
+    lato_corto = min(ob[2] - ob[0], ob[3] - ob[1])
+    piccoli = []
+    for i, p in enumerate(fori):
+        minx, miny, maxx, maxy = p.bounds
+        m = max(maxx - minx, maxy - miny)
+        if m <= SCRITTA_MAX_MM and not (4 * math.pi * p.area / max(p.length ** 2, 1e-9) >= 0.9
+                                        and abs((maxx - minx) - (maxy - miny)) <= 0.1 * m):
+            piccoli.append(i)
+    if len(piccoli) < SCRITTA_MIN_LETTERE:
+        return list(fori), []
+    # gruppi per vicinanza (union-find)
+    padre = {i: i for i in piccoli}
+
+    def radice(i):
+        while padre[i] != i:
+            padre[i] = padre[padre[i]]
+            i = padre[i]
+        return i
+    alt = {i: max(fori[i].bounds[2] - fori[i].bounds[0], fori[i].bounds[3] - fori[i].bounds[1]) for i in piccoli}
+    geo_p = [fori[i] for i in piccoli]
+    albero = _shp.STRtree(geo_p)
+    for a_i, i in enumerate(piccoli):
+        b = fori[i].bounds
+        d = SCRITTA_SPAZIO * min(SCRITTA_MAX_MM, 2.5 * alt[i])
+        vicini = albero.query(_shp.box(b[0] - d, b[1] - d, b[2] + d, b[3] + d))
+        for b_i in vicini:
+            b_i = int(b_i)
+            if b_i <= a_i:
+                continue
+            j = piccoli[b_i]
+            d_max = SCRITTA_SPAZIO * max(alt[i], alt[j])
+            if max(alt[i], alt[j]) > 2.5 * min(alt[i], alt[j]):
+                continue    # altezze troppo diverse: non e' la stessa scritta
+            if fori[i].distance(fori[j]) <= d_max:
+                padre[radice(i)] = radice(j)
+    gruppi: dict = {}
+    for i in piccoli:
+        gruppi.setdefault(radice(i), []).append(i)
+    via, dubbi = set(), []
+    for g in gruppi.values():
+        if len(g) < SCRITTA_MIN_LETTERE:
+            continue
+        forme = [_forma_lettera(fori[i]) for i in g]
+        if forme.count('concava') < 1 or (len(forme) - forme.count('') < SCRITTA_MIN_CONCAVI and len(g) < 3):
+            continue
+        altezze = sorted(alt[i] for i in g)
+        h_med = altezze[len(altezze) // 2]
+        quota = sum(fori[i].area for i in g) / max(outer.area, 1e-9)
+        h_rel = h_med / max(lato_corto, 1e-9)
+        # scritta che E' il pezzo (targhetta, insegna): alta rispetto al pezzo,
+        # o abbastanza alta e con lettere che ne coprono una parte visibile
+        protagonista = (h_rel > SCRITTA_REL_PEZZO or quota > SCRITTA_QUOTA_MAX
+                        or (h_rel > 0.2 and quota > SCRITTA_QUOTA_AREA))
+        if h_med <= SCRITTA_MARCATA_MM and not protagonista:
+            via.update(g)
+        else:
+            dubbi.extend(fori[i] for i in g)
+    if dubbi_out is not None:
+        dubbi_out.extend(dubbi)
+    if not via:
+        return list(fori), []
+    # gli occhielli (interno di O, A, 8...) stanno dentro una lettera tolta
+    tolte = [fori[k] for k in via]
+    for k, p in enumerate(fori):
+        if k not in via and p.area < SCRITTA_MAX_MM ** 2:
+            for q in tolte:
+                if q.area > p.area and _contiene(q, p):
+                    via.add(k)
+                    break
+    return [p for k, p in enumerate(fori) if k not in via], [fori[k] for k in sorted(via)]
+
+
+def _riduci_fori_annidati(inners: list, outer=None) -> tuple[list, int]:
     """Contorni interni annidati in altri contorni interni.
 
     - Concentrici (svasatura: passante + smusso) → il laser taglia SOLO il
@@ -1100,8 +1458,13 @@ def _riduci_fori_annidati(inners: list) -> tuple[list, int]:
       svasatura dallo scanner. Coerente con pick_part._holes_inside.
     - Non concentrici (isola dentro un foro) → si tiene il foro esterno: l'isola
       cade con lo sfrido, non è un taglio del pezzo.
+    - con `outer` (il contorno del pezzo) toglie anche le lettere delle scritte
+      incise disegnate come geometria (_separa_scritte): si marcano, non si
+      tagliano.
     Returns (fori_tenuti, n_svasature_scartate).
     """
+    if outer is not None:
+        return _riduci_fori_annidati(_separa_scritte(inners, outer)[0])
     if len(inners) < 2:
         return list(inners), 0
     drop = set()
@@ -1183,9 +1546,17 @@ def _score_candidate(poly, all_polys: list, circles_centri: list, indice: '_Indi
     - area_rel: area relativa (rispetto al max)
     - is_rectangle: penalità se rettangolo puro (potrebbe essere cornice)
     """
-    prep_poly = prep(poly)
     pp = _prep_buf(poly)
-    n_circles = sum(1 for cx, cy in circles_centri if prep_poly.contains(Point(cx, cy)))
+    n_circles = 0
+    if len(circles_centri):
+        # centri dei cerchi: prima l'ingombro (vettori), poi il contenimento
+        # vero solo per quelli dentro (fogli con migliaia di cerchi: prima un
+        # Point per ogni cerchio e ogni contorno, 40 s su 13PA00284-00)
+        arr = circles_centri if isinstance(circles_centri, _np.ndarray) else _np.asarray(circles_centri, dtype=float)
+        x1, y1, x2, y2 = poly.bounds
+        m = (arr[:, 0] >= x1) & (arr[:, 0] <= x2) & (arr[:, 1] >= y1) & (arr[:, 1] <= y2)
+        if m.any():
+            n_circles = int(_shp.contains_xy(poly, arr[m, 0], arr[m, 1]).sum())
     if indice is not None:
         n_inner = len(indice.contenuti(poly, pp))
     else:
@@ -1219,7 +1590,79 @@ def _copia_identica(a, b, all_polys: list, circles_centri: list) -> bool:
         return False
 
 
-def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centri: list) -> tuple[int, float, list]:
+def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centri: list,
+                                quote: list | None = None, testi: list | None = None) -> tuple[int, float, list]:
+    """Scelta del contorno (vedi _pick_base) corretta con le QUOTE del foglio.
+
+    - Una casella vuota (rettangolo senza fori) che nessuna quota descrive,
+      mentre un altro contorno ha entrambi i lati quotati e almeno 2 quote
+      addosso: il pezzo e' quello quotato (19 cartigli "15 x 187,2" con le
+      scritte presi al posto del pezzo). Scelta corretta ma non sicura (0,6).
+    - Striscia larga <= 6 mm: e' quasi sempre la vista di fianco di una
+      lamiera (larghezza = spessore), non il pezzo: non sicura.
+    - Contorno senza nessuna quota, in un foglio con almeno 3 quote e altre
+      viste di dimensione confrontabile (>= 10% dell'area): le quote stanno
+      su un'altra vista, la scelta e' un'ipotesi: non sicura."""
+    idx, conf, scored = _pick_base(candidates, all_polys, circles_centri)
+    if idx < 0 or not quote:
+        if idx >= 0 and conf >= 0.7 and _striscia(candidates[idx]):
+            conf = 0.6
+        return idx, conf, scored
+    best = candidates[idx]
+    feat = next(s['features'] for s in scored if s['idx'] == idx)
+    nd_best = _quote_sul_contorno(best, quote)
+    lati_best = _lati_quotati(best, quote)
+    n_quote = len(quote)
+    if _striscia(best):
+        return idx, min(conf, 0.6), scored
+    if nd_best == 0 and lati_best < 2 and n_quote >= 2 \
+            and feat['n_inner'] == 0 and _is_rectangle_like(best):
+        ind_cand = _Indice(candidates)
+        preps = [_prep_buf(c) for c in candidates]
+        alt = []
+        for s in scored:
+            c = s['poly']
+            if s['idx'] == idx or _striscia(c) or c.area < MIN_AREA_MM2 * 10:
+                continue
+            if _lati_quotati(c, quote) < 2:
+                continue
+            nd = _quote_sul_contorno(c, quote)
+            if nd < 2 or ind_cand.contenitori(c, preps):
+                continue
+            alt.append((nd, c.area, s['idx']))
+        if alt:
+            return max(alt)[2], 0.6, scored
+    if nd_best == 0 and feat['n_inner'] == 0 and _is_rectangle_like(best) \
+            and testi and _n_testi_dentro(best, testi) > 0:
+        # Casella con scritte dentro, senza fori e senza quote: e' una cella
+        # del cartiglio o un'etichetta. Se un'altra vista ha quote addosso, il
+        # pezzo e' quella (lati quotati, poi n. di quote, poi area). Non sicuro.
+        ind_cand = _Indice(candidates)
+        preps = [_prep_buf(c) for c in candidates]
+        alt = []
+        for s in scored:
+            c = s['poly']
+            if s['idx'] == idx or _striscia(c) or ind_cand.contenitori(c, preps):
+                continue
+            nd = _quote_sul_contorno(c, quote)
+            if nd < 1:
+                continue
+            if s['features']['n_inner'] == 0 and _is_rectangle_like(c) and _n_testi_dentro(c, testi) > 0:
+                continue
+            alt.append((_lati_quotati(c, quote), nd, c.area, s['idx']))
+        if alt:
+            return max(alt)[3], 0.6, scored
+    if conf >= 0.7 and conf < CONF_ALTA and nd_best == 0 and n_quote >= 3:
+        conf = 0.6
+    return idx, conf, scored
+
+
+def _striscia(poly) -> bool:
+    x1, y1, x2, y2 = poly.bounds
+    return min(x2 - x1, y2 - y1) <= STRISCIA_MAX_MM
+
+
+def _pick_base(candidates: list, all_polys: list, circles_centri: list) -> tuple[int, float, list]:
     """Sceglie l'outer con score composito + confidence globale.
 
     Confidence (BUG FIX D10): prima dipendeva solo dal distacco di score tra i
@@ -1236,6 +1679,8 @@ def _pick_outer_with_confidence(candidates: list, all_polys: list, circles_centr
         return -1, 0.0, []
 
     max_area = max(c.area for c in candidates)
+    if len(circles_centri):
+        circles_centri = _np.asarray(circles_centri, dtype=float).reshape(-1, 2)
     scored = []
     indice = _Indice(all_polys)
     for i, poly in enumerate(candidates):
@@ -1302,6 +1747,10 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
     msp = doc.modelspace()
 
     raw = _extract_polygons(msp, colori_esclusi, scala)
+    if raw['n_tratteggiati'] and not (raw['chiusi'] or raw['aperti'] or raw['chiusi_col'] or raw['aperti_col']):
+        # disegno tutto a linee tratteggiate: e' comunque il pezzo
+        raw = _extract_polygons(msp, colori_esclusi, scala, escludi_tratteggi=False)
+        warnings.append('Disegno solo a linee tratteggiate: usate come contorno')
     opens, n_dup_a = _dedup_aperti(raw['aperti'])
     opens_col, _ = _dedup_aperti(raw['aperti_col'])
 
@@ -1354,8 +1803,106 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
     return {
         'polys': polys, 'centri_cerchi': raw['centri_cerchi'], 'scala': scala,
         'testi': _punti_testo_mm(msp, scala),
+        'quote': _quote_mm(msp, scala),
         'warnings': warnings, 'n_raw': n_raw, 'n_dup': n_dup,
+        # tratti aperti (colore normale, senza doppioni): servono a trovare le
+        # linee rimaste fuori dai contorni chiusi (_tratti_aperti_dentro)
+        'aperti': opens, 'tol_chain': _tol,
     }
+
+
+# ============================================================================
+# Quote: quale contorno descrivono
+# ============================================================================
+
+def _quote_mm(msp, scala: float) -> list:
+    """Quote del foglio: punti con cui toccano il disegno (mm, come i
+    contorni) e misure che possono scrivere (mm veri, in piu' letture:
+    misura x DIMLFAC, misura x scala del disegno). Servono a capire QUALE
+    contorno il disegnatore ha descritto: il pezzo da tagliare e' la vista
+    quotata, non la casella del cartiglio o la vista di fianco."""
+    out = []
+    try:
+        dims = list(msp.query('DIMENSION'))
+    except Exception:
+        return out
+    # Quote COORDINATE (ordinate, dimtype 6): ognuna scrive la distanza di un
+    # punto da un'origine lungo X o lungo Y, non una lunghezza. Il disegnatore
+    # che quota cosi' (Solid Edge, Inventor: tutto da uno spigolo del pezzo)
+    # scrive l'ingombro come la coordinata piu' lontana dall'origine: per ogni
+    # origine e asse vale l'ESTENSIONE (max - min, origine compresa). Prima la
+    # misura era la lunghezza del vettore origine-punto: un numero mai scritto.
+    ordinate: dict = {}
+    for d in dims:
+        if (d.dxf.get('dimtype', 0) & 7) == 6:
+            try:
+                v = d.get_measurement()
+                o = d.dxf.defpoint
+                lf = float(d.override().get('dimlfac', 1.0) or 1.0)
+                asse_x = bool(d.dxf.get('dimtype', 0) & 64)
+                k = (round(o[0], 2), round(o[1], 2), asse_x, round(lf, 6))
+                ordinate.setdefault(k, [0.0]).append(float(v[0] if asse_x else v[1]))
+                # tocca il disegno nell'origine e nel punto quotato
+                p2 = d.dxf.defpoint2
+                out.append({'pts': [(float(o[0]) * scala, float(o[1]) * scala),
+                                    (float(p2[0]) * scala, float(p2[1]) * scala)], 'vals': set()})
+            except Exception:
+                pass
+            continue
+    for (_ox, _oy, _ax, lf), vs in ordinate.items():
+        est = max(vs) - min(vs)
+        if est > 0:
+            out.append({'pts': [], 'vals': {round(x, 1) for x in (est * lf, est * scala, est * lf * scala)}})
+    for d in dims:
+        if (d.dxf.get('dimtype', 0) & 7) == 6:
+            continue
+        try:
+            pts = [(px * scala, py * scala) for px, py in _punti_quota(d)]
+        except Exception:
+            pts = []
+        vals = set()
+        try:
+            m = d.get_measurement()
+            m = m if isinstance(m, (int, float)) else m.magnitude
+            lf = float(d.override().get('dimlfac', 1.0) or 1.0)
+            for v in (m * lf, m * scala, m * lf * scala):
+                if v > 0:
+                    vals.add(round(v, 1))
+        except Exception:
+            pass
+        out.append({'pts': pts, 'vals': vals})
+    return out
+
+
+def _quote_sul_contorno(poly, quote: list) -> int:
+    """Numero di quote i cui punti cadono tutti sul contorno (ingombro + 2%)."""
+    if not quote:
+        return 0
+    x1, y1, x2, y2 = poly.bounds
+    m = max(1.0, 0.02 * max(x2 - x1, y2 - y1))
+    n = 0
+    for q in quote:
+        pts = q['pts']
+        if pts and all(x1 - m <= px <= x2 + m and y1 - m <= py <= y2 + m for px, py in pts):
+            n += 1
+    return n
+
+
+def _lati_quotati(poly, quote: list) -> int:
+    """Quanti lati dell'ingombro (0-2) compaiono come misura di una quota."""
+    if not quote:
+        return 0
+    x1, y1, x2, y2 = poly.bounds
+    n = 0
+    for lato in (x2 - x1, y2 - y1):
+        if any(abs(v - lato) <= 0.15 for q in quote for v in q['vals']):
+            n += 1
+    return n
+
+
+# Lato corto massimo di una VISTA DI FIANCO di lamiera (larghezza = spessore):
+# in Lantek i pezzi con lato corto <= 6 mm sono 32 su 23.505 (0,14%)
+STRISCIA_MAX_MM = 6.0
 
 
 def contorno_pezzo_mm(doc, cfg: dict | None = None):
@@ -1372,7 +1919,7 @@ def contorno_pezzo_mm(doc, cfg: dict | None = None):
         base = _poligoni_documento(doc, cfg or {})
         candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if candidati:
-            idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'])
+            idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'), base.get('testi'))
             outer = candidati[idx] if idx >= 0 and conf >= 0.5 else None
             if outer is None and idx >= 0:
                 # Scelta incerta solo perche' il pezzo e' disegnato piu' volte
@@ -1392,6 +1939,66 @@ def contorno_pezzo_mm(doc, cfg: dict | None = None):
     except Exception:
         pass
     return outer
+
+
+# Spessori di lamiera a magazzino: la larghezza di una vista laterale vale
+# come spessore solo se è uno di questi (una striscia di 11,76 mm è un'altra cosa).
+SPESSORI_STOCK_MM = (0.5, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0,
+                     8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0)
+
+
+def spessore_vista_laterale(polys: list, outer) -> dict | None:
+    """Spessore dalla VISTA LATERALE del pezzo piano: un rettangolo sottile,
+    disegnato fuori dal pezzo, lungo quanto un lato del pezzo (entro 1 mm /
+    1%) e largo uno spessore a magazzino. Regola di disegno: la vista di fianco
+    di una lamiera piana è una striscia L x spessore.
+
+    Le linee nascoste dei fori spezzano la striscia in più rettangoli della
+    stessa larghezza: si riuniscono prima del confronto. Se ci sono strisce di
+    larghezze diverse che tornano tutte → ambiguo, None."""
+    if not _HAS_SHAPELY or outer is None or not polys:
+        return None
+    try:
+        from shapely.ops import unary_union
+        cc = list(outer.minimum_rotated_rectangle.exterior.coords)
+        b = outer.bounds
+        lati = [math.dist(cc[0], cc[1]), math.dist(cc[1], cc[2]), b[2] - b[0], b[3] - b[1]]
+        sottili: dict = {}
+        for p in polys:
+            if p is outer or p.area <= 0:
+                continue
+            r = p.minimum_rotated_rectangle
+            if r.area <= 0 or p.area < 0.97 * r.area:
+                continue                       # non è un rettangolo
+            c = list(r.exterior.coords)
+            a, lung = sorted([math.dist(c[0], c[1]), math.dist(c[1], c[2])])
+            if not (0.4 <= a <= 30.5) or lung < 3 * a:
+                continue
+            if p.intersects(outer):
+                continue                       # dentro / sul pezzo: asola, nervatura…
+            sottili.setdefault(round(a, 1), []).append(p)
+        trovati = set()
+        for _a, ps in sottili.items():
+            u = unary_union([p.buffer(0.02) for p in ps])
+            for g in getattr(u, 'geoms', [u]):
+                c = list(g.minimum_rotated_rectangle.exterior.coords)
+                a, lung = sorted([math.dist(c[0], c[1]), math.dist(c[1], c[2])])
+                a -= 0.04
+                lung -= 0.04
+                if lung < 8 * a:
+                    continue
+                if not any(abs(lung - L) <= max(1.0, 0.01 * L) for L in lati):
+                    continue
+                stock = min(SPESSORI_STOCK_MM, key=lambda s: abs(s - a))
+                if abs(stock - a) <= 0.03:
+                    trovati.add(stock)
+        if len(trovati) == 1:
+            return {'spessore_mm': next(iter(trovati)), 'source': 'vista_laterale'}
+        if len(trovati) > 1:
+            return {'spessore_mm': None, 'source': 'vista_laterale', 'ambigui': sorted(trovati)}
+    except Exception as e:  # mai rompere il detector per una stima di spessore
+        logger.debug('vista laterale: %s', e)
+    return None
 
 
 def _dxf_bbox_raw(msp):
@@ -1439,6 +2046,66 @@ def _percorso_vuoto_mm(outer, inners) -> float:
         return 0.0
 
 
+def _linee_che_attraversano(msp, colori, base):
+    """Unione (buffer 0,1 mm) dei segmenti che hanno piu' di 1 mm dentro e
+    piu' di 1 mm fuori dal contorno `base`, o None."""
+    from .pick_part import _collect_segments
+    from shapely.geometry import LineString
+    from shapely.strtree import STRtree
+    from shapely.ops import unary_union
+    segs = _collect_segments(msp, colori)
+    if not segs or len(segs) > 60000:
+        return None
+    lines = [LineString([(a, b), (c, d)]) for (a, b, c, d) in segs]
+    albero = STRtree(lines)
+    fuori = base.buffer(0.2)
+    dentro = base.buffer(-0.2)
+    if dentro.is_empty:
+        return None
+    presi = []
+    for j in albero.query(base.exterior, predicate='intersects'):
+        ln = lines[j]
+        try:
+            if ln.difference(fuori).length > 1.0 and ln.intersection(dentro).length > 1.0:
+                presi.append(ln)
+        except Exception:
+            continue
+    if not presi:
+        return None
+    return unary_union(presi).buffer(0.1)
+
+
+def _cerchi_che_attraversano(msp, base):
+    """Unione (buffer 0,2 mm) dei CIRCLE che attraversano il bordo di `base`
+    (in parte dentro, in parte fuori), o None."""
+    try:
+        f = scala_unita_mm(msp.doc)[0]
+    except Exception:
+        f = 1.0
+    anelli = []
+    bordo = base.exterior
+    for e in entita_espanse(msp, solo_geometria=True):
+        if e.dxftype() != 'CIRCLE':
+            continue
+        try:
+            c = e.ocs().to_wcs(e.dxf.center)
+            r = float(e.dxf.radius) * f
+            p = Point(c.x * f, c.y * f)
+        except Exception:
+            continue
+        d = bordo.distance(p)
+        if r <= 0 or d >= r:
+            continue        # il cerchio non tocca il bordo
+        cerchio = p.buffer(r, 32)
+        if base.contains(cerchio) or cerchio.contains(base):
+            continue
+        anelli.append(cerchio.exterior.buffer(0.2))
+    if not anelli:
+        return None
+    from shapely.ops import unary_union
+    return unary_union(anelli)
+
+
 def _estendi_oltre_pieghe(outer, msp, cfg: dict):
     """Sviluppo spezzato dalle linee di piega disegnate sul layer di taglio.
 
@@ -1464,21 +2131,82 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
     base = Polygon(outer.exterior)
     base_buf = prep(base.buffer(0.1))
     esterni = [Polygon(f.exterior) for f in facce]
+    # Cerchi che attraversano il contorno: richiami di dettaglio (vista
+    # ingrandita), non falde. Le facce chiuse da un loro arco non si uniscono
+    # (33PP00852-00: il cerchio del dettaglio sull'angolo diventava una falda).
+    anelli_dettaglio = _cerchi_che_attraversano(msp, base)
+    try:
+        from .pick_part import linee_con_coda
+        coda = linee_con_coda(msp, colori)
+    except Exception:
+        coda = None
+    # Linee che ATTRAVERSANO il bordo del contorno (in parte dentro e in parte
+    # fuori): richiami di note, linee di quota. Il bordo di una falda arriva sul
+    # contorno e si ferma li', non lo scavalca (25NDSPA1945-00: il richiamo di
+    # una nota chiudeva un triangolo preso per falda).
+    try:
+        trav = _linee_che_attraversano(msp, colori, base)
+        if trav is not None:
+            coda = trav if coda is None else coda.union(trav)
+    except Exception:
+        pass
+    if anelli_dettaglio is not None:
+        esterni = [None if fe.exterior.intersection(anelli_dettaglio).length >= 0.2 * fe.exterior.length
+                   else fe for fe in esterni]
     # facce che compongono il contorno scelto (esclusa la zona del foglio che lo racchiude)
     dentro = [i for i, f in enumerate(facce)
-              if esterni[i].area <= base.area * 1.001 and base_buf.contains(f.representative_point())]
-    if not dentro:
-        return outer, None, 0
-    usate = set(dentro)
+              if esterni[i] is not None and esterni[i].area <= base.area * 1.001 and base_buf.contains(f.representative_point())]
     regione = base
     aggiunte = 0
+    # Nessuna faccia (a parte i fori) riempie il contorno: il chain walking ha
+    # preso una scorciatoia a un incrocio a T e il contorno scelto e' solo parte
+    # di una faccia (24TPCPA0064: aletta superiore tagliata a meta'; 24T30PA0074:
+    # falda con le asole). La faccia che lo racchiude e ne ricalca gran parte
+    # del bordo e' il contorno vero.
+    piu_grande = max((esterni[i].area for i in dentro), default=0.0)
+    cont = []
+    if piu_grande < 0.5 * base.area:
+        bordo_buf = base.exterior.buffer(0.1)
+        cont = [i for i, fe in enumerate(esterni)
+                if fe is not None and base.area * 1.001 < fe.area <= 2.0 * base.area
+                and fe.intersects(base)
+                and base.difference(fe.buffer(0.1)).area <= 0.005 * base.area
+                and fe.exterior.intersection(bordo_buf).length >= 0.4 * base.exterior.length]
+        if not cont and not dentro:
+            return outer, None, 0
+    if cont:
+        i0 = min(cont, key=lambda i: esterni[i].area)
+        dentro = dentro + [i0]
+        regione = esterni[i0]
+        aggiunte = 1
+    else:
+        # Facce "dentro" che sporgono dal contorno: il chain walking ha tagliato
+        # una faccia a un incrocio a T (07PA00692-00: falda inferiore con i fori
+        # rimasta fuori). La faccia intera e' il contorno vero.
+        reg_buf0 = base.buffer(0.1)
+        sporgenti = []
+        for i in dentro:
+            try:
+                if esterni[i].difference(reg_buf0).area >= 1.0:
+                    sporgenti.append(i)
+            except Exception:
+                continue
+        if sporgenti:
+            try:
+                u = unary_union([base] + [esterni[i] for i in sporgenti])
+                if u.geom_type == 'Polygon':
+                    regione = u
+                    aggiunte = len(sporgenti)
+            except Exception:
+                pass
+    usate = set(dentro)
     for _giro in range(40):
         nuove = []
         reg_buf = regione.buffer(0.1)
         for i, fe in enumerate(esterni):
-            if i in usate:
+            if i in usate or fe is None:
                 continue
-            if fe.area > 4 * base.area:
+            if fe.area > MAX_FALDA_REL * base.area:
                 continue  # zona del foglio / cornice
             if not fe.bounds[0] < regione.bounds[2] + 1 or not regione.bounds[0] < fe.bounds[2] + 1                     or not fe.bounds[1] < regione.bounds[3] + 1 or not regione.bounds[1] < fe.bounds[3] + 1:
                 continue  # lontana
@@ -1493,14 +2221,33 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
                 comune = fe.exterior.intersection(reg_buf).length
             except Exception:
                 continue
-            if comune >= 2.0:
-                nuove.append(i)
+            if comune < 2.0:
+                continue
+            if coda is not None:
+                # chiusa da linee che finiscono nel vuoto (richiami di note,
+                # frecce, linee di quota): non e' una falda (25NDSPA1945-00)
+                try:
+                    libero = fe.exterior.difference(reg_buf)
+                    if libero.length > 0 and libero.intersection(coda).length >= 0.6 * libero.length:
+                        continue
+                except Exception:
+                    pass
+            nuove.append(i)
         if not nuove:
             break
         usate.update(nuove)
         aggiunte += len(nuove)
         regione = unary_union([regione] + [esterni[i] for i in nuove])
-        if regione.geom_type != 'Polygon' or regione.area > 4 * base.area:
+        if regione.geom_type == 'MultiPolygon':
+            # falde che toccano il contorno lungo un lato ma staccate di qualche
+            # centesimo (contorno dal chain walking, falda dal polygonize): sono
+            # attaccate, si chiude la fessura (27SLPA0017: aletta superiore persa)
+            try:
+                regione = unary_union([regione.buffer(0.05, join_style=2)] + [
+                    esterni[i].buffer(0.05, join_style=2) for i in nuove]).buffer(-0.05, join_style=2)
+            except Exception:
+                pass
+        if regione.geom_type != 'Polygon' or regione.area > MAX_FALDA_REL * base.area:
             return outer, None, 0
     if not aggiunte:
         return outer, None, 0
@@ -1512,11 +2259,574 @@ def _estendi_oltre_pieghe(outer, msp, cfg: dict):
                      if not any(b.contains(facce[i].representative_point()) for b in buchi)]
         piena = unary_union(materiale)
         esteso = Polygon(regione.exterior)
+        # Fessure tra le facce unite (contorno dal chain walking, facce dal
+        # polygonize, a qualche centesimo l'una dall'altra): crepe larghe
+        # zero che raddoppiano il perimetro senza area (07PA00327: 191 mm
+        # contro 177). Chiusura morfologica di 0,1 mm, spigoli vivi.
+        try:
+            chiuso = esteso.buffer(0.1, join_style=2).buffer(-0.1, join_style=2)
+            if chiuso.geom_type == 'Polygon' and abs(chiuso.area - esteso.area) <= 0.002 * esteso.area:
+                esteso = Polygon(chiuso.exterior)
+        except Exception:
+            pass
     except Exception:
         return outer, None, 0
     if not esteso.is_valid or esteso.area <= base.area * 1.001:
         return outer, None, 0
     return esteso, piena, aggiunte
+
+
+_RE_LAYER_NASCOSTI = re.compile(r'nascost|hidden|tangent', re.IGNORECASE)
+
+
+def _spigoli_nascosti_dentro(msp, outer, scala: float) -> int:
+    """Entita' su un layer di spigoli NASCOSTI o TANGENTI che stanno dentro il
+    contorno scelto (mm). Uno sviluppo piano non ha niente dietro ne' superfici
+    curve: spigoli nascosti o tangenti (raggi di piega visti di fronte) dentro
+    la vista vogliono dire pezzo piegato o 3D."""
+    from shapely.geometry import LineString
+    try:
+        zona = prep(outer.buffer(0.5))
+        x1, y1, x2, y2 = outer.bounds
+    except Exception:
+        return 0
+    f = float(scala or 1.0)
+    n = 0
+    for e in entita_espanse(msp, solo_geometria=True):
+        try:
+            if e.dxftype() not in ('LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'SPLINE', 'ELLIPSE', 'CIRCLE')                     or not _RE_LAYER_NASCOSTI.search(e.dxf.get('layer', '') or ''):
+                continue
+            vs = _flatten_entity(e, 0.5 / f)
+            if not vs or len(vs) < 2:
+                continue
+            pts = [(x * f, y * f) for x, y in vs]
+            if min(p[0] for p in pts) < x1 - 1 or max(p[0] for p in pts) > x2 + 1                     or min(p[1] for p in pts) < y1 - 1 or max(p[1] for p in pts) > y2 + 1:
+                continue
+            if zona.contains(LineString(pts)):
+                n += 1
+        except Exception:
+            continue
+    return n
+
+
+def _linee_interruzione(msp) -> int:
+    """Entita' su un layer di linee d'interruzione (vista accorciata)."""
+    n = 0
+    for e in entita_espanse(msp, solo_geometria=True):
+        try:
+            if e.dxftype() in ('LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'SPLINE')                     and _RE_LAYER_INTERRUZIONE.search(e.dxf.get('layer', '') or ''):
+                n += 1
+        except Exception:
+            continue
+    return n
+
+
+def _linetype_tratteggiato(entity) -> bool:
+    """Tipo linea EFFETTIVO (risolve BYLAYER) a tratti: tratteggio, asse,
+    tratto-punto. Le linee di piega si disegnano cosi'."""
+    try:
+        nome = str(entity.dxf.get('linetype', 'BYLAYER') or 'BYLAYER')
+        doc = entity.doc
+        if nome.upper() == 'BYLAYER':
+            lay = doc.layers.get(entity.dxf.get('layer', '0'))
+            nome = str(lay.dxf.get('linetype', 'CONTINUOUS') or 'CONTINUOUS')
+        if nome.upper() in ('BYLAYER', 'BYBLOCK', 'CONTINUOUS', 'SOLID', ''):
+            return False
+        try:
+            lt = doc.linetypes.get(nome)
+            if lt is not None and float(lt.dxf.get('length', 0) or 0) <= 0:
+                return False    # pattern vuoto = linea continua
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _falde_confermate(base, esteso, msp, scala: float, quote: list | None) -> bool:
+    """Le facce attaccate al contorno scelto sono davvero falde dello stesso
+    sviluppo (e non viste del pezzo disegnate a contatto)?
+
+    Su 809 disegni dell'archivio con contorni attaccati: quando il confine
+    comune e' una linea A TRATTI (convenzione delle linee di piega) lo
+    sviluppo intero era giusto 115 volte su 115; quando le quote misurano
+    l'ingombro dello sviluppo intero e non quello del solo contorno, 181 su
+    181. Con confine a linea continua e senza quote dello sviluppo il
+    contorno chiuso era quello giusto 359 volte contro 36."""
+    if quote and _lati_quotati(esteso, quote) == 2 and _lati_quotati(base, quote) < 2:
+        return True
+    try:
+        from shapely.geometry import LineString
+        interno = base.exterior.intersection(esteso.buffer(-0.2))
+        if interno.is_empty or interno.length < 1.0:
+            return False
+        zona = prep(interno.buffer(0.15))
+        zx1, zy1, zx2, zy2 = interno.bounds
+    except Exception:
+        return False
+    f = float(scala or 1.0)
+    tratti = continui = 0.0
+    for e in entita_espanse(msp, solo_geometria=True):
+        if e.dxftype() not in ('LINE', 'LWPOLYLINE', 'POLYLINE', 'ARC', 'SPLINE'):
+            continue
+        try:
+            if _layer_da_escludere(e.dxf.layer):
+                continue
+        except AttributeError:
+            pass
+        vs = _flatten_entity(e, 0.5 / f)
+        if not vs:
+            continue
+        pts = [(x * f, y * f) for x, y in vs]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        if max(xs) < zx1 - 0.2 or min(xs) > zx2 + 0.2 or max(ys) < zy1 - 0.2 or min(ys) > zy2 + 0.2:
+            continue
+        try:
+            ls = LineString(pts)
+            if ls.length < 1.0 or not zona.intersects(ls):
+                continue
+            dentro = interno.buffer(0.15).intersection(ls).length / ls.length
+        except Exception:
+            continue
+        if dentro < 0.8:
+            continue
+        if _linetype_tratteggiato(e):
+            tratti += ls.length
+        else:
+            continui += ls.length
+    return tratti > 0 and tratti >= continui
+
+def _facce(msp, cfg: dict) -> list:
+    """Facce del polygonize (flatten -> noding -> polygonize), con cache."""
+    try:
+        from .pick_part import _faces_from_msp
+        colori = set(cfg.get('dxf_colori_piega', [2])) | set(cfg.get('dxf_colori_saldatura', [1]))
+        return _faces_from_msp(msp, colori)
+    except Exception as e:
+        logger.debug('facce non disponibili: %s', e)
+        return []
+
+
+def _materiale_dentro(S, facce: list):
+    """Unione delle facce dentro S che sono lamiera (non stanno nel buco di
+    un'altra faccia: quelle sono i fori), o None."""
+    try:
+        from shapely.ops import unary_union
+        from shapely.strtree import STRtree
+        ps = prep(S.buffer(0.2))
+        albero = STRtree(facce)
+        dentro = [facce[j] for j in albero.query(S) if ps.contains(facce[j])]
+        buchi = [Polygon(r) for f in dentro for r in f.interiors]
+        if buchi:
+            alb_b = STRtree(buchi)
+            mat = [f for f in dentro
+                   if not any(buchi[k].contains(f.representative_point())
+                              for k in alb_b.query(f.representative_point()))]
+        else:
+            mat = dentro
+        return unary_union(mat) if mat else None
+    except Exception:
+        return None
+
+
+def _silhouette_viste(msp, cfg: dict) -> list:
+    """Contorno esterno di ogni gruppo di linee collegate del disegno (una
+    vista): il buco che il gruppo lascia nella faccia che lo racchiude, o il
+    bordo dell'unione delle sue facce se non e' racchiuso. Tiene solo quelle
+    fatte di PIU' facce: le altre sono gia' contorni chiusi del chain walking.
+    Lo sviluppo con le linee di piega continue e' cosi': una sagoma chiusa
+    divisa in strisce, che il chain walking spezza nelle singole falde."""
+    def calcola():
+        facce = _facce(msp, cfg)
+        if not facce or len(facce) > 5000:
+            return []
+        from shapely.ops import unary_union
+        anelli = []
+        for f in facce:
+            for r in f.interiors:
+                anelli.append(Polygon(r))
+        try:
+            u = unary_union(facce)
+            for g in getattr(u, 'geoms', [u]):
+                anelli.append(Polygon(g.exterior))
+        except Exception:
+            pass
+        from shapely.strtree import STRtree
+        albero = STRtree(facce)
+        out = []
+        for S in anelli:
+            if not S.is_valid or S.area < MIN_AREA_MM2 * 100:
+                continue
+            ps = prep(S.buffer(0.2))
+            n = 0
+            for j in albero.query(S):
+                f = facce[j]
+                if f.area < S.area * 0.999 and ps.contains(f):
+                    n += 1
+                    if n >= 2:
+                        break
+            if n < 2:
+                continue
+            if any(_stesso_ingombro(S, q, 0.05) and abs(S.area - q.area) <= 1e-3 * S.area for q in out):
+                continue
+            out.append(S)
+        return out
+    try:
+        from .pick_part import _cache_doc
+        return _cache_doc(msp, ('silhouette',), calcola)
+    except Exception:
+        return calcola()
+
+
+def _domina(S, C, margine: float = 0.5, fattore_area: float = 1.15) -> bool:
+    """L'ingombro di S contiene quello di C in un verso o nell'altro (lato
+    corto >= lato corto, lato lungo >= lato lungo) ed e' piu' grande."""
+    sb, cb = S.bounds, C.bounds
+    s = sorted((sb[2] - sb[0], sb[3] - sb[1]))
+    c = sorted((cb[2] - cb[0], cb[3] - cb[1]))
+    return s[0] >= c[0] - margine and s[1] >= c[1] - margine and S.area >= fattore_area * C.area
+
+
+def _sviluppo_altrove(outer, candidati: list, msp, cfg: dict, quote: list | None):
+    """Sviluppo disegnato con le linee di piega CONTINUE, mentre il contorno
+    scelto e' un'altra vista (di solito il pezzo piegato, che e' un contorno
+    chiuso unico). Lo sviluppo e' la sagoma (silhouette) di un gruppo di
+    linee, che il chain walking divide in falde: nessuna falda da sola vince.
+
+    Prove:
+    - le quote del foglio misurano entrambi i lati della sagoma e almeno una
+      ci sta sopra (quante quelle sul contorno scelto, se e' quotato anche lui);
+    - la sagoma DOMINA il contorno scelto: stendere le falde allunga il pezzo,
+      quindi lo sviluppo e' almeno grande quanto la vista piegata in entrambe
+      le direzioni (24T15PA0282-00: vista 145 x 15, sviluppo 145 x 30). Una
+      sagoma piu' piccola e' un particolare o una vista di fianco.
+    Una sola sagoma deve passare, altrimenti non si sceglie. Ritorna la
+    silhouette o None."""
+    if not quote:
+        return None
+    try:
+        sil = _silhouette_viste(msp, cfg)
+    except Exception:
+        return None
+    lq_outer = _lati_quotati(outer, quote)
+    qs_outer = _quote_sul_contorno(outer, quote)
+    po = outer.buffer(0.5)
+    alt = []
+    for S in list(sil) + [c for c in candidati if c is not outer]:
+        if _is_iso_format(S) or _striscia(S):
+            continue        # foglio / vista di fianco (larga uno spessore)
+        lq_s = _lati_quotati(S, quote)
+        if lq_s < 1:
+            continue
+        nq = _quote_sul_contorno(S, quote)
+        if nq < (1 if lq_s >= 2 else 2):
+            continue        # un solo lato quotato: servono almeno 2 quote addosso
+        if not _domina(S, outer):
+            continue        # stendere le falde allunga: lo sviluppo non e' piu' piccolo
+        if po.contains(S):
+            continue
+        if S.buffer(0.5).contains(outer) and lq_outer >= 2                 and not (nq > qs_outer and _lato_comune(S, outer)):
+            continue        # la contiene ma la vista scelta e' gia' quotata: e' lei
+            # (se pero' la sagoma ha un lato uguale alla vista e porta PIU'
+            # quote, la vista e' una sua falda che condivide il lato quotato:
+            # 38APA077-00, falda 56 x 55 dentro lo sviluppo 116,5 x 55 con 19
+            # quote addosso)
+        # la stessa sagoma gia' trovata (silhouette = contorno chiuso)
+        if any(_stesso_ingombro(S, a[2], 0.5) and abs(S.area - a[2].area) <= 0.002 * S.area for a in alt):
+            continue
+        alt.append((nq, S.area, S))
+    if len(alt) > 1:
+        # piu' sagome: lo sviluppo e' quella che le contiene tutte come
+        # ingombro (ogni vista piegata e' piu' corta dello sviluppo disteso)
+        tutte = [a for a in alt if all(b is a or _domina(a[2], b[2], fattore_area=1.0) for b in alt)]
+        alt = tutte
+    if len(alt) != 1:
+        return None         # nessuna sagoma, o nessuna che domini le altre
+    S = alt[0][2]
+    # contorno chiuso del chain walking (una faccia sola) o sagoma di piu' facce
+    chiuso = next((c for c in candidati if _stesso_ingombro(S, c, 0.5)
+                   and abs(S.area - c.area) <= 0.002 * S.area), None)
+    return chiuso if chiuso is not None else S
+
+
+def _lato_comune(a, b, tol: float = 0.5) -> bool:
+    """I due contorni hanno lo stesso lato (stessa larghezza o stessa altezza
+    dell'ingombro): una falda e lo sviluppo che la contiene lungo la piega."""
+    ax0, ay0, ax1, ay1 = a.bounds
+    bx0, by0, bx1, by1 = b.bounds
+    return abs((ax1 - ax0) - (bx1 - bx0)) <= tol or abs((ay1 - ay0) - (by1 - by0)) <= tol
+
+
+def _stesso_ingombro(a, b, tol: float = 1.0) -> bool:
+    """Stesso rettangolo d'ingombro (tutti e 4 i lati entro `tol` mm)."""
+    try:
+        return all(abs(x - y) <= tol for x, y in zip(a.bounds, b.bounds))
+    except Exception:
+        return False
+
+
+def _profilo_piegato_incompatibile(outer, polys: list):
+    """Cerca una vista di fianco piegata: contorno sottile (larghezza media
+    2A/P <= 6 mm, lo spessore) e non diritto (area < meta' del rettangolo
+    minimo che lo contiene). Il suo ingombro maggiore e' la misura del pezzo
+    piegato, meta' del suo perimetro meno lo spessore e' circa lo sviluppo.
+    Se un lato del contorno scelto coincide con l'ingombro del profilo e
+    nessun lato coincide con lo sviluppo, il contorno scelto e' una vista del
+    pezzo piegato. Ritorna (ingombro, sviluppo) del profilo o None."""
+    try:
+        x0, y0, x1, y1 = outer.bounds
+        lati = (x1 - x0, y1 - y0)
+        for p in polys:
+            if p is outer or p.length <= 0:
+                continue
+            w = 2.0 * p.area / p.length
+            if w > 6.0 or p.length < 40.0:
+                continue
+            mrr = p.minimum_rotated_rectangle
+            if mrr.area <= 0 or p.area >= 0.5 * mrr.area:
+                continue                    # profilo diritto (lamiera vista di taglio)
+            px0, py0, px1, py1 = p.bounds
+            span = max(px1 - px0, py1 - py0)
+            svil = p.length / 2.0 - w
+            if svil < span + 3.0 * w + 2.0:
+                continue
+            if any(abs(l - span) <= max(1.0, 0.005 * span) for l in lati) and                     not any(abs(l - svil) <= 0.03 * svil for l in lati):
+                return span, svil
+    except Exception:
+        return None
+    return None
+
+
+def _chiudi_fessure(poly, larghezza: float = FESSURA_MAX_MM):
+    """Toglie dal contorno le fessure piu' strette di `larghezza` (il bordo
+    entra nel pezzo e torna indietro quasi sullo stesso tratto). Nascono quando
+    facce che si toccano sono unite con qualche centesimo di gioco (falde
+    riunite, linee di piega sul bordo): non c'e' materiale da togliere, il
+    laser non le taglia, ma il loro doppio bordo allungava il perimetro
+    (08PA03797-00: 93 mm invece di 78). Se la chiusura cambia l'area piu'
+    dello 0,1% o spezza il contorno, si tiene quello originale."""
+    try:
+        r = larghezza / 2.0
+        q = poly.buffer(r, join_style=2, mitre_limit=10.0).buffer(-r, join_style=2, mitre_limit=10.0)
+        if q.geom_type != 'Polygon' or q.is_empty or not q.is_valid:
+            return poly
+        q = Polygon(q.exterior)
+        if abs(q.area - poly.area) > 0.001 * poly.area or poly.length - q.length < 0.5:
+            return poly
+        return q
+    except Exception:
+        return poly
+
+
+def _tratti_aperti_dentro(aperti: list, outer, coperti: list, scritte: list | None = None) -> list:
+    """Linee aperte (colore normale, non tratteggiate) che stanno DENTRO il
+    pezzo e non fanno parte ne' del contorno ne' di un foro/scritta/svasatura
+    riconosciuti: il disegno dice qualcosa che i contorni chiusi non spiegano
+    (un foro rimasto aperto, un'asola spezzata, un taglio a linea).
+
+    `coperti`: contorni gia' spiegati (esterno e tutti i contorni interni).
+    Ritorna [{'tipo', 'lung', 'linea'}] con tipo:
+      'filetto'  arco concentrico a un foro tondo (simbolo di filetto/svasatura)
+      'asse'     segmento dritto che passa per il centro di un foro (croce d'asse)
+      'scritta'  dentro la zona di una scritta incisa riconosciuta
+      'bordo2'   va da bordo a bordo del pezzo (linea di piega continua o divisione)
+      'bordo1'   parte dal bordo e finisce dentro (taglio a linea, intaglio)
+      'libero'   staccato da tutto
+    """
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    if not aperti:
+        return []
+    ob = outer.bounds
+    cand = []
+    for s, e, v in aperti:
+        xs = [p[0] for p in v]
+        ys = [p[1] for p in v]
+        if min(xs) < ob[0] - 0.5 or max(xs) > ob[2] + 0.5 or min(ys) < ob[1] - 0.5 or max(ys) > ob[3] + 0.5:
+            continue
+        cand.append((s, e, v))
+    if not cand or len(cand) > 5000:
+        return []
+    try:
+        dentro = prep(outer.buffer(0.3))
+        nucleo = prep(outer.buffer(-0.3))
+        bordi = [c.exterior for c in coperti if c is not None]
+        albero = _shp.STRtree(bordi) if bordi else None
+        tondi = [(p.centroid, (p.area / math.pi) ** 0.5) for p in coperti
+                 if p is not outer and p.length > 0 and 4 * math.pi * p.area / p.length ** 2 >= 0.85]
+        zona_scr = unary_union([p.envelope.buffer(max(p.bounds[2] - p.bounds[0], p.bounds[3] - p.bounds[1]))
+                                for p in scritte]) if scritte else None
+    except Exception:
+        return []
+    out = []
+    for s, e, v in cand:
+        try:
+            ls = LineString(v)
+            if ls.length < 0.5 or not dentro.contains(ls) or not nucleo.intersects(ls):
+                continue
+            resto = ls
+            if albero is not None:
+                finestra = _shp.box(*ls.buffer(0.3).bounds)
+                vic = [bordi[int(j)].intersection(finestra) for j in albero.query(finestra)]
+                vic = [g for g in vic if not g.is_empty]
+                if vic:
+                    resto = ls.difference(unary_union(vic).buffer(0.15))
+            if resto.length <= 0.5:
+                continue
+            tipo = None
+            for c, r in tondi:
+                if len(v) > 2:
+                    ds = [math.hypot(x - c.x, y - c.y) for x, y in v[::max(1, len(v) // 8)]]
+                    if max(ds) - min(ds) < 0.15 and 0.9 * r <= min(ds) <= 3 * r + 2:
+                        tipo = 'filetto'
+                        break
+                elif ls.distance(c) < 0.3 and ls.length <= 4 * r + 12:
+                    tipo = 'asse'
+                    break
+            if tipo is None and zona_scr is not None and zona_scr.contains(ls):
+                tipo = 'scritta'
+            if tipo is None:
+                ext = outer.exterior
+                n_b = (ext.distance(Point(s)) < 0.5) + (ext.distance(Point(e)) < 0.5)
+                tipo = ('libero', 'bordo1', 'bordo2')[n_b]
+            # curvo: non sta su una retta (archi, spline); le linee di
+            # marcatura (posizioni di saldatura, assi) sono quasi sempre dritte
+            curvo = len(v) > 2 and LineString([v[0], v[-1]]).hausdorff_distance(ls) > 0.2
+            out.append({'tipo': tipo, 'lung': resto.length, 'linea': ls, 'curvo': curvo})
+        except Exception:
+            continue
+    return out
+
+
+def _cerchio_per_3_punti(a, b, c):
+    """Centro e raggio del cerchio per tre punti, o None se allineati."""
+    d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]))
+    if abs(d) < 1e-9:
+        return None
+    ux = ((a[0] ** 2 + a[1] ** 2) * (b[1] - c[1]) + (b[0] ** 2 + b[1] ** 2) * (c[1] - a[1])
+          + (c[0] ** 2 + c[1] ** 2) * (a[1] - b[1])) / d
+    uy = ((a[0] ** 2 + a[1] ** 2) * (c[0] - b[0]) + (b[0] ** 2 + b[1] ** 2) * (a[0] - c[0])
+          + (c[0] ** 2 + c[1] ** 2) * (b[0] - a[0])) / d
+    return ux, uy, math.hypot(a[0] - ux, a[1] - uy)
+
+
+def _fori_da_archi(tratti: list, outer, fori: list) -> list:
+    """Fori tondi disegnati a pezzi e rimasti aperti: archi liberi dentro il
+    pezzo con lo stesso centro e lo stesso raggio che insieme fanno quasi
+    tutto il giro (>= ARCHI_GIRO_MIN). Succede quando altri contorni
+    sovrapposti (svasature, lobi) interrompono il cerchio e il disegnatore
+    ha tagliato via i tratti in comune (06PA00239-00: foro da 80 in 4 archi,
+    perso; Lantek lo taglia intero). Ritorna i cerchi ricostruiti."""
+    archi = []
+    for tr in tratti:
+        if tr['tipo'] != 'libero' or not tr.get('curvo'):
+            continue
+        xy = list(tr['linea'].coords)
+        if len(xy) < 4:
+            continue
+        c = _cerchio_per_3_punti(xy[0], xy[len(xy) // 2], xy[-1])
+        if c is None or c[2] < 0.5:
+            continue
+        cx, cy, r = c
+        if any(abs(math.hypot(x - cx, y - cy) - r) > max(0.05, 0.005 * r) for x, y in xy):
+            continue
+        archi.append((cx, cy, r, tr['linea'].length / r))
+    nuovi = []
+    usati = set()
+    for i, (cx, cy, r, _s) in enumerate(archi):
+        if i in usati:
+            continue
+        gruppo = [j for j, (x, y, rr, _) in enumerate(archi)
+                  if j not in usati and math.hypot(x - cx, y - cy) <= 0.2 and abs(rr - r) <= 0.2]
+        giro = sum(archi[j][3] for j in gruppo)
+        if giro < ARCHI_GIRO_MIN or giro > 2.05 * math.pi:
+            continue
+        usati.update(gruppo)
+        cerchio = Point(cx, cy).buffer(r, 64)
+        if not outer.buffer(-0.1).contains(cerchio):
+            continue
+        if any(abs(f.area - cerchio.area) <= 0.02 * cerchio.area and f.centroid.distance(cerchio.centroid) <= 0.5
+               for f in fori):
+            continue
+        nuovi.append(cerchio)
+    return nuovi
+
+
+def _facce_da_tratti(tratti: list, outer, fori: list, gioco: float = GIOCO_TRATTI_MM) -> list:
+    """Zone chiuse che le linee aperte rimaste formano tra loro (o con i fori
+    che toccano), accostando gli estremi distanti fino a `gioco` mm: un foro o
+    un'asola disegnati con il contorno spezzato (22PA0001-00: mezzelune a 1,6
+    mm l'una dall'altra; 250200014: foro da 5 in quattro archi staccati).
+    Le linee di marcatura (assi, posizioni di saldatura) restano aperte e non
+    chiudono niente. Ritorna [(zona, curva)] delle zone non gia' fori;
+    curva = il bordo passa per un tratto curvo (arco, spline)."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union, polygonize
+    scelti = [tr for tr in tratti if tr['tipo'] in ('libero', 'bordo1', 'bordo2')]
+    usa = [tr['linea'] for tr in scelti]
+    if not usa or len(usa) > 2000:
+        return []
+    curvi = [tr['linea'] for tr in scelti if tr.get('curvo')]
+    try:
+        tocca = unary_union(usa).buffer(gioco)
+        bordi_fori = [f.exterior for f in fori if f.intersects(tocca)]
+        # estremi vicini -> stesso punto (union-find sugli estremi)
+        linee = [list(l.coords) for l in usa] + [list(b.coords) for b in bordi_fori]
+        estremi = []
+        for k, xy in enumerate(linee):
+            if xy[0] != xy[-1]:
+                estremi.append((k, 0, xy[0]))
+                estremi.append((k, -1, xy[-1]))
+        padre = list(range(len(estremi)))
+
+        def rad(i):
+            while padre[i] != i:
+                padre[i] = padre[padre[i]]
+                i = padre[i]
+            return i
+        if estremi:
+            alb = _shp.STRtree([Point(p) for _, _, p in estremi])
+            for i, (_, _, p) in enumerate(estremi):
+                for j in alb.query(Point(p).buffer(gioco)):
+                    j = int(j)
+                    if j > i and math.hypot(p[0] - estremi[j][2][0], p[1] - estremi[j][2][1]) <= gioco:
+                        padre[rad(i)] = rad(j)
+            gruppi: dict = {}
+            for i in range(len(estremi)):
+                gruppi.setdefault(rad(i), []).append(i)
+            for g in gruppi.values():
+                if len(g) < 2:
+                    continue
+                cx = sum(estremi[i][2][0] for i in g) / len(g)
+                cy = sum(estremi[i][2][1] for i in g) / len(g)
+                for i in g:
+                    k, pos, _ = estremi[i]
+                    linee[k][pos] = (cx, cy)
+        from shapely.geometry import MultiLineString
+        from shapely.ops import snap
+        geoms = MultiLineString([xy for xy in linee if len(xy) >= 2])
+        # estremi che cadono su un'altra linea (asola chiusa da una linea lunga)
+        geoms = snap(geoms, geoms, 0.5)
+        facce = [f for f in polygonize(unary_union(geoms)) if f.area >= MIN_AREA_MM2]
+    except Exception:
+        return []
+    try:
+        zona_curvi = unary_union(curvi).buffer(0.3) if curvi else None
+    except Exception:
+        zona_curvi = None
+    out = []
+    for f in facce:
+        if f.length <= 0 or 2.0 * f.area / f.length < MIN_LARGHEZZA_MM:
+            continue
+        if f.area > 0.5 * outer.area:
+            continue
+        if any(abs(h.area - f.area) <= 0.02 * max(h.area, f.area) and h.centroid.distance(f.centroid) <= 0.5
+               for h in fori):
+            continue
+        curva = bool(zona_curvi is not None and f.exterior.intersection(zona_curvi).length > 1.0)
+        out.append((f, curva))
+    return out
 
 
 def _misure(outer, inners, scala: float) -> dict:
@@ -1606,33 +2916,141 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         return _empty_result(warnings + [f'Solo {cartiglio_count} cornici/cartigli rilevati, nessun pezzo'])
 
     # ---- 6. Pick best outer + confidence
-    best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri)
+    best_idx, confidence, all_scored = _pick_outer_with_confidence(candidati, candidati, circles_centri, base.get('quote'), base.get('testi'))
     outer = candidati[best_idx]
+    conf_scelta = confidence
+    if getattr(doc, '_ft_scala_dubbia', False):
+        confidence = min(confidence, 0.6)
+    elif getattr(doc, '_ft_scala_da_quote', 1.0) != 1.0 and not _quote_sul_contorno(outer, base.get('quote')):
+        # Misure moltiplicate per il fattore delle quote, ma sul contorno
+        # scelto non c'e' nessuna quota: la scala del pezzo non e' confermata
+        # (di solito e' anche la vista sbagliata)
+        confidence = min(confidence, 0.6)
+        warnings.append('Scala presa dalle quote del foglio ma il contorno scelto non ha quote: verificare')
 
     # ---- 6b. Sviluppo spezzato dalle linee di piega: riunisci le falde
     scelto = outer
+    n_attaccati = 0
     outer, regione_piena, n_falde = _estendi_oltre_pieghe(outer, msp, cfg)
+    falde_ok = bool(n_falde) and _falde_confermate(scelto, outer, msp, scala, base.get('quote'))
+    if n_falde and not falde_ok and _stesso_ingombro(scelto, outer):
+        # Le facce attaccate stanno tutte DENTRO l'ingombro del contorno
+        # chiuso: non sono viste disegnate a fianco (allargherebbero
+        # l'ingombro) ma pezzi di lamiera tra il contorno e il bordo vero, che
+        # il chain walking ha saltato prendendo una scorciatoia a un incrocio a
+        # T. Il bordo esterno disegnato e' il taglio (archivio: 36 volte giusto
+        # il contorno intero, 0 volte quello chiuso). Da verificare comunque.
+        warnings.append(f'{n_falde} facce dentro l\'ingombro del contorno unite al pezzo '
+                        f'(bordo esterno disegnato): verificare')
+        confidence = min(confidence, 0.6)
+    elif n_falde and not falde_ok:
+        n_attaccati = n_falde
+        # Contorni attaccati al pezzo ma nessuna prova che siano falde: niente
+        # linee di piega a tratti sul confine, quote che non misurano lo
+        # sviluppo intero. Di solito sono viste disegnate a contatto: si tiene
+        # il contorno chiuso, ma la scelta va verificata.
+        warnings.append(f'{n_falde} contorni attaccati al pezzo senza linee di piega a tratti '
+                        f'ne\' quote dello sviluppo intero: preso il contorno chiuso, verificare')
+        outer, regione_piena, n_falde = scelto, None, 0
+        confidence = min(confidence, 0.6)
     if n_falde:
         warnings.append(f'Sviluppo diviso da linee di piega: unite {n_falde} falde al contorno')
+    # ---- 6c. Sviluppo con pieghe continue disegnato a parte dalla vista scelta
+    sviluppo = _sviluppo_altrove(outer, candidati, msp, cfg, base.get('quote'))
+    if sviluppo is not None:
+        if any(sviluppo is c for c in candidati):
+            piena = sviluppo        # contorno chiuso: fori = contorni dentro
+        else:
+            piena = _materiale_dentro(sviluppo, _facce(msp, cfg))
+        if piena is not None:
+            sb_, ob_ = sviluppo.bounds, outer.bounds
+            warnings.append(
+                f'Preso lo sviluppo quotato {sb_[2] - sb_[0]:.0f} x {sb_[3] - sb_[1]:.0f} '
+                f'(piu\' grande della vista scelta in entrambe le direzioni) invece della vista '
+                f'{ob_[2] - ob_[0]:.0f} x {ob_[3] - ob_[1]:.0f}: verificare')
+            outer, scelto = sviluppo, sviluppo
+            regione_piena = None if piena is sviluppo else piena
+            idx_c = next((i for i, c in enumerate(candidati) if c is sviluppo), None)
+            if idx_c is not None:
+                best_idx = idx_c        # il pulito per Lantek lo ritrova cosi'
+            confidence = min(confidence, 0.6)
+    outer = _chiudi_fessure(outer)
+    conf_falde = confidence
 
     # ---- 7. Inner holes (contenuti VERAMENTE nell'outer — BUG FIX D2) + svasature (D4)
     pp_outer = _prep_buf(outer)
-    inners = [p for i, p in enumerate(candidati) if i != best_idx and _contiene(outer, p, pp_outer)]
+    inners = [p for i, p in enumerate(candidati)
+              if i != best_idx and p is not outer and _contiene(outer, p, pp_outer)]
     if regione_piena is not None:
-        # le falde unite sono materiale, non fori: foro = contorno non coperto dalle facce
-        inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area]
+        # le falde unite sono materiale, non fori: foro = contorno non coperto
+        # dalle facce, oppure staccato dal bordo del pezzo. Le falde toccano il
+        # bordo (le linee di piega vanno da lato a lato); un foro attraversato
+        # da una linea di piega (scarico) diventa due facce "piene" ma resta un
+        # contorno chiuso staccato dal bordo (27CVPA0066-00: 6 fori persi).
+        bordo_out = outer.exterior
+        inners = [p for p in inners if regione_piena.intersection(p).area < 0.5 * p.area
+                  or bordo_out.distance(p.exterior) > 0.1]
+    contorni_interni = list(inners)   # tutti, prima di scritte/svasature/intagli
+    scritte_dubbie: list = []
+    inners, scritte = _separa_scritte(inners, outer, scritte_dubbie)
     inners, n_svas = _riduci_fori_annidati(inners)
+    if scritte:
+        warnings.append(f'{len(scritte)} contorni piccoli in fila come una scritta incisa: '
+                        f'non contati come fori (vanno marcati, non tagliati)')
+    if scritte_dubbie:
+        warnings.append(f'{len(scritte_dubbie)} contorni in fila come una scritta alta: contati come fori '
+                        f'tagliati, verificare se vanno tagliati o marcati')
     outer_mis, inners, n_intagli = applica_intagli(outer, inners)
     if n_intagli:
         warnings.append(f'{n_intagli} intaglio/i sul bordo (scantonati): tolti dal contorno, non contati come fori')
+    segni = _segni_isolati(inners)
+    if segni:
+        warnings.append(f'{len(segni)} contorno/i piccolo/i a forma di lettera o cifra: contato/i come '
+                        f'foro, verificare se va tagliato o marcato')
+
+    # ---- 7b. Linee aperte rimaste dentro il pezzo (non spiegate dai contorni)
+    tratti = _tratti_aperti_dentro(base.get('aperti') or [], outer,
+                                   [outer, outer_mis, scelto] + contorni_interni, scritte)
+    tratti_stat: dict = {}
+    for tr in tratti:
+        st = tratti_stat.setdefault(tr['tipo'] + ('~' if tr['curvo'] else ''), [0, 0.0])
+        st[0] += 1
+        st[1] = round(st[1] + tr['lung'], 1)
+    fori_ricostruiti = _fori_da_archi(tratti, outer_mis, inners)
+    if fori_ricostruiti:
+        # i contorni che stanno dentro un foro ricostruito cadono con lo sfrido
+        pp_r = [_prep_buf(c) for c in fori_ricostruiti]
+        inners = [p for p in inners if not any(_contiene(c, p, pc) for c, pc in zip(fori_ricostruiti, pp_r))]
+        inners = inners + fori_ricostruiti
+        warnings.append(f'{len(fori_ricostruiti)} foro/i tondo/i disegnato/i ad archi staccati: ricostruito/i '
+                        f'intero/i, verificare')
+    facce_aperte = _facce_da_tratti(tratti, outer_mis, inners)
+    if facce_aperte:
+        tratti_stat['facce'] = [len(facce_aperte), round(sum(f.area for f, _c in facce_aperte), 1)]
+        fc = [f for f, c in facce_aperte if c and f.area <= 0.01 * outer_mis.area]
+        if fc:
+            tratti_stat['facce_c'] = [len(fc), round(sum(f.area for f in fc), 1)]
+    tratti_stat['_conf0'] = confidence
+    # Fori dubbi per linee aperte: (a) zone grandi come un foro chiuse da linee
+    # aperte con almeno un tratto curvo (foro/asola spezzati: Lantek di solito
+    # li taglia, il motore non li vede); (b) una linea CURVA da bordo a bordo
+    # del pezzo: non e' una piega (le pieghe sono dritte), e' un taglio o una
+    # marcatura. In entrambi i casi cosa si taglia lo decide una persona.
+    curve_bordo = tratti_stat.get('bordo2~', [0, 0.0])[1]
+    if 'facce_c' in tratti_stat:
+        warnings.append(f"{tratti_stat['facce_c'][0]} zona/e chiusa/e da linee aperte (archi spezzati) dentro "
+                        f"il pezzo: foro/i non riconosciuto/i, verificare")
+    if curve_bordo > 10.0:
+        warnings.append('Linea curva da bordo a bordo dentro il pezzo: taglio o marcatura? verificare')
+    tratti_dubbi = 'facce_c' in tratti_stat or curve_bordo > 10.0
 
     # ---- 8. Calcoli finali
     mis = _misure(outer_mis, inners, scala)
 
     # Più pezzi nello stesso disegno: segnala invece di sceglierne uno in silenzio
-    preps = [(_prep_buf(o), o) for o in candidati]
-    top_level = [c for c in candidati
-                 if not any(o is not c and _contiene(o, c, pp) for pp, o in preps)]
+    ind_c = _Indice(candidati)
+    preps_c = [_prep_buf(o) for o in candidati]
+    top_level = [c for c in candidati if not ind_c.contenitori(c, preps_c)]
     altri_grandi = [c for c in top_level
                     if c is not outer and c is not scelto and c.area >= PEZZI_CONFRONTABILI_REL * outer.area
                     and not _contiene(outer, c, pp_outer)]
@@ -1646,6 +3064,78 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
                         f'verificare quale pezzo quotare')
     if n_svas:
         warnings.append(f'{n_svas} svasatura/e: tagliato solo il foro passante')
+
+    # Vista di fianco PIEGATA (profilo sottile a L/U) che dice che il pezzo
+    # scelto e' quello gia' piegato: un lato del contorno e' lungo quanto il
+    # profilo da estremo a estremo, ma lo sviluppo (la lunghezza del profilo
+    # disteso) non compare (me01_000447: vista a U di 54 mm, sviluppo 79 mm;
+    # nel disegno manca lo sviluppo e Lantek lo ha calcolato).
+    prof = _profilo_piegato_incompatibile(outer_mis, all_polys)
+    if prof and confidence >= 0.5:
+        confidence = 0.45
+        warnings.append(f'Il disegno mostra il pezzo piegato (profilo lungo {prof[0]:.0f} mm, '
+                        f'disteso circa {prof[1]:.0f} mm) e il contorno trovato ha la misura del '
+                        f'piegato: manca lo sviluppo, verificare')
+
+    # Contorno largo meno di 3 mm: e' la vista di fianco della lamiera (lo
+    # spessore), non uno sviluppo da tagliare (07PA01517-00: preso il bordo
+    # 1,4 x 82 della vista isometrica). In Lantek 6 pezzi su 23.505 sono cosi'.
+    sb = scelto.bounds
+    lato_min = min(mis['bbox_width_mm'], mis['bbox_height_mm'], sb[2] - sb[0], sb[3] - sb[1])
+    if lato_min < MIN_LATO_PEZZO_MM and confidence >= 0.5:
+        confidence = 0.45
+        warnings.append(f'Contorno largo meno di {MIN_LATO_PEZZO_MM:g} mm: probabile vista di '
+                        f'fianco (spessore), non lo sviluppo — scegliere il pezzo')
+
+    # Linee di INTERRUZIONE (layer "Linee di interruzione", "break"): nel
+    # foglio c'e' una vista ACCORCIATA per starci dentro. Se e' il pezzo,
+    # l'ingombro disegnato non e' quello vero; se il pezzo lungo e' spezzato
+    # in tratti aperti, il contorno scelto e' un'altra vista (SO39250-02-169:
+    # preso 11 x 30, il pezzo e' 37 x 920). Le misure vanno lette dalle
+    # quote: da verificare. Solo se qualche quota misura piu' del lato
+    # maggiore del contorno scelto (la vista accorciata e' quotata al vero):
+    # se l'interruzione e' su un'altra vista, il pezzo scelto resta valido.
+    n_interr = _linee_interruzione(msp)
+    if n_interr:
+        lato_max = max(mis['bbox_width_mm'], mis['bbox_height_mm'])
+        q_max = max((v for q in (base.get('quote') or []) for v in q['vals']), default=0.0)
+        if q_max <= max(lato_max * 1.02, lato_max + 1.0):
+            n_interr = 0
+    if n_interr and confidence >= 0.5:
+        confidence = min(confidence, 0.6)
+        warnings.append(f'{n_interr} linee di interruzione nel foglio: vista accorciata, '
+                        f"l'ingombro disegnato puo' non essere quello vero — verificare con le quote")
+
+    # Geometria che il motore NON sa leggere (solidi/regioni ACIS, oggetti
+    # proxy di applicazioni verticali): una parte del disegno e' invisibile,
+    # il contorno trovato puo' non essere il pezzo (DWG: 7 disegni cosi', 7
+    # sbagliati). Da verificare.
+    try:
+        n_illeggibili = len(msp.query('REGION 3DSOLID BODY SURFACE ACAD_PROXY_ENTITY'))
+    except Exception:
+        n_illeggibili = 0
+    if n_illeggibili and confidence >= 0.5:
+        confidence = min(confidence, 0.6)
+        warnings.append(f'{n_illeggibili} oggetti non leggibili (solidi/regioni/proxy) nel disegno: '
+                        f'il contorno trovato puo\' non essere il pezzo — verificare')
+
+    # Spigoli NASCOSTI o TANGENTI (layer "Spigoli nascosti/tangenti",
+    # "hidden") dentro il contorno scelto: dietro la vista c'e' altro
+    # materiale o una piega vista di fronte, quindi e' la vista di un pezzo
+    # piegato o 3D, non lo sviluppo piano (DWG di altri clienti: con nascosti
+    # dentro la geometria era giusta 19 volte su 87, con tangenti 2 su 5).
+    n_nasc = _spigoli_nascosti_dentro(msp, outer, scala)
+    if n_nasc and confidence >= 0.5:
+        confidence = min(confidence, 0.6)
+        warnings.append(f'{n_nasc} spigoli nascosti dentro il contorno scelto: e\' la vista di un pezzo '
+                        f'piegato, non lo sviluppo — verificare')
+
+    # ---- 8b. Fori dubbi: il contorno e' giusto ma cosa si taglia dentro no.
+    # Confidenza sotto la soglia del "sicuro" (pulizia 'auto_review'), senza
+    # chiedere la scelta manuale del pezzo.
+    fori_dubbi = bool(scritte_dubbie or segni or tratti_dubbi)
+    if fori_dubbi:
+        confidence = min(confidence, CONF_FORI_DUBBI)
 
     # ---- 9. Confidence label
     if confidence >= CONF_ALTA:
@@ -1686,8 +3176,17 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
             'geometry': _raw_coords(coords, scala),
         })
 
+    diagnostica = _diagnostica_scelta(
+        outer_mis, inners, base, top_level, outer, scelto,
+        conf_scelta=conf_scelta, conf_falde=conf_falde, n_falde=n_falde, n_attaccati=n_attaccati,
+        n_scritte=len(scritte), n_scritte_dubbie=len(scritte_dubbie), n_segni=len(segni),
+        n_svas=n_svas, n_intagli=n_intagli,
+        scala_dubbia=bool(getattr(doc, '_ft_scala_dubbia', False)),
+        scala_da_quote=float(getattr(doc, '_ft_scala_da_quote', 1.0) or 1.0))
+
     return {
         **mis,
+        'diagnostica': diagnostica,
         'confidence': confidence,
         'confidence_label': conf_label,
         'needs_manual_select': needs_manual,
@@ -1699,10 +3198,119 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         'entita_duplicate_rimosse': base['n_dup'],
         'tipo_disegno': 'v3_shapely',
         'warnings': warnings,
+        # fori dubbi (scritte/lettere contate come fori): la conferma delle
+        # misure del cartiglio riguarda il contorno, non toglie questo dubbio
+        'dubbi_fori': bool(scritte_dubbie or segni),
+        # spessore dalla vista laterale (striscia lunga quanto un lato del pezzo)
+        'spessore_vista': spessore_vista_laterale(all_polys, scelto),
         # Bbox globale DXF (unità disegno) — usato dal frontend per scale SVG→mm
         'dxf_bbox_mm': _dxf_bbox_raw(msp),
         '_engine': 'shapely-' + __import__('shapely').__version__,
+        'tratti_aperti': tratti_stat,
+        # contorno giusto ma fori da verificare: nessuna conferma esterna del
+        # contorno (misure del cartiglio) deve riportarlo a "sicuro"
+        'fori_dubbi': fori_dubbi,
+        # fori tondi tagliati (mm, stesso riferimento del contorno): quelli
+        # sotto i 2/3 dello spessore vanno al trapano (dxf_batch_worker)
+        'fori_tondi': _fori_tondi(inners),
+        'fori_non_tondi_mm': _fori_non_tondi(inners),
     }
+
+
+# Fori tondi del pezzo (cerchi o poligoni che approssimano un cerchio): centro
+# e diametro, per decidere cosa si fa al laser e cosa al trapano
+# (dxf_batch_worker.applica_fori_trapano, dopo la scelta dello spessore).
+FORO_TONDO_D_MAX_MM = 30.0      # oltre nessuno spessore a magazzino lo manda al trapano
+
+
+def foro_tondo(p) -> dict | None:
+    """{'d_mm', 'x', 'y', 'area_mm2', 'perim_mm'} se il contorno `p` (mm) e' un
+    cerchio (o un poligono che lo approssima: vertici alla stessa distanza dal
+    centro entro il 2% e area quella del cerchio entro il 3%), altrimenti None.
+    Il diametro e' quello dei vertici: un cerchio spezzato in corde ha i
+    vertici SUL cerchio."""
+    try:
+        if p is None or p.is_empty or len(p.interiors):
+            return None
+        pts = list(p.exterior.coords)[:-1]
+        if len(pts) < 8:
+            return None
+        c = p.centroid
+        rr = [math.hypot(x - c.x, y - c.y) for x, y in pts]
+        r = sum(rr) / len(rr)
+        if r <= 0 or max(rr) - min(rr) > max(0.02 * r, 0.02):
+            return None
+        if abs(p.area / (math.pi * r * r) - 1) > 0.03:
+            return None
+        return {'d_mm': round(2 * r, 3), 'x': round(c.x, 4), 'y': round(c.y, 4),
+                'area_mm2': round(p.area, 4), 'perim_mm': round(p.length, 4)}
+    except Exception:
+        return None
+
+
+def _fori_tondi(inners) -> list:
+    out = []
+    for p in inners:
+        f = foro_tondo(p)
+        if f and f['d_mm'] <= FORO_TONDO_D_MAX_MM:
+            out.append(f)
+    return out
+
+
+def _fori_non_tondi(inners) -> list:
+    """Larghezza (lato corto del rettangolo minimo, mm) dei contorni interni NON
+    tondi e stretti: sotto il minimo del laser non si tagliano bene ne' si
+    fanno col trapano (tagliare, forare o marcare? lo decide una persona)."""
+    out = []
+    for p in inners:
+        if foro_tondo(p):
+            continue
+        try:
+            r = p.minimum_rotated_rectangle
+            xy = list(r.exterior.coords)
+            lati = [math.hypot(xy[i + 1][0] - xy[i][0], xy[i + 1][1] - xy[i][1]) for i in range(2)]
+            w = min(lati)
+        except Exception:
+            continue
+        if w <= FORO_TONDO_D_MAX_MM:
+            out.append(round(w, 2))
+    return sorted(out)
+
+
+def _diagnostica_scelta(outer, inners, base, top_level, outer_esteso, scelto, **extra) -> dict:
+    """Indizi sulla scelta del contorno, per decidere se il risultato e'
+    "sicuro" (dxf_batch_worker.decidi_sicuro). Solo lettura: non cambia
+    nessuna misura."""
+    d = dict(extra)
+    try:
+        quote = base.get('quote') or []
+        d['n_quote'] = len(quote)
+        d['quote_su_contorno'] = _quote_sul_contorno(outer, quote)
+        d['lati_quotati'] = _lati_quotati(outer, quote)
+        d['testi_dentro'] = _n_testi_dentro(outer, base.get('testi'))
+        d['n_top'] = len(top_level)
+        altri = [c.area for c in top_level if c is not outer_esteso and c is not scelto]
+        d['rivale_rel'] = round(max(altri, default=0.0) / outer.area, 4) if outer.area > 0 else 0.0
+        dims = []
+        tondi = piccoli_non_tondi = 0
+        for f in inners:
+            x1, y1, x2, y2 = f.bounds
+            w, h = x2 - x1, y2 - y1
+            dims.append(max(w, h))
+            if h > 0 and abs(w / h - 1) < 0.05 and f.area > 0.95 * 3.141592653589793 * (w / 2) * (h / 2):
+                tondi += 1
+            elif max(w, h) < 15.0:
+                piccoli_non_tondi += 1
+        d['n_fori_piccoli_non_tondi'] = piccoli_non_tondi
+        d['n_fori'] = len(inners)
+        d['n_fori_tondi'] = tondi
+        d['foro_min_mm'] = round(min(dims), 2) if dims else None
+        d['n_fori_lt2'] = sum(1 for x in dims if x < 2.0)
+        d['n_fori_lt4'] = sum(1 for x in dims if x < 4.0)
+        d['area_fori_rel'] = round(sum(f.area for f in inners) / outer.area, 4) if outer.area > 0 else 0.0
+    except Exception as e:      # noqa: BLE001 - la diagnostica non deve rompere il riconoscimento
+        d['errore'] = str(e)[:80]
+    return d
 
 
 def _empty_result(warnings: list[str]) -> dict:
@@ -1796,7 +3404,7 @@ def compute_geometry_from_region(path: str, region_bbox: tuple[float, float, flo
     outer = max(in_region, key=_score)
     pp = _prep_buf(outer)
     inners = [p for p in in_region if p is not outer and _contiene(outer, p, pp)]
-    inners, _n_svas = _riduci_fori_annidati(inners)
+    inners, _n_svas = _riduci_fori_annidati(inners, outer)
 
     mis = _misure(outer, inners, scala)
     return {
@@ -1910,7 +3518,7 @@ def compute_geometry_from_point(path: str, x_mm: float, y_mm: float,
     # (13PA00680, rettangolini attorno ai fori) non si contano come tagli.
     pp = _prep_buf(outer)
     inners = [p for p in non_cartiglio if p is not outer and _contiene(outer, p, pp)]
-    inners, _n_svas = _riduci_fori_annidati(inners)
+    inners, _n_svas = _riduci_fori_annidati(inners, outer)
 
     mis = _misure(outer, inners, scala)
     return {
@@ -1971,7 +3579,7 @@ def compute_geometry_from_candidate(path: str, candidate_idx: int,
     pp = _prep_buf(outer_poly)
     # Trova inners: poligoni contenuti in outer che NON siano l'outer stesso
     inners = [p for p in all_polys if p is not outer_poly and _contiene(outer_poly, p, pp)]
-    inners, _n_svas = _riduci_fori_annidati(inners)
+    inners, _n_svas = _riduci_fori_annidati(inners, outer_poly)
     mis = _misure(outer_poly, inners, scala)
 
     r_out = dict(r)

@@ -415,6 +415,100 @@ def main():
                                    'dxf_bbox_mm': [0, 0, 4.0, 4.0], 'scala_unita_mm': 25.4})
     check('pezzo che riempie il foglio → saltata', not ok and 'area_ratio' in motivo, motivo)
 
+    print('\nP8) sicuro solo con un riscontro indipendente e senza indizi di taglio dubbio')
+    from backend.preventivi import sicurezza_import as SI
+    base = {'diag': {'lati_quotati': 2, 'foro_min_mm': 8.0}, 'area_dm2': 1.0, 'sp_mm': 3.0,
+            'sp_indipendente': 3.0, 'densita': 7.85, 'peso_cart': 0.2355, 'peso_cart_conf': 0.95,
+            'scala': 1.0, 'pul_n_piega': 0, 'pul_n_lung_marcatura_mm': 0.0, 'pul_n_simboli_tolti': 0}
+    ok, motivi = SI.decidi_sicuro(base)
+    check('quotato, peso giusto → sicuro', ok, motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 0}, 'peso_cart': None})
+    check('nessun riscontro → da verificare', not ok and 'riscontro' in motivi[0], motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 0}})
+    check('senza quote ma peso giusto → sicuro', ok, motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'peso_cart': 0.35})
+    check('pesa meno del cartiglio → da verificare', not ok and 'peso' in motivi[0], motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 2, 'foro_min_mm': 2.0}})
+    check('foro piccolo con spessore sicuro → resta sicuro (va al trapano da solo)', ok, motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'fori_trapano_dubbio': True})
+    check('fori piccoli con spessore incerto → da verificare',
+          not ok and 'laser o trapano' in motivi[0], motivi)
+
+    print('\nP11) fori da trapano: sotto 2/3 dello spessore (per difetto al mm) non si tagliano')
+    for t, d in ((10, 6), (12, 8), (8, 5), (5, 3), (3, 2), (1.5, 1)):
+        check(f'spessore {t:g} → laser da Ø{d}', W.diametro_min_laser(t) == d, W.diametro_min_laser(t))
+
+    def _p11(doc, m):
+        cornice_a4(m)
+        rett_linee(m, 20, 60, 200, 100)
+        for x in (50, 190):
+            m.add_circle((x, 90), 2.5)      # Ø5: al trapano su 10 mm
+            m.add_circle((x, 130), 4.0)     # Ø8: al laser
+        m.add_arc((50, 90), 3.0, 0, 270)    # simbolo di filetto M6 attorno al Ø5
+        rett_linee(m, 115, 105, 4, 4)       # quadretto 4x4: non tondo, resta al laser
+    p11 = dxf('p11_trapano.dxf', _p11)
+    g11 = detect_pezzo_geometry_v3(p11, CFG)
+    n0, a0, per0 = g11.get('n_pierce'), g11.get('area_dm2'), g11.get('perimetro_taglio_m')
+    check('detector: 5 fori, 4 tondi', g11.get('n_fori') == 5 and len(g11.get('fori_tondi') or []) == 4,
+          (g11.get('n_fori'), g11.get('fori_tondi')))
+    sicuro = {'spessore_mm': 10.0, 'confidence': 0.9, 'fonti': [{'spessore_mm': 10.0, 'source': 'testo'}]}
+    g11t = W.applica_fori_trapano(g11, sicuro)
+    ft = g11t.get('fori_trapano') or []
+    check('spessore 10 sicuro: i due Ø5 al trapano, gli Ø8 al laser',
+          len(ft) == 2 and all(abs(f['d_mm'] - 5) < 0.05 for f in ft), ft)
+    check('inneschi e fori -2', g11t['n_pierce'] == n0 - 2 and g11t['n_fori'] == 3,
+          (g11t['n_pierce'], g11t['n_fori']))
+    check('area + 2 fori Ø5, perimetro - 2 circonferenze',
+          abs(g11t['area_dm2'] - a0 - 2 * math.pi * 2.5 ** 2 / 1e4) < 3e-4
+          and abs(per0 - g11t['perimetro_taglio_m'] - 2 * math.pi * 5 / 1000) < 5e-4,
+          (a0, g11t['area_dm2'], per0, g11t['perimetro_taglio_m']))
+    check('avviso trapano', any('al trapano' in w for w in g11t.get('warnings') or []), g11t.get('warnings'))
+    check('quadretto 4x4 (non tondo) sotto Ø6: resta al laser ma da verificare',
+          g11t.get('fori_stretti_non_tondi') == 1 and g11t['n_fori'] == 3, g11t.get('fori_stretti_non_tondi'))
+    ok, motivi = SI.decidi_sicuro({**base, 'fori_stretti_non_tondi': 1})
+    check('contorno non tondo sotto il minimo laser → da verificare', not ok and 'non tondi' in motivi[0], motivi)
+    check('spessore 5 sicuro: quadretto 4x4 sopra Ø3, nessun dubbio',
+          not W.applica_fori_trapano(g11, {'spessore_mm': 5.0, 'confidence': 0.9}).get('fori_stretti_non_tondi'))
+    check('spessore 3 sicuro: nessun foro al trapano',
+          not W.applica_fori_trapano(g11, {'spessore_mm': 3.0, 'confidence': 0.9}).get('fori_trapano'))
+    incerto = {'spessore_mm': 3.0, 'confidence': 0.55,
+               'fonti': [{'spessore_mm': 3.0, 'source': 'cella'}, {'spessore_mm': 10.0, 'source': 'peso_area'}]}
+    g11i = W.applica_fori_trapano(g11, incerto)
+    check('spessore incerto (3 o 10): geometria invariata, dubbio segnato',
+          g11i.get('fori_trapano_dubbio') and not g11i.get('fori_trapano') and g11i['n_pierce'] == n0
+          and g11i['area_dm2'] == a0, g11i.get('fori_trapano_dubbio'))
+    ind = SI.raccogli_indizi(p11, g11i, {}, incerto, None, {}, g11i.get('confidence'))
+    ok, motivi = SI.decidi_sicuro(ind)
+    check('spessore incerto → non sicuro col motivo laser/trapano',
+          not ok and any('laser o trapano' in m for m in motivi), motivi)
+    g11n = W.applica_fori_trapano(g11, {'spessore_mm': 3.0, 'confidence': 0.55,
+                                        'fonti': [{'spessore_mm': 3.0, 'source': 'cella'}]})
+    check('spessore incerto ma nessuna lettura manda fori al trapano → nessun dubbio',
+          not g11n.get('fori_trapano_dubbio'), g11n.get('fori_trapano_dubbio'))
+    info11 = W._esegui_cleanup(p11, g11t, 'p11_trapano.dxf', CFG)
+    cp11 = os.path.join(TMP, info11.get('cleaned_dxf_filename') or 'manca')
+    check('pulito creato', os.path.exists(cp11), info11)
+    if os.path.exists(cp11):
+        d11 = ezdxf.readfile(cp11).modelspace()
+        tag = [e for e in d11 if e.dxf.layer == C.LAYER_TAGLIO]
+        cer = sorted(round(e.dxf.radius, 2) for e in tag if e.dxftype() == 'CIRCLE')
+        check('TAGLIO: solo i due Ø8 (niente Ø5)', cer == [4.0, 4.0], cer)
+        croci = [e for e in d11 if e.dxf.layer == C.LAYER_MARCATURA and e.dxftype() == 'LINE'
+                 and abs(math.dist(e.dxf.start, e.dxf.end) - 5.0) < 0.02]
+        centri = sorted({(round((e.dxf.start.x + e.dxf.end.x) / 2, 2),
+                          round((e.dxf.start.y + e.dxf.end.y) / 2, 2)) for e in croci})
+        check('MARCATURA: croce 5 x 5 mm (grande quanto il foro) sul centro di ogni Ø5',
+              len(croci) == 4 and centri == [(50.0, 90.0), (190.0, 90.0)], centri)
+        check('filetto attorno al Ø5 non copiato, niente marcatura del disegno',
+              not any(e.dxftype() == 'ARC' for e in d11)
+              and not info11['cleanup_stats'].get('n_lung_marcatura_mm'), info11['cleanup_stats'])
+        v = C.verifica_lantek(cp11, {'bbox_w_mm': 200, 'bbox_h_mm': 100, 'area_dm2': g11t['area_dm2']})
+        check('pulito pronto per Lantek con l\'area senza i fori da trapano', v['stato'] == 'pronto', v)
+    ok, motivi = SI.decidi_sicuro({**base, 'pul_n_lung_marcatura_mm': 150.0})
+    check('linee aperte dentro il pezzo → da verificare', not ok, motivi)
+    ok, motivi = SI.decidi_sicuro({**base, 'diag': {'lati_quotati': 2, 'n_segni': 1}})
+    check('foro a forma di lettera → da verificare', not ok, motivi)
+
     print(f'\nRisultato: {OK} ok, {len(KO)} ko')
     for k in KO:
         print('  KO:', k)

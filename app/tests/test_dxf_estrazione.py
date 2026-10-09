@@ -337,7 +337,7 @@ def main():
           d.get('dim_x_mm') == 45.5 and d.get('dim_y_mm') == 12 and d.get('spessore_mm') == 3.0, d)
 
     for testo, atteso in [('SP. 3', 3.0), ('SP=3', 3.0), ('S=2', 2.0), ('SPESSORE 1,5', 1.5),
-                          ('sp3', 3.0), ('THK 2 mm', 2.0)]:
+                          ('sp3', 3.0), ('THK 2 mm', 2.0), ('SP. 30/10', 3.0), ('Sp. 15/10', 1.5)]:
         def _d9c(doc, m, testo=testo):
             rett(m, 0, 0, 100, 50)
             m.add_text(testo, dxfattribs={'insert': (500, 30)})
@@ -377,8 +377,10 @@ def main():
     s = S.scegli_spessore([
         {'spessore_mm': 3.0, 'confidence': 0.57, 'source': 'peso_area'},
         {'spessore_mm': 1.0, 'confidence': 0.65, 'source': 'cartiglio_tabellare'}])
-    check('discordanti: peso/area batte tabellare, warning con entrambi',
-          s['spessore_mm'] == 3.0 and any('1.0 mm' in w and '3 mm' in w for w in s['warnings']), s)
+    # (dal 10/2026 la cella del cartiglio precede peso/area nella proposta: sul
+    # campione casuale e' giusta il 95% contro l'85%; conta che NON sia sicuro)
+    check('discordanti peso/area vs tabellare: non sicuro, warning con entrambi',
+          s['confidence'] < 0.7 and any('1 mm' in w and '3.0 mm' in w for w in s['warnings']), s)
     s = S.scegli_spessore([
         {'spessore_mm': 1.2, 'confidence': 0.9, 'source': 'peso_area'},
         {'spessore_mm': 3.0, 'confidence': 0.8, 'source': 'testo'}])
@@ -390,8 +392,22 @@ def main():
     s = S.scegli_spessore([
         {'spessore_mm': 3.0, 'confidence': 0.57, 'source': 'peso_area'},
         {'spessore_mm': 3.0, 'confidence': 0.65, 'source': 'cartiglio_tabellare'}])
-    check('concordanti: nessun warning, confidence massima', s['spessore_mm'] == 3.0 and not s['warnings']
-          and s['confidence'] == 0.65, s)
+    check('concordanti (peso/area + cartiglio, fonti indipendenti): nessun warning, sicuro 0.9',
+          s['spessore_mm'] == 3.0 and not s['warnings'] and s['confidence'] == 0.9, s)
+    s = S.scegli_spessore([
+        {'spessore_mm': 3.0, 'confidence': 0.8, 'source': 'testo'},
+        {'spessore_mm': 3.0, 'confidence': 0.85, 'source': 'cartiglio_descrizione'}])
+    check('concordanti ma stesso testo del cartiglio: niente conferma (0.85)',
+          s['spessore_mm'] == 3.0 and s['confidence'] == 0.85, s)
+    s = S.scegli_spessore([
+        {'spessore_mm': 3.0, 'confidence': 0.8, 'source': 'testo'},
+        {'spessore_mm': 2.0, 'confidence': 0.75, 'source': 'vista_laterale'}])
+    check('discordanti: non sicuro (< 0.7) e warning', s['confidence'] < 0.7 and s['warnings'], s)
+    s = S.scegli_spessore([
+        {'spessore_mm': 3.0, 'confidence': 0.8, 'source': 'testo'},
+        {'spessore_mm': 2.0, 'confidence': 0.65, 'source': 'peso_area'}], area_incerta=True)
+    check('area incerta: peso/area non vota, testo resta sicuro',
+          s['spessore_mm'] == 3.0 and s['confidence'] == 0.8 and not s['warnings'], s)
 
     from backend.preventivi import dxf_batch_worker as _w
 
@@ -401,8 +417,8 @@ def main():
     p9w = dxf('pezzo_sp3.dxf', _d9w)
     rw = _w.process_single_dxf(p9w, 'pezzo_sp3.dxf', CFG)
     sp = rw.get('spessore') or {}
-    check('pipeline: tabellare 1.0 non sovrascrive il nome file sp3 (warning)',
-          sp.get('spessore_mm') == 3.0 and any('discordante' in w for w in sp.get('warnings') or []), sp)
+    check('pipeline: tabellare 1.0 contro nome file sp3: non sicuro, warning',
+          (sp.get('confidence') or 0) < 0.7 and any('discordante' in w for w in sp.get('warnings') or []), sp)
 
     # =====================================================================
     print('\nD10) Confidence')
@@ -446,6 +462,80 @@ def main():
     mc = S.estrai_materiale_da_cartiglio(dxf('d11_forte.dxf', _d11d))
     check('senza etichetta: designazione forte, confidence bassa',
           mc['materiale'] == 'INOX_304' and mc['confidence'] < 0.5, mc)
+
+    def _d11e(doc, m):
+        m.add_text('Materiale:', dxfattribs={'insert': (500, 10)})
+        m.add_text('Acciaio inossidabile', dxfattribs={'insert': (530, 10)})
+    mc = S.estrai_materiale_da_cartiglio(dxf('d11_inossidabile.dxf', _d11e))
+    check('"Acciaio inossidabile" = INOX_304 (non S235)', mc['materiale'] == 'INOX_304', mc)
+
+    def _d11f(doc, m):
+        m.add_text('Materiale: C75 S', dxfattribs={'insert': (500, 10)})
+    mc = S.estrai_materiale_da_cartiglio(dxf('d11_molla.dxf', _d11f))
+    check('acciaio da molla C75: proposto, non sicuro (< 0.8)', mc['materiale'] and mc['confidence'] < 0.8, mc)
+
+    # =====================================================================
+    print('\nD11b) Fonti di spessore: codici, piatti, celle, vista laterale')
+
+    def _d11g(doc, m):
+        rett(m, 0, 0, 100, 50)
+        m.add_text('1266-09721-200-SP07.00', dxfattribs={'insert': (500, 10)})
+    sp = S.estrai_spessore_da_cartiglio(dxf('d11_codice_sp.dxf', _d11g))
+    check('"...-SP07.00" in un codice non e\' uno spessore', sp.get('spessore_mm') is None, sp)
+    sp = S.estrai_spessore_da_cartiglio(dxf('1266-200-SP06.00.dxf', _d11g))
+    check('"...-SP06.00" nel nome file non e\' uno spessore', sp.get('spessore_mm') is None, sp)
+    sp = S.estrai_spessore_da_cartiglio(dxf('staffa_sp3.dxf', _d11g))
+    check('"staffa_sp3" nel nome file = 3', sp.get('spessore_mm') == 3.0, sp)
+
+    def _d11h(doc, m):
+        rett(m, 0, 0, 200, 40)
+        m.add_text('PIATTO 40 X 5 LG.200', dxfattribs={'insert': (500, 10)})
+    sp = S.estrai_spessore_da_cartiglio(dxf('d11_piatto.dxf', _d11h))
+    check('"PIATTO 40 X 5 LG.200" = sp 5 (piatto)', sp.get('spessore_mm') == 5.0 and sp.get('source') == 'piatto', sp)
+
+    def _d11i(doc, m):
+        rett(m, 0, 0, 100, 50)
+        m.add_text('Lamiera 50 x 15', dxfattribs={'insert': (500, 10)})
+    sp = S.estrai_spessore_da_cartiglio(dxf('d11_lamiera2.dxf', _d11i))
+    check('"Lamiera 50 x 15": sono i lati, nessuno spessore', sp.get('spessore_mm') is None, sp)
+
+    def _d11j(doc, m):
+        rett(m, 0, 0, 100, 50)
+        m.add_text('Spessore', dxfattribs={'insert': (500, 10)})
+        m.add_text('2', dxfattribs={'insert': (540, 11)})
+    sp = S.estrai_spessore_da_cartiglio(dxf('d11_cella.dxf', _d11j))
+    check('cella accanto a "Spessore" = 2, da confermare', sp.get('spessore_mm') == 2.0
+          and sp.get('source') == 'cella' and sp.get('confidence') < 0.7, sp)
+
+    def _d11k(doc, m):
+        rett(m, 0, 0, 300, 120)
+        m.add_circle((50, 60), 8)
+        rett(m, 0, 200, 300, 3)            # vista laterale: 300 x 3
+    p11k = dxf('d11_vista.dxf', _d11k)
+    g11k = geo(p11k)
+    check('vista laterale 300x3 sotto il pezzo = sp 3',
+          (g11k.get('spessore_vista') or {}).get('spessore_mm') == 3.0, g11k.get('spessore_vista'))
+    rw = _w.process_single_dxf(p11k, 'd11_vista.dxf', CFG)
+    check('pipeline: spessore 3 dalla vista laterale', (rw.get('spessore') or {}).get('spessore_mm') == 3.0,
+          rw.get('spessore'))
+
+    def _d11l(doc, m):
+        rett(m, 0, 0, 300, 120)
+        rett(m, 0, 200, 300, 3)
+        m.add_text('Lam. Sp. 2', dxfattribs={'insert': (500, 10)})
+    rw = _w.process_single_dxf(dxf('d11_vista_discorde.dxf', _d11l), 'd11_vista_discorde.dxf', CFG)
+    sp = rw.get('spessore') or {}
+    check('testo "Sp. 2" contro vista laterale 3: non sicuro, avviso',
+          sp.get('confidence', 1) < 0.7 and any('discordante' in w for w in sp.get('warnings') or []), sp)
+
+    def _d11m(doc, m):
+        rett(m, 0, 0, 300, 120)
+        rett(m, 0, 200, 300, 3)
+        m.add_text('Lam. Sp. 3', dxfattribs={'insert': (500, 10)})
+    rw = _w.process_single_dxf(dxf('d11_vista_concorde.dxf', _d11m), 'd11_vista_concorde.dxf', CFG)
+    sp = rw.get('spessore') or {}
+    check('testo "Sp. 3" + vista laterale 3: confermato (0.9)',
+          sp.get('spessore_mm') == 3.0 and sp.get('confidence') >= 0.9, sp)
 
     # =====================================================================
     print('\nD12) Cache: chiave e DXF pulito')

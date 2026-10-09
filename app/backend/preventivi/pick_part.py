@@ -67,6 +67,7 @@ from .dxf_polygon_detector_v3 import (
     _estendi_oltre_pieghe,
     applica_intagli,
     entita_espanse,
+    linea_tratteggiata,
     scala_unita_mm,
 )
 try:
@@ -235,6 +236,7 @@ def _collect_segments(msp, colori_esclusi: set[int]) -> list[tuple]:
         chiusi_normali = []
         colorati = []   # (segmenti, poligono) dei contorni chiusi colorati
         colorati_aperti = []
+        tratteggiati = []
         for entity in entita_espanse(msp, solo_geometria=True):
             if entity.dxftype() in TIPI_ANNOTAZIONE:
                 continue
@@ -243,6 +245,10 @@ def _collect_segments(msp, colori_esclusi: set[int]) -> list[tuple]:
                     continue
             except AttributeError:
                 pass
+            # linee a tratti (nascoste, assi, pieghe, ingombri): mai profili di taglio
+            if linea_tratteggiata(entity):
+                tratteggiati.append(entity)
+                continue
             if _entity_color_excluded(entity, colori_esclusi):
                 s = _entity_segments(entity, scala=scala)
                 if _entita_chiusa(entity):
@@ -256,6 +262,10 @@ def _collect_segments(msp, colori_esclusi: set[int]) -> list[tuple]:
                 if pc is not None:
                     chiusi_normali.append(pc)
             segs.extend(s)
+        if not segs and not colorati and not colorati_aperti and tratteggiati:
+            # disegno tutto a tratti: e' comunque il pezzo
+            for entity in tratteggiati:
+                segs.extend(_entity_segments(entity, scala=scala))
         nessuna_normale = not segs
         if colorati:
             if segs:
@@ -319,6 +329,58 @@ def _faces_from_msp(msp, colori_esclusi: set[int]) -> list:
                       lambda: _calcola_facce(msp, colori_esclusi))
 
 
+def linee_con_coda(msp, colori_esclusi: set[int]):
+    """Tratti del disegno che finiscono "nel vuoto" con una coda lunga piu' di
+    1 mm (estremo libero dopo l'ultimo incrocio): linee di richiamo di note e
+    quote, frecce, linee di costruzione. Un contorno da tagliare e le linee di
+    piega finiscono sempre su un'altra linea. Ritorna l'unione (buffer 0,1 mm)
+    dei segmenti originali che hanno una coda, o None."""
+    if not _HAS_SHAPELY:
+        return None
+    return _cache_doc(msp, ('code', frozenset(colori_esclusi)),
+                      lambda: _calcola_linee_con_coda(msp, colori_esclusi))
+
+
+def _calcola_linee_con_coda(msp, colori_esclusi: set[int]):
+    from collections import Counter
+    from shapely.strtree import STRtree
+    segs = _collect_segments(msp, colori_esclusi)
+    if not segs or len(segs) > 60000:
+        return None
+    try:
+        lines = [LineString([(x1, y1), (x2, y2)]) for (x1, y1, x2, y2) in segs]
+        mls = MultiLineString(lines)
+        try:
+            mls = shapely.set_precision(mls, _SNAP_GRID_MM)
+        except Exception:
+            pass
+        noded = unary_union(mls)
+        pezzi = list(noded.geoms) if hasattr(noded, 'geoms') else [noded]
+        k = lambda c: (round(c[0], 3), round(c[1], 3))
+        grado = Counter()
+        for p in pezzi:
+            cs = p.coords
+            grado[k(cs[0])] += 1
+            grado[k(cs[-1])] += 1
+        code = [p for p in pezzi if p.length > 1.0
+                and (grado[k(p.coords[0])] == 1 or grado[k(p.coords[-1])] == 1)]
+        if not code:
+            return None
+        albero = STRtree(lines)
+        presi = set()
+        for p in code:
+            mid = p.interpolate(0.5, normalized=True)
+            for j in albero.query(mid.buffer(0.05)):
+                if lines[j].distance(mid) <= 0.05:
+                    presi.add(int(j))
+        if not presi:
+            return None
+        return unary_union([lines[j] for j in presi]).buffer(0.1)
+    except Exception as e:
+        logger.debug('linee con coda non calcolate: %s', e)
+        return None
+
+
 def _calcola_facce(msp, colori_esclusi: set[int]) -> list:
     segs = _collect_segments(msp, colori_esclusi)
     if not segs:
@@ -363,7 +425,7 @@ def _geometry_from_outer(outer, all_faces: list) -> dict:
     holes = [Polygon(f.exterior) for f in all_faces
              if f is not outer and f.area < outer.area * 0.999 and pp.contains(f)]
     holes, _n = _dedup_poligoni(holes)
-    holes, _n_svas = _riduci_fori_annidati(holes)
+    holes, _n_svas = _riduci_fori_annidati(holes, outer)
 
     area_lorda_mm2 = outer.area
     area_fori_mm2 = sum(h.area for h in holes)
