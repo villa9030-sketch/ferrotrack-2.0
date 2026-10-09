@@ -175,6 +175,9 @@ CONF_BASSA = 0.3
 # Pezzo giusto ma fori dubbi (scritta forse tagliata...): sotto lo 0.7 del
 # "pulito auto" -> revisione, ma senza selezione manuale del contorno
 CONF_FORI_DUBBI = 0.65
+# Tipo di disegno (tipo_disegno.py): SINGOLO / PIU_PEZZI / DA_SVILUPPARE /
+# NON_LASER. Disattivabile da config con dxf_tipo_disegno = False.
+TIPO_DISEGNO_ATTIVO = True
 ARCHI_GIRO_MIN = 1.5 * math.pi        # archi liberi coassiali che coprono 270 gradi = foro tondo (_fori_da_archi)
 GIOCO_TRATTI_MM = 2.0               # estremi di linee aperte accostati per vedere se chiudono una zona
 FESSURA_MAX_MM = 0.1                 # fessure del contorno piu' strette: non si tagliano (_chiudi_fessure)
@@ -3217,6 +3220,41 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         needs_manual = True
         warnings.append(f'Nessuna confidenza sul pezzo detectato — selezione manuale richiesta')
 
+    # ---- 9b. Tipo di disegno (pezzo singolo, piu' pezzi, da sviluppare, non
+    # da laser): lo usa dxf_batch_worker per non dare per sicuro un disegno
+    # che non e' un pezzo piano singolo. Solo lettura: misure invariate.
+    tipo_info = None
+    if cfg.get('dxf_tipo_disegno', TIPO_DISEGNO_ATTIVO):
+        try:
+            from . import tipo_disegno as _td
+            _copia = lambda a, b: _copia_identica(a, b, candidati, circles_centri)  # noqa: E731
+            feat = _td.caratteristiche(doc, msp, base, candidati, top_level, outer_mis, scelto, _copia,
+                                       cfg, conf_scelta=conf_scelta, profilo_piegato=bool(prof))
+            # segnali gia' letti dal detector: spigoli nascosti/tangenti dentro
+            # il contorno (vista piegata o 3D), linee d'interruzione (vista
+            # accorciata), solidi/regioni/proxy non leggibili
+            feat['n_nascosti_dentro'] = n_nasc
+            feat['n_interruzioni'] = n_interr
+            feat['n_illeggibili'] = n_illeggibili
+            # confidenza del detector sul contorno (dopo tutti i dubbi): il
+            # tipo di disegno si decide diversamente quando il contorno e'
+            # chiaro e quando il motore e' gia' indeciso
+            feat['conf_detector'] = round(float(confidence), 3)
+            gruppi = feat.pop('_gruppi', None)
+            tipo, conf_tipo, prob = _td.classifica(feat)
+            tipo_info = {'tipo': tipo, 'conf': conf_tipo, 'prob': prob, 'feat': feat}
+            if tipo == 'PIU_PEZZI':
+                tipo_info['pezzi'] = _td.pezzi_del_foglio(candidati, top_level, base.get('testi'), scala,
+                                                          _copia, gruppi)
+            elif cfg.get('_studio'):
+                tipo_info['pezzi_studio'] = [g['quantita'] for g in gruppi or []]
+            if cfg.get('_studio'):
+                tipo_info['cand'] = [[round(min(c.bounds[2] - c.bounds[0], c.bounds[3] - c.bounds[1]), 2),
+                                      round(max(c.bounds[2] - c.bounds[0], c.bounds[3] - c.bounds[1]), 2),
+                                      round(c.area, 1)] for c in candidati[:400]]
+        except Exception as e:      # noqa: BLE001 - il tipo di disegno non deve rompere il detector
+            logger.warning('tipo disegno: %s', e)
+
     # ---- 10. Costruisci lista candidati per UI (top N per score)
     # Coordinate nelle unità del DISEGNO (overlay sull'SVG), misure in mm.
     candidates_out = []
@@ -3260,7 +3298,13 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
         'poligoni_grezzi': base['n_raw'],
         'poligoni_cartiglio_rimossi': cartiglio_count,
         'entita_duplicate_rimosse': base['n_dup'],
-        'tipo_disegno': 'v3_shapely',
+        'tipo_disegno': tipo_info['tipo'] if tipo_info else 'v3_shapely',
+        'tipo_disegno_conf': tipo_info['conf'] if tipo_info else None,
+        'tipo_disegno_prob': tipo_info['prob'] if tipo_info else None,
+        'tipo_disegno_feat': tipo_info['feat'] if tipo_info else None,
+        **({'pezzi': tipo_info['pezzi']} if tipo_info and 'pezzi' in tipo_info else {}),
+        **({'_studio_tipo': {k: tipo_info[k] for k in ('cand', 'pezzi_studio') if k in tipo_info}}
+           if tipo_info and cfg.get('_studio') else {}),
         'warnings': warnings,
         # fori dubbi (scritte/lettere contate come fori): la conferma delle
         # misure del cartiglio riguarda il contorno, non toglie questo dubbio
