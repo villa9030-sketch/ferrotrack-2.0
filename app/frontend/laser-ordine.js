@@ -125,7 +125,7 @@
       LZ.metti(el, S.aperto && !S.primoCarico
         ? `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('archive')}</div><b>Quest'ordine non è più al laser</b><p>Scegline un altro a sinistra.</p></div></div>`
         : `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('mouse-pointer-click')}</div><b>Scegli un ordine a sinistra</b>
-            <p>oppure spuntane più di uno per lavorarli insieme.</p><p style="margin-top:10px"><kbd>↑</kbd> <kbd>↓</kbd> per scorrere gli ordini</p></div></div>`);
+            <p>oppure spuntane più di uno per lavorarli insieme.</p><p style="margin-top:10px"><kbd>↑</kbd> <kbd>↓</kbd> per scorrere gli ordini · <kbd>Spazio</kbd> per selezionarli · <kbd>C</kbd> per controllare i disegni</p></div></div>`);
       return;
     }
     if (costruitoPer !== o.id || !el.querySelector('#lz-o-testa')) scheletro(el, o.id);

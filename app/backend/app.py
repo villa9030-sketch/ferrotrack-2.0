@@ -1501,7 +1501,7 @@ def motivo_breve(m: str) -> str | None:
         return 'Disegno in scala: controlla le misure'
     if 'peso calcolato' in t or 'peso del cartiglio' in t or ('peso' in t and 'cartiglio' in t):
         return 'Il peso non torna col cartiglio: forse manca materiale'
-    if 'modello' in t and ('scelta' in t or 'corrett' in t):
+    if 'modello' in t and ('scelt' in t or 'corrett' in t):
         return 'Contorno scelto dal modello: controlla che sia il pezzo'
     if 'somiglianza' in t:
         return 'Disegno abbinato al codice solo per somiglianza del nome'

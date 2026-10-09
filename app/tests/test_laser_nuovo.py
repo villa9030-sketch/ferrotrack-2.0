@@ -99,7 +99,7 @@ with sync_playwright() as p:
     pg.on('pageerror', lambda e: err.append(str(e)))
     pg.goto(B + '/laser.html')
     pg.wait_for_selector('.lz-r[data-id]', timeout=20000)
-    pg.wait_for_function('Object.keys(LZ.s.riep).length > 0', timeout=60000)
+    pg.wait_for_function('Object.keys(LZ.s.riep).length > 0 && LZ.sat.pronto', timeout=60000)
 
     print('1) Apertura')
     check('elenco con gli ordini', pg.locator('.lz-r[data-id]').count() > 0)

@@ -306,6 +306,8 @@ def main():
     mb = A.motivo_breve
     check('viste simili', mb('3 contorni esterni di dimensioni confrontabili nel disegno: verificare') == 'Nel foglio ci sono 3 viste simili: è questo il pezzo?')
     check('duplicati: non serve dirlo', mb('6 entità duplicate/sovrapposte ignorate') is None)
+    check('contorno scelto dal modello', mb('Contorno scelto dal modello addestrato invece di quello a regole: verificare')
+          == 'Contorno scelto dal modello: controlla che sia il pezzo')
     check('piegato', mb('Il disegno mostra il pezzo piegato (profilo...): manca lo sviluppo') == 'Disegnato piegato: forse manca lo sviluppo')
     check('al massimo tre, senza doppioni', len(A.motivi_brevi(['scala 1:4', 'scala 1:2', 'linee aperte', 'nessun riscontro', 'facce dentro'])) == 3)
 

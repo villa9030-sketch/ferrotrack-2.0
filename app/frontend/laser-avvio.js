@@ -148,7 +148,6 @@
       if (S.aperto && LZ.ordine.invio()) e.preventDefault();
       return;
     }
-    if (S.aperto && (k === '1' || k === '2' || k === '3')) { LZ.ordine.mostraScheda(['pezzi', 'disegni', 'pdf'][Number(k) - 1]); }
   });
 
   document.addEventListener('fullscreenchange', () => {
