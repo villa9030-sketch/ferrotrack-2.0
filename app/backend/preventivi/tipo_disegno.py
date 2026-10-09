@@ -591,13 +591,27 @@ def _albero(nodo: dict, feat: dict):
 
 
 def classifica(feat: dict) -> tuple[str, float, dict]:
-    """(tipo, confidenza, probabilita' per classe). Senza modello: SINGOLO."""
+    """(tipo, confidenza, probabilita' per classe). Senza modello: SINGOLO.
+
+    Due alberi, scelti dalla confidenza del detector sul contorno:
+    - 'incerto' (sotto 0,7): il motore e' gia' indeciso, e' la popolazione
+      dei disegni rivisti da Stefano; l'albero dice il tipo con soglia 0,5;
+    - 'chiaro' (da 0,7 in su): contorno chiaro, l'albero e' molto prudente
+      (SINGOLO pesa 40 volte, soglia 0,7) per non togliere il "sicuro" ai
+      pezzi giusti."""
     m = _modello()
-    if not m or 'albero' not in m:
+    if not m:
         return 'SINGOLO', 0.0, {}
-    prob = dict(_albero(m['albero'], feat))
+    if 'albero' in m:                       # formato 1: un albero solo
+        ramo = m
+    else:
+        soglia_conf = float(m.get('conf_detector_soglia', 0.7))
+        ramo = m.get('incerto' if float(feat.get('conf_detector') or 0) < soglia_conf else 'chiaro')
+        if not ramo or 'albero' not in ramo:
+            return 'SINGOLO', 0.0, {}
+    prob = dict(_albero(ramo['albero'], feat))
     tipo = max(prob, key=prob.get)
-    if tipo != 'SINGOLO' and prob[tipo] < float(m.get('soglia', 0.5)):
+    if tipo != 'SINGOLO' and prob[tipo] < float(ramo.get('soglia', 0.5)):
         # foglia incerta: resta il comportamento di sempre (pezzo singolo)
         tipo = 'SINGOLO'
     return tipo, round(float(prob[tipo]), 3), {k: round(float(v), 3) for k, v in prob.items()}
