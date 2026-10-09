@@ -122,9 +122,27 @@ with sync_playwright() as p:
     conta = pg.locator('#conta-smistare').inner_text()
     check('la scheda porta il conteggio', str(prima) in conta, conta)
 
-    # --- "non passa da qui": deve sparire dalla coda e diventare lavorabile ---
-    pg.locator('.riga-smista .btn-no').first.click()
+    # Le righe servono a scegliere: nessun pulsante (07/10/2026). Si apre
+    # l'ordine e si decide nell'intestazione, accanto al nome del cliente.
+    check('nelle righe della lista non ci sono pulsanti', pg.locator('tr.lv-r button').count() == 0)
+
+    # --- "non passa da qui": chiede conferma, poi esce dalla coda ---
+    pg.locator('.riga-smista').first.click()
+    pg.wait_for_timeout(1500)
+    pg.locator('.lv-dh-act .btn-no').click()
+    pg.wait_for_timeout(400)
+    check('"Non passa dal laser" chiede conferma',
+          pg.locator('.ft-modal-bg.open').count() == 1)
+    pg.locator('.ft-modal-bg.open button[data-v="0"]').click()     # ci ripenso
+    pg.wait_for_timeout(1500)
+    check('annullando la conferma non cambia niente',
+          len(pg.locator('.riga-smista').all()) == prima)
+    pg.locator('.lv-dh-act .btn-no').click()
+    pg.wait_for_timeout(400)
+    pg.locator('.ft-modal-bg.open button[data-v="1"]').click()
     pg.wait_for_timeout(3000)
+    check('dopo l\'azione non si apre da solo un altro ordine',
+          pg.evaluate('selectedOrderId') is None and 'Annulla' in pg.locator('#lz-work').inner_text())
     dopo = len(pg.locator('.riga-smista').all())
     check('scartandolo esce dall\'elenco da smistare', dopo == prima - 1,
           '%d -> %d' % (prima, dopo))
@@ -137,8 +155,10 @@ with sync_playwright() as p:
           len(scartati) == scartati_prima + 1,
           '%d -> %d' % (scartati_prima, len(scartati)))
 
-    # --- "va tagliato": entra nella coda ---
-    pg.locator('.riga-smista .btn-si').first.click()
+    # --- "va tagliato": entra nella coda (senza conferma) ---
+    pg.locator('.riga-smista').first.click()
+    pg.wait_for_timeout(1500)
+    pg.locator('.lv-dh-act .btn-si').click()
     pg.wait_for_timeout(3000)
     accettati = [o for o in ordini()
                  if o.get('taglio_richiesto') is True and not o.get('taglio_completato')]
@@ -147,7 +167,13 @@ with sync_playwright() as p:
     pg.locator('#vt-importare').click()
     pg.wait_for_timeout(1500)
     check('e si vede fra quelli "Da importare in Lantek"',
-          pg.locator('button.btn-importato').count() > 0)
+          pg.locator('tr.lv-r').count() > 0)
+    # In Lantek si entra solo dalla procedura guidata: niente scorciatoie
+    pg.locator('tr.lv-r').first.click()
+    pg.wait_for_timeout(2500)
+    testo = pg.locator('#lz-work').inner_text()
+    check('aprendolo parte la procedura guidata, senza "Già in Lantek"',
+          pg.locator('#lg').count() == 1 and 'Già in Lantek' not in testo, testo[:200])
     check('nella coda non ci sono piu\' i due pulsanti di smistamento',
           pg.locator('.riga-smista').count() == 0)
     check('nessun errore JavaScript in tutta la prova', not err, err[:1])

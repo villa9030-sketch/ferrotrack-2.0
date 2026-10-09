@@ -386,6 +386,39 @@ def _ordini_lantek(commessa: str) -> dict | None:
     return out
 
 
+def pezzi_dell_ordine(commessa: str) -> dict | None:
+    """Tutti i pezzi che Lantek ha negli ordini di produzione con quel numero
+    d'ordine, aperti o fatti: {codice in maiuscolo: quantita'}. Sono i pezzi
+    che Stefano ci ha messo (anche a mano): da qui si abbinano gli assiemi."""
+    tutti = _ordini_lantek(commessa)
+    if tutti is None:
+        return None
+    return {k: v['aperti'] + v['fatti'] for k, v in tutti.items() if v['aperti'] + v['fatti']}
+
+
+def cerca_pezzi(testo: str, massimo: int = 30) -> list | None:
+    """I pezzi dell'archivio di Lantek il cui codice contiene `testo`:
+    [{'codice', 'materiale', 'spessore'}]. None se Lantek non e' leggibile."""
+    testo = str(testo or '').strip()
+    cfg = _config()
+    if len(testo) < 3 or not cfg.get('abilitato'):
+        return [] if cfg.get('abilitato') else None
+    like = '%' + testo.replace('[', '[[]').replace('%', '[%]').replace('_', '[_]') + '%'
+    try:
+        con, cur = _connessione(cfg)
+        try:
+            # solo i pezzi veri (PType 0), non le materie prime
+            cur.execute(f'SELECT TOP {int(massimo)} PrdRef, DIS_MatRef, DIS_Thickness FROM PPRR_PPRR_00000100 '
+                        'WHERE PrdRef LIKE ? AND (PType = 0 OR PType IS NULL) ORDER BY PrdRef', [like])
+            return [{'codice': str(p).strip(), 'materiale': m or None,
+                     'spessore': float(s) if s is not None else None} for p, m, s in cur.fetchall()]
+        finally:
+            con.close()
+    except Exception as e:
+        logger.info('ricerca pezzi Lantek non riuscita: %s', e)
+        return None
+
+
 def ordini_in_lantek(commessa: str) -> dict | None:
     """Gli ordini di produzione APERTI (non ancora fatti) che Lantek ha per
     quel numero d'ordine: {codice in maiuscolo: quantita'}. None se Lantek non

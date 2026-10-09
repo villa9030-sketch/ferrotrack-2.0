@@ -456,15 +456,19 @@ def main():
     ft = g11t.get('fori_trapano') or []
     check('spessore 10 sicuro: i due Ø5 al trapano, gli Ø8 al laser',
           len(ft) == 2 and all(abs(f['d_mm'] - 5) < 0.05 for f in ft), ft)
-    check('inneschi e fori -2', g11t['n_pierce'] == n0 - 2 and g11t['n_fori'] == 3,
-          (g11t['n_pierce'], g11t['n_fori']))
-    check('area + 2 fori Ø5, perimetro - 2 circonferenze',
-          abs(g11t['area_dm2'] - a0 - 2 * math.pi * 2.5 ** 2 / 1e4) < 3e-4
-          and abs(per0 - g11t['perimetro_taglio_m'] - 2 * math.pi * 5 / 1000) < 5e-4,
-          (a0, g11t['area_dm2'], per0, g11t['perimetro_taglio_m']))
+    sp = g11t.get('taglio_senza_trapano') or {}
+    check('area invariata: il foro al trapano toglie comunque materiale', abs(g11t['area_dm2'] - a0) < 1e-6,
+          (a0, g11t['area_dm2']))
+    check('taglio senza trapano: inneschi -2, perimetro - 2 circonferenze',
+          sp.get('n_pierce') == n0 - 2 and abs(per0 - sp.get('perimetro_taglio_m', 0) - 2 * math.pi * 5 / 1000) < 5e-4, sp)
+    if W.FORI_TRAPANO_NEL_COSTO:
+        check('nel costo i fori da trapano restano come tagliati (prezzo prudente)',
+              g11t['n_pierce'] == n0 and g11t['perimetro_taglio_m'] == per0, (g11t['n_pierce'], g11t['perimetro_taglio_m']))
+    else:
+        check('inneschi e fori -2', g11t['n_pierce'] == n0 - 2 and g11t['n_fori'] == 3, (g11t['n_pierce'], g11t['n_fori']))
     check('avviso trapano', any('al trapano' in w for w in g11t.get('warnings') or []), g11t.get('warnings'))
     check('quadretto 4x4 (non tondo) sotto Ø6: resta al laser ma da verificare',
-          g11t.get('fori_stretti_non_tondi') == 1 and g11t['n_fori'] == 3, g11t.get('fori_stretti_non_tondi'))
+          g11t.get('fori_stretti_non_tondi') == 1, g11t.get('fori_stretti_non_tondi'))
     ok, motivi = SI.decidi_sicuro({**base, 'fori_stretti_non_tondi': 1})
     check('contorno non tondo sotto il minimo laser → da verificare', not ok and 'non tondi' in motivi[0], motivi)
     check('spessore 5 sicuro: quadretto 4x4 sopra Ø3, nessun dubbio',

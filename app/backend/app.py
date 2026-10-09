@@ -7263,6 +7263,42 @@ def _nuovi_per_lantek(order, q, righe=None) -> tuple:
     return si, no
 
 
+def _righe_pdf_ordine(order) -> list | None:
+    """Le righe lette dal PDF di un ordine che non ha una distinta sua (ordine
+    caricato solo col PDF), None se l'ordine ha la distinta o non ha il PDF."""
+    if order.preventivo_id_origine:
+        return None
+    s = get_session()
+    try:
+        f = (s.query(OrderFile).filter(OrderFile.order_id == order.id, OrderFile.file_type == 'PDF')
+             .order_by(OrderFile.upload_date).first())
+        percorso = f.filepath if f else None
+    finally:
+        s.close()
+    if not percorso:
+        return None
+    from . import ordine_pdf_lantek as _opl
+    return _opl.righe_dal_pdf(percorso)
+
+
+def _distinta_lantek(order) -> tuple:
+    """(righe della distinta, righe del PDF o None) per mettere l'ordine in
+    Lantek. Di norma e' la distinta dell'ordine; un ordine arrivato solo in PDF
+    non ce l'ha: si usano le righe del PDF, con gli assiemi gia' abbinati
+    scomposti nei loro pezzi Lantek (ordine_pdf_lantek). Solo per il flusso
+    di Lantek: le altre pagine (tablet, distinta) restano come prima."""
+    righe = _distinta_ordine(order)[0]
+    if righe:
+        return righe, None
+    righe_pdf = _righe_pdf_ordine(order)
+    if not righe_pdf:
+        return righe, None
+    from . import ordine_pdf_lantek as _opl
+    from . import lantek as _lt
+    codici = [r['codice'] for r in righe_pdf]
+    return _opl.distinta(righe_pdf, _opl.abbinamenti(codici), _lt.pezzi_in_lantek(codici)), righe_pdf
+
+
 def _quantita_lantek(order, righe=None) -> dict:
     """Le quantita' da importare in Lantek (iErp, modello ImportProduzione) per
     un ordine, coi controlli letti da Lantek in sola lettura (backend/lantek.py).
@@ -7272,7 +7308,7 @@ def _quantita_lantek(order, righe=None) -> dict:
     from .preventivi.dxf_cleanup import _sanitize_path_part
     if righe is None:
         try:
-            righe = _distinta_ordine(order)[0]
+            righe = _distinta_lantek(order)[0]
         except Exception:
             logger.warning('distinta per le quantita Lantek non letta', exc_info=True)
             righe = []
@@ -7307,12 +7343,21 @@ def api_ordine_lantek_quantita(order_id):
         if request.args.get('fresco'):
             # "Ricontrolla": rileggere Lantek adesso (dopo un import dal MES)
             _lt._svuota_cache()
-        q = _quantita_lantek(order)
+        righe_dist, righe_pdf = _distinta_lantek(order)
+        q = _quantita_lantek(order, righe_dist)
         n_avvisi = sum(1 for r in q['righe'] if r['avvisi'])
         nuovi_si, nuovi_no = [], []
         if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
-            nuovi_si, nuovi_no = _nuovi_per_lantek(order, q)
-        return jsonify({'success': True, **q, 'n_codici': len(q['righe']),
+            nuovi_si, nuovi_no = _nuovi_per_lantek(order, q, righe_dist)
+        pdf = None
+        if righe_pdf:
+            # ordine solo PDF: come stanno le sue righe (assiemi da abbinare)
+            from . import ordine_pdf_lantek as _opl
+            pdf = _opl.stato_righe(
+                righe_pdf, _opl.abbinamenti([r['codice'] for r in righe_pdf]),
+                _lt.pezzi_in_lantek([r['codice'] for r in righe_pdf]),
+                _lt.pezzi_dell_ordine(q['commessa']) if q['lantek'].get('disponibile') else None)
+        return jsonify({'success': True, **q, 'n_codici': len(q['righe']), 'pdf': pdf,
                         # pezzi nuovi che "Manda a Lantek" crea col loro DXF, e quelli no
                         'nuovi_da_creare': [{k: x[k] for k in ('codice', 'materiale', 'spessore', 'quantita')}
                                             for x in nuovi_si],
@@ -7331,6 +7376,82 @@ def api_ordine_lantek_quantita(order_id):
     except Exception as e:
         logger.exception('quantita Lantek fallite')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/lantek-abbina', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_ordine_lantek_abbina(order_id):
+    """Ordine solo PDF: cosa diventa in Lantek una riga che in Lantek non c'e'
+    col suo codice. Lo decide Stefano, riga per riga, e vale anche per le
+    forniture dopo.
+
+    Corpo: {"codice": "13C050126-00", "pezzi": [{"codice": "47PA02034-00",
+    "quantita": 1}, ...]} (pezzi per UN assieme), oppure {"codice", "non_laser":
+    true}, oppure {"codice", "dimentica": true} per rifarlo."""
+    try:
+        from . import lantek as _lt
+        from . import ordine_pdf_lantek as _opl
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        corpo = request.get_json(silent=True) or {}
+        codice = str(corpo.get('codice') or '').strip()
+        righe_pdf = _righe_pdf_ordine(order) or []
+        riga = next((r for r in righe_pdf if r['codice'].upper() == codice.upper()), None)
+        if not riga:
+            return jsonify({'success': False, 'error': "Codice non trovato nelle righe del PDF dell'ordine"}), 404
+        if corpo.get('dimentica'):
+            n = _opl.dimentica_abbinamento(codice)
+            _audit('LANTEK_ASSIEME', 'orders', order_id, f'Abbinamento di {codice} tolto ({n} voci)')
+            return jsonify({'success': True}), 200
+        non_laser = bool(corpo.get('non_laser'))
+        pezzi = []
+        if not non_laser:
+            visti = set()
+            for p in corpo.get('pezzi') or []:
+                c = str((p or {}).get('codice') or '').strip()
+                try:
+                    qt = int((p or {}).get('quantita') or 0)
+                except (TypeError, ValueError):
+                    qt = 0
+                if not c or c.upper() in visti:
+                    continue
+                if not 1 <= qt <= 9999:
+                    return jsonify({'success': False, 'error': f'{c}: quantità per assieme non valida'}), 400
+                visti.add(c.upper())
+                pezzi.append({'codice': c, 'quantita': qt})
+            if not pezzi:
+                return jsonify({'success': False, 'error': 'Scegli almeno un pezzo di Lantek'}), 400
+            if any(p['codice'].upper() == codice.upper() for p in pezzi):
+                return jsonify({'success': False, 'error': "Un assieme non può contenere se stesso"}), 400
+            # solo pezzi che in Lantek ci sono davvero, col codice esatto di Lantek
+            info = _lt.pezzi_in_lantek([p['codice'] for p in pezzi])
+            if not info.get('disponibile'):
+                return jsonify({'success': False, 'error': info.get('errore') or 'Lantek non risponde'}), 503
+            mancano = [p['codice'] for p in pezzi if not (info['pezzi'].get(p['codice']) or {}).get('esiste')]
+            if mancano:
+                return jsonify({'success': False, 'error': 'Non sono in Lantek: ' + ', '.join(mancano)}), 400
+            for p in pezzi:
+                p['codice'] = info['pezzi'][p['codice']]['codice_lantek'] or p['codice']
+        _opl.salva_abbinamento(codice, pezzi, non_laser, riga['descrizione'], order.cliente or '', _chi_nome())
+        _audit('LANTEK_ASSIEME', 'orders', order_id,
+               f'{codice}: non va al laser' if non_laser else
+               f"{codice} = " + ', '.join(f"{p['codice']} x{p['quantita']}" for p in pezzi))
+        return jsonify({'success': True, 'pezzi': pezzi, 'non_laser': non_laser}), 200
+    except Exception as e:
+        logger.exception('abbinamento assieme Lantek fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/lantek/pezzi', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_lantek_cerca_pezzi():
+    """Pezzi dell'archivio di Lantek il cui codice contiene ?q= (almeno 3 caratteri)."""
+    from . import lantek as _lt
+    r = _lt.cerca_pezzi(request.args.get('q') or '')
+    if r is None:
+        return jsonify({'success': False, 'error': 'Lantek non risponde'}), 503
+    return jsonify({'success': True, 'pezzi': r}), 200
 
 
 @app.route('/api/orders/<order_id>/lantek-quantita.xlsx', methods=['GET'])
@@ -7417,6 +7538,75 @@ def api_ordine_pezzo_conferma(order_id, articolo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _articolo_ordine(order, articolo_id):
+    """(pezzo, percorso del suo DXF fra i disegni dell'ordine) o (None, None)."""
+    if not order.preventivo_id_origine:
+        return None, None
+    prev = PreventivoManager.get(order.preventivo_id_origine, include_children=True) or {}
+    art = next((a for a in prev.get('articoli') or [] if str(a.get('id')) == str(articolo_id)), None)
+    if not art or not art.get('dxf_filename'):
+        return art, None
+    d = _trova_disegno(order, os.path.basename(art['dxf_filename']))
+    return art, (d or {}).get('percorso')
+
+
+@app.route('/api/orders/<order_id>/pezzi/<articolo_id>/contorno.svg', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_ordine_pezzo_contorno_svg(order_id, articolo_id):
+    """Il disegno del pezzo con sopra il contorno preso da FerroTrack (verde)
+    e, se e' stato corretto in automatico col peso del cartiglio, quello di
+    prima (rosso tratteggiato). Per la verifica al laser: si guarda e si
+    decide. Solo lettura."""
+    try:
+        from flask import Response
+        from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
+        from .preventivi.svg_contorno import svg_con_contorni
+        order = _ordine_esistente(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        art, percorso = _articolo_ordine(order, articolo_id)
+        if not percorso or not percorso.lower().endswith('.dxf'):
+            return jsonify({'success': False, 'error': 'Disegno del pezzo non trovato'}), 404
+        cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
+        contorni = []
+        auto = None
+        try:
+            r = detect_pezzo_geometry_v3(percorso, cfg) or {}
+            auto = next((c for c in r.get('candidates') or [] if c.get('is_selected')), None)
+        except Exception:
+            logger.warning('contorno automatico non ricalcolato per %s', percorso, exc_info=True)
+        ca = art.get('contorno_auto') or {}
+        corretto = None
+        if ca.get('stato') in ('da_confermare', 'confermato'):
+            try:
+                from .preventivi.verifica_coerenza import peso_cartiglio, proponi_contorno
+                from .preventivi.verifica_ordine import densita_materiale
+                materiali = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
+                peso = (peso_cartiglio(percorso) or {}).get('peso_kg')
+                if peso and art.get('spessore_mm'):
+                    p = proponi_contorno(percorso, float(art['spessore_mm']),
+                                         densita_materiale(art.get('materiale'), materiali), float(peso), cfg)
+                    if p.get('trovato'):
+                        corretto = p
+            except Exception:
+                logger.warning('contorno corretto non ricalcolato per %s', percorso, exc_info=True)
+        if corretto:
+            if auto and auto.get('geometry'):
+                contorni.append({'punti': auto['geometry'], 'colore': '#dc2626', 'tratteggio': True,
+                                 'titolo': 'contorno letto prima (scartato)'})
+            contorni.append({'punti': corretto.get('esterno') or [], 'fori': corretto.get('fori') or [],
+                             'colore': '#16a34a', 'titolo': 'contorno corretto col peso del cartiglio'})
+        elif auto and auto.get('geometry'):
+            contorni.append({'punti': auto['geometry'], 'colore': '#16a34a', 'titolo': 'contorno preso da FerroTrack'})
+        svg = svg_con_contorni(percorso, contorni)
+        resp = Response(svg, mimetype='image/svg+xml; charset=utf-8')
+        resp.headers['Cache-Control'] = 'private, max-age=300'
+        return resp
+    except Exception as e:
+        logger.exception('svg contorno pezzo fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/lantek-invia', methods=['POST'])
 @richiede('laser', 'ufficio')
 def api_ordine_lantek_invia(order_id):
@@ -7433,7 +7623,7 @@ def api_ordine_lantek_invia(order_id):
         if not order:
             return _non_trovato_ordine()
         corpo = request.get_json(silent=True) or {}
-        righe_dist = _distinta_ordine(order)[0]
+        righe_dist = _distinta_lantek(order)[0]
         q = _quantita_lantek(order, righe_dist)
         righe = _lt.righe_per_xml(q['righe'])
         nuovi_si = []
@@ -7538,75 +7728,6 @@ def api_laser_cartella_disegni():
         percorso = str(data.get('percorso') or '').strip().strip('"')
         if percorso and not (os.path.isabs(percorso) or percorso.startswith('\\\\')):
             return jsonify({'success': False, 'error': 'Serve un percorso completo, es. C:\\Commesse'}), 400
-def _articolo_ordine(order, articolo_id):
-    """(pezzo, percorso del suo DXF fra i disegni dell'ordine) o (None, None)."""
-    if not order.preventivo_id_origine:
-        return None, None
-    prev = PreventivoManager.get(order.preventivo_id_origine, include_children=True) or {}
-    art = next((a for a in prev.get('articoli') or [] if str(a.get('id')) == str(articolo_id)), None)
-    if not art or not art.get('dxf_filename'):
-        return art, None
-    d = _trova_disegno(order, os.path.basename(art['dxf_filename']))
-    return art, (d or {}).get('percorso')
-
-
-@app.route('/api/orders/<order_id>/pezzi/<articolo_id>/contorno.svg', methods=['GET'])
-@richiede('laser', 'ufficio')
-def api_ordine_pezzo_contorno_svg(order_id, articolo_id):
-    """Il disegno del pezzo con sopra il contorno preso da FerroTrack (verde)
-    e, se e' stato corretto in automatico col peso del cartiglio, quello di
-    prima (rosso tratteggiato). Per la verifica al laser: si guarda e si
-    decide. Solo lettura."""
-    try:
-        from flask import Response
-        from .preventivi.dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
-        from .preventivi.svg_contorno import svg_con_contorni
-        order = _ordine_esistente(order_id)
-        if not order:
-            return _non_trovato_ordine()
-        art, percorso = _articolo_ordine(order, articolo_id)
-        if not percorso or not percorso.lower().endswith('.dxf'):
-            return jsonify({'success': False, 'error': 'Disegno del pezzo non trovato'}), 404
-        cfg = (ConfigManager.load_config() or {}).get('dxf_detection', {})
-        contorni = []
-        auto = None
-        try:
-            r = detect_pezzo_geometry_v3(percorso, cfg) or {}
-            auto = next((c for c in r.get('candidates') or [] if c.get('is_selected')), None)
-        except Exception:
-            logger.warning('contorno automatico non ricalcolato per %s', percorso, exc_info=True)
-        ca = art.get('contorno_auto') or {}
-        corretto = None
-        if ca.get('stato') in ('da_confermare', 'confermato'):
-            try:
-                from .preventivi.verifica_coerenza import peso_cartiglio, proponi_contorno
-                from .preventivi.verifica_ordine import densita_materiale
-                materiali = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
-                peso = (peso_cartiglio(percorso) or {}).get('peso_kg')
-                if peso and art.get('spessore_mm'):
-                    p = proponi_contorno(percorso, float(art['spessore_mm']),
-                                         densita_materiale(art.get('materiale'), materiali), float(peso), cfg)
-                    if p.get('trovato'):
-                        corretto = p
-            except Exception:
-                logger.warning('contorno corretto non ricalcolato per %s', percorso, exc_info=True)
-        if corretto:
-            if auto and auto.get('geometry'):
-                contorni.append({'punti': auto['geometry'], 'colore': '#dc2626', 'tratteggio': True,
-                                 'titolo': 'contorno letto prima (scartato)'})
-            contorni.append({'punti': corretto.get('esterno') or [], 'fori': corretto.get('fori') or [],
-                             'colore': '#16a34a', 'titolo': 'contorno corretto col peso del cartiglio'})
-        elif auto and auto.get('geometry'):
-            contorni.append({'punti': auto['geometry'], 'colore': '#16a34a', 'titolo': 'contorno preso da FerroTrack'})
-        svg = svg_con_contorni(percorso, contorni)
-        resp = Response(svg, mimetype='image/svg+xml; charset=utf-8')
-        resp.headers['Cache-Control'] = 'private, max-age=300'
-        return resp
-    except Exception as e:
-        logger.exception('svg contorno pezzo fallito')
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
         from .database import cartella_non_consentita
         motivo = cartella_non_consentita(percorso)
         if motivo:

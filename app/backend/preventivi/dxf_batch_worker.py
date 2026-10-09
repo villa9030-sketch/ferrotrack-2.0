@@ -168,6 +168,11 @@ def diametro_min_laser(spessore_mm) -> int | None:
     return int(math.floor(FORO_LASER_SU_SPESSORE * t + 1e-6))
 
 
+# Finche' Stefano non da' il costo della foratura, il preventivo conta i fori da
+# trapano come tagliati al laser (09/10/2026: prezzo prudente, come prima).
+FORI_TRAPANO_NEL_COSTO = True
+
+
 def fori_sotto_soglia(fori_tondi: list, spessore_mm) -> list:
     """I fori tondi (geometria['fori_tondi']) che su questo spessore vanno al trapano."""
     dmin = diametro_min_laser(spessore_mm)
@@ -207,11 +212,19 @@ def applica_fori_trapano(geo: dict | None, spessore: dict | None) -> dict | None
         p_mm = sum(float(f.get('perim_mm') or 0) for f in trapano)
         n = len(trapano)
         geo = dict(geo)
-        geo['area_dm2'] = round(float(geo.get('area_dm2') or 0) + a_mm2 / 10000.0, 4)
-        geo['perimetro_taglio_m'] = round(max(0.0, float(geo.get('perimetro_taglio_m') or 0) - p_mm / 1000.0), 4)
-        for k in ('n_pierce', 'n_forature', 'n_fori', 'n_inner'):
-            if isinstance(geo.get(k), int):
-                geo[k] = max(0, geo[k] - n)
+        # Il foro al trapano toglie comunque materiale: area (e peso) restano
+        # quelle col foro. Taglio e inneschi: finche' non c'e' il costo della
+        # foratura (FORI_TRAPANO_NEL_COSTO) il preventivo li conta come se il
+        # laser li tagliasse, cioe' prezzo come prima della regola. Il DXF per
+        # Lantek invece ha le croci di tracciatura (dxf_cleanup).
+        geo['taglio_senza_trapano'] = {
+            'perimetro_taglio_m': round(max(0.0, float(geo.get('perimetro_taglio_m') or 0) - p_mm / 1000.0), 4),
+            'n_pierce': max(0, int(geo.get('n_pierce') or 0) - n)}
+        if not FORI_TRAPANO_NEL_COSTO:
+            geo['perimetro_taglio_m'] = geo['taglio_senza_trapano']['perimetro_taglio_m']
+            for k in ('n_pierce', 'n_forature', 'n_fori', 'n_inner'):
+                if isinstance(geo.get(k), int):
+                    geo[k] = max(0, geo[k] - n)
         geo['fori_trapano'] = [{'d_mm': round(float(f['d_mm']), 2), 'x': f['x'], 'y': f['y']} for f in trapano]
         diam = sorted({round(float(f['d_mm']), 1) for f in trapano})
         geo['warnings'] = list(geo.get('warnings') or []) + [
