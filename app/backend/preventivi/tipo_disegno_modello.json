@@ -1,0 +1,275 @@
+{
+ "versione": 2,
+ "conf_detector_soglia": 0.7,
+ "classi": [
+  "SINGOLO",
+  "PIU_PEZZI",
+  "DA_SVILUPPARE",
+  "NON_LASER"
+ ],
+ "nota": "alberi addestrati da banco_motore/agente_K/finale.py",
+ "righe": {
+  "dxf SINGOLO (geo giusta)": 8827,
+  "dxf geo sbagliata, altro (non usato per addestrare)": 642,
+  "dxf DA_SVILUPPARE debole": 234,
+  "dwg SINGOLO (geo giusta)": 1163,
+  "dwg DA_SVILUPPARE debole": 159,
+  "dwg geo sbagliata, altro (non usato per addestrare)": 250
+ },
+ "incerto": {
+  "soglia": 0.5,
+  "albero": {
+   "f": "n_hatch",
+   "t": 4.5,
+   "si": {
+    "f": "conf_detector",
+    "t": 0.625,
+    "si": {
+     "f": "vista_max_rel",
+     "t": 0.6991,
+     "si": {
+      "f": "fr_chiuso",
+      "t": 0.72375,
+      "si": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.5828,
+        "NON_LASER": 0.1797,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.2375
+       }
+      },
+      "no": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.0376,
+        "NON_LASER": 0.1252,
+        "PIU_PEZZI": 0.7739,
+        "SINGOLO": 0.0633
+       }
+      }
+     },
+     "no": {
+      "f": "n_num_soli",
+      "t": 0.5,
+      "si": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.1054,
+        "NON_LASER": 0.0472,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.8473
+       }
+      },
+      "no": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.0372,
+        "NON_LASER": 0.8668,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.096
+       }
+      }
+     }
+    },
+    "no": {
+     "f": "fr_iso",
+     "t": 0.1878,
+     "si": {
+      "f": "n_top_10",
+      "t": 4.5,
+      "si": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.0156,
+        "NON_LASER": 0.0117,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.9727
+       }
+      },
+      "no": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.128,
+        "NON_LASER": 0.4264,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.4456
+       }
+      }
+     },
+     "no": {
+      "foglia": {
+       "DA_SVILUPPARE": 0.2329,
+       "NON_LASER": 0.3879,
+       "PIU_PEZZI": 0.0,
+       "SINGOLO": 0.3792
+      }
+     }
+    }
+   },
+   "no": {
+    "f": "rivale_rel",
+    "t": 0.74515,
+    "si": {
+     "f": "conf_detector",
+     "t": 0.7,
+     "si": {
+      "f": "quote_sul_pezzo",
+      "t": 2.5,
+      "si": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.1934,
+        "NON_LASER": 0.0,
+        "PIU_PEZZI": 0.6128,
+        "SINGOLO": 0.1938
+       }
+      },
+      "no": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.0612,
+        "NON_LASER": 0.9053,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.0336
+       }
+      }
+     },
+     "no": {
+      "f": "n_dim",
+      "t": 25.5,
+      "si": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.0219,
+        "NON_LASER": 0.0,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.9781
+       }
+      },
+      "no": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.3674,
+        "NON_LASER": 0.0,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.6326
+       }
+      }
+     }
+    },
+    "no": {
+     "f": "fr_chiuso",
+     "t": 0.433,
+     "si": {
+      "foglia": {
+       "DA_SVILUPPARE": 0.0651,
+       "NON_LASER": 0.2169,
+       "PIU_PEZZI": 0.6704,
+       "SINGOLO": 0.0475
+      }
+     },
+     "no": {
+      "foglia": {
+       "DA_SVILUPPARE": 0.0271,
+       "NON_LASER": 0.0,
+       "PIU_PEZZI": 0.9572,
+       "SINGOLO": 0.0157
+      }
+     }
+    }
+   }
+  },
+  "prof": 4,
+  "foglia": 20,
+  "w_sing": 10.0
+ },
+ "chiaro": {
+  "soglia": 0.7,
+  "albero": {
+   "f": "n_hatch",
+   "t": 14.5,
+   "si": {
+    "f": "n_viste",
+    "t": 8.5,
+    "si": {
+     "f": "n_nascosti_dentro",
+     "t": 0.5,
+     "si": {
+      "f": "n_top_30",
+      "t": 2.5,
+      "si": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.0155,
+        "NON_LASER": 0.0102,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.9743
+       }
+      },
+      "no": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.126,
+        "NON_LASER": 0.1171,
+        "PIU_PEZZI": 0.2413,
+        "SINGOLO": 0.5157
+       }
+      }
+     },
+     "no": {
+      "f": "fr_doppie",
+      "t": 0.14095,
+      "si": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.2301,
+        "NON_LASER": 0.7213,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.0486
+       }
+      },
+      "no": {
+       "foglia": {
+        "DA_SVILUPPARE": 0.536,
+        "NON_LASER": 0.0,
+        "PIU_PEZZI": 0.0,
+        "SINGOLO": 0.464
+       }
+      }
+     }
+    },
+    "no": {
+     "foglia": {
+      "DA_SVILUPPARE": 0.0157,
+      "NON_LASER": 0.2085,
+      "PIU_PEZZI": 0.6446,
+      "SINGOLO": 0.1312
+     }
+    }
+   },
+   "no": {
+    "f": "l_tot_m",
+    "t": 27.615,
+    "si": {
+     "f": "conf_detector",
+     "t": 0.625,
+     "si": {
+      "foglia": {
+       "DA_SVILUPPARE": 0.0372,
+       "NON_LASER": 0.0902,
+       "PIU_PEZZI": 0.8361,
+       "SINGOLO": 0.0365
+      }
+     },
+     "no": {
+      "foglia": {
+       "DA_SVILUPPARE": 0.0511,
+       "NON_LASER": 0.0,
+       "PIU_PEZZI": 0.0,
+       "SINGOLO": 0.9489
+      }
+     }
+    },
+    "no": {
+     "foglia": {
+      "DA_SVILUPPARE": 0.0882,
+      "NON_LASER": 0.8542,
+      "PIU_PEZZI": 0.0,
+      "SINGOLO": 0.0576
+     }
+    }
+   }
+  },
+  "prof": 4,
+  "foglia": 20,
+  "w_sing": 40.0
+ }
+}

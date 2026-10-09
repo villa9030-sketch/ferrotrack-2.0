@@ -41,6 +41,9 @@ DXF_CFG = {
     'dxf_semicerchio_angolo_min': 150.0, 'dxf_semicerchio_angolo_max': 320.0,
     'dxf_filtra_zona_sviluppata': True,
 }
+if os.environ.get('BANCO_STUDIO'):
+    # dati in piu' per lo studio del tipo di disegno (misure di tutti i candidati)
+    DXF_CFG['_studio'] = True
 
 
 def _priorita_bassa():
@@ -120,6 +123,12 @@ def misura(path: str, cartella_tmp: str) -> dict:
         'fori_trapano': [f.get('d_mm') for f in (g.get('fori_trapano') or [])],
         'fori_trapano_dubbio': bool(g.get('fori_trapano_dubbio')),
         'fori_stretti_non_tondi': g.get('fori_stretti_non_tondi'),
+        # tipo di disegno (tipo_disegno.py) e pezzi del foglio
+        'tipo': g.get('tipo_disegno'), 'tipo_conf': _num(g.get('tipo_disegno_conf')),
+        'tipo_prob': g.get('tipo_disegno_prob'), 'tipo_feat': g.get('tipo_disegno_feat'),
+        'pezzi': [[p.get('quantita'), p.get('area_dm2'), p.get('bbox_width_mm'), p.get('bbox_height_mm'),
+                   p.get('n_pierce')] for p in (g.get('pezzi') or [])],
+        'studio': g.get('_studio_tipo'),
         'pul_trapano': {k: (cl.get('cleanup_stats') or {}).get(k) for k in ('n_fori_trapano', 'n_trapano_tolti')},
         **({'modello': g['_modello']} if g.get('_modello') else {}),
     }
