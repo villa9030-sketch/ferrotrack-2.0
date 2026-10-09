@@ -3198,6 +3198,12 @@ def detect_pezzo_geometry_v3(path: str, config: dict | None = None) -> dict:
             _copia = lambda a, b: _copia_identica(a, b, candidati, circles_centri)  # noqa: E731
             feat = _td.caratteristiche(doc, msp, base, candidati, top_level, outer_mis, scelto, _copia,
                                        cfg, conf_scelta=conf_scelta, profilo_piegato=bool(prof))
+            # segnali gia' letti dal detector: spigoli nascosti/tangenti dentro
+            # il contorno (vista piegata o 3D), linee d'interruzione (vista
+            # accorciata), solidi/regioni/proxy non leggibili
+            feat['n_nascosti_dentro'] = n_nasc
+            feat['n_interruzioni'] = n_interr
+            feat['n_illeggibili'] = n_illeggibili
             gruppi = feat.pop('_gruppi', None)
             tipo, conf_tipo, prob = _td.classifica(feat)
             tipo_info = {'tipo': tipo, 'conf': conf_tipo, 'prob': prob, 'feat': feat}
