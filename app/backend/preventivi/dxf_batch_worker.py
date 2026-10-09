@@ -60,17 +60,7 @@ def _esegui_cleanup(dxf_path: str, geo: dict | None, filename: str,
                 # 'auto' se confidence alta, 'auto_review' se media
                 conf = float((geo or {}).get('confidence', 0) or 0)
                 cleaned_info['cleaned_status'] = 'auto' if conf >= 0.7 else 'auto_review'
-                cleaned_info['cleanup_stats'] = {
-                    'entities_copied': r['entities_copied'],
-                    'entities_source': r['entities_source'],
-                    'tolerance_mm': r['tolerance_mm'],
-                    'bbox_w_mm': r.get('w_mm'),
-                    'bbox_h_mm': r.get('h_mm'),
-                    'warnings': r.get('warnings') or [],
-                    **{k: r[k] for k in ('n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti',
-                                         'copertura', 'n_lung_marcatura_mm', 'n_fori_trapano',
-                                         'n_trapano_tolti') if k in r},
-                }
+                cleaned_info['cleanup_stats'] = _stats_pulizia(r)
                 logger.info('[%s] cleanup auto ok: %d/%d entità (%s)',
                             filename, r['entities_copied'], r['entities_source'],
                             cleaned_info['cleaned_status'])
@@ -80,6 +70,113 @@ def _esegui_cleanup(dxf_path: str, geo: dict | None, filename: str,
     except Exception as e:
         logger.warning('[%s] cleanup pipeline error: %s', filename, e)
     return cleaned_info
+
+
+def _stats_pulizia(r: dict) -> dict:
+    return {
+        'entities_copied': r['entities_copied'],
+        'entities_source': r['entities_source'],
+        'tolerance_mm': r['tolerance_mm'],
+        'bbox_w_mm': r.get('w_mm'),
+        'bbox_h_mm': r.get('h_mm'),
+        'warnings': r.get('warnings') or [],
+        **{k: r[k] for k in ('n_taglio', 'n_piega', 'n_marcatura', 'n_simboli_tolti',
+                             'copertura', 'n_lung_marcatura_mm', 'n_fori_trapano',
+                             'n_trapano_tolti') if k in r},
+    }
+
+
+def _decisione_modello(dxf_path, geo, cartiglio, spessore, dim_info, cleaned_info, conf_detector,
+                       dxf_cfg, filename):
+    """Modello addestrato del "sicuro" (modello_motore), solo se attivo
+    (config 'motore_modello' / FT_MOTORE_MODELLO = 'dump' o 'on').
+
+    - Se la pulizia non e' partita (scelta incerta) la si prova lo stesso "in
+      ombra" per avere gli stessi indizi dei disegni puliti.
+    - 'dump': calcola feature e probabilita', non cambia niente.
+    - 'on': sicuro = probabilita' >= soglia del modello E nessuna regola fissa
+      contraria (fori trapano dubbi, contorni stretti, foglio intero, pulizia
+      fallita, contorno cambiato dal ranker, misure dalla descrizione)."""
+    from . import modello_motore as mm
+    md = mm.modo(dxf_cfg)
+    if md == 'off' or not geo:
+        return geo, cleaned_info
+    info = dict(geo.get('_modello') or {})
+    try:
+        from . import dxf_cleanup
+        from . import sicurezza_import as si
+        ombra = None
+        ind = dict((cleaned_info or {}).get('indizi') or {})
+        pulito = bool(cleaned_info.get('cleaned_dxf_filename'))
+        motivo = str(cleaned_info.get('cleanup_reason') or '')
+        descr = geo.get('_source') == 'cartiglio_descrizione'
+        if not pulito and not descr and float(geo.get('area_dm2') or 0) > 0 \
+                and not motivo.startswith('pulizia non eseguita'):
+            base_p, ext_p = os.path.splitext(dxf_path)
+            ombra = base_p + '_cleaned' + ext_p
+            r = dxf_cleanup.save_cleaned_dxf_pezzo(dxf_path, ombra, geo, dxf_cfg)
+            if r.get('success'):
+                st = _stats_pulizia(r)
+                ci = {**cleaned_info, 'cleanup_stats': st}
+                ind = si.raccogli_indizi(dxf_path, geo, cartiglio, spessore, dim_info, ci, conf_detector)
+                info['ombra_stats'] = st
+            else:
+                if os.path.exists(ombra):
+                    os.remove(ombra)
+                ombra = None
+        x = mm.feature_disegno(geo, ind, pulito or ombra is not None, info.get('rank'))
+        p = mm.prob_sicuro(x)
+        info['p_sicuro'] = p
+        if p is not None:
+            info['p_calibrata'] = round(mm.prob_sicuro(x, calibrata=True), 4)
+        fisse = []
+        if ind.get('fori_trapano_dubbio'):
+            fisse.append('fori piccoli: spessore da confermare per decidere laser o trapano')
+        if ind.get('fori_stretti_non_tondi'):
+            fisse.append('contorni non tondi sotto il minimo laser')
+        if descr:
+            fisse.append('misure dalla descrizione del cartiglio')
+        if motivo.startswith('area_ratio') or motivo.startswith('no detector'):
+            fisse.append(motivo)
+        if not pulito and ombra is None:
+            fisse.append('pulizia non riuscita')
+        if info.get('cambiato'):
+            fisse.append('contorno cambiato dal modello')
+        if not ind or ind.get('errore'):
+            fisse.append('indizi non calcolati')
+        info['fisse'] = fisse
+        if md == 'dump':
+            info['xd'] = x
+            info['pulito_base'] = pulito
+            if ombra and os.path.exists(ombra):
+                os.remove(ombra)
+            info.pop('ombra_stats', None)
+            return {**geo, '_modello': info}, cleaned_info
+        sicuro = p is not None and p >= mm.soglia_sicuro() and not fisse
+        if sicuro:
+            if not pulito:
+                cleaned_info = {**cleaned_info, 'cleaned_dxf_filename': os.path.basename(ombra),
+                                'cleanup_stats': info.get('ombra_stats'), 'indizi': ind}
+            cleaned_info = {**cleaned_info, 'cleaned_status': 'auto',
+                            'cleanup_reason': f"sicuro per il modello (probabilita' {p:.3f})"}
+            conf = max(float(geo.get('confidence') or 0), 0.75)
+            geo = {**geo, 'confidence': conf, 'needs_manual_select': False,
+                   'confidence_label': 'alta (modello)' if conf >= 0.85 else 'media (modello)'}
+        else:
+            if ombra and os.path.exists(ombra):
+                os.remove(ombra)
+            if cleaned_info.get('cleaned_status') == 'auto':
+                testo = '; '.join(fisse) or f"probabilita' del modello {p if p is not None else 0:.3f}"
+                geo = {**geo, 'confidence': min(float(geo.get('confidence') or 0), si.CONF_DA_VERIFICARE),
+                       'confidence_label': 'media (da verificare)',
+                       'warnings': list(geo.get('warnings') or []) + [f'Da verificare: {testo}']}
+                cleaned_info = {**cleaned_info, 'cleaned_status': 'auto_review',
+                                'cleanup_reason': f'da verificare: {testo}'}
+        info.pop('ombra_stats', None)
+        return {**geo, '_modello': info}, cleaned_info
+    except Exception as e:      # noqa: BLE001 - il modello non deve rompere l'import
+        logger.warning('[%s] modello sicuro: %s', filename, e)
+        return geo, cleaned_info
 
 
 def _misure_come_cartiglio(geo: dict, dim_info: dict | None) -> bool:
@@ -373,6 +470,8 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
         cleaned_info = _esegui_cleanup(dxf_path, geo, filename, dxf_cfg)
         geo, cleaned_info = _controllo_sicuro(dxf_path, geo, cartiglio, spessore, dim_info,
                                               cleaned_info, conf_detector)
+        geo, cleaned_info = _decisione_modello(dxf_path, geo, cartiglio, spessore, dim_info,
+                                               cleaned_info, conf_detector, dxf_cfg, filename)
 
         payload = {
             'success': True,
