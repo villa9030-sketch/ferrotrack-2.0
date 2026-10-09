@@ -349,6 +349,7 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-decidi { display: grid; gap: 8px; }
 .lz-decidi .lz-btn { justify-content: space-between; }
 .lz-decidi .lz-btn.pri { height: 48px; font-size: 15.5px; }
+.lz-decidi .lz-btn.suggerito { border-color: var(--lz-accent-line); background: var(--lz-accent-bg); color: var(--lz-accent-ink); }
 .lz-decidi .lz-btn > span:first-child { display: inline-flex; align-items: center; gap: 10px; }
 .lz-scegli-guida { padding: 12px 14px; border-radius: var(--lz-r-l); background: var(--lz-accent-bg); border: 1px solid var(--lz-accent-line); color: var(--lz-accent-ink); font-size: 13.5px; }
 .lz-scegli-guida b { display: block; margin-bottom: 2px; }

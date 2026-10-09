@@ -170,13 +170,14 @@
     } else {
       corpo = `${perche.length ? `<div class="lz-perche"><b>Perché te lo chiedo</b><ul>${perche.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`
           : p.motore === 'sicuro' ? `<div class="lz-sicuro">${LZ.ico('circle-check')}Il motore è sicuro di questo disegno.</div>` : ''}
+        ${lt && lt.suggerimento && !risposta ? `<div class="lz-risposta">Il motore pensa: <b>${esc(SCELTE[lt.suggerimento])}</b>. Decidi tu col tasto.</div>` : ''}
         ${risposta ? `<div class="lz-risposta">Hai risposto: <b>${esc(SCELTE[risposta] || risposta)}</b></div>` : ''}
         <div class="lz-decidi">
           <button class="lz-btn pri" type="button" data-c="giusto" ${lt && !lt.ha_contorno && nuovo ? 'disabled' : ''}><span>${LZ.ico('check')}Sì, è il pezzo giusto</span>${LZ.tasto('Invio')}</button>
           <button class="lz-btn" type="button" data-c="scegli"><span>${LZ.ico('mouse-pointer-click')}No, lo scelgo io sul disegno</span>${LZ.tasto('S')}</button>
-          <button class="lz-btn" type="button" data-c="sviluppo"><span>${LZ.ico('move-diagonal')}Va sviluppato</span>${LZ.tasto('V')}</button>
-          <button class="lz-btn" type="button" data-c="piu_pezzi"><span>${LZ.ico('copy')}Ci sono più pezzi</span>${LZ.tasto('P')}</button>
-          <button class="lz-btn" type="button" data-c="non_laser"><span>${LZ.ico('circle-minus')}Non è da laser</span>${LZ.tasto('N')}</button></div>`;
+          <button class="lz-btn${lt && lt.suggerimento === 'sviluppo' ? ' suggerito' : ''}" type="button" data-c="sviluppo"><span>${LZ.ico('move-diagonal')}Va sviluppato</span>${LZ.tasto('V')}</button>
+          <button class="lz-btn${lt && lt.suggerimento === 'piu_pezzi' ? ' suggerito' : ''}" type="button" data-c="piu_pezzi"><span>${LZ.ico('copy')}Ci sono più pezzi</span>${LZ.tasto('P')}</button>
+          <button class="lz-btn${lt && lt.suggerimento === 'non_laser' ? ' suggerito' : ''}" type="button" data-c="non_laser"><span>${LZ.ico('circle-minus')}Non è da laser</span>${LZ.tasto('N')}</button></div>`;
     }
     LZ.metti(document.getElementById('lz-ctl-lato'), `
       <div class="ord"><b>${esc(o.cliente || '')}</b><span class="mono">${esc(LZ.numero(o))}</span></div>

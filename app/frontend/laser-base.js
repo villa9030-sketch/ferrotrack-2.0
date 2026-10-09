@@ -144,10 +144,17 @@
   LZ.metti = function (el, html, scorre) {
     if (!el || el._lzHtml === html) return false;
     const y = scorre ? scorre.scrollTop : 0;
+    // il fuoco resta dov'era: un ridisegno non deve toglierlo
+    const a = document.activeElement;
+    const fuoco = a && el.contains(a) && a.dataset ? a.dataset.fuoco : null;
     el.innerHTML = html;
     el._lzHtml = html;
     if (scorre) scorre.scrollTop = y;
     LZ.icone(el);
+    if (fuoco) {
+      const n = el.querySelector(`[data-fuoco="${CSS.escape(fuoco)}"]`);
+      if (n) n.focus({ preventScroll: true });
+    }
     return true;
   };
   /** Un campo della pagina sta venendo scritto? Allora non si ridisegna. */

@@ -187,7 +187,10 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
             lt_stato = 'sconosciuto'
         cod_lt = (x or {}).get('codice') or cod
         no = no_per.get(cod_lt.lower())
-        serve_disegno = lt_stato in ('nuovo', 'sconosciuto') and cod.lower() not in da_abbinare
+        # il disegno serve solo per creare un codice nuovo in Lantek, e solo
+        # finche' l'ordine non e' in Lantek (dopo, controllarlo non serve piu')
+        serve_disegno = (lt_stato in ('nuovo', 'sconosciuto') and cod.lower() not in da_abbinare
+                         and stato in ('smistare', 'coda'))
         perche = list(mt.get('motivi') or [])
         da_controllare = bool(serve_disegno and mt.get('stato') == 'verificare' and r.get('disegno'))
         da_preparare = bool(no and 'da preparare' in no.get('motivo', ''))
@@ -201,7 +204,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         # i suoi pezzi sono le altre righe. Non blocca l'ordine.
         assieme = bool(lt_stato == 'nuovo' and not r.get('disegno') and _RX_ASSIEME.search(cod))
         blocco = None
-        if lt_stato == 'nuovo' and not escluso and not assieme and cod.lower() not in da_abbinare                 and not da_controllare:
+        if lt_stato == 'nuovo' and not escluso and not assieme and cod.lower() not in da_abbinare                 and not da_controllare and stato in ('smistare', 'coda'):
             if not procesos and lt.get('disponibile'):
                 blocco = {'motivo': 'su questo PC non posso creare pezzi nuovi in Lantek',
                           'cosa': _cosa_fare('questo pc', cod)}
@@ -464,6 +467,9 @@ def _contorno_motore(gj: dict, det: dict) -> dict | None:
     return {'outer': [[float(x) * k, float(y) * k] for x, y in sel['geometry']], 'holes': []}
 
 
+_SUGGERIMENTI = {'DA_SVILUPPARE': 'sviluppo', 'PIU_PEZZI': 'piu_pezzi', 'NON_LASER': 'non_laser'}
+
+
 def _pezzo(order_id, articolo_id):
     """(ordine, pezzo, percorso del DXF) o una risposta d'errore."""
     A = _app()
@@ -502,6 +508,9 @@ def _foglio(percorso: str) -> dict:
     r = {'svg': svg, 'vista': vista, 'contorno': contorno,
          'avvisi': list(det.get('warnings') or []) + list(gj.get('warnings') or []),
          'confidenza': det.get('confidence'),
+         # classificatore del tipo di disegno (motore/riconoscimento): solo un
+         # suggerimento, decide sempre il laser col suo tasto
+         'suggerimento': _SUGGERIMENTI.get(str(det.get('tipo_disegno') or '').upper()),
          'misure_motore': [det.get('bbox_width_mm'), det.get('bbox_height_mm')]}
     with _FOGLI_LOCK:
         while len(_FOGLI) >= _FOGLI_MAX:
@@ -528,6 +537,7 @@ def api_pezzo_lettura(order_id, articolo_id):
                 perche.append(b)
         return jsonify({'success': True, 'codice': art.get('codice'), 'svg': f['svg'], 'vista': f['vista'],
                         'ha_contorno': bool(f['contorno']), 'perche': perche[:3],
+                        'suggerimento': f.get('suggerimento'),
                         'motore': mt.get('stato'), 'decisione': mt.get('decisione'),
                         'misure': [art.get('bbox_w_mm'), art.get('bbox_h_mm')]}), 200
     except Exception as e:

@@ -280,10 +280,19 @@
       const dxf = /\.dxf$/i.test(p.disegno);
       const url = `/api/orders/${encodeURIComponent(o.id)}/dxf/${encodeURIComponent(p.disegno)}/svg`;
       return `<button class="lz-mini" type="button" ${dxf && p.articolo_id ? `data-vedi="${esc(p.articolo_id)}"` : 'disabled'} title="${esc(p.codice)}">
-        <div class="im">${dxf ? `<img class="lz-disegno" src="${esc(url)}" alt="Disegno ${esc(p.codice)}" loading="lazy">` : '<span class="no">anteprima non disponibile</span>'}</div>
+        <div class="im">${dxf ? `<img class="lz-disegno" src="${esc(url)}" alt="Disegno ${esc(p.codice)}" loading="lazy" onerror="LZ.ordine.miniaturaKo(this)">` : '<span class="no">anteprima non disponibile</span>'}</div>
         <div class="ri"><span class="mono">${esc(p.codice)}</span>${p.da_controllare ? '<span class="lz-chip att">da controllare</span>' : p.escluso ? '<span class="lz-chip">fuori</span>' : ''}</div></button>`;
     }).join('')}</div>`;
   }
+
+  /** Anteprima non riuscita: si riprova una volta, poi lo si dice. */
+  O.miniaturaKo = function (img) {
+    if (!img.dataset.riprova) { img.dataset.riprova = '1'; setTimeout(() => { img.src = img.src.split('?')[0] + '?r=1'; }, 1500); return; }
+    const s = document.createElement('span');
+    s.className = 'no';
+    s.textContent = 'anteprima non riuscita: aprilo grande';
+    img.replaceWith(s);
+  };
 
   // ── PDF ─────────────────────────────────────────────────────────────
   function schedaPdf(o) {

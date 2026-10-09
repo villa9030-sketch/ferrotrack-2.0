@@ -129,9 +129,10 @@
     return sel.length ? sel : (S.aperto ? [S.aperto] : []);
   };
   L.controllaSpuntati = function () { LZ.controllo.inizia(L.bersaglio()); };
+  /** Tutti i selezionati nella conferma: chi non parte dice perche'. */
   L.mandaSpuntati = function () {
-    const ids = L.bersaglio().filter(id => (S.riep[id] || {}).pronto);
-    if (ids.length) LZ.lantek.apri(ids);
+    const ids = L.bersaglio();
+    if (ids.some(id => (S.riep[id] || {}).pronto)) LZ.lantek.apri(ids);
   };
 
   /** Apre un ordine a destra (solo su richiesta: clic o frecce). */
