@@ -1,0 +1,173 @@
+# -*- coding: utf-8 -*-
+"""Taglia entro nella pagina laser (laser.html), nel browser, sul server di prova.
+
+Si prova che:
+ 1. l'elenco e' in fila per "taglia entro" (poi consegna), come dice il server;
+    ogni riga mostra il taglia entro grande e "cons. GG/MM" piccolo; in rosso
+    "in ritardo N gg" solo se il taglia entro e' passato
+ 2. l'ordine aperto ha "Taglia entro" con il motivo; si cambia a mano con la
+    data (salvata davvero, sulla COPIA del database) e "Torna al calcolo" lo
+    rimette com'era; l'elenco si rimette in fila
+ 3. niente si apre o si sposta da solo dopo il cambio (aggiornamento automatico)
+ 4. la saturazione (carico-laser.js, la stessa dell'ufficio) mette l'ordine
+    nel giorno del taglia entro
+
+Le sole scritture lasciate passare sono /pianifica-taglio (copia del database),
+rimesse com'erano alla fine; ogni altra scrittura e' bloccata nel browser.
+Serve il server di prova (default 127.0.0.1:5056).
+
+    python app/tests/test_taglia_entro_pagina.py [url]
+"""
+import json
+import os
+import sys
+import urllib.request
+from datetime import date, timedelta
+
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    print('Playwright non installato: test saltato.')
+    sys.exit(0)
+
+B = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:5056'
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.accesso_server import contesto_stazione  # noqa: E402
+
+esiti = []
+
+
+def check(nome, cond, extra=''):
+    esiti.append(bool(cond))
+    print('  [%s] %s %s' % ('OK' if cond else 'KO', nome, '' if cond else extra))
+
+
+try:
+    with urllib.request.urlopen(B + '/api/health', timeout=4) as _r:
+        _salute = json.load(_r)
+except Exception as _e:
+    print('Server non raggiungibile su %s: %s' % (B, str(_e)[:60]))
+    print("Avvia un'istanza di prova e riesegui. Test saltato.")
+    sys.exit(0)
+if not _salute.get('istanza_di_prova'):
+    print("RIFIUTO: %s non e' un'istanza di prova." % B)
+    sys.exit(1)
+
+scritture = {'pianifica': [], 'bloccate': []}
+
+
+def filtro(route):
+    """Solo /pianifica-taglio passa; le altre scritture si fermano qui."""
+    req = route.request
+    if req.method in ('GET', 'HEAD', 'OPTIONS'):
+        return route.continue_()
+    if req.url.split('?')[0].endswith('/pianifica-taglio'):
+        scritture['pianifica'].append((req.url, req.post_data))
+        return route.continue_()
+    scritture['bloccate'].append(req.method + ' ' + req.url)
+    return route.abort()
+
+
+ORDINE_JS = """() => [...document.querySelectorAll('.lz-r[data-id]')].map(r => r.dataset.id)"""
+
+with sync_playwright() as p:
+    b = p.chromium.launch(headless=True)
+    ctx = contesto_stazione(b.new_context(viewport={'width': 1440, 'height': 900}), B, 'laser')
+    ctx.route('**/*', filtro)
+    pg = ctx.new_page()
+    err = []
+    pg.on('pageerror', lambda e: err.append(str(e)))
+    pg.goto(B + '/laser.html')
+    pg.wait_for_selector('.lz-r[data-id]', timeout=30000)
+    pg.wait_for_function('Object.keys(LZ.s.riep).length > 0 && LZ.sat.pronto', timeout=120000)
+    pg.wait_for_timeout(500)
+
+    print('1) Elenco in fila per "taglia entro"')
+    righe = pg.evaluate("""() => LZ.ordiniLaser().filter(o => LZ.statoLaser(o) !== 'tagliato').map(o => ({
+        id: o.id, entro: LZ.entro(o), cons: LZ.giorno(o), man: o.data_taglio_pianificata || null,
+        server: (LZ.te(o) || {}).data || null, fonte: (LZ.te(o) || {}).fonte || null}))""")
+    check('ci sono ordini da tagliare', len(righe) > 0)
+    chiavi = [(r['entro'] or '9999', r['cons'] or '9999') for r in righe]
+    check('in fila per taglia entro, poi consegna', chiavi == sorted(chiavi), chiavi[:8])
+    dom = pg.evaluate(ORDINE_JS)
+    check("l'elenco a schermo e' in quell'ordine", dom[:len(righe)] == [r['id'] for r in righe])
+    coerenti = [r for r in righe if r['server'] and not r['man']]
+    check('il taglia entro e\' quello del server', all(r['entro'] == r['server'] for r in coerenti),
+          [r for r in coerenti if r['entro'] != r['server']][:3])
+    check('il taglia entro non e\' mai dopo la consegna (se calcolato)',
+          all(not r['cons'] or r['entro'] <= r['cons'] for r in righe if not r['man']))
+    primo = righe[0]
+    t = pg.locator(f'.lz-r[data-id="{primo["id"]}"] .lz-data').inner_text()
+    gm = lambda iso: '%s/%s' % (iso[8:10], iso[5:7])  # noqa: E731
+    check('la riga: taglia entro grande e "cons." piccolo',
+          gm(primo['entro']) in t and ('cons. ' + gm(primo['cons']) if primo['cons'] else 'cons.') in t, t)
+    oggi = date.today().isoformat()
+    rit = [r for r in righe if r['entro'] and r['entro'] < oggi]
+    if rit:
+        tr = pg.locator(f'.lz-r[data-id="{rit[0]["id"]}"] .lz-data small.rit')
+        check('in ritardo: "in ritardo N gg" in rosso', tr.count() == 1 and 'in ritardo' in tr.inner_text())
+    nonrit = [r for r in righe if r['entro'] and r['entro'] >= oggi]
+    if nonrit:
+        check('non in ritardo: niente rosso', pg.locator(f'.lz-r[data-id="{nonrit[0]["id"]}"] .lz-data small.rit').count() == 0)
+    testa = pg.locator('.lz-lista-testa').inner_text()
+    check('il conto "in ritardo" in testa segue il taglia entro',
+          (f'{len(rit)} in ritardo' in testa) if rit else 'in ritardo' not in testa.split('Questa settimana')[0], testa)
+
+    print('\n2) Taglia entro nell\'ordine aperto, a mano e "Torna al calcolo"')
+    sc = [r for r in righe if not r['man']]
+    if not sc:
+        print('Tutti gli ordini hanno gia\' una data a mano: parte 2 saltata.')
+    else:
+        oid = sc[len(sc) // 2]['id']
+        pg.click(f'.lz-r[data-id="{oid}"]')
+        pg.wait_for_selector('.lz-entro', timeout=20000)
+        fatto = pg.locator('.lz-entro').inner_text()
+        te = pg.evaluate(f'LZ.te(LZ.trova("{oid}"))') or {}
+        check('"Taglia entro" con data e motivo', 'Taglia entro' in fatto and gm(sc[len(sc) // 2]['entro']) in fatto
+              and (te.get('motivo') or '---') in fatto, (fatto, te))
+        check('niente "Torna al calcolo" se e\' calcolato', pg.locator('[data-az="entro-calcolo"]').count() == 0)
+        nuova = (date.today() + timedelta(days=45)).isoformat()
+        y0 = pg.evaluate("document.querySelector('.lz-righe').scrollTop")
+        pg.locator(f'input[data-entro="{oid}"]').fill(nuova)
+        pg.wait_for_function(f'(LZ.te(LZ.trova("{oid}")) || {{}}).fonte === "a mano"', timeout=30000)
+        pg.wait_for_timeout(400)
+        check('salvata con /pianifica-taglio', any(nuova in (d or '') for _u, d in scritture['pianifica']))
+        te = pg.evaluate(f'LZ.te(LZ.trova("{oid}"))')
+        check('il server: a mano, con la data scelta', te['data'] == nuova and te['fonte'] == 'a mano', te)
+        fatto = pg.locator('.lz-entro').inner_text()
+        check('"(a mano)" e "Torna al calcolo"', '(a mano)' in fatto and pg.locator('[data-az="entro-calcolo"]').count() == 1, fatto)
+        check('la riga dice la data nuova', gm(nuova) in pg.locator(f'.lz-r[data-id="{oid}"] .lz-data').inner_text())
+        ids = pg.evaluate("""() => LZ.ordiniLaser().filter(o => LZ.statoLaser(o) !== 'tagliato').map(o => [LZ.entro(o) || '9999', LZ.giorno(o) || '9999'])""")
+        check("l'elenco si rimette in fila", ids == sorted(ids))
+        check("l'ordine resta aperto", pg.evaluate('LZ.s.aperto') == oid)
+        # la saturazione: il giorno dell'ordine e' il taglia entro (ufficio e laser)
+        g = pg.evaluate(f'CaricoLaser.giorno(LZ.trova("{oid}"))')
+        check('saturazione: l\'ordine pesa sul giorno scelto', g == nuova, g)
+
+        print('\n3) Niente si muove da solo')
+        pg.wait_for_timeout(6500)                      # un giro dell'aggiornamento automatico
+        check('dopo un giro: stesso ordine aperto', pg.evaluate('LZ.s.aperto') == oid)
+        check('dopo un giro: nessun errore nella pagina', not err, err[:3])
+
+        pg.click('[data-az="entro-calcolo"]')
+        pg.wait_for_function(f'(LZ.te(LZ.trova("{oid}")) || {{}}).fonte === "calcolata" && !LZ.trova("{oid}").data_taglio_pianificata',
+                             timeout=30000)
+        pg.wait_for_timeout(400)
+        te = pg.evaluate(f'LZ.te(LZ.trova("{oid}"))')
+        check('"Torna al calcolo": di nuovo calcolata', te['fonte'] == 'calcolata' and te['data'] == te['calcolata'], te)
+        check('e la data di prima', te['data'] == sc[len(sc) // 2]['entro'], (te, sc[len(sc) // 2]))
+        check('"Torna al calcolo" sparito', pg.locator('[data-az="entro-calcolo"]').count() == 0)
+        g = pg.evaluate(f'CaricoLaser.giorno(LZ.trova("{oid}"))')
+        check('saturazione: di nuovo sul giorno calcolato', g == te['data'], g)
+
+    print('\n4) Saturazione = taglia entro (stesso conto dell\'ufficio)')
+    diversi = pg.evaluate("""() => LZ.ordiniLaser().filter(o => LZ.statoLaser(o) !== 'tagliato')
+        .filter(o => CaricoLaser.giorno(o) !== LZ.entro(o)).map(o => [o.id, CaricoLaser.giorno(o), LZ.entro(o)])""")
+    check('ogni ordine da tagliare pesa sul suo taglia entro', not diversi, diversi[:3])
+    check('nessun errore nella pagina', not err, err[:3])
+    print('  scritture bloccate:', len(scritture['bloccate']), scritture['bloccate'][:3])
+    b.close()
+
+print('\n%d ok, %d ko' % (sum(esiti), len(esiti) - sum(esiti)))
+sys.exit(0 if all(esiti) else 1)

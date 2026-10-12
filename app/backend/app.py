@@ -678,8 +678,9 @@ def segna_importato_lantek(order_id):
 @richiede('laser')
 def pianifica_taglio(order_id):
     """Calendario del laser. Corpo: {data?: 'AAAA-MM-GG' | null,
-    durata_min?: numero | null}. data null = torna sul giorno di consegna;
-    durata_min = durata stimata a mano (ordini senza disegni)."""
+    durata_min?: numero | null}. data = il "taglia entro" scelto a mano;
+    null = torna al calcolo (backend/taglia_entro.py: consegna meno i giorni
+    delle lavorazioni). durata_min = durata stimata a mano (ordini senza disegni)."""
     try:
         data = request.get_json(silent=True) or {}
         kw = {}
@@ -725,7 +726,12 @@ _CAL_DEFAULT = {'ore_turno': 8, 'ore_riserva': 2, 'giorni': [1, 2, 3, 4, 5],
                 'fattore_tempo': 1.0,
                 # giorni speciali: {'2026-10-20': {'ore': 0, 'nota': 'manutenzione'}}
                 # (ore UTILI di quel giorno: 0 = laser fermo)
-                'eccezioni': {}}
+                'eccezioni': {},
+                # "Taglia entro": giorni lavorativi di anticipo sulla consegna
+                # per cio' che l'ordine deve ancora fare dopo il laser
+                # (backend/taglia_entro.py). Vale il piu' lungo fra taglio,
+                # piega e saldatura, piu' filettatura ed esterna.
+                'anticipo_giorni': {'taglio': 1, 'piega': 2, 'saldatura': 4, 'filettatura': 1, 'esterna': 5}}
 _CAL_LIMITI = {'ore_turno': (1, 24), 'ore_riserva': (0, 23), 'carico_min_lamiera': (0, 120),
                'scarico_s_pezzo': (0, 600)}
 
@@ -733,6 +739,8 @@ _CAL_LIMITI = {'ore_turno': (1, 24), 'ore_riserva': (0, 23), 'carico_min_lamiera
 def _cal_config() -> dict:
     v = (ConfigManager.load_config() or {}).get('laser_calendario') or {}
     cfg = {**_CAL_DEFAULT, **{k: v[k] for k in _CAL_DEFAULT if k in v}}
+    from .taglia_entro import anticipo_config
+    cfg['anticipo_giorni'] = anticipo_config(cfg)
     # un 1,18 salvato prima resta nel file ma non vale piu': i tempi lo contengono gia'
     cfg['fattore_tempo'] = 1.0
     return cfg
@@ -781,6 +789,21 @@ def api_laser_calendario_config():
                 if g >= limite:            # le vecchie si buttano
                     pulite[g] = {'ore': ore, 'nota': str((v or {}).get('nota') or '')[:60]}
             cfg['eccezioni'] = pulite
+        if 'anticipo_giorni' in data:
+            from .taglia_entro import ANTICIPO_DEFAULT, ANTICIPO_MAX
+            ant = data.get('anticipo_giorni')
+            if not isinstance(ant, dict):
+                return jsonify({'success': False, 'error': 'anticipo_giorni: servono i giorni per lavorazione'}), 400
+            nuovo = dict(cfg['anticipo_giorni'])
+            for k, v in ant.items():
+                if k not in ANTICIPO_DEFAULT:
+                    return jsonify({'success': False, 'error': f"anticipo_giorni: {k} non e' una lavorazione"
+                                    f" ({', '.join(ANTICIPO_DEFAULT)})"}), 400
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or v != int(v) or not 0 <= v <= ANTICIPO_MAX:
+                    return jsonify({'success': False,
+                                    'error': f'anticipo_giorni: {k} fuori misura (0-{ANTICIPO_MAX} giorni interi)'}), 400
+                nuovo[k] = int(v)
+            cfg['anticipo_giorni'] = nuovo
         if cfg['ore_riserva'] >= cfg['ore_turno']:
             return jsonify({'success': False, 'error': 'La riserva deve essere minore del turno'}), 400
         ConfigManager.save_config({'laser_calendario': cfg})
@@ -1678,11 +1701,19 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             lav.append(f"Taglio dritto ({int(t['n_tagli_dritti'])})")
         if int(t.get('n_tagli_obliqui') or 0) > 0:
             lav.append(f"Taglio obliquo ({int(t['n_tagli_obliqui'])})")
+        # "Lav. esterna" del preventivatore (es. laser tubo dal fornitore):
+        # per il "taglia entro" e' una lavorazione fatta fuori
+        try:
+            esterna = float(t.get('costo_esterno') or 0) > 0
+        except (TypeError, ValueError):
+            esterna = False
         righe.append({'codice': t.get('posizione') or t.get('profilo') or '',
                       'descrizione': desc, 'tipo': 'tubolare', 'quantita': n,
                       'materiale': t.get('materiale') or None, 'spessore_mm': None,
                       'lavorazioni': lav or ['Taglio'], 'assieme': cod_ass,
-                      'disegno': None})
+                      'disegno': None,
+                      'lav_esterna': (str(t.get('nota_esterno') or '').strip() or 'Lav. esterna')
+                      if esterna or t.get('nota_esterno') else None})
 
     for pl in prev.get('piastre') or []:
         cod_ass = pl.get('codice_assieme') or None
@@ -2153,6 +2184,9 @@ def api_laser_banco():
                 dal = datetime.strptime(request.args['dal'][:10], '%Y-%m-%d')
             except ValueError:
                 return jsonify({'success': False, 'error': 'dal: serve AAAA-MM-GG'}), 400
+        from . import taglia_entro as _te
+        cal = _cal_config()
+        entro = {}
         session = get_session()
         try:
             ordini = session.query(Order).filter(
@@ -2172,11 +2206,14 @@ def api_laser_banco():
             gruppi, senza = {}, []
             for o in ordini:
                 righe, origine, _prev = _distinta_ordine(o)
+                # il giorno in cui l'ordine pesa sul laser: "taglia entro"
+                # (consegna meno le lavorazioni dopo il laser, o scelto a mano)
+                entro[o.id] = _te.per_ordine(o, righe, origine, cal)['data']
                 # il numero che conosce l'officina: quello dell'ordine del cliente
                 num_cli = ((_prev or {}).get('numero_ordine_cliente') or '').strip()
                 info = {'ordine_id': o.id, 'numero_ordine': num_cli or o.numero_ordine or '',
                         'cliente': o.cliente or '', 'stato_taglio': stato_taglio(o),
-                        'data_consegna': iso_data(o.data_consegna)}
+                        'data_consegna': iso_data(o.data_consegna), 'taglia_entro': entro[o.id]}
                 lamiere = [r for r in righe if r.get('tipo') in ('lamiera', 'piastra')]
                 if not lamiere:
                     senza.append({**info, 'motivo': 'solo PDF, nessuna distinta'
@@ -2212,6 +2249,7 @@ def api_laser_banco():
             pz = g['pezzi']
             q = lambda p: p['quantita']  # noqa: E731
             consegne = [p['data_consegna'] for p in pz if p['data_consegna']]
+            entro_g = [p['taglia_entro'] for p in pz if p.get('taglia_entro')]
             out.append({
                 **g,
                 'n_ordini': len({p['ordine_id'] for p in pz}),
@@ -2222,10 +2260,14 @@ def api_laser_banco():
                 'n_ingombro_stimato': sum(1 for p in pz if p['ingombro'] == 'stimato'),
                 'n_ingombro_mancante': sum(1 for p in pz if p['ingombro'] == 'mancante'),
                 'consegna_prima': min(consegne) if consegne else None,
+                'taglia_entro_prima': min(entro_g) if entro_g else None,
             })
-        # La lamiera piu' urgente per prima; a parita', la piu' grossa.
-        out.sort(key=lambda g: (g['consegna_prima'] or '9999', -g['area_dm2']))
+        # La lamiera piu' urgente (da tagliare prima) per prima; a parita', la piu' grossa.
+        out.sort(key=lambda g: (g['taglia_entro_prima'] or g['consegna_prima'] or '9999', -g['area_dm2']))
         return jsonify({'success': True, 'gruppi': out, 'senza_distinta': senza,
+                        # {ordine: 'AAAA-MM-GG'}: il giorno su cui l'ordine pesa
+                        # nella saturazione (carico-laser.js, ufficio e laser)
+                        'taglia_entro': entro,
                         'formati': _formati_lamiera(),
                         'parametri': {'margine_mm': 10, 'distanza_mm': 5}}), 200
     except Exception as e:

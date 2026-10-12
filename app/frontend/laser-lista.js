@@ -1,6 +1,7 @@
 /* Pagina laser — l'elenco degli ordini, sempre a sinistra.
-   Una riga per ordine: consegna (e quanto manca), cliente, numero, UNA
-   etichetta di stato. Le caselle servono a lavorare piu' ordini insieme:
+   Una riga per ordine: "taglia entro" (e quanto manca), la consegna piu'
+   piccola, cliente, numero, UNA etichetta di stato. In fila per "taglia
+   entro" (backend/taglia_entro.py), poi per consegna. Le caselle servono a lavorare piu' ordini insieme:
    "Controlla N disegni" (una coda sola) e "Manda a Lantek (K ordini)". */
 (function () {
   'use strict';
@@ -29,8 +30,10 @@
 
   function riga(o) {
     const st = LZ.statoLaser(o);
-    const q = LZ.quando(o);
-    const g = LZ.giorno(o);
+    const q = LZ.quandoEntro(o);
+    const g = LZ.entro(o);
+    const cons = LZ.giorno(o);
+    const te = LZ.te(o);
     const on = S.aperto === o.id;
     const tagliato = st === 'tagliato';
     const sp = L.spuntabile(o);
@@ -38,7 +41,9 @@
         data-fuoco="r-${esc(o.id)}" ${on ? 'aria-current="true"' : ''}>
       <input type="checkbox" data-sp="${esc(o.id)}" ${S.spuntati.has(o.id) ? 'checked' : ''} ${sp ? '' : 'disabled'}
         aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">
-      <div class="lz-data">${g ? FT.fmtDataBreve(g) : '—'}<small class="${q.rit && !tagliato ? 'rit' : ''}">${tagliato ? 'tagliato ' + esc(FT.fmtOra(o.data_taglio_completato)) : esc(q.t)}</small></div>
+      <div class="lz-data" title="${esc(`Taglia entro ${g ? FT.fmtData(g) : '—'}${te && te.motivo ? ' · ' + te.motivo : ''} · consegna ${cons ? FT.fmtData(cons) : '—'}`)}">
+        <span class="sr">Taglia entro </span>${g ? FT.fmtDataBreve(g) : '—'}<small class="${q.rit && !tagliato ? 'rit' : ''}">${tagliato ? 'tagliato ' + esc(FT.fmtOra(o.data_taglio_completato)) : esc(q.t)}</small>
+        <small class="cons">cons. ${cons ? FT.fmtDataBreve(cons) : '—'}</small></div>
       <div class="lz-cli"><b title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</b><span title="${esc(LZ.numero(o))}">${esc(LZ.numero(o))}</span></div>
       ${LZ.chip(o)}
     </div>`;
@@ -51,7 +56,8 @@
     for (const id of [...S.spuntati]) { const o = LZ.trova(id); if (!o || !L.spuntabile(o)) S.spuntati.delete(id); }
 
     const attivi = ordini.filter(o => LZ.statoLaser(o) !== 'tagliato');
-    const rit = attivi.filter(o => (LZ.giorniA(o) ?? 0) < 0).length;
+    // in ritardo: il "taglia entro" e' passato e non e' ancora tagliato
+    const rit = attivi.filter(o => (LZ.giorniEntro(o) ?? 0) < 0).length;
     LZ.metti(document.getElementById('lz-l-testa'), `<h1>Ordini al laser</h1>
       <div class="lz-riass"><span>${LZ.plur(attivi.length, 'ordine', 'ordini')}</span>${rit ? `<span>·</span><span class="rit">${rit} in ritardo</span>` : ''}</div>
       ${LZ.sat.html()}`);

@@ -70,9 +70,21 @@
   LZ.trova = id => S.ordini.find(o => o.id === id) || null;
   LZ.giorno = o => (o && o.data_consegna ? String(o.data_consegna).slice(0, 10) : null);
   LZ.giorniA = o => { const g = LZ.giorno(o); return g ? FT.giorniDa(g) : null; };
+  /** "Taglia entro" (server: backend/taglia_entro.py): consegna meno i giorni
+      delle lavorazioni dopo il laser, o la data scelta a mano. Finche' il
+      riassunto non e' arrivato: la data a mano, o la consegna. */
+  LZ.te = o => (o && S.riep[o.id] && S.riep[o.id].taglia_entro) || null;
+  LZ.entro = function (o) {
+    if (!o) return null;
+    if (o.data_taglio_pianificata) return String(o.data_taglio_pianificata).slice(0, 10);
+    const t = LZ.te(o);
+    return (t && t.data) || LZ.giorno(o);
+  };
+  LZ.giorniEntro = o => { const g = LZ.entro(o); return g ? FT.giorniDa(g) : null; };
   LZ.numero = o => o.numero_ordine_cliente || o.numero_ordine || String(o.id).slice(0, 8);
   /** Gli ordini dell'elenco: vivi, che passano (o forse) dal laser, e i
-      tagliati nelle ultime 24 ore. Prima per consegna, i tagliati in fondo. */
+      tagliati nelle ultime 24 ore. Prima per "taglia entro", poi consegna;
+      i tagliati in fondo. */
   LZ.ordiniLaser = function () {
     const ora = Date.now();
     const l = S.ordini.filter(o => {
@@ -82,7 +94,8 @@
       if (st === 'tagliato') { const d = FT.data(o.data_taglio_completato); return d && ora - d.getTime() < 864e5; }
       return true;
     });
-    const k = o => (LZ.statoLaser(o) === 'tagliato' ? '1' : '0') + (LZ.giorno(o) || '9999') + (o.cliente || '');
+    const k = o => (LZ.statoLaser(o) === 'tagliato' ? '1' : '0') + (LZ.entro(o) || '9999') + (LZ.giorno(o) || '9999')
+      + (o.cliente || '') + o.id;
     return l.sort((a, b) => k(a).localeCompare(k(b)));
   };
 
@@ -109,14 +122,16 @@
   };
 
   // ── Formati ─────────────────────────────────────────────────────────
-  LZ.quando = function (o) {
-    const g = LZ.giorniA(o);
+  const quandoG = (g, rit) => {
     if (g == null) return { t: 'senza data', rit: false };
-    if (g < 0) return { t: `ritardo ${-g} gg`, rit: true };
+    if (g < 0) return { t: `${rit}${-g} gg`, rit: true };
     if (g === 0) return { t: 'oggi', rit: false };
     if (g === 1) return { t: 'domani', rit: false };
     return { t: `tra ${g} gg`, rit: false };
   };
+  LZ.quando = o => quandoG(LZ.giorniA(o), 'ritardo ');
+  /** Quanto manca al "taglia entro": oggi, tra 3 gg, in ritardo 2 gg (rosso). */
+  LZ.quandoEntro = o => quandoG(LZ.giorniEntro(o), 'in ritardo ');
   LZ.ore = function (min) {
     if (min == null) return '—';
     if (min < 60) return `${Math.max(1, Math.round(min))} min`;

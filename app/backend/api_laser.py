@@ -7,6 +7,7 @@ stessa cosa:
 
   GET  /api/laser/ordini                      un riassunto per ogni ordine del laser
   GET  /api/orders/<id>/laser                 l'ordine aperto: pezzi, Lantek, blocchi
+  (tutti e due col "taglia entro": backend/taglia_entro.py)
   GET  /api/orders/<id>/pezzi/<pz>/lettura    il foglio intero del disegno, col
                                               contorno del motore, e i suoi dubbi
   GET  /api/orders/<id>/pezzi/<pz>/foglio.svg lo stesso foglio come immagine
@@ -152,6 +153,13 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
     q, lt = None, {'disponibile': False, 'errore': None}
     nuovi_si, nuovi_no, procesos = [], [], False
     pdf = None
+    # "taglia entro": quanto prima della consegna, dalle lavorazioni della
+    # distinta intera (anche i pezzi tenuti fuori da Lantek). Qui solo cosa
+    # c'e' da fare: i giorni si contano dopo, coi numeri del calendario.
+    from . import taglia_entro as _te
+    dopo = _te.lavorazioni_ordine([] if righe_pdf else righe_dist + [x['_riga'] for x in esclusi if x.get('_riga')],
+                                  'pdf' if righe_pdf else ('distinta' if (righe_dist or esclusi) else 'nessuna'),
+                                  getattr(order, 'note', '') or '')
     if con_lantek and (lam or righe_pdf):
         q = A._quantita_lantek(order, righe_dist)
         lt = q['lantek']
@@ -267,6 +275,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                    'invio_automatico': bool(q is not None and _lt.xmlimporter_disponibile())},
         'n_invio': len(invio_codici) + len(nuovi_si),
         'n_in_produzione': sum(1 for r in (q or {}).get('righe') or [] if r.get('in_produzione')),
+        'dopo_laser': dopo,
     }
     out['pronto'] = bool(out['lantek']['disponibile'] and not n_controllare and not bloccati
                          and not da_abbinare_n and out['n_invio'])
@@ -298,6 +307,17 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
             'pdf': pdf,
         })
     return out
+
+
+def con_taglia_entro(order, a: dict, cal=None) -> dict:
+    """Il riassunto con il "taglia entro" dell'ordine. Si calcola ADESSO (non
+    sta nella cache): la data scelta a mano e la consegna si vedono subito."""
+    from . import taglia_entro as _te
+    cal = cal if cal is not None else _app()._cal_config()
+    ant = _te.anticipo_da(a['dopo_laser'], cal) if a.get('dopo_laser') else None
+    te = _te.taglia_entro(getattr(order, 'data_consegna', None), ant, cal,
+                          getattr(order, 'data_taglio_pianificata', None))
+    return {**a, 'taglia_entro': te}
 
 
 def _analisi_in_cache(order, forza=False) -> dict:
@@ -338,12 +358,14 @@ def api_laser_ordini():
         finally:
             session.close()
         out = {}
+        cal = _app()._cal_config()
         for o in ordini:
             try:
                 out[o.id] = _analisi_in_cache(o, forza=fresco or bool(solo))
             except Exception as e:
                 logger.exception('analisi laser di %s fallita', o.id)
                 out[o.id] = {'id': o.id, 'stato': stato_laser(o), 'errore': str(e)[:200]}
+            out[o.id] = con_taglia_entro(o, out[o.id], cal)
         return jsonify({'success': True, 'ordini': out}), 200
     except Exception as e:
         logger.exception('elenco laser fallito')
@@ -369,7 +391,7 @@ def api_ordine_laser(order_id):
                                                           'pdf', 'commessa', 'cliente_lantek', 'consegna_lantek')}
         with _LOCK:
             _CACHE[order.id] = (time.time(), ridotto)
-        return jsonify({'success': True, **a}), 200
+        return jsonify({'success': True, **con_taglia_entro(order, a)}), 200
     except Exception as e:
         logger.exception('ordine laser fallito')
         return jsonify({'success': False, 'error': str(e)}), 500

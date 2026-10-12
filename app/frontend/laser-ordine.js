@@ -151,11 +151,26 @@
         aria-label="Ore di laser scritte a mano" placeholder="ore"> h</span><small>senza disegni: scrivile tu</small>`;
     }
     const interno = o.numero_ordine_cliente && o.numero_ordine && o.numero_ordine !== o.numero_ordine_cliente ? o.numero_ordine : '';
+    // "Taglia entro": calcolato dalle lavorazioni o scelto a mano (si cambia qui)
+    const te = LZ.te(o) || (D.dati && D.dati.taglia_entro) || {};
+    const ge = LZ.entro(o);
+    const qe = LZ.quandoEntro(o);
+    const ritE = qe.rit && st !== 'tagliato';
+    const aMano = !!o.data_taglio_pianificata;
+    // (il motivo del server vale se dice la stessa cosa della data: a mano o calcolata)
+    const motivo = te.motivo && (te.fonte === 'a mano') === aMano ? te.motivo : (aMano ? 'scelta a mano' : '');
+    const cambia = st === 'tagliato' ? '' : `<span class="lz-entro-mano">
+        <input type="date" data-entro="${esc(o.id)}" data-fuoco="entro-${esc(o.id)}" value="${esc(ge || '')}" min="${esc(FT.oggiISO())}"
+          aria-label="Cambia a mano la data entro cui tagliare" title="Cambia a mano la data entro cui tagliare">
+        ${aMano ? `<button class="lz-link" type="button" data-az="entro-calcolo" data-fuoco="entro-calcolo">Torna al calcolo</button>` : ''}</span>`;
     return `<div class="lz-o-testa">
       <div class="lz-o-tit"><h2 title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</h2>
         <div class="lz-o-sotto"><span class="mono">${esc(LZ.numero(o))}</span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}</div></div>
       <div class="lz-o-az"><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
       <div class="lz-fatti">
+        <div class="lz-entro"><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
+          <small class="${ritE ? 'rit' : ''}">${st === 'tagliato' ? 'tagliato' : esc(qe.t)}</small>
+          <small class="mot" title="${esc(motivo)}">${esc(motivo)}</small>${cambia}</div>
         <div><span>Consegna</span><b class="num${q.rit && st !== 'tagliato' ? ' rit' : ''}">${g ? FT.fmtData(g) : '—'}</b><small class="${q.rit && st !== 'tagliato' ? 'rit' : ''}">${esc(q.t)}</small></div>
         <div><span>Codici</span><b class="num">${info.n_codici != null ? FT.numero(info.n_codici) : '—'}</b><small>${info.n_esclusi ? `${info.n_esclusi} fuori da Lantek` : '&nbsp;'}</small></div>
         <div><span>Pezzi</span><b class="num">${info.n_pezzi != null ? FT.numero(info.n_pezzi) : '—'}</b><small>&nbsp;</small></div>
@@ -375,6 +390,9 @@
   document.addEventListener('change', e => {
     const inp = e.target.closest('input[data-durata]');
     if (inp) O.durataAMano(inp.dataset.durata, inp.value);
+    const en = e.target.closest('input[data-entro]');
+    // la data si scrive anche a tasti: si salva solo quando e' una data vera da oggi in poi
+    if (en && /^\d{4}-\d{2}-\d{2}$/.test(en.value) && en.value >= FT.oggiISO() && en.value < '2100') O.entroAMano(en.dataset.entro, en.value);
   });
 
   O.mostraScheda = function (k) {
@@ -393,6 +411,7 @@
       case 'taglio-annulla': return O.annullaTaglio(id);
       case 'importato': return O.importato(id, false);
       case 'ricontrolla': return O.ricontrolla(id);
+      case 'entro-calcolo': return O.entroAMano(id, null);
       case 'controlla': return LZ.controllo.inizia([id]);
       case 'lantek': return LZ.lantek.apri([id]);
       case 'abbina': S.scheda = 'pezzi'; O.disegna(); return LZ.abbina && LZ.abbina.vai(id);
@@ -512,6 +531,18 @@
     }
     FT.toast(`Cartella pronta: ${r.d.percorso} (${r.d.esportati} file)`, 'ok',
       { testo: 'Copia percorso', fn: () => { try { navigator.clipboard.writeText(r.d.percorso); FT.toast('Percorso copiato', 'ok'); } catch (_) { /* niente appunti */ } } }, 10000);
+  });
+  /** "Taglia entro" scelto a mano (data) o tolto (null = torna al calcolo).
+      Usa /pianifica-taglio: la data a mano E' il taglia entro. */
+  O.entroAMano = (id, data) => LZ.azione(async () => {
+    const r = await LZ.post(`/api/orders/${id}/pianifica-taglio`, { data: data || null });
+    if (!r.ok) { FT.toast(r.d.error || 'Data non salvata', 'err'); return; }
+    FT.toast(data ? `Taglia entro ${FT.fmtData(data)} (a mano)` : 'Taglia entro: torna al calcolo', 'ok');
+    if (document.activeElement) document.activeElement.blur();
+    await LZ.avvio.caricaOrdini(true);
+    await LZ.avvio.caricaRiep(id);
+    await LZ.sat.carica(true);
+    LZ.ridisegna();
   });
   O.durataAMano = (id, valore) => LZ.azione(async () => {
     const h = parseFloat(String(valore).replace(',', '.'));

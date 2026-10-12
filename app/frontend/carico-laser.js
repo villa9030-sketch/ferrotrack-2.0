@@ -36,11 +36,16 @@ window.CaricoLaser = (() => {
     if (o.taglio_richiesto === true) return 'coda';
     return 'smistare';
   }
-  /** Giorno in cui l'ordine pesa sul laser. */
+  /** Giorno in cui l'ordine pesa sul laser: tagliato = il giorno del taglio;
+      altrimenti il "taglia entro" (scelto a mano, o calcolato dal server
+      dalle lavorazioni: /api/laser/banco -> taglia_entro, backend/taglia_entro.py),
+      e solo se manca la consegna. */
   function giorno(o) {
     const fatto = o.data_taglio_completato || o.taglio_il;
     if (stato(o) === 'tagliato' && fatto) { const d = FT.data(fatto); if (d) return iso(d); }
     if (stato(o) !== 'escluso' && o.data_taglio_pianificata) return String(o.data_taglio_pianificata).slice(0, 10);
+    const te = S.banco && S.banco.taglia_entro && S.banco.taglia_entro[o.id];
+    if (stato(o) !== 'escluso' && te) return te;
     return giornoConsegna(o);
   }
   /** Minuti utili del giorno (turno meno riserva; eccezioni del calendario). */

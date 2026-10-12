@@ -31,12 +31,12 @@
       min += k.min; cap += k.cap; ignoti += k.ignoti;
       d.setDate(d.getDate() + 1);
     }
-    // in ritardo: da tagliare con la consegna gia' passata
+    // in ritardo: da tagliare col "taglia entro" gia' passato
     let ritardo = 0, minRitardo = 0;
     for (const o of LZ.ordiniLaser()) {
       const st = LZ.statoLaser(o);
       if (st === 'tagliato') continue;
-      const g = LZ.giorniA(o);
+      const g = LZ.giorniEntro(o);
       if (g != null && g < 0) { ritardo++; minRitardo += C.durata(o).min || 0; }
     }
     return { min, cap, ignoti, ritardo, minRitardo };
