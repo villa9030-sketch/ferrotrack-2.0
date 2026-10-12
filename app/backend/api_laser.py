@@ -700,6 +700,74 @@ def _pezzo(order_id, articolo_id):
     return order, art, percorso, None
 
 
+def _sposta_dxf_lantek(order, art, percorso, materiale, spessore) -> int:
+    """Cambiati spessore o materiale: i DXF per Lantek del pezzo (e dei pezzi del
+    foglio) vanno nella cartella della lamiera giusta (LANTEK/<lamiera>/).
+    Ritorna quanti file ha spostato."""
+    import glob
+    import shutil
+    A = _app()
+    cart = os.path.join(A.DRAWINGS_FOLDER, order.id, 'LANTEK')
+    dest_dir = os.path.join(cart, A._nome_lamiera(materiale, spessore))
+    nomi = []
+    if percorso:
+        nomi.append(A._nome_base_disegno(os.path.basename(percorso)))
+    for pz in art.get('pezzi_foglio') or []:
+        if isinstance(pz, dict) and pz.get('codice'):
+            nomi.append(str(pz['codice']) + '.dxf')
+    n = 0
+    for nome in nomi:
+        for f in glob.glob(os.path.join(cart, '*', nome)):
+            if A.CARTELLA_DA_PREPARARE in f or os.path.dirname(f) == dest_dir:
+                continue
+            os.makedirs(dest_dir, exist_ok=True)
+            shutil.move(f, os.path.join(dest_dir, nome))
+            n += 1
+    return n
+
+
+def _contorno_salvato(order, art, percorso) -> dict | None:
+    """Il contorno scelto a mano (o confermato) per questo pezzo, in mm come il
+    foglio: dal campo salvato o, per i pezzi salvati prima, dal DXF per Lantek
+    scritto dal contorno scelto (polilinee chiuse sul TAGLIO)."""
+    cs = art.get('contorno_scelto')
+    if isinstance(cs, dict) and cs.get('outer'):
+        return {'outer': cs['outer'], 'holes': cs.get('holes') or []}
+    dec = (art.get('decisione_laser') or {}).get('scelta')
+    if dec not in ('scelto', 'giusto'):
+        return None
+    try:
+        import glob
+        import ezdxf
+        A = _app()
+        nome = A._nome_base_disegno(os.path.basename(percorso))
+        cart = os.path.join(A.DRAWINGS_FOLDER, order.id, 'LANTEK')
+        for f in glob.glob(os.path.join(cart, '*', nome)):
+            if A.CARTELLA_DA_PREPARARE in f:
+                continue
+            doc = ezdxf.readfile(f)
+            anelli = []
+            for e in doc.modelspace().query('LWPOLYLINE[layer=="TAGLIO"]'):
+                if e.closed:
+                    anelli.append([[float(x), float(y)] for x, y, *_ in e.get_points()])
+            if not anelli:
+                return None
+            from shapely.geometry import Polygon
+            anelli.sort(key=lambda a: -Polygon(a).area if len(a) >= 3 else 0)
+            # solo se sta nel foglio (i puliti copiati dal disegno possono essere spostati)
+            gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+            bb = gj.get('extents')
+            xs = [p[0] for p in anelli[0]]
+            ys = [p[1] for p in anelli[0]]
+            if bb and len(bb) == 4 and not (bb[0] - 1 <= min(xs) and max(xs) <= bb[2] + 1
+                                            and bb[1] - 1 <= min(ys) and max(ys) <= bb[3] + 1):
+                return None
+            return {'outer': anelli[0], 'holes': anelli[1:]}
+    except Exception:
+        logger.warning('contorno salvato non letto per %s', percorso, exc_info=True)
+    return None
+
+
 def _foglio(percorso: str) -> dict:
     """{svg, vista, contorno, avvisi, confidenza} del foglio, in cache."""
     try:
@@ -844,6 +912,12 @@ def api_pezzo_lettura(order_id, articolo_id):
         if err:
             return err
         f = _foglio(percorso)
+        # contorno scelto (o confermato) a mano: si mostra quello, non il motore
+        tuo = _contorno_salvato(order, art, percorso)
+        if tuo:
+            gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+            svg_tuo, vista_tuo = svg_foglio(gj, tuo)
+            f = {**f, 'svg': svg_tuo, 'vista': vista_tuo, 'contorno': tuo}
         mt = A._stato_motore(art)
         perche = list(mt.get('motivi') or [])
         for b in A.motivi_brevi(f['avvisi']):
@@ -855,7 +929,7 @@ def api_pezzo_lettura(order_id, articolo_id):
             logger.warning('riga dell\'ordine non letta per %s', art.get('codice'), exc_info=True)
             riga = None
         return jsonify({'riga_ordine': riga,'success': True, 'codice': art.get('codice'), 'svg': f['svg'], 'vista': f['vista'],
-                        'ha_contorno': bool(f['contorno']), 'perche': perche[:3],
+                        'ha_contorno': bool(f['contorno']), 'contorno_tuo': bool(tuo), 'perche': perche[:3],
                         'suggerimento': f.get('suggerimento'),
                         'motore': mt.get('stato'), 'decisione': mt.get('decisione'),
                         'misure': [art.get('bbox_w_mm'), art.get('bbox_h_mm')]}), 200
@@ -1097,6 +1171,11 @@ def api_pezzo_dati(order_id, articolo_id):
             _lt._svuota_cache()
         except Exception:
             pass
+        try:
+            _sposta_dxf_lantek(order, art, _percorso, mat or art.get('materiale'),
+                               sp if sp is not None else art.get('spessore_mm'))
+        except Exception:
+            logger.warning('DXF per Lantek non spostato nella cartella del nuovo spessore', exc_info=True)
         invalida(order_id)
         return jsonify({'success': True, 'spessore_mm': sp, 'materiale': mat}), 200
     except Exception as e:

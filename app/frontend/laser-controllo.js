@@ -136,7 +136,7 @@
       if (rec.stato !== 'ok') {
         f.innerHTML = `<div class="lz-foglio-msg"><div><b>Non riesco a mostrare il disegno</b><p>${esc(rec.d.error || 'Errore del server')}</p></div></div>`;
       } else {
-        f.innerHTML = rec.d.svg + `<div class="lz-leg">${rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'}</div>
+        f.innerHTML = rec.d.svg + `<div class="lz-leg">${rec.d.contorno_tuo ? '<i></i>In verde: il contorno che hai scelto tu' : rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'}</div>
           <div class="lz-zoom"><button class="lz-btn" type="button" data-z="piu" title="Ingrandisci" aria-label="Ingrandisci">${LZ.ico('plus')}</button>
           <button class="lz-btn" type="button" data-z="meno" title="Rimpicciolisci" aria-label="Rimpicciolisci">${LZ.ico('minus')}</button>
           <button class="lz-btn" type="button" data-z="tutto" title="Foglio intero (0)" aria-label="Foglio intero">${LZ.ico('scan')}</button></div>`;
@@ -369,7 +369,7 @@
     const g = f.querySelector('.fg-scelte'); if (g) g.innerHTML = '';
     const rec = st.letture[chiave(voce())];
     const leg = f.querySelector('.lz-leg');
-    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
+    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.contorno_tuo ? '<i></i>In verde: il contorno che hai scelto tu' : rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
     lato();
   }
 
@@ -407,7 +407,7 @@
     const g = f.querySelector('.fg-pf'); if (g) g.remove();
     const rec = st.letture[chiave(voce())];
     const leg = f.querySelector('.lz-leg');
-    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
+    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.contorno_tuo ? '<i></i>In verde: il contorno che hai scelto tu' : rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
     lato();
   }
 

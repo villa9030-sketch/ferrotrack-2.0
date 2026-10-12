@@ -4809,7 +4809,10 @@ class PreventivoManager:
                       # Foglio con piu' pezzi diversi confermati dal laser
                       # (tasto P): ogni pezzo diventa una riga per Lantek col
                       # suo codice, contorno, DXF e quantita'.
-                      'pezzi_foglio')
+                      'pezzi_foglio',
+                      # Contorno scelto a mano sul disegno (mm, come il foglio):
+                      # il controllo disegni lo mostra al posto di quello del motore.
+                      'contorno_scelto')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
