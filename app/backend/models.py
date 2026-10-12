@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, DateTime, Date, Integer, Float, Text, JSON, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, String, DateTime, Date, Integer, Float, Text, JSON, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import enum
@@ -409,6 +409,45 @@ class LantekCorrezione(Base):
     chiuso_il = Column(DateTime, nullable=True)
     chiuso_da = Column(String, nullable=True)
     esito = Column(String, nullable=True)
+
+
+class DaProcurare(Base):
+    """Un pezzo dell'ordine che NON si taglia al laser e va procurato
+    (Stefano, 12/10/2026): tubi e profili da barra (taglio in casa), tubi
+    tagliati al laser tubo da un fornitore, meccanica (tornitura,
+    fresatura), commerciali da comprare finiti, altro.
+
+    Nasce da solo: quando il laser dice "non e' da laser" e lo classifica
+    (tasto N nel controllo dei disegni), o dalle righe tubolari della
+    distinta (backend/procura.py). Uno per ordine + chiave: 'art:<id>' per
+    un pezzo classificato, 'tub:...' per una riga tubolare.
+
+    Stati: da_ordinare -> ordinato (fornitore, data prevista) -> arrivato.
+    Gli ordini eliminati nascondono le loro voci (si filtra leggendo)."""
+    __tablename__ = 'da_procurare'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    order_id = Column(String, nullable=False, index=True)
+    chiave = Column(String, nullable=False)                # unica per ordine
+    origine = Column(String, nullable=False, default='classificato')   # classificato | tubolare
+    articolo_id = Column(String, nullable=True)
+    codice = Column(String, nullable=True)
+    tipo = Column(String, nullable=False)                  # tubo | laser_tubo | meccanica | commerciale | altro
+    descrizione = Column(String, nullable=True)
+    profilo = Column(String, nullable=True)                # "Quadro 40x40 sp.2mm"
+    lunghezza_mm = Column(Float, nullable=True)            # di UN pezzo
+    quantita = Column(Integer, nullable=False, default=1)  # pezzi in tutto (ordine x assieme)
+    materiale = Column(String, nullable=True)
+    stato = Column(String, nullable=False, default='da_ordinare')      # da_ordinare | ordinato | arrivato
+    fornitore = Column(String, nullable=True)
+    data_prevista = Column(Date, nullable=True)
+    ordinato_il = Column(DateTime, nullable=True)
+    arrivato_il = Column(DateTime, nullable=True)
+    nota = Column(String, nullable=True)
+    creato_il = Column(DateTime, default=datetime.utcnow)
+    creato_da = Column(String, nullable=True)
+    aggiornato_il = Column(DateTime, nullable=True)
+    aggiornato_da = Column(String, nullable=True)
+    __table_args__ = (UniqueConstraint('order_id', 'chiave', name='ux_da_procurare_ordine_chiave'),)
 
 
 # ============================================================================

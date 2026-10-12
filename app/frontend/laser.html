@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Laser · FerroTrack</title>
 <link rel="stylesheet" href="/ft-ui.css">
-<link rel="stylesheet" href="/laser.css?v=2">
+<link rel="stylesheet" href="/laser.css?v=3">
 <script src="/ft-accesso.js" data-stazioni="laser"></script>
 <script src="/ft-ui.js"></script>
 <!--
@@ -23,6 +23,7 @@
     laser-controllo.js   controllo dei disegni a tutto schermo
     laser-lantek.js      "Manda a Lantek" (uno o piu' ordini)
     laser-saturazione.js la riga "Questa settimana" (carico-laser.js)
+    laser-procura.js     "Da procurare": tubi, laser tubo, meccanica, commerciali
     laser-avvio.js       avvio, aggiornamento automatico, notifiche
   La pagina di prima resta in laser-vecchio.html per una settimana.
 -->
@@ -38,6 +39,7 @@
     </span>
   </a>
   <div class="ft-topbar-end">
+    <button class="lz-btn piccolo lz-procura-btn" id="lz-procura-btn" type="button" onclick="LZ.procura.apri()" title="Da procurare (D)"><i data-lucide="package"></i><span>Da procurare <span class="n"></span></span><span class="lz-tasto" aria-hidden="true">D</span></button>
     <button class="ft-icon-btn" id="btn-fullscreen" onclick="LZ.schermoIntero()" title="Schermo intero (F11)" aria-label="Schermo intero"><i data-lucide="maximize"></i></button>
     <span class="ft-live" id="conn-badge" title="Si aggiorna da solo">In linea</span>
     <div class="lz-bell">
@@ -73,11 +75,12 @@
 <script src="/carico-laser.js?v=2"></script>
 <script src="/laser-base.js?v=2"></script>
 <script src="/laser-saturazione.js?v=1"></script>
-<script src="/laser-lista.js?v=2"></script>
-<script src="/laser-ordine.js?v=2"></script>
+<script src="/laser-lista.js?v=3"></script>
+<script src="/laser-ordine.js?v=3"></script>
 <script src="/laser-abbina.js?v=1"></script>
-<script src="/laser-controllo.js?v=1"></script>
+<script src="/laser-controllo.js?v=2"></script>
 <script src="/laser-lantek.js?v=2"></script>
-<script src="/laser-avvio.js?v=2"></script>
+<script src="/laser-procura.js?v=1"></script>
+<script src="/laser-avvio.js?v=3"></script>
 </body>
 </html>

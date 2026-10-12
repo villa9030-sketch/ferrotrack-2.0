@@ -13,6 +13,8 @@ stessa cosa:
   GET  /api/orders/<id>/pezzi/<pz>/foglio.svg lo stesso foglio come immagine
   POST /api/orders/<id>/pezzi/<pz>/giusto     "si', e' il pezzo giusto"
   POST /api/orders/<id>/pezzi/<pz>/decisione  va sviluppato / piu' pezzi / non da laser
+                                              (con N: cosa procurare, backend/procura.py)
+  GET  /api/orders/<id>/pezzi/<pz>/procura-proposta  cosa proporre col tasto N
 
 Lantek si legge e basta (lantek.py, sola lettura): niente qui manda niente a
 Lantek, lo fa solo /lantek-invia dopo la conferma.
@@ -146,6 +148,10 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
     from . import lantek as _lt
     stato = stato_laser(order)
     righe_dist, righe_pdf, esclusi = A._distinta_lantek_con_esclusi(order)
+    # le righe tubolari della distinta finiscono da sole in "Da procurare"
+    if righe_dist and not righe_pdf:
+        from . import procura as _pc
+        _pc.sincronizza_righe(order.id, righe_dist)
     lam = [r for r in righe_dist if r.get('tipo') == 'lamiera' and r.get('codice')]
     tutte_lam = lam + [x['_riga'] for x in esclusi if x.get('_riga')]
     altri = [r for r in righe_dist if r.get('tipo') != 'lamiera']
@@ -341,20 +347,36 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
     return out
 
 
-def con_taglia_entro(order, a: dict, cal=None) -> dict:
+def _procura_ordine(order_id) -> dict:
+    """Le voci "da procurare" non arrivate di un ordine (procura.riassunto_per_ordini)."""
+    try:
+        from . import procura as _pc
+        return _pc.riassunto_per_ordini([order_id]).get(order_id) or {}
+    except Exception:
+        logger.warning('da procurare non letto per %s', order_id, exc_info=True)
+        return {}
+
+
+def con_taglia_entro(order, a: dict, cal=None, procura: dict | None = None) -> dict:
     """Il riassunto con il "taglia entro" dell'ordine. Si calcola ADESSO (non
-    sta nella cache): la data scelta a mano e la consegna si vedono subito."""
+    sta nella cache): la data scelta a mano e la consegna si vedono subito.
+    procura: le voci "da procurare" non arrivate dell'ordine (None = si
+    leggono qui): laser tubo e meccanica dal fornitore contano come
+    lavorazione esterna (+5); servono anche al chip "Da procurare (N)"."""
     from . import taglia_entro as _te
     cal = cal if cal is not None else _app()._cal_config()
     flag = getattr(order, 'lavorazione_esterna', None)
     nota = getattr(order, 'lavorazione_esterna_nota', None) or ''
+    pc = procura if procura is not None else _procura_ordine(order.id)
     # la spunta "Lavorazione esterna" vale subito (non sta nella cache)
-    ant = (_te.anticipo_da(_te.con_esterna(a['dopo_laser'], flag, nota), cal)
-           if a.get('dopo_laser') or flag is not None else None)
+    ant = (_te.anticipo_da(_te.con_procura(_te.con_esterna(a['dopo_laser'], flag, nota), pc.get('esterne')), cal)
+           if a.get('dopo_laser') or flag is not None or pc.get('esterne') else None)
     te = _te.taglia_entro(getattr(order, 'data_consegna', None), ant, cal,
                           getattr(order, 'data_taglio_pianificata', None))
     return {**a, 'taglia_entro': te,
-            'lavorazione_esterna': {'valore': flag, 'nota': nota}}
+            'lavorazione_esterna': {'valore': flag, 'nota': nota},
+            'procura': {'n': pc.get('n') or 0, 'n_da_ordinare': pc.get('n_da_ordinare') or 0,
+                        'n_ordinati': pc.get('n_ordinati') or 0, 'n_scaduti': pc.get('n_scaduti') or 0}}
 
 
 @bp_laser.route('/api/orders/<order_id>/lavorazione-esterna', methods=['POST'])
@@ -448,13 +470,20 @@ def api_laser_ordini():
             session.close()
         out = {}
         cal = _app()._cal_config()
+        from . import procura as _pc
+        try:
+            _pc.sincronizza_tutti()
+            proc = _pc.riassunto_per_ordini([o.id for o in ordini])
+        except Exception:
+            logger.warning('da procurare non letto', exc_info=True)
+            proc = {}
         for o in ordini:
             try:
                 out[o.id] = _analisi_in_cache(o, forza=fresco or bool(solo))
             except Exception as e:
                 logger.exception('analisi laser di %s fallita', o.id)
                 out[o.id] = {'id': o.id, 'stato': stato_laser(o), 'errore': str(e)[:200]}
-            out[o.id] = con_taglia_entro(o, out[o.id], cal)
+            out[o.id] = con_taglia_entro(o, out[o.id], cal, proc.get(o.id) or {})
         return jsonify({'success': True, 'ordini': out}), 200
     except Exception as e:
         logger.exception('elenco laser fallito')
@@ -481,7 +510,9 @@ def api_ordine_laser(order_id):
                                                           'usa_lantek')}
         with _LOCK:
             _CACHE[order.id] = (time.time(), ridotto)
-        return jsonify({'success': True, **con_taglia_entro(order, a)}), 200
+        from . import procura as _pc
+        return jsonify({'success': True, **con_taglia_entro(order, a),
+                        'procura_voci': _pc.elenco('tutti', ordine=order.id)}), 200
     except Exception as e:
         logger.exception('ordine laser fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1105,6 +1136,91 @@ _SCELTE = {'sviluppo': 'va sviluppato', 'piu_pezzi': "ci sono più pezzi: da far
            'non_laser': "non è da laser"}
 
 
+def _procura_dal_corpo(corpo: dict):
+    """{tipo, profilo, lunghezza_mm, nota} mandato col tasto N, controllato.
+    (dati, None) o (None, errore); (None, None) se non c'e'."""
+    from . import procura as _pc
+    pr = corpo.get('procura')
+    if pr is None:
+        return None, None
+    if not isinstance(pr, dict) or pr.get('tipo') not in _pc.TIPI:
+        return None, 'Cosa procurare? tubo, laser_tubo, meccanica, commerciale o altro'
+    lung = pr.get('lunghezza_mm')
+    if lung not in (None, ''):
+        try:
+            lung = round(float(str(lung).replace(',', '.')), 1)
+        except (TypeError, ValueError):
+            return None, 'Lunghezza non valida: scrivi i mm'
+        if not 1 <= lung <= 24000:
+            return None, 'Lunghezza fuori misura (1-24000 mm)'
+    else:
+        lung = None
+    nota = str(pr.get('nota') or '').strip()[:200]
+    if pr['tipo'] == 'altro' and not nota:
+        return None, "Per \"Altro\" scrivi una nota corta: cos'è"
+    return {'tipo': pr['tipo'], 'profilo': str(pr.get('profilo') or '').strip()[:80] or None,
+            'lunghezza_mm': lung, 'nota': nota or None}, None
+
+
+def _quantita_distinta(order, articolo_id) -> int:
+    """Pezzi in tutto del pezzo nell'ordine (quantita' x assieme, come la distinta)."""
+    try:
+        for r in _app()._distinta_ordine(order)[0]:
+            if r.get('tipo') == 'lamiera' and str(r.get('articolo_id')) == str(articolo_id):
+                return max(1, int(r.get('quantita') or 1))
+    except Exception:
+        logger.warning("quantita' del pezzo non letta", exc_info=True)
+    return 1
+
+
+def _testi_riga(order, art) -> list:
+    """Le descrizioni della riga dell'ordine del cliente del pezzo."""
+    try:
+        riga = riga_ordine_di(order, art)
+        return [str(r['descrizione']) for r in (riga or {}).get('righe') or [] if r.get('descrizione')]
+    except Exception:
+        logger.warning("riga dell'ordine non letta per %s", (art or {}).get('codice'), exc_info=True)
+        return []
+
+
+def _profilo_cartiglio(percorso) -> str | None:
+    if not (percorso and str(percorso).lower().endswith('.dxf')):
+        return None
+    try:
+        from .preventivi.verifica_coerenza import descrizione_profilo
+        return descrizione_profilo(percorso)
+    except Exception:
+        return None
+
+
+@bp_laser.route('/api/orders/<order_id>/pezzi/<articolo_id>/procura-proposta', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_pezzo_procura_proposta(order_id, articolo_id):
+    """Cosa proporre quando il laser dice "non e' da laser" (tasto N): il
+    profilo e la lunghezza letti nella riga dell'ordine del cliente o nel
+    cartiglio ("Tubo 40x40x2 Lg. 795", "Angolare 50x5"...), o una sezione di
+    tubo disegnata. Solo un suggerimento: decide il tasto.
+    {success, proposta: {tipo, profilo, lunghezza_mm, fonte, testo, sezione,
+     alternativa}, attuale: la voce gia' salvata o null, quantita}"""
+    A = _app()
+    from . import procura as _pc
+    try:
+        order = A._ordine_esistente(order_id)
+        if not order:
+            return A._non_trovato_ordine()
+        art, percorso = A._articolo_ordine(order, articolo_id)
+        if not art:
+            return jsonify({'success': False, 'error': "Pezzo non trovato in quest'ordine"}), 404
+        prop = _pc.proposta(_testi_riga(order, art), _profilo_cartiglio(percorso), percorso,
+                            [art.get('bbox_w_mm'), art.get('bbox_h_mm')])
+        attuale = next((v for v in _pc.elenco('tutti', ordine=order.id) if v['chiave'] == f'art:{articolo_id}'), None)
+        return jsonify({'success': True, 'proposta': prop, 'attuale': attuale,
+                        'quantita': _quantita_distinta(order, articolo_id)}), 200
+    except Exception as e:
+        logger.exception('proposta da procurare fallita')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
 @bp_laser.route('/api/orders/<order_id>/pezzi/<articolo_id>/decisione', methods=['POST'])
 @richiede('laser', 'ufficio')
 def api_pezzo_decisione(order_id, articolo_id):
@@ -1112,13 +1228,22 @@ def api_pezzo_decisione(order_id, articolo_id):
 
     Corpo: {"scelta": "sviluppo" | "piu_pezzi" | "non_laser"} oppure
     {"scelta": null} per toglierla. Il pezzo resta fuori da "Manda a Lantek"
-    col suo motivo; finisce anche nel registro degli esempi del motore."""
+    col suo motivo; finisce anche nel registro degli esempi del motore.
+
+    Con "non_laser" si dice anche cosa procurare (tasto N, poi T/L/M/C/A):
+    "procura": {"tipo": "tubo" | "laser_tubo" | "meccanica" | "commerciale" |
+    "altro", "profilo": "Tubo quadro 40x40 sp.2mm", "lunghezza_mm": 795,
+    "nota": "..."} -> la voce in "Da procurare" (backend/procura.py). Tolta o
+    cambiata la decisione, la voce si toglie (se non e' gia' ordinata)."""
     A = _app()
     try:
         corpo = request.get_json(silent=True) or {}
         scelta = corpo.get('scelta')
         if scelta is not None and scelta not in _SCELTE:
             return jsonify({'success': False, 'error': 'Scelta non valida (sviluppo, piu_pezzi, non_laser)'}), 400
+        procura, err_pr = _procura_dal_corpo(corpo) if scelta == 'non_laser' else (None, None)
+        if err_pr:
+            return jsonify({'success': False, 'error': err_pr}), 400
         order = A._ordine_esistente(order_id)
         if not order:
             return A._non_trovato_ordine()
@@ -1138,8 +1263,28 @@ def api_pezzo_decisione(order_id, articolo_id):
         A._audit('PEZZO_DECISIONE', 'orders', order_id,
                  f"Pezzo {art.get('codice') or articolo_id}: "
                  + (_SCELTE[scelta] + ' (fuori da Lantek)' if scelta else 'decisione tolta'))
+        from . import procura as _pc
+        voce = None
+        if scelta == 'non_laser' and procura:
+            testi = _testi_riga(order, art)
+            voce = _pc.classifica(order_id, articolo_id, tipo=procura['tipo'], codice=art.get('codice'),
+                                  descrizione=(testi[0] if testi else None) or _profilo_cartiglio(_percorso),
+                                  profilo=procura['profilo'], lunghezza_mm=procura['lunghezza_mm'],
+                                  quantita=_quantita_distinta(order, articolo_id),
+                                  materiale=art.get('materiale'), nota=procura['nota'], chi=chi)
+            det = ', '.join(x for x in (procura['profilo'] or '',
+                                        f"{procura['lunghezza_mm']:g} mm" if procura['lunghezza_mm'] else '',
+                                        procura['nota'] or '') if x)
+            A._audit('PROCURA_CLASSIFICA', 'orders', order_id,
+                     f"{art.get('codice') or articolo_id}: da procurare come {_pc.TIPI[procura['tipo']]}"
+                     + (f' ({det})' if det else '') + f" · {voce['quantita']} pz")
+        elif scelta != 'non_laser':
+            via = _pc.togli_classificato(order_id, articolo_id)
+            if via and via.get('tolta'):
+                A._audit('PROCURA_TOLTA', 'orders', order_id,
+                         f"{art.get('codice') or articolo_id}: tolto da \"Da procurare\" (decisione cambiata)")
         invalida(order_id)
-        return jsonify({'success': True, 'scelta': scelta, 'prima': esito.get('prima')}), 200
+        return jsonify({'success': True, 'scelta': scelta, 'prima': esito.get('prima'), 'procura': voce}), 200
     except Exception as e:
         logger.exception('decisione sul pezzo fallita')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
