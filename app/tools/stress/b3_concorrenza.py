@@ -24,7 +24,8 @@ from datetime import date, datetime, timedelta
 from comune import Client
 
 POLL = {
-    'laser': [('/api/orders?aperti=1', 5), ('/api/laser/ordini', 60), ('/api/notifications?limit=1', 30)],
+    'laser': [('/api/orders?aperti=1', 5), ('/api/laser/ordini', 60), ('/api/notifications?limit=1', 30),
+              ('/api/capo/kpi-operai', 30), ('/api/orders/sospetti-finiti', 60)],
     'ufficio': [('/api/ordini/viste', 10), ('/api/orders', 10), ('/api/ordini-da-fatturare/count', 30),
                 ('/api/preventivi?status=INVIATO&limit=200', 30), ('/api/notifications?limit=1', 30),
                 ('/api/ore/anomalie?stato=aperta', 120)],
