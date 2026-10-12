@@ -382,6 +382,35 @@ class AssiemeLantek(Base):
     creato_da = Column(String, nullable=True)
 
 
+class LantekCorrezione(Base):
+    """Un codice "da correggere in Lantek" (Stefano, 12/10/2026).
+
+    In "Manda a Lantek" il codice c'e' gia' in Lantek con uno spessore o un
+    materiale diverso dall'ordine e chi conferma sceglie il valore
+    dell'ORDINE: il codice resta fuori dall'invio e va corretto a mano in
+    Lantek. Qui resta scritto (cosa deve diventare, chi, quando) finche' non
+    e' risolto, cosi' non si dimentica: FerroTrack rilegge Lantek (sola
+    lettura) e quando coincide lo dice ("pronto da mandare").
+
+    Aperta = chiuso_il vuoto. corretto_il = quando FerroTrack ha visto Lantek
+    coincidere. esito alla chiusura: 'mandato' (ha l'ordine di produzione),
+    'usa_lantek' (ha cambiato idea: va bene il valore di Lantek)."""
+    __tablename__ = 'lantek_correzioni'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    order_id = Column(String, nullable=False, index=True)
+    codice = Column(String, nullable=False)                # PrdRef esatto in Lantek
+    spessore_voluto = Column(Float, nullable=True)         # None = lo spessore va bene
+    materiale_voluto = Column(String, nullable=True)       # nome del materiale in Lantek
+    spessore_lantek = Column(Float, nullable=True)         # com'era in Lantek alla scelta
+    materiale_lantek = Column(String, nullable=True)
+    creato_il = Column(DateTime, default=datetime.utcnow)
+    creato_da = Column(String, nullable=True)
+    corretto_il = Column(DateTime, nullable=True)
+    chiuso_il = Column(DateTime, nullable=True)
+    chiuso_da = Column(String, nullable=True)
+    esito = Column(String, nullable=True)
+
+
 # ============================================================================
 #  PREVENTIVI — moduli portati dal Preventivatore desktop (Tkinter → web)
 # ============================================================================

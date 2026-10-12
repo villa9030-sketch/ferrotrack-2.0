@@ -105,7 +105,9 @@
     const r = S.riep[o.id];
     if (st === 'smistare') return { t: 'Da smistare', c: 'forte' };
     if (st === 'tagliato') return { t: 'Tagliato', c: '' };
-    if (st === 'in_lantek') return { t: 'In Lantek', c: '' };
+    // codici "da correggere in Lantek": l'ordine non e' fatto finche' non sono a posto
+    if (r && r.n_correggere) return { t: `${r.n_correggere} da correggere in Lantek`, corto: `Da correggere (${r.n_correggere})`, c: 'err' };
+    if (st === 'in_lantek') return { t: r && r.n_corretti ? `In Lantek · ${r.n_corretti} da mandare` : 'In Lantek', c: r && r.n_corretti ? 'forte' : '' };
     if (!r) return { t: '', c: 'skel' };
     if (r.errore) return { t: 'Da ricontrollare', c: '' };
     if (r.n_abbinare) return { t: `Da abbinare (${r.n_abbinare})`, c: 'att' };
@@ -115,10 +117,29 @@
     if (r.tutto_in_lantek) return { t: 'Già in Lantek', c: '' };
     return { t: 'Pronto per Lantek', c: 'forte' };
   };
-  LZ.chip = function (o, extra) {
+  /** corto: nell'elenco, dove c'e' poco posto (il testo intero nel suggerimento). */
+  LZ.chip = function (o, extra, corto) {
     const e = LZ.etichetta(o);
     if (e.c === 'skel') return '<span class="lz-chip skel lz-skel" aria-hidden="true">&nbsp;</span>';
-    return `<span class="lz-chip ${e.c}${extra ? ' ' + extra : ''}">${e.c === 'att' || e.c === 'err' ? '<i class="pt"></i>' : ''}${esc(e.t)}</span>`;
+    const t = corto && e.corto ? e.corto : e.t;
+    return `<span class="lz-chip ${e.c}${extra ? ' ' + extra : ''}"${t !== e.t ? ` title="${esc(e.t)}"` : ''}>${e.c === 'att' || e.c === 'err' ? '<i class="pt"></i>' : ''}${esc(t)}</span>`;
+  };
+
+  /** Un codice "da correggere in Lantek" e' appena diventato "corretto"
+      (FerroTrack ha riletto Lantek): lo si dice una volta. prima/dopo =
+      riassunti dell'ordine. */
+  const _detti = new Set();
+  LZ.avvisaCorretti = function (id, prima, dopo) {
+    if (!prima || !dopo) return;
+    const eraDa = new Set((prima.correzioni || []).filter(c => c.stato === 'da_correggere').map(c => c.codice));
+    for (const c of dopo.correzioni || []) {
+      const k = id + '|' + c.codice;
+      if (c.stato !== 'corretto' || !eraDa.has(c.codice) || _detti.has(k)) continue;
+      _detti.add(k);
+      const o = LZ.trova(id);
+      FT.toast(`${c.codice} corretto in Lantek: pronto da mandare${o ? ` (${o.cliente || ''} ${LZ.numero(o)})` : ''}`, 'ok',
+        { testo: 'Apri', fn: () => LZ.lista.apri(id) }, 12000);
+    }
   };
 
   // ── Formati ─────────────────────────────────────────────────────────
@@ -185,7 +206,7 @@
     if (_menu) { const t = _menu._torna; _menu.remove(); _menu = null; if (t && t.focus) t.focus(); return true; }
     return false;
   };
-  /** voci: [{t, ico, fn, href, download, sep, tit}] */
+  /** voci: [{t, ico, fn, href, download, sep, tit, cls}] (cls 'rosso': azione che toglie) */
   LZ.menu = function (ancora, voci) {
     LZ.chiudiMenu();
     const m = document.createElement('div');
@@ -194,7 +215,7 @@
     m.innerHTML = voci.map((v, i) => v.sep ? '<div class="sep"></div>'
       : v.tit ? `<div class="tit">${esc(v.tit)}</div>`
         : v.href ? `<a role="menuitem" href="${esc(v.href)}" ${v.download ? 'download' : ''} data-i="${i}">${v.ico ? LZ.ico(v.ico) : ''}<span>${esc(v.t)}</span></a>`
-          : `<button role="menuitem" type="button" data-i="${i}">${v.ico ? LZ.ico(v.ico) : ''}<span>${esc(v.t)}</span></button>`).join('');
+          : `<button role="menuitem" type="button" data-i="${i}"${v.cls ? ` class="${esc(v.cls)}"` : ''}>${v.ico ? LZ.ico(v.ico) : ''}<span>${esc(v.t)}</span></button>`).join('');
     document.body.appendChild(m);
     LZ.icone(m);
     const r = ancora.getBoundingClientRect();

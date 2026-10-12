@@ -513,3 +513,27 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-blocchi .lz-dati select { height: 32px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; background: #fff; }
 .lz-chip:focus-visible, .lz-sp input:focus-visible, .lz-dati select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 2px; }
 .lz-salva { font-size: 13px; color: var(--lz-ink-3); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+
+/* ── Codici "da correggere in Lantek" (12/10/2026) ───────────────── */
+.lz-promemoria { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.lz-ricorda { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; cursor: pointer;
+  font: 600 13px var(--lz-font); color: var(--lz-red); background: var(--lz-red-bg); border: 1px solid var(--lz-red-line); }
+.lz-ricorda:hover { border-color: var(--lz-red); }
+.lz-ricorda.pronti { color: var(--lz-accent-ink); background: var(--lz-accent-bg); border-color: var(--lz-accent-line); }
+.lz-ricorda.pronti:hover { border-color: var(--lz-accent); }
+.lz-correggi.pronti { background: var(--lz-accent-bg); border-color: var(--lz-accent-line); }
+.lz-correggi li.ok .mono { color: var(--lz-accent-ink); }
+.lz-correggi.pronti li + li { border-top-color: var(--lz-accent-line); }
+.lz-correggi .lz-dati { margin-top: 6px; }
+
+/* ── Elimina ordine ─────────────────────────────────────────────── */
+.lz-menu button.rosso, .lz-menu button.rosso [data-lucide] { color: var(--lz-red); }
+.lz-dlg.lz-dlg-piccolo { width: min(480px, 100%); }
+.lz-el-ordine { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid var(--lz-line); border-radius: var(--lz-r); background: var(--lz-surface-2); }
+.lz-el-ordine b { font-size: 15px; }
+.lz-el-ordine .mono { color: var(--lz-ink-2); }
+.lz-el-ordine small { color: var(--lz-ink-3); }
+#lz-elimina .lz-dlg-corpo p { margin: 0; color: var(--lz-ink-2); font-size: 13.5px; }
+.lz-avviso.err { background: var(--lz-red-bg); border-color: var(--lz-red-line); color: var(--lz-red); }
+.lz-btn.elimina { background: var(--lz-red); border-color: var(--lz-red); color: #fff; }
+.lz-btn.elimina:hover { background: #9A1D14; border-color: #9A1D14; }

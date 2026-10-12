@@ -274,6 +274,17 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
             })
 
     invio_codici = [r['codice'] for r in _lt.righe_per_xml(q['righe'])] if q else []
+    # codici "da correggere in Lantek" (lantek_correzioni.py): finche' Lantek
+    # non coincide non partono, e l'ordine non e' "tutto in Lantek"
+    from . import lantek_correzioni as _lc
+    in_prod = ({str(r['codice']).strip().upper() for r in q['righe'] if r.get('in_produzione')}
+               if q and lt.get('disponibile') else None)
+    try:
+        corr = _lc.stato(order.id, in_prod)
+    except Exception:
+        logger.warning('correzioni Lantek non lette per %s', order.id, exc_info=True)
+        corr = {'correzioni': [], 'n_correggere': 0, 'n_corretti': 0}
+    fermi = {c['codice'].strip().upper() for c in corr['correzioni'] if c['stato'] == 'da_correggere'}
     da_abbinare_n = len((pdf or {}).get('da_abbinare') or [])
     n_codici = len({str(r['codice']).strip().lower() for r in tutte_lam})
     out = {
@@ -289,16 +300,19 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         'lantek': {'letto': q is not None, 'disponibile': bool(lt.get('disponibile')),
                    'errore': lt.get('errore'), 'crea_pezzi': bool(procesos),
                    'invio_automatico': bool(q is not None and _lt.xmlimporter_disponibile())},
-        'n_invio': len(invio_codici) + len(nuovi_si),
+        'n_invio': len([c for c in invio_codici if str(c).strip().upper() not in fermi]) + len(nuovi_si),
         'n_in_produzione': sum(1 for r in (q or {}).get('righe') or [] if r.get('in_produzione')),
         'dopo_laser': dopo,
+        'correzioni': corr['correzioni'],
+        'n_correggere': corr['n_correggere'], 'n_corretti': corr['n_corretti'],
     }
     out['pronto'] = bool(out['lantek']['disponibile'] and not n_controllare and not bloccati
                          and not da_abbinare_n and out['n_invio'])
     # niente da mandare e niente in sospeso: i codici hanno gia' l'ordine di
     # produzione in Lantek (o sono tenuti fuori)
     out['tutto_in_lantek'] = bool(out['lantek']['disponibile'] and not out['n_invio'] and not n_controllare
-                                  and not bloccati and not da_abbinare_n and n_codici)
+                                  and not bloccati and not da_abbinare_n and n_codici
+                                  and not corr['n_correggere'])
     if completa:
         righe_q = {r['codice']: r for r in (q or {}).get('righe') or []}
         out.update({
@@ -321,6 +335,8 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                            for c in invio_codici for a in (righe_q.get(c) or {}).get('avvisi') or []
                            if not a.startswith('non ancora in Lantek')],
             'pdf': pdf,
+            # chi ha gia' scelto "va bene Lantek" per un codice da correggere
+            'usa_lantek': [c for c in _lc.usa_lantek(order.id) if c in invio_codici],
         })
     return out
 
@@ -461,13 +477,44 @@ def api_ordine_laser(order_id):
         a = analisi(order, completa=True, con_lantek=True)
         # anche l'elenco vede subito lo stesso stato
         ridotto = {k: v for k, v in a.items() if k not in ('pezzi', 'altri', 'esclusi', 'invio', 'differenze',
-                                                          'pdf', 'commessa', 'cliente_lantek', 'consegna_lantek')}
+                                                          'pdf', 'commessa', 'cliente_lantek', 'consegna_lantek',
+                                                          'usa_lantek')}
         with _LOCK:
             _CACHE[order.id] = (time.time(), ridotto)
         return jsonify({'success': True, **con_taglia_entro(order, a)}), 200
     except Exception as e:
         logger.exception('ordine laser fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp_laser.route('/api/orders/<order_id>/lantek-correzioni', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_lantek_correzione(order_id):
+    """Un codice "da correggere in Lantek": chi l'ha deciso cambia idea e va
+    bene il valore che c'e' in Lantek. La correzione si chiude e il codice
+    si puo' mandare subito (sempre con la conferma di "Manda a Lantek").
+
+    Corpo: {"codice": "11PCOPA0025-01", "azione": "usa_lantek"}"""
+    A = _app()
+    from . import lantek_correzioni as _lc
+    try:
+        if not A._ordine_esistente(order_id):
+            return A._non_trovato_ordine()
+        corpo = request.get_json(silent=True) or {}
+        codice = str(corpo.get('codice') or '').strip()
+        if corpo.get('azione') != 'usa_lantek' or not codice:
+            return jsonify({'success': False, 'error': 'Serve il codice e azione "usa_lantek"'}), 400
+        chiuse = _lc.chiudi(order_id, [codice], 'usa_lantek', A._chi_nome())
+        if not chiuse:
+            return jsonify({'success': False, 'codice': 'non_trovato',
+                            'error': f'{codice} non è fra i codici da correggere di quest\'ordine'}), 404
+        A._audit('LANTEK_USA_LANTEK', 'orders', order_id,
+                 f"{codice}: va bene com'è in Lantek (non più da correggere: era {_lc.descrivi(chiuse[0])})")
+        invalida(order_id)
+        return jsonify({'success': True, 'codice': chiuse[0]['codice']}), 200
+    except Exception as e:
+        logger.exception('correzione Lantek non salvata')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
 
 
 # ---------------------------------------------------------------------------

@@ -230,6 +230,9 @@ def righe_quantita(distinta: list, lantek: dict | None = None) -> list:
             avvisi.append(f"materiale {x['materiale_ft'] or '?'}: da scegliere in Lantek")
         out.append({'codice': codice_lt, 'codice_ft': cod, 'quantita': x['quantita'],
                     'materiale': materiale, 'spessore': spessore, 'stato': stato, 'avvisi': avvisi,
+                    # come li vuole l'ordine (materiale col nome di Lantek): per
+                    # i codici "da correggere in Lantek" (lantek_correzioni.py)
+                    'materiale_ordine': mat_lt, 'spessore_ordine': sp_ft,
                     'controllo': x.get('controllo'), 'articolo_id': x.get('articolo_id'),
                     'disegno': x.get('disegno')})
     return out

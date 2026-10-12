@@ -49,6 +49,7 @@
     for (const [k, v] of Object.entries(nuovi)) {
       const prima = S.riep[k];
       if (k === S.aperto && prima && JSON.stringify(prima) !== JSON.stringify(v)) cambiatoAperto = true;
+      LZ.avvisaCorretti(k, prima, v);
       S.riep[k] = v;
     }
     if (!id) for (const k of Object.keys(S.riep)) if (!(k in nuovi)) delete S.riep[k];
@@ -119,7 +120,7 @@
 
   // ── Tasti ───────────────────────────────────────────────────────────
   document.addEventListener('keydown', e => {
-    if (document.querySelector('.ft-modal-bg.open, .fts-velo')) return;      // conferme e finestre comuni
+    if (document.querySelector('.ft-modal-bg.open, .fts-velo, #lz-elimina')) return;      // conferme e finestre comuni
     if (LZ.controllo.aperto()) { if (LZ.controllo.tasto(e)) e.preventDefault(); return; }
     if (LZ.lantek.aperto()) { if (LZ.lantek.tasto(e)) e.preventDefault(); return; }
     if (e.key === 'Escape' && LZ.chiudiMenu()) { e.preventDefault(); return; }

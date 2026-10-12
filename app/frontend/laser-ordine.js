@@ -20,7 +20,8 @@
                       : { ...prima, carica: false, errore: (r.d && r.d.error) || 'Il server non ha risposto', t: Date.now() };
     if (r.ok) {
       // l'elenco vede subito lo stesso stato
-      const { pezzi, altri, esclusi, invio, differenze, pdf, ...rid } = r.d;   // eslint-disable-line no-unused-vars
+      const { pezzi, altri, esclusi, invio, differenze, pdf, usa_lantek, ...rid } = r.d;   // eslint-disable-line no-unused-vars
+      LZ.avvisaCorretti(id, S.riep[id], rid);
       S.riep[id] = rid;
     }
     LZ.ridisegna();
@@ -43,6 +44,13 @@
                bottoni: [{ t: 'Annulla taglio', az: 'taglio-annulla' }] };
     }
     if (st === 'in_lantek') {
+      // un codice corretto in Lantek dopo che l'ordine e' stato segnato: va mandato
+      const corretti = ((info || {}).correzioni || []).filter(c => c.stato === 'corretto').map(c => c.codice);
+      if (corretti.length) {
+        return { tono: 'pronto', ico: 'send', t: `Manda a Lantek: ${LZ.plur(corretti.length, 'codice', 'codici')}`,
+                 s: `${esc(elenco(corretti))} ${corretti.length === 1 ? 'è stato corretto' : 'sono stati corretti'} in Lantek: ora si può mandare.`,
+                 bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
+      }
       return { tono: '', ico: 'scissors', t: 'In Lantek: da tagliare', s: 'Quando hai tagliato tutto, segnalo qui.',
                bottoni: [{ t: 'Taglio fatto', az: 'taglio', pri: true, tasto: 'Invio' }] };
     }
@@ -81,6 +89,11 @@
                  : 'Finché non li sistemi, l\'ordine non parte. Quando hai fatto, premi Ricontrolla.',
                bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: !prop, tasto: prop ? null : 'Invio' }] };
     }
+    if (info.n_correggere && !info.pronto) {
+      return { tono: 'err', ico: 'pencil-ruler', t: `${LZ.plur(info.n_correggere, 'codice', 'codici')} da correggere in Lantek`,
+               s: 'Correggili in Lantek come scritto sotto: FerroTrack lo rilegge da solo e ti avvisa quando si possono mandare. Se invece va bene com\'è in Lantek, scegli «Va bene Lantek».',
+               bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
+    }
     if (info.tutto_in_lantek) {
       return { tono: '', ico: 'circle-check', t: 'È già tutto in Lantek',
                s: 'Ogni codice ha già il suo ordine di produzione. Segnalo: passa fra quelli da tagliare.',
@@ -88,6 +101,13 @@
     }
     if (info.pronto) {
       const n = info.n_invio || 0;
+      const corretti = (info.correzioni || []).filter(c => c.stato === 'corretto').map(c => c.codice);
+      if (corretti.length) {
+        return { tono: 'pronto', ico: 'send', t: `Manda a Lantek: ${LZ.plur(n, 'codice', 'codici')}`,
+                 s: `${esc(elenco(corretti))} ${corretti.length === 1 ? 'è stato corretto' : 'sono stati corretti'} in Lantek: ora si può mandare.`
+                   + (info.n_correggere ? ` ${LZ.plur(info.n_correggere, 'altro resta', 'altri restano')} fuori finché non ${info.n_correggere === 1 ? 'lo' : 'li'} correggi.` : ''),
+                 bottoni: [{ t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
+      }
       return { tono: 'pronto', ico: 'send', t: 'Pronto per Lantek',
                s: `${LZ.plur(n, 'codice', 'codici')}: creo i pezzi nuovi col disegno e gli ordini di produzione.`,
                bottoni: [{ t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
@@ -95,6 +115,8 @@
     return { tono: '', ico: 'circle-help', t: 'Niente da mandare a Lantek', s: 'Nessun codice da mandare: se l\'hai già messo a mano, segnalo dal menu ⋯.',
              bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
   };
+
+  const elenco = (xs, n = 4) => xs.slice(0, n).join(', ') + (xs.length > n ? ` e altri ${xs.length - n}` : '');
 
   /** Il primo pezzo bloccato con uno spessore proposto dal motore (articolo_id) o null. */
   O.primaProposta = function (info) {
@@ -233,14 +255,35 @@
       h += `<ul class="lz-blocchi" aria-label="Cosa blocca l'ordine">${bl.map(b => `<li><span class="mono">${esc(b.codice)}</span>
         <span class="mot">${esc(capo(b.motivo))}<small>${esc(b.cosa)}</small>${campoDati(b, info)}</span></li>`).join('')}</ul>`;
     }
-    if (st === 'coda' && D.dati && (D.dati.differenze || []).length && !info.n_controllare && !info.n_abbinare) {
-      const n = new Set(D.dati.differenze.map(x => x.codice)).size;
+    if ((st === 'coda' || st === 'in_lantek') && (info.correzioni || []).length) h += correzioniHtml(info.correzioni);
+    const fermi = new Set((info.correzioni || []).map(c => c.codice));
+    const diffNuove = st === 'coda' && D.dati ? (D.dati.differenze || []).filter(x => !fermi.has(x.codice)) : [];
+    if (diffNuove.length && !info.n_controllare && !info.n_abbinare) {
+      const n = new Set(diffNuove.map(x => x.codice)).size;
       h += `<div class="lz-avviso att">${LZ.ico('scale')}<span>${LZ.plur(n, 'codice è diverso', 'codici sono diversi')} fra ordine e Lantek: lo scegli nella conferma prima di mandare.</span></div>`;
     }
     if (D.errore && D.dati) h += `<div class="lz-avviso">${LZ.ico('wifi-off')}<span>Ultimo aggiornamento non riuscito: ${esc(D.errore)}.</span></div>`;
     return h;
   }
   const capo = s => { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); };
+
+  /** I codici "da correggere in Lantek" (scelto il valore dell'ordine in
+      "Manda a Lantek"): cosa scrivere in Lantek, chi l'ha deciso, e la via
+      per cambiare idea ("Va bene Lantek"). Restano finche' non sono mandati. */
+  function correzioniHtml(cc) {
+    const da = cc.filter(c => c.stato === 'da_correggere');
+    const valLt = c => [c.spessore_voluto != null && c.spessore_lantek != null ? LZ.mm(c.spessore_lantek) : '',
+      c.materiale_voluto && c.materiale_lantek ? c.materiale_lantek : ''].filter(Boolean).join(' · ');
+    return `<ul class="lz-blocchi lz-correggi${da.length ? '' : ' pronti'}" aria-label="Da correggere in Lantek">${cc.map(c => {
+      const ok = c.stato === 'corretto';
+      const chi = [c.creato_da, c.creato_il ? FT.fmtRelativo(c.creato_il) : ''].filter(Boolean).join(', ');
+      return `<li class="${ok ? 'ok' : ''}" data-correzione="${esc(c.codice)}"><span class="mono">${esc(c.codice)}</span>
+        <span class="mot">${ok ? 'Corretto in Lantek: pronto da mandare' : `Da correggere in Lantek: ${esc(c.cosa || '')}`}
+          <small>${ok ? 'Mandalo con «Manda a Lantek».' : 'FerroTrack lo rilegge da solo e ti avvisa quando è a posto.'}${chi ? ` Deciso da ${esc(chi)}.` : ''}</small>
+          ${ok ? '' : `<span class="lz-dati"><button class="lz-btn piccolo" type="button" data-az="usa-lantek" data-codice="${esc(c.codice)}"
+            data-fuoco="usa-lantek-${esc(c.codice)}" title="Non correggo Lantek: lo mando com'è in Lantek">Va bene Lantek${valLt(c) ? ` (${esc(valLt(c))})` : ''}</button></span>`}</span></li>`;
+    }).join('')}</ul>`;
+  }
 
   // Spessore / materiale di un pezzo nuovo: lo decide il laser guardando il
   // disegno, e FerroTrack lo crea cosi' in Lantek (non si passa dal MES).
@@ -471,6 +514,7 @@
       case 'lantek': return LZ.lantek.apri([id]);
       case 'abbina': S.scheda = 'pezzi'; O.disegna(); return LZ.abbina && LZ.abbina.vai(id);
       case 'menu': return menuOrdine(o, ancora);
+      case 'usa-lantek': return ancora && O.usaLantek(id, ancora.dataset.codice);
       case 'pdf-stampa': {
         const f = document.getElementById('lz-pdf');
         try { f.contentWindow.focus(); f.contentWindow.print(); } catch (_) { window.open(`/api/orders/${id}/pdf`, '_blank', 'noopener'); }
@@ -496,8 +540,78 @@
     v.push({ t: 'Scarica tutti i disegni (ZIP)', ico: 'download', href: `/api/orders/${o.id}/disegni.zip`, download: true });
     if (st === 'coda' || st === 'in_lantek') v.push({ t: 'File degli ordini per Lantek (XML)', ico: 'file-code', href: `/api/orders/${o.id}/lantek-ordini.xml`, download: true });
     if (o.pdf_file) v.push({ t: 'Apri il PDF in una scheda', ico: 'external-link', fn: () => window.open(`/api/orders/${o.id}/pdf`, '_blank', 'noopener') });
+    v.push({ sep: true }, { t: 'Elimina ordine…', ico: 'trash-2', cls: 'rosso', fn: () => O.elimina(o.id) });
     LZ.menu(ancora, v);
   }
+
+  // ── Elimina ordine (dal menu ⋯) ─────────────────────────────────────
+  /** Finestra di conferma: chi e quale ordine; se e' gia' andato a Lantek,
+      che gli ordini di produzione restano in Lantek. Esc = annulla; Invio
+      non elimina da solo (bisogna andare sul pulsante rosso). */
+  O.elimina = function (id) {
+    const o = LZ.trova(id);
+    if (!o || document.getElementById('lz-elimina')) return;
+    const info = (S.dett[id] || {}).dati || S.riep[id] || {};
+    const inLantek = !!o.importato_lantek_il || (info.n_in_produzione || 0) > 0;
+    const torna = document.activeElement;
+    const v = document.createElement('div');
+    v.className = 'lz-velo';
+    v.id = 'lz-elimina';
+    v.innerHTML = `<div class="lz-dlg lz-dlg-piccolo" role="alertdialog" aria-modal="true" aria-labelledby="lz-el-tit" aria-describedby="lz-el-cosa">
+      <div class="lz-dlg-testa"><h2 id="lz-el-tit">Eliminare l'ordine?</h2></div>
+      <div class="lz-dlg-corpo" id="lz-el-cosa">
+        <div class="lz-el-ordine"><b>${esc(o.cliente || 'Cliente non indicato')}</b><span class="mono">${esc(LZ.numero(o))}</span>
+          <small>consegna ${LZ.giorno(o) ? FT.fmtData(LZ.giorno(o)) : '—'}</small></div>
+        <p>Sparisce dal laser e da tutte le pagine. Subito dopo puoi ancora annullare; più tardi lo recupera l'ufficio.</p>
+        ${inLantek ? `<div class="lz-avviso err">${LZ.ico('triangle-alert')}<span><b>È già stato mandato a Lantek.</b> Gli ordini di produzione in Lantek restano:
+          se non servono più, toglili dal MES.</span></div>` : ''}
+      </div>
+      <div class="lz-dlg-piede"><span class="sp"></span>
+        <button class="lz-btn" type="button" data-el="no">Annulla${LZ.tasto('Esc')}</button>
+        <button class="lz-btn elimina" type="button" data-el="si">${LZ.ico('trash-2')}Elimina ordine</button></div></div>`;
+    const chiudi = () => {
+      document.removeEventListener('keydown', tasti, true);
+      v.remove();
+      if (torna && torna.focus && document.contains(torna)) torna.focus();
+    };
+    const tasti = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); chiudi(); }
+    };
+    v.addEventListener('mousedown', e => { if (e.target === v) chiudi(); });
+    v.addEventListener('click', e => {
+      const b = e.target.closest('[data-el]');
+      if (!b) return;
+      chiudi();
+      if (b.dataset.el === 'si') O._elimina(id);
+    });
+    document.addEventListener('keydown', tasti, true);
+    document.getElementById('lz-sopra').appendChild(v);
+    LZ.icone(v);
+    v.querySelector('[data-el="no"]').focus();
+  };
+  O._elimina = (id) => LZ.azione(async () => {
+    const o = LZ.trova(id);
+    const nome = o ? `${o.cliente || ''} ${LZ.numero(o)}`.trim() : 'Ordine';
+    let r;
+    try {
+      const x = await fetch(`/api/orders/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      r = { ok: x.ok, d: await x.json().catch(() => ({})) };
+    } catch (_) { r = { ok: false, d: { error: 'Server non raggiungibile' } }; }
+    if (!r.ok || r.d.success === false) { FT.toast('Non eliminato: ' + (r.d.error || 'errore del server'), 'err'); return; }
+    S.spuntati.delete(id);
+    if (S.aperto === id) S.aperto = null;           // a destra torna "scegli un ordine"
+    delete S.dett[id];
+    FT.toast(`${nome}: eliminato`, 'ok', { testo: 'Annulla', fn: () => O.ripristina(id) }, 10000);
+    await O.dopo(id);
+  });
+  O.ripristina = (id) => LZ.azione(async () => {
+    const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/ripristina`, {});
+    if (!r.ok) { FT.toast('Non ripristinato: ' + (r.d.error || 'errore del server'), 'err'); return; }
+    FT.toast('Ordine ripristinato', 'ok');
+    S.aperto = id;
+    S.scheda = 'pezzi';
+    await O.dopo(id);
+  });
 
   /** Menu di un pezzo di un foglio con piu' pezzi: si rivede o si annulla il foglio. */
   function menuFoglio(o, p, ancora) {
@@ -597,6 +711,21 @@
       const r = await LZ.post(`/api/orders/${id}/mark-laser-undone`, {});
       if (!r.ok) { FT.toast('Non riuscito: ' + (r.d.error || 'errore del server'), 'err'); return; }
       FT.toast('Taglio annullato: di nuovo da tagliare', 'ok');
+      await O.dopo(id);
+    });
+  };
+  /** Codice da correggere: va bene com'e' in Lantek (si manda cosi'). */
+  O.usaLantek = async function (id, codice) {
+    if (!codice) return;
+    const c = ((S.riep[id] || {}).correzioni || []).find(x => x.codice === codice) || {};
+    const voluto = String(c.cosa || '').replace(/ \(in Lantek [^)]*\)/g, '');
+    const ok = await FT.conferma({ titolo: `${codice}: va bene com'è in Lantek?`, ok: 'Sì, va bene Lantek',
+      testo: `Non lo correggi in Lantek e si manda così com'è${voluto ? ` (non ${voluto} come dice l'ordine)` : ''}. Poi lo mandi con «Manda a Lantek».` });
+    if (!ok) return;
+    await LZ.azione(async () => {
+      const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-correzioni`, { codice, azione: 'usa_lantek' });
+      if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
+      FT.toast(`${codice}: va bene Lantek, pronto da mandare`, 'ok');
       await O.dopo(id);
     });
   };

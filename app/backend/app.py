@@ -599,9 +599,11 @@ def update_order(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
-@richiede('ufficio')
+@richiede('ufficio', 'laser')
 def delete_order(order_id):
-    """Soft delete di un ordine (is_deleted=True): solo amministrazione/capi, con audit."""
+    """Soft delete di un ordine (is_deleted=True), con audit. L'Ufficio e il
+    laser (Stefano, 12/10/2026: lo elimina dalla pagina laser, menu ⋯).
+    Recuperabile: POST /api/orders/<id>/ripristina."""
     try:
         session = get_session()
         try:
@@ -611,11 +613,40 @@ def delete_order(order_id):
             order.is_deleted = True
             session.commit()
             _audit('ORDINE_ELIMINATO', 'orders', order_id,
-                   f'{getattr(order, "numero_ordine", "")} {getattr(order, "cliente", "")} (recuperabile)')
+                   f'{getattr(order, "numero_ordine", "")} {getattr(order, "cliente", "")} (recuperabile)'
+                   + (" — era gia' segnato in Lantek" if getattr(order, 'importato_lantek_il', None) else ''))
+            _invalida_analisi_laser(order_id)
             return jsonify({'success': True, 'message': f'Ordine {order_id} eliminato (recuperabile)'}), 200
         finally:
             session.close()
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/ripristina', methods=['POST'])
+@richiede('ufficio', 'laser')
+def ripristina_ordine(order_id):
+    """Rimette un ordine eliminato (is_deleted=False), con audit: "Annulla"
+    subito dopo "Elimina ordine" nella pagina laser."""
+    try:
+        session = get_session()
+        try:
+            order = session.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                return jsonify({'success': False, 'codice': 'non_trovato', 'error': 'Ordine non trovato'}), 404
+            if not order.is_deleted:
+                return jsonify({'success': False, 'codice': 'non_eliminato',
+                                'error': "L'ordine non è eliminato"}), 409
+            order.is_deleted = False
+            session.commit()
+            _audit('ORDINE_RIPRISTINATO', 'orders', order_id,
+                   f'{getattr(order, "numero_ordine", "")} {getattr(order, "cliente", "")}')
+            _invalida_analisi_laser(order_id)
+            return jsonify({'success': True}), 200
+        finally:
+            session.close()
+    except Exception as e:
+        logger.exception('ripristino ordine fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -7956,7 +7987,20 @@ def api_ordine_lantek_invia(order_id):
             return jsonify({'success': False, 'codice': 'cambiato',
                             'error': "L'elenco è cambiato da quando l'hai visto: ricontrolla e conferma di nuovo"}), 409
         righe = [r for r in righe if r['codice'] not in tenuti_fuori]
+        # i codici tenuti fuori scegliendo il valore dell'ordine restano scritti
+        # "da correggere in Lantek" finche' non si risolvono (lantek_correzioni.py)
+        from . import lantek_correzioni as _lc
+        da_correggere = _lc.registra(order_id, q['righe'], tenuti_fuori, _chi_nome()) if tenuti_fuori else []
+        if da_correggere:
+            _audit('LANTEK_DA_CORREGGERE', 'orders', order_id,
+                   'Da correggere in Lantek: ' + '; '.join(f"{x['codice']} {_lc.descrivi(x)}" for x in da_correggere))
+            _invalida_analisi_laser(order_id)
         if not righe and not nuovi_si:
+            if da_correggere:
+                # niente da mandare adesso: si manda quando Lantek e' corretto
+                return jsonify({'success': True, 'pezzi_nuovi': 0, 'pezzi_creati': 0, 'pezzi_non_creati': [],
+                                'mandati': 0, 'rapporto': {}, 'verificati': 0, 'mancanti': [],
+                                'da_correggere': [x['codice'] for x in da_correggere]}), 200
             return jsonify({'success': False, 'codice': 'niente_da_mandare',
                             'error': 'Hai tenuto fuori tutti i codici: niente da mandare'}), 409
         if not _lt.xmlimporter_disponibile():
@@ -8000,8 +8044,12 @@ def api_ordine_lantek_invia(order_id):
                f"Mandati a Lantek (ordine {q['commessa']}): {len(creati)} di {len(nuovi_si)} pezzi nuovi creati, "
                f"{len(presenti)} di {len(righe)} ordini di produzione verificati"
                + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else ''))
+        # un codice da correggere mandato adesso (corretto in Lantek, o scelto
+        # "va bene Lantek" nella conferma) e' risolto
+        if presenti:
+            _lc.chiudi(order_id, presenti, 'mandato', _chi_nome())
         _invalida_analisi_laser(order_id)
-        return jsonify({'success': True,
+        return jsonify({'success': True, 'da_correggere': [x['codice'] for x in da_correggere],
                         'pezzi_nuovi': len(nuovi_si), 'pezzi_creati': len(creati),
                         'pezzi_non_creati': [x['codice'] for x in nuovi_si if x['codice'] not in creati],
                         'mandati': len(righe), 'rapporto': rap, 'verificati': len(presenti),
