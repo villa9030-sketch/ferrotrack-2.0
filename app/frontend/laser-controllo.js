@@ -18,6 +18,10 @@
   const SCELTE = { giusto: 'è il pezzo giusto', scelto: 'contorno scelto a mano', sviluppo: 'va sviluppato',
                    piu_pezzi: 'più pezzi: a mano in Lantek', non_laser: 'non è da laser' };
   let st = null;          // stato del controllo aperto (null = chiuso)
+  // Salvataggi in sottofondo: la risposta passa subito al disegno dopo, il
+  // server salva intanto (uno alla volta, nell'ordine delle risposte).
+  let codaSalva = Promise.resolve();
+  let salvaInCorso = 0;
 
   C.aperto = () => !!st;
 
@@ -71,7 +75,7 @@
     LZ.ripristina(foto);
     if (fatte && !solo) FT.toast(`Controllo finito: ${LZ.plur(fatte, 'risposta salvata', 'risposte salvate')}`, 'ok');
     // gli ordini toccati si rileggono (stato e conteggi nuovi)
-    if (fatte) for (const id of ids) { LZ.avvio.caricaRiep(id); if (S.aperto === id) LZ.ordine.carica(id); }
+    if (fatte) codaSalva.then(() => { for (const id of ids) { LZ.avvio.caricaRiep(id); if (S.aperto === id) LZ.ordine.carica(id); } });
   };
 
   // ── Dati del pezzo corrente ─────────────────────────────────────────
@@ -102,9 +106,10 @@
     const v = voce();
     const f = document.getElementById('lz-ctl-foglio');
     f.classList.remove('scegli');
-    f.innerHTML = '<div class="lz-foglio-msg"><div class="lz-skel"></div></div>';
     const k = chiave(v);
-    lettura(v).then(rec => {
+    const pronto = st.letture[k] && st.letture[k].stato !== 'carica';
+    if (!pronto) f.innerHTML = '<div class="lz-foglio-msg"><div class="lz-skel"></div></div>';
+    const disegna = rec => {
       if (!st || chiave(voce()) !== k) return;
       if (rec.stato !== 'ok') {
         f.innerHTML = `<div class="lz-foglio-msg"><div><b>Non riesco a mostrare il disegno</b><p>${esc(rec.d.error || 'Errore del server')}</p></div></div>`;
@@ -118,9 +123,11 @@
         if (svg) { const b = svg.viewBox.baseVal; st.vb = { x: b.x, y: b.y, w: b.width, h: b.height, base: [b.x, b.y, b.width, b.height] }; }
       }
       lato();
-    });
-    // il prossimo intanto si prepara
-    if (st.coda[st.i + 1]) lettura(st.coda[st.i + 1]);
+    };
+    if (pronto) disegna(st.letture[k]); else lettura(v).then(disegna);
+
+    // i prossimi intanto si preparano
+    for (let j = 1; j <= 3; j++) if (st.coda[st.i + j]) lettura(st.coda[st.i + j]);
   }
 
   function barra() {
@@ -139,6 +146,7 @@
       <span class="tit">${st.solo ? 'Disegno' : 'Controllo disegni'}</span>
       <span class="dove" title="${esc(o.cliente || '')} ${esc(LZ.numero(o))}">${esc(o.cliente || '')} · <span class="mono">${esc(LZ.numero(o))}</span>${ordini.length > 1 ? ` <span>(ordine ${ordini.indexOf(v.id) + 1} di ${ordini.length})</span>` : ''}</span>
       <span class="sp"></span>
+      <span class="lz-salva" id="lz-ctl-salva" aria-live="polite">${salvaInCorso ? `Salvo ${salvaInCorso}…` : ''}</span>
       ${st.solo ? '' : `<span class="lz-prog"><span>${st.i + 1} di ${st.coda.length}</span><span class="tacche" aria-hidden="true">${tacche}</span></span>`}
       <button class="lz-btn" type="button" data-c="chiudi" data-fuoco="ctl-chiudi">Chiudi${LZ.tasto('Esc')}</button>`);
   }
@@ -314,30 +322,23 @@
   async function rispondi(scelta) {
     if (!st || st.attesa) return;
     const v = voce(), p = pezzo(v), k = chiave(v);
-    st.attesa = true; lato();
-    let r;
+    const base = `/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}`;
+    let url, corpo;
     if (scelta === 'giusto') {
-      r = await LZ.post(`/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}/giusto`,
-        { serve_pulito: p.lantek === 'nuovo' || p.lantek === 'sconosciuto' });
+      url = base + '/giusto'; corpo = { serve_pulito: p.lantek === 'nuovo' || p.lantek === 'sconosciuto' };
     } else if (scelta === 'scelto') {
       const c = st.cand[st.sel];
-      r = await LZ.post(`/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}/contorno`,
-        { outer_xy: c.outer_xy, holes_xy: c.holes_xy || [], pagina: 'laser' });
+      if (!c) return;
+      url = base + '/contorno'; corpo = { outer_xy: c.outer_xy, holes_xy: c.holes_xy || [], pagina: 'laser' };
     } else {
-      r = await LZ.post(`/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}/decisione`, { scelta });
+      url = base + '/decisione'; corpo = { scelta };
     }
-    if (!st) return;
-    st.attesa = false;
-    if (!r.ok) {
-      FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err', null, 7000);
-      lato();
-      return;
-    }
-    if (r.d.pronto_lantek === false && r.d.motivo) FT.toast(`${p.codice}: ${r.d.motivo}`, 'warn', null, 9000);
+    const prima = { decisione: p.decisione, da_controllare: p.da_controllare };
     st.risposte[k] = scelta;
     st.fatte++;
     p.decisione = scelta;                 // la riga dei pezzi lo mostra subito (poi si rilegge)
     p.da_controllare = false;
+    accoda(k, p, url, corpo, prima);
     if (st.solo || chiave(voce()) !== k) { C.chiudi(); return; }
     if (st.i >= st.coda.length - 1) {
       // fine coda: si torna dov'eri solo se e' tutto risposto
@@ -348,6 +349,30 @@
     }
     st.i++;
     mostra();
+  }
+
+  /** Salva una risposta in sottofondo; se non riesce, il disegno torna da controllare. */
+  function accoda(k, p, url, corpo, prima) {
+    salvaInCorso++;
+    segnaSalvataggi();
+    codaSalva = codaSalva.then(async () => {
+      const r = await LZ.post(url, corpo);
+      salvaInCorso--;
+      segnaSalvataggi();
+      if (!r.ok) {
+        p.decisione = prima.decisione;
+        p.da_controllare = prima.da_controllare;
+        if (st && st.risposte[k]) { delete st.risposte[k]; st.fatte = Math.max(0, st.fatte - 1); barra(); lato(); }
+        FT.toast(`${p.codice || 'Pezzo'}: risposta non salvata (${r.d.error || 'errore del server'})`, 'err',
+          { testo: 'Riprova', fn: () => accoda(k, p, url, corpo, prima) }, 12000);
+        return;
+      }
+      if (r.d.pronto_lantek === false && r.d.motivo) FT.toast(`${p.codice}: ${r.d.motivo}`, 'warn', null, 9000);
+    });
+  }
+  function segnaSalvataggi() {
+    const el = document.getElementById('lz-ctl-salva');
+    if (el) el.textContent = salvaInCorso ? `Salvo ${salvaInCorso}…` : '';
   }
 
   function sposta(d) {
