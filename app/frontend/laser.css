@@ -350,11 +350,21 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-lato .ord { font-size: 13px; color: var(--lz-ink-3); display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 .lz-lato .ord b { color: var(--lz-ink-2); font-weight: 550; }
 .lz-lato .cod { font: 650 22px/1.2 var(--lz-mono); letter-spacing: -.3px; overflow-wrap: anywhere; margin-top: -6px; }
-.lz-dati { background: var(--lz-surface); border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); padding: 2px 14px; font-size: 13.5px; }
-.lz-dati div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--lz-line-2); }
-.lz-dati div:first-child { border-top: 0; }
-.lz-dati span { color: var(--lz-ink-3); }
-.lz-dati b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.lz-lato .lz-dati { background: var(--lz-surface); border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); padding: 2px 14px; font-size: 13.5px; }
+.lz-lato .lz-dati div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--lz-line-2); }
+.lz-lato .lz-dati div:first-child { border-top: 0; }
+.lz-lato .lz-dati span { color: var(--lz-ink-3); }
+.lz-lato .lz-dati b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+/* La riga dell'ordine come l'ha scritta il cliente (controllo a tutto schermo) */
+.lz-riga-ord { padding: 10px 14px; border-radius: var(--lz-r-l); background: var(--lz-surface-2); border: 1px solid var(--lz-line); font-size: 13px; color: var(--lz-ink-2); }
+.lz-riga-ord .tit { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.lz-riga-ord .tit b { font-size: 12.5px; font-weight: 650; color: var(--lz-ink-3); letter-spacing: .01em; }
+.lz-riga-ord .tit .mono { font-size: 12.5px; color: var(--lz-ink-2); overflow-wrap: anywhere; text-align: right; }
+.lz-riga-ord .r + .r { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--lz-line-2); }
+.lz-riga-ord .q { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; color: var(--lz-ink-3); }
+.lz-riga-ord .q b { color: var(--lz-ink); font-weight: 650; font-variant-numeric: tabular-nums; }
+.lz-riga-ord .d { margin-top: 2px; color: var(--lz-ink); line-height: 1.4; overflow-wrap: anywhere; }
+.lz-riga-ord .ms { margin-top: 6px; color: var(--lz-ink-3); }
 .lz-perche { padding: 12px 14px; border-radius: var(--lz-r-l); background: var(--lz-amber-bg); border: 1px solid var(--lz-amber-line); color: #5E3A06; font-size: 13.5px; }
 .lz-perche b { display: block; color: var(--lz-amber); font-size: 12.5px; font-weight: 650; margin-bottom: 4px; letter-spacing: .01em; }
 .lz-perche ul { margin: 0; padding-left: 18px; }
@@ -454,7 +464,7 @@ body.lz .ft-btn { font-family: var(--lz-font); }
   .lz-passo { padding: 14px 16px; }
   .lz-schede { margin-top: 16px; }
   .lz-lato { gap: 10px; padding-top: 12px; }
-  .lz-dati div { padding: 6px 0; }
+  .lz-lato .lz-dati div { padding: 6px 0; }
   .lz-decidi .lz-btn { height: 36px; }
   .lz-decidi .lz-btn.pri { height: 44px; }
 }
@@ -463,7 +473,7 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 }
 
 /* spessore / materiale scelto dal laser sulla riga bloccata */
-.lz-dati { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.lz-blocchi .lz-dati { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .lz-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .lz-chip { min-width: 38px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px;
   background: #fff; color: var(--lz-ink); font: 600 13px/1 inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
@@ -472,10 +482,10 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-sp { display: inline-flex; align-items: center; gap: 6px; color: var(--lz-ink-2); font-size: 13px; }
 .lz-sp input { width: 64px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; }
 /* spessore proposto dal motore: gia' scelto, si conferma con Invio */
-.lz-dati .lz-proposto { flex: 1 0 100%; font-size: 13px; color: var(--lz-ink-2); }
-.lz-dati .lz-proposto b { color: var(--lz-ink); font-weight: 650; }
-.lz-dati .lz-proposto.att { color: var(--lz-amber); }
-.lz-dati .lz-proposto.att b { color: var(--lz-amber); }
-.lz-dati select { height: 32px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; background: #fff; }
+.lz-blocchi .lz-dati .lz-proposto { flex: 1 0 100%; font-size: 13px; color: var(--lz-ink-2); }
+.lz-blocchi .lz-dati .lz-proposto b { color: var(--lz-ink); font-weight: 650; }
+.lz-blocchi .lz-dati .lz-proposto.att { color: var(--lz-amber); }
+.lz-blocchi .lz-dati .lz-proposto.att b { color: var(--lz-amber); }
+.lz-blocchi .lz-dati select { height: 32px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; background: #fff; }
 .lz-chip:focus-visible, .lz-sp input:focus-visible, .lz-dati select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 2px; }
 .lz-salva { font-size: 13px; color: var(--lz-ink-3); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }

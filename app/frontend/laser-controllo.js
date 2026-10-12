@@ -167,6 +167,7 @@
       <div><span>Spessore</span><b>${esc(LZ.mm(p.spessore) || '—')}</b></div>
       <div><span>Misure</span><b>${esc(LZ.misure(p.misure) || '—')}</b></div>
       <div><span>In Lantek</span><b>${p.lantek === 'in_lantek' ? "c'è già" : nuovo ? 'nuovo: lo creo io' : '—'}</b></div></div>`;
+    const rigaOrd = lt && lt.riga_ordine ? rigaOrdine(lt.riga_ordine) : '';
     let corpo;
     if (st.modo === 'scegli') {
       corpo = `<div class="lz-scegli-guida"><b>Clicca il bordo del pezzo giusto</b>sul disegno a sinistra. ${st.cand.length > 1 ? 'Ci sono più contorni possibili: scegli quello giusto (1, 2, 3…).' : ''}</div>
@@ -190,10 +191,25 @@
     LZ.metti(document.getElementById('lz-ctl-lato'), `
       <div class="ord"><b>${esc(o.cliente || '')}</b><span class="mono">${esc(LZ.numero(o))}</span></div>
       <div class="cod">${esc(p.codice || '')}</div>
-      ${dati}${corpo}
+      ${dati}${rigaOrd}${corpo}
       ${st.attesa ? '<div class="lz-sicuro"><span class="lz-gira" style="display:inline-grid">' + LZ.ico('loader-circle') + '</span>Salvo…</div>' : ''}
       ${st.solo ? '' : `<div class="lz-fondo"><button class="lz-btn" type="button" data-c="indietro" ${st.i ? '' : 'disabled'}>${LZ.ico('arrow-left')}Indietro</button>
         <button class="lz-btn" type="button" data-c="salta" ${st.i < st.coda.length - 1 ? '' : 'disabled'}>Salta${LZ.ico('arrow-right')}</button></div>`}`);
+  }
+
+  /** La riga dell'ordine come l'ha scritta il cliente (server: riga_ordine_di).
+      Senza righe non si mostra niente. */
+  function rigaOrdine(r) {
+    const righe = (r.righe || []).filter(x => x && (x.descrizione || x.quantita != null));
+    if (!righe.length) return '';
+    const num = v => (v == null ? '' : String(FT.numero(Number(v), Number(v) % 1 ? 2 : 0)));
+    const ms = [r.materiale ? String(r.materiale).replace(/_/g, ' ') : '', r.spessore_mm ? LZ.mm(r.spessore_mm) : ''].filter(Boolean).join(' · ');
+    return `<div class="lz-riga-ord" aria-label="Riga dell'ordine del cliente">
+      <div class="tit"><b>Riga dell'ordine</b><span class="mono">${esc(r.codice || '')}</span></div>
+      ${righe.map(x => `<div class="r">
+        <div class="q">${x.pos != null ? `<span>Pos. ${esc(String(x.pos))}</span>` : ''}${x.quantita != null ? `<b>${esc(num(x.quantita))} pz</b>` : ''}${x.commessa ? `<span>comm. ${esc(x.commessa)}</span>` : ''}</div>
+        ${x.descrizione ? `<div class="d">${esc(x.descrizione)}</div>` : ''}</div>`).join('')}
+      ${ms ? `<div class="ms">Nell'ordine: ${esc(ms)}</div>` : ''}</div>`;
   }
 
   // ── Ingrandire, spostare, scegliere col clic ────────────────────────

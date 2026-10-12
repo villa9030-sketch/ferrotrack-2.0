@@ -714,6 +714,108 @@ def _foglio(percorso: str) -> dict:
     return r
 
 
+# ---------------------------------------------------------------------------
+# La riga dell'ordine del cliente, accanto al disegno
+# ---------------------------------------------------------------------------
+_RIGHE_PDF: dict = {}
+
+
+def _pdf_ordine(order) -> str | None:
+    """Il PDF dell'ordine del cliente allegato all'ordine (il primo)."""
+    from .database import get_session
+    from .models import OrderFile
+    s = get_session()
+    try:
+        f = (s.query(OrderFile).filter(OrderFile.order_id == order.id, OrderFile.file_type == 'PDF')
+             .order_by(OrderFile.upload_date).first())
+        return f.filepath if f and f.filepath and os.path.isfile(f.filepath) else None
+    finally:
+        s.close()
+
+
+def righe_ordine_cliente(percorso: str | None) -> dict:
+    """Le righe del PDF d'ordine come le ha scritte il cliente, per codice
+    (ordine_codici.chiave: senza revisione). Lettura esatta, senza AI
+    (Ordine Fornitore DECA, ordini prezzati Poliform/B&B...); {} se il formato
+    non si legge. In cache finche' il file non cambia.
+
+    {chiave: [{pos, codice, quantita, descrizione, commessa, materiale, spessore_mm}]}"""
+    if not percorso:
+        return {}
+    try:
+        st = os.stat(percorso)
+    except OSError:
+        return {}
+    k = (os.path.normcase(os.path.abspath(percorso)), st.st_mtime, st.st_size)
+    with _FOGLI_LOCK:
+        if k in _RIGHE_PDF:
+            return _RIGHE_PDF[k]
+    from .preventivi.ordine_codici import chiave
+    righe = []
+    try:
+        with open(percorso, 'rb') as fh:
+            dati = fh.read()
+        from .preventivi.ordine_testo import leggi_ordine_fornitore
+        d = leggi_ordine_fornitore(dati)
+        if d and d.get('articoli'):
+            for i, a in enumerate(d['articoli']):
+                righe.append({'pos': i + 1, 'codice': a.get('codice'), 'quantita': a.get('_qta_letta') or a.get('quantita'),
+                              'descrizione': a.get('descrizione') or '', 'commessa': a.get('_commessa'),
+                              'materiale': a.get('materiale'), 'spessore_mm': a.get('spessore_mm')})
+        else:
+            from .preventivi.ordine_prezzi import leggi_ordine_prezzato
+            p = leggi_ordine_prezzato(dati)
+            for i, r in enumerate((p or {}).get('righe') or []):
+                righe.append({'pos': r.get('pos') or i + 1, 'codice': r.get('codice'), 'quantita': r.get('quantita'),
+                              'descrizione': ' · '.join(x for x in (r.get('descrizione'), r.get('dettaglio')) if x),
+                              'commessa': None, 'materiale': None, 'spessore_mm': None})
+    except Exception:
+        logger.warning('righe del PDF d\'ordine non lette: %s', percorso, exc_info=True)
+        righe = []
+    out = {}
+    for r in righe:
+        if r.get('codice'):
+            out.setdefault(chiave(r['codice']), []).append(r)
+    with _FOGLI_LOCK:
+        if len(_RIGHE_PDF) > 60:
+            _RIGHE_PDF.clear()
+        _RIGHE_PDF[k] = out
+    return out
+
+
+def riga_ordine_di(order, art: dict | None) -> dict | None:
+    """La riga dell'ordine del cliente di un pezzo, per il controllo a tutto
+    schermo: {codice, righe: [{pos, quantita, descrizione, commessa}],
+    materiale, spessore_mm, file}. Dal PDF d'ordine; se non si legge, dalle
+    righe salvate al caricamento (extra 'ordine': quantita' e commessa).
+    None se non si trova (la pagina allora non mostra niente)."""
+    if not art:
+        return None
+    from .preventivi.ordine_codici import chiave
+    pdf = _pdf_ordine(order)
+    per = righe_ordine_cliente(pdf)
+    trovate = []
+    for c in (art.get('codice'), art.get('dxf_filename')):
+        if c and chiave(c) in per:
+            trovate = per[chiave(c)]
+            break
+    if trovate:
+        r0 = trovate[0]
+        mat = next((r['materiale'] for r in trovate if r.get('materiale')), None)
+        sp = next((r['spessore_mm'] for r in trovate if r.get('spessore_mm')), None)
+        return {'codice': r0['codice'], 'file': os.path.basename(pdf),
+                'righe': [{k: r.get(k) for k in ('pos', 'quantita', 'descrizione', 'commessa')} for r in trovate[:6]],
+                'materiale': mat, 'spessore_mm': sp}
+    od = art.get('ordine') if isinstance(art.get('ordine'), dict) else {}
+    salvate = [r for r in od.get('righe') or [] if isinstance(r, dict) and r.get('qta')]
+    if salvate:
+        return {'codice': art.get('codice'), 'file': od.get('file') or None,
+                'righe': [{'pos': None, 'quantita': r.get('qta'), 'descrizione': None,
+                           'commessa': r.get('commessa')} for r in salvate[:6]],
+                'materiale': None, 'spessore_mm': None}
+    return None
+
+
 @bp_laser.route('/api/orders/<order_id>/pezzi/<articolo_id>/lettura', methods=['GET'])
 @richiede('laser', 'ufficio')
 def api_pezzo_lettura(order_id, articolo_id):
@@ -730,7 +832,12 @@ def api_pezzo_lettura(order_id, articolo_id):
         for b in A.motivi_brevi(f['avvisi']):
             if b not in perche:
                 perche.append(b)
-        return jsonify({'success': True, 'codice': art.get('codice'), 'svg': f['svg'], 'vista': f['vista'],
+        try:
+            riga = riga_ordine_di(order, art)
+        except Exception:
+            logger.warning('riga dell\'ordine non letta per %s', art.get('codice'), exc_info=True)
+            riga = None
+        return jsonify({'riga_ordine': riga,'success': True, 'codice': art.get('codice'), 'svg': f['svg'], 'vista': f['vista'],
                         'ha_contorno': bool(f['contorno']), 'perche': perche[:3],
                         'suggerimento': f.get('suggerimento'),
                         'motore': mt.get('stato'), 'decisione': mt.get('decisione'),
