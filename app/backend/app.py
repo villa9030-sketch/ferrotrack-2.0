@@ -114,6 +114,8 @@ app.register_blueprint(bp_contorno_ordine)
 
 from .api_laser import bp_laser  # noqa: E402
 app.register_blueprint(bp_laser)
+from .api_pezzi_foglio import bp_pezzi_foglio  # noqa: E402
+app.register_blueprint(bp_pezzi_foglio)
 # Il controllo unico degli accessi, prima di qualunque altra cosa.
 from . import accesso  # noqa: E402
 from .accesso import richiede, identita, ADMIN, PUBBLICO, UFFICI  # noqa: E402,F401
@@ -1590,6 +1592,33 @@ def _stato_motore(a: dict) -> dict:
     return {'stato': 'verificare', 'motivi': motivi_brevi(grezzi), 'decisione': None}
 
 
+def _righe_pezzi_foglio(a: dict, pf: list, cod_ass, lav: list, sp, disegno_foglio, geometria) -> list:
+    """Le righe della distinta dei pezzi di un foglio con piu' pezzi
+    (pezzi_foglio, confermati dal laser col tasto P). Quantita' = quella
+    confermata (ordine del foglio x copie nel foglio, o scritta a mano);
+    tempo laser dal contorno del pezzo."""
+    righe = []
+    for i, p in enumerate(pf, 1):
+        bb = p.get('bbox') or [None, None]
+        geo = geometria(p.get('area_dm2'), bb[0], bb[1], None)
+        finto = {**a, 'codice': p.get('codice'), 'area_dm2': p.get('area_dm2'),
+                 'perimetro_taglio_m': p.get('perimetro_taglio_m'), 'n_forature': p.get('n_forature'),
+                 'bbox_w_mm': bb[0], 'bbox_h_mm': bb[1], 'geometria_manuale_confermata': True,
+                 'geometry_source': 'manual-click', 'dxf_needs_verify': False, 'stima_dettaglio': None}
+        geo.update(_tempo_pezzo_laser(finto, None))
+        righe.append({'codice': p.get('codice') or '', 'tipo': 'lamiera',
+                      'descrizione': f"Pezzo {i} del foglio {a.get('codice') or ''}".strip(),
+                      'quantita': max(1, int(p.get('qta') or 1)),
+                      'materiale': a.get('materiale') or None, 'spessore_mm': sp,
+                      'lavorazioni': list(lav), 'assieme': cod_ass, 'disegno': None,
+                      'articolo_id': None, 'controllo': None,
+                      'motore': {'stato': 'deciso', 'motivi': [], 'decisione': 'piu_pezzi_confermati'},
+                      'foglio': {'articolo_id': a.get('id'), 'codice': a.get('codice'), 'n': i,
+                                 'qta_per_foglio': p.get('qta_per_foglio'), 'disegno': disegno_foglio},
+                      **geo})
+    return righe
+
+
 def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
     """Le righe della distinta di un ordine nato da un preventivo.
 
@@ -1675,6 +1704,15 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             lav.append(f"Svasatura ({int(a['svasatura_pz'])})")
         sp = a.get('spessore_mm')
         desc = 'Lamiera' + (f' sp. {sp:g} mm' if isinstance(sp, (int, float)) and sp else '')
+        pf = a.get('pezzi_foglio') if isinstance(a.get('pezzi_foglio'), list) else []
+        if pf and ((a.get('decisione_laser') or {}).get('scelta') == 'piu_pezzi_confermati'):
+            # Foglio con piu' pezzi confermati dal laser: ogni pezzo e' una
+            # riga sua (codice, quantita', misure, tempo); il foglio non c'e'
+            # piu'. 'disegno' vuoto: il DXF del pezzo e' LANTEK/<lamiera>/
+            # <codice>.dxf, trovato per codice (col nome del disegno del
+            # foglio prenderebbe il DXF del foglio). 'foglio' dice da dove viene.
+            righe.extend(_righe_pezzi_foglio(a, pf, cod_ass, lav, sp, disegno_di(a.get('dxf_filename')), _geometria))
+            continue
         geo = _geometria(a.get('area_dm2'), a.get('bbox_w_mm'), a.get('bbox_h_mm'),
                          a.get('stima_dettaglio'))
         geo.update(_tempo_pezzo_laser(a, geo.get('tempo_min')))

@@ -369,6 +369,11 @@ def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, 
     if err:
         corpo, stato = err
         return corpo.get_json(), stato
+    if art.get('pezzi_foglio') and (art.get('decisione_laser') or {}).get('scelta') == 'piu_pezzi_confermati':
+        # foglio gia' diviso nei suoi pezzi (api_pezzi_foglio): un contorno solo
+        # lo rimetterebbe nella distinta accanto ai pezzi
+        return {'success': False, 'codice': 'pezzi_foglio',
+                'error': "Questo foglio ha gia' i pezzi confermati: annulla prima i pezzi del foglio"}, 409
     geo = _geometria_dal_contorno(outer_xy, holes_xy)
     if not geo or not geo.get('area_dm2') or geo['area_dm2'] <= 0:
         return {'success': False, 'error': 'Il contorno scelto non è chiuso o si incrocia: scegline un altro'}, 400

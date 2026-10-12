@@ -4805,7 +4805,11 @@ class PreventivoManager:
                       # disegni): giusto / scelto a mano / va sviluppato / piu'
                       # pezzi / non e' da laser. Le ultime tre lo tengono fuori
                       # da "Manda a Lantek".
-                      'decisione_laser')
+                      'decisione_laser',
+                      # Foglio con piu' pezzi diversi confermati dal laser
+                      # (tasto P): ogni pezzo diventa una riga per Lantek col
+                      # suo codice, contorno, DXF e quantita'.
+                      'pezzi_foglio')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -5027,6 +5031,9 @@ class PreventivoManager:
         if isinstance(dl, dict) and dl.get('scelta') in PreventivoManager.DECISIONI_LASER:
             out['decisione_laser'] = {'scelta': dl['scelta'], 'chi': str(dl.get('chi') or '')[:80] or None,
                                       'quando': str(dl.get('quando') or '')[:32] or None}
+        pf = PreventivoManager._pezzi_foglio_puliti(a.get('pezzi_foglio'))
+        if pf:
+            out['pezzi_foglio'] = pf
         vok = a.get('verifica_ok')
         if isinstance(vok, dict):
             vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}
@@ -5213,7 +5220,90 @@ class PreventivoManager:
 
     # giusto = il contorno del motore va bene; scelto = contorno scelto a mano;
     # le altre tre tengono il pezzo fuori da Lantek (vedi app._ESCLUSE_LASER)
-    DECISIONI_LASER = ('giusto', 'scelto', 'sviluppo', 'piu_pezzi', 'non_laser')
+    DECISIONI_LASER = ('giusto', 'scelto', 'sviluppo', 'piu_pezzi', 'non_laser', 'piu_pezzi_confermati')
+
+    @staticmethod
+    def _pezzi_foglio_puliti(pf) -> list:
+        """I pezzi di un foglio con piu' pezzi, ripuliti: codice, contorno e
+        fori (mm, 2 decimali, con un tetto ai punti), misure, quantita' e il
+        DXF scritto per Lantek."""
+        if not isinstance(pf, list):
+            return []
+        n = PreventivoManager._num_o_none
+
+        def anello(v, massimo):
+            if not isinstance(v, list):
+                return None
+            pts = []
+            for p in v[:massimo]:
+                if isinstance(p, (list, tuple)) and len(p) >= 2 and n(p[0], 1e7) is not None and n(p[1], 1e7) is not None:
+                    pts.append([round(float(p[0]), 2), round(float(p[1]), 2)])
+            return pts if len(pts) >= 3 else None
+
+        out = []
+        for x in pf[:60]:
+            if not isinstance(x, dict):
+                continue
+            cod = str(x.get('codice') or '').strip()[:60]
+            esterno = anello(x.get('outer_xy'), 20000)
+            if not cod or not esterno:
+                continue
+            fori = [f for f in (anello(h, 5000) for h in (x.get('holes_xy') or [])[:2000]) if f]
+            bb = x.get('bbox') if isinstance(x.get('bbox'), list) else []
+            out.append({'codice': cod, 'outer_xy': esterno, 'holes_xy': fori,
+                        'area_dm2': n(x.get('area_dm2'), 1e6), 'perimetro_taglio_m': n(x.get('perimetro_taglio_m'), 1e6),
+                        'n_forature': int(n(x.get('n_forature'), 1e5) or 0),
+                        'bbox': [n(v, 1e6) for v in bb[:2]] if len(bb) >= 2 else None,
+                        'qta_per_foglio': max(1, int(n(x.get('qta_per_foglio'), 1e5) or 1)),
+                        'qta': max(1, int(n(x.get('qta'), 1e6) or 1)),
+                        'file': str(x.get('file') or '')[:300] or None})
+        return out
+
+    @staticmethod
+    def pezzi_foglio_articolo(preventivo_id, articolo_id, pezzi, chi: str = '') -> dict:
+        """Scrive (o toglie, pezzi None) i pezzi confermati di un foglio con
+        piu' pezzi, con la decisione del laser 'piu_pezzi_confermati' (o
+        nessuna decisione: il disegno torna da controllare). Solo campi extra,
+        come decisione_laser_articolo. {'success', 'prima': pezzi di prima}"""
+        from sqlalchemy import text as _text
+        session = get_session()
+        try:
+            if not PreventivoManager._colonna_extra_pronta(session):
+                return {'error': 'colonna extra non pronta'}
+            riga = session.execute(_text(
+                'SELECT extra_campi FROM preventivo_articoli WHERE id = :i AND preventivo_id = :p'),
+                {'i': articolo_id, 'p': preventivo_id}).fetchone()
+            if riga is None:
+                return {'error': 'Pezzo non trovato'}
+            try:
+                extra = json.loads(riga[0] or '{}') or {}
+            except (TypeError, ValueError):
+                extra = {}
+            prima = extra.get('pezzi_foglio') if isinstance(extra.get('pezzi_foglio'), list) else []
+            if pezzi is None:
+                extra.pop('pezzi_foglio', None)
+                if (extra.get('decisione_laser') or {}).get('scelta') == 'piu_pezzi_confermati':
+                    extra.pop('decisione_laser', None)
+            else:
+                puliti = PreventivoManager._pezzi_foglio_puliti(pezzi)
+                if not puliti:
+                    return {'error': 'Nessun pezzo valido'}
+                extra['pezzi_foglio'] = puliti
+                extra['decisione_laser'] = {'scelta': 'piu_pezzi_confermati', 'chi': chi or None,
+                                            'quando': datetime.utcnow().isoformat(timespec='seconds')}
+            riga_n = extra.get('riga')
+            extra = PreventivoManager._extra_articolo(extra)
+            if isinstance(riga_n, int):
+                extra['riga'] = riga_n
+            session.execute(_text('UPDATE preventivo_articoli SET extra_campi = :j WHERE id = :i'),
+                            {'j': json.dumps(extra, ensure_ascii=False), 'i': articolo_id})
+            session.commit()
+            return {'success': True, 'prima': prima}
+        except Exception as e:
+            session.rollback()
+            return {'error': str(e)}
+        finally:
+            session.close()
 
     @staticmethod
     def decisione_laser_articolo(preventivo_id, articolo_id, scelta, chi: str = '') -> dict:

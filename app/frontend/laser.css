@@ -380,6 +380,30 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-decidi .lz-btn > span:first-child { display: inline-flex; align-items: center; gap: 10px; }
 .lz-scegli-guida { padding: 12px 14px; border-radius: var(--lz-r-l); background: var(--lz-accent-bg); border: 1px solid var(--lz-accent-line); color: var(--lz-accent-ink); font-size: 13.5px; }
 .lz-scegli-guida b { display: block; margin-bottom: 2px; }
+.lz-scegli-guida em { font-style: normal; font-weight: 600; }
+/* Pezzi del foglio (P): sul disegno e nell'elenco a destra */
+.lz-foglio .fg-pfp { fill-opacity: .10; stroke-width: 2.2; cursor: pointer; }
+.lz-foglio .fg-pfp:hover { fill-opacity: .18; }
+.lz-foglio .fg-pfp.on { fill-opacity: .24; stroke-width: 3.4; }
+.lz-foglio .fg-pfc { fill: none; stroke-width: 1.8; stroke-dasharray: 6 4; pointer-events: none; }
+.lz-foglio .fg-pfn { font-weight: 700; font-family: var(--lz-font); paint-order: stroke; stroke: #fff; stroke-linejoin: round; pointer-events: none; }
+.lz-pf { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.lz-pf li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 8px 8px 8px 10px;
+  border: 1px solid var(--lz-line); border-radius: var(--lz-r); background: var(--lz-surface); cursor: pointer; }
+.lz-pf li.on { border-color: var(--lz-accent-line); background: var(--lz-accent-bg); }
+.lz-pf .n { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: #fff; font: 700 12.5px var(--lz-font); margin-top: 3px; }
+.lz-pf .campi { display: grid; gap: 4px; min-width: 0; }
+.lz-pf input { height: 30px; border: 1px solid var(--lz-line); border-radius: 7px; padding: 0 8px; font: 13.5px var(--lz-font); background: #fff; color: var(--lz-ink); min-width: 0; }
+.lz-pf input.cod { font: 600 14px var(--lz-mono); width: 100%; }
+.lz-pf input[type=number] { width: 58px; font-variant-numeric: tabular-nums; }
+.lz-pf input:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 1px; }
+.lz-pf .mis { font-size: 12.5px; color: var(--lz-ink-3); }
+.lz-pf .qq { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--lz-ink-3); }
+.lz-pf .qq label { display: inline-flex; align-items: center; gap: 6px; }
+.lz-pf-tot { font-size: 13px; color: var(--lz-ink-2); font-variant-numeric: tabular-nums; }
+.lz-pf-fatti { margin: 0; padding: 0 0 0 20px; font-size: 13px; color: var(--lz-ink-2); }
+.lz-pf-fatti li { display: flex; justify-content: space-between; gap: 12px; }
+.lz-pf-fatti li + li { margin-top: 2px; }
 .lz-fondo { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 8px; }
 .lz-attendi { position: absolute; inset: 0; background: rgba(255, 255, 255, .55); display: grid; place-items: center; }
 

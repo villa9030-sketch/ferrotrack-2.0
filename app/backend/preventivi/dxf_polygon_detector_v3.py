@@ -1776,8 +1776,12 @@ def _pick_base(candidates: list, all_polys: list, circles_centri: list) -> tuple
     return best_idx, round(confidence, 3), scored
 
 
-def _poligoni_documento(doc, cfg: dict) -> dict:
+def _poligoni_documento(doc, cfg: dict, con_tratteggi: bool = False) -> dict:
     """Pipeline comune: contorni (mm) del documento, dedup, colori, chain walking.
+
+    con_tratteggi=True: anche le linee a tratti fanno contorno (pezzi del
+    foglio chiesti dal laser, tipo_disegno.pezzi_del_foglio_da_file: alcuni
+    clienti disegnano i pezzi sul layer delle linee nascoste).
 
     Returns dict: polys, centri_cerchi, scala, warnings, n_raw, n_dup.
     """
@@ -1788,7 +1792,7 @@ def _poligoni_documento(doc, cfg: dict) -> dict:
         warnings.append(w_unita)
     msp = doc.modelspace()
 
-    raw = _extract_polygons(msp, colori_esclusi, scala)
+    raw = _extract_polygons(msp, colori_esclusi, scala, escludi_tratteggi=not con_tratteggi)
     if raw['n_tratteggiati'] and not (raw['chiusi'] or raw['aperti'] or raw['chiusi_col'] or raw['aperti_col']):
         # disegno tutto a linee tratteggiate: e' comunque il pezzo
         raw = _extract_polygons(msp, colori_esclusi, scala, escludi_tratteggi=False)

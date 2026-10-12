@@ -210,7 +210,11 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
             perche = ['Il motore non è sicuro della lettura']
         # codice d'assieme senza disegno (DECA: ...SA0233...): non va al laser,
         # i suoi pezzi sono le altre righe. Non blocca l'ordine.
-        assieme = bool(lt_stato == 'nuovo' and not r.get('disegno') and _RX_ASSIEME.search(cod))
+        assieme = bool(lt_stato == 'nuovo' and not r.get('disegno') and not r.get('foglio')
+                       and _RX_ASSIEME.search(cod))
+        # pezzo di un foglio con piu' pezzi: i dati (spessore, materiale) si
+        # scrivono sul foglio, e il disegno da guardare e' il foglio
+        aid_dati = r.get('articolo_id') or (r.get('foglio') or {}).get('articolo_id')
         blocco = None
         if lt_stato == 'nuovo' and not escluso and not assieme and cod.lower() not in da_abbinare                 and not da_controllare and stato in ('smistare', 'coda'):
             if not procesos and lt.get('disponibile'):
@@ -220,17 +224,17 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                 blocco = {'motivo': no['motivo'], 'cosa': _cosa_fare(no['motivo'], cod)}
                 mot = str(no['motivo']).lower()
                 campo = 'spessore' if 'spessore' in mot else 'materiale' if 'materiale' in mot else None
-                if campo and r.get('articolo_id'):
+                if campo and aid_dati:
                     # lo decide il laser qui, guardando il disegno (non nel MES)
-                    blocco.update({'campo': campo, 'articolo_id': r.get('articolo_id'),
-                                   'disegno': bool(r.get('disegno')),
+                    blocco.update({'campo': campo, 'articolo_id': aid_dati,
+                                   'disegno': bool(r.get('disegno') or (r.get('foglio') or {}).get('disegno')),
                                    'materiale': (x or {}).get('materiale') or r.get('materiale'),
                                    'spessore': (x or {}).get('spessore') or r.get('spessore_mm')})
-                    if campo == 'spessore' and completa and r.get('disegno'):
+                    if campo == 'spessore' and completa and blocco['disegno']:
                         # la lettura migliore del motore, gia' scelta: il
                         # laser guarda e conferma (Invio)
                         try:
-                            art_sp, perc_sp = A._articolo_ordine(order, r.get('articolo_id'))
+                            art_sp, perc_sp = A._articolo_ordine(order, aid_dati)
                             prop = proposta_spessore(perc_sp, art_sp)
                         except Exception:
                             logger.warning('spessore proposto non letto per %s', cod, exc_info=True)
@@ -266,6 +270,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                 'escluso': A._ESCLUSE_LASER.get(dec) if escluso else None,
                 'da_abbinare': cod.lower() in da_abbinare, 'assieme_senza_disegno': assieme,
                 'avvisi': avvisi,
+                'foglio': r.get('foglio'),
             })
 
     invio_codici = [r['codice'] for r in _lt.righe_per_xml(q['righe'])] if q else []
@@ -665,6 +670,18 @@ def _contorno_motore(gj: dict, det: dict) -> dict | None:
 _SUGGERIMENTI = {'DA_SVILUPPARE': 'sviluppo', 'PIU_PEZZI': 'piu_pezzi', 'NON_LASER': 'non_laser'}
 
 
+def _pezzi_foglio_confermati(art) -> bool:
+    """Il foglio ha gia' i pezzi confermati (api_pezzi_foglio): altre
+    decisioni sul foglio lascerebbero in giro i loro DXF."""
+    return bool(art and art.get('pezzi_foglio')
+                and (art.get('decisione_laser') or {}).get('scelta') == 'piu_pezzi_confermati')
+
+
+def _errore_pezzi_foglio():
+    return jsonify({'success': False, 'codice': 'pezzi_foglio',
+                    'error': "Questo foglio ha gia' i pezzi confermati: annulla prima i pezzi del foglio"}), 409
+
+
 def _pezzo(order_id, articolo_id):
     """(ordine, pezzo, percorso del DXF) o una risposta d'errore."""
     A = _app()
@@ -929,6 +946,8 @@ def api_pezzo_giusto(order_id, articolo_id):
         order, art, percorso, err = _pezzo(order_id, articolo_id)
         if err and not (order and art):
             return err
+        if _pezzi_foglio_confermati(art):
+            return _errore_pezzi_foglio()
         corpo = request.get_json(silent=True) or {}
         if corpo.get('serve_pulito') and percorso and not _disegno_pulito_pronto(order, art):
             f = _foglio(percorso)
@@ -987,6 +1006,8 @@ def api_pezzo_decisione(order_id, articolo_id):
         art, _percorso = A._articolo_ordine(order, articolo_id)
         if not art:
             return jsonify({'success': False, 'error': "Pezzo non trovato in quest'ordine"}), 404
+        if _pezzi_foglio_confermati(art):
+            return _errore_pezzi_foglio()
         chi = A._chi_nome()
         esito = A.PreventivoManager.decisione_laser_articolo(order.preventivo_id_origine, articolo_id, scelta, chi)
         if not esito.get('success'):

@@ -317,7 +317,7 @@
 
   // ── Pezzi ───────────────────────────────────────────────────────────
   const DECISI = { giusto: 'controllato', scelto: 'contorno scelto a mano', sviluppo: 'va sviluppato',
-                   piu_pezzi: 'a mano in Lantek', non_laser: 'non è da laser' };
+                   piu_pezzi: 'a mano in Lantek', non_laser: 'non è da laser', piu_pezzi_confermati: 'pezzo del foglio' };
   O.DECISI = DECISI;
 
   function cellaLantek(p) {
@@ -351,14 +351,16 @@
       h += `<table class="lz-tab"><thead><tr><th>Codice</th><th class="r">Q.tà</th><th>Lamiera</th><th>Lavorazioni</th><th>Lantek</th><th>Disegno</th><th class="men"><span class="sr" style="position:absolute;left:-9999px">Azioni</span></th></tr></thead><tbody>
         ${pezzi.map((p, i) => {
           const apribile = p.disegno && p.articolo_id && /\.dxf$/i.test(p.disegno);
-          return `<tr class="${apribile ? 'cl' : ''}${p.escluso || p.assieme_senza_disegno ? ' fuori' : ''}" ${apribile ? `data-vedi="${esc(p.articolo_id)}"` : ''} data-fuoco="pz-${i}">
-            <td class="cod">${esc(p.codice)}${p.codice_lantek ? `<small>in Lantek ${esc(p.codice_lantek)}</small>` : ''}</td>
+          // pezzo di un foglio con piu' pezzi: si apre il foglio
+          const vedi = apribile ? p.articolo_id : (p.foglio && p.foglio.articolo_id && p.foglio.disegno ? p.foglio.articolo_id : null);
+          return `<tr class="${vedi ? 'cl' : ''}${p.escluso || p.assieme_senza_disegno ? ' fuori' : ''}" ${vedi ? `data-vedi="${esc(vedi)}"` : ''} data-fuoco="pz-${i}">
+            <td class="cod">${esc(p.codice)}${p.codice_lantek ? `<small>in Lantek ${esc(p.codice_lantek)}</small>` : ''}${p.foglio ? `<small>pezzo ${esc(String(p.foglio.n))} del foglio ${esc(p.foglio.codice || '')}${p.foglio.qta_per_foglio > 1 ? ` (×${esc(String(p.foglio.qta_per_foglio))} nel foglio)` : ''}</small>` : ''}</td>
             <td class="r q">${p.quantita != null ? FT.numero(p.quantita) : '—'}</td>
             <td>${esc(LZ.lamiera(p.materiale, p.spessore))}</td>
             <td class="lav">${esc((p.lavorazioni || []).join(', ')) || '—'}</td>
             <td>${cellaLantek(p)}</td>
             <td>${cellaDisegno(p)}</td>
-            <td class="men">${p.articolo_id ? `<button class="lz-btn ghost lz-icona piccolo" type="button" data-pezzo-menu="${i}" aria-label="Azioni su ${esc(p.codice)}" title="Azioni sul pezzo">${LZ.ico('ellipsis')}</button>` : ''}</td></tr>`;
+            <td class="men">${p.articolo_id || p.foglio ? `<button class="lz-btn ghost lz-icona piccolo" type="button" data-pezzo-menu="${i}" aria-label="Azioni su ${esc(p.codice)}" title="Azioni sul pezzo">${LZ.ico('ellipsis')}</button>` : ''}</td></tr>`;
         }).join('')}</tbody></table>`;
     }
     const ass = (d.altri || []).filter(x => x.tipo === 'assieme').map(x => x.codice)
@@ -497,8 +499,36 @@
     LZ.menu(ancora, v);
   }
 
+  /** Menu di un pezzo di un foglio con piu' pezzi: si rivede o si annulla il foglio. */
+  function menuFoglio(o, p, ancora) {
+    const f = p.foglio;
+    const v = [{ tit: `${p.codice} · foglio ${f.codice || ''}` }];
+    if (f.disegno) {
+      v.push({ t: 'Apri il foglio', ico: 'maximize-2', fn: () => LZ.controllo.vedi(o.id, f.articolo_id) });
+      v.push({ t: 'Rivedi i pezzi del foglio', ico: 'copy', fn: () => LZ.controllo.vedi(o.id, f.articolo_id, 'pezzi') });
+    }
+    v.push({ sep: true }, { t: 'Annulla i pezzi del foglio', ico: 'undo-2', fn: () => O.annullaFoglio(o.id, f) });
+    LZ.menu(ancora, v);
+  }
+  O.annullaFoglio = async function (id, f) {
+    const ok = await FT.conferma({ titolo: `Annullare i pezzi del foglio ${f.codice || ''}?`, ok: 'Sì, annulla',
+      testo: 'I DXF dei pezzi si tolgono e il disegno torna da controllare.' });
+    if (!ok) return;
+    await LZ.azione(async () => {
+      let r;
+      try {
+        const x = await fetch(`/api/orders/${id}/pezzi/${encodeURIComponent(f.articolo_id)}/pezzi-foglio`, { method: 'DELETE' });
+        r = { ok: x.ok, d: await x.json().catch(() => ({})) };
+      } catch (_) { r = { ok: false, d: { error: 'Server non raggiungibile' } }; }
+      if (!r.ok) { FT.toast('Non annullato: ' + (r.d.error || 'errore'), 'err'); return; }
+      FT.toast(`Foglio ${f.codice || ''}: pezzi annullati, di nuovo da controllare`, 'ok');
+      await O.dopo(id);
+    });
+  };
+
   function menuPezzo(o, i, ancora) {
     const p = (((S.dett[o.id] || {}).dati || {}).pezzi || [])[i];
+    if (p && !p.articolo_id && p.foglio) { menuFoglio(o, p, ancora); return; }
     if (!p || !p.articolo_id) return;
     const v = [{ tit: p.codice }];
     if (p.disegno && /\.dxf$/i.test(p.disegno)) v.push({ t: 'Apri il disegno grande', ico: 'maximize-2', fn: () => LZ.controllo.vedi(o.id, p.articolo_id) });

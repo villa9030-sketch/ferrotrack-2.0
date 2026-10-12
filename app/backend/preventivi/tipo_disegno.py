@@ -678,12 +678,121 @@ def gruppi_pezzi(candidati: list, top_level: list, testi: list, copia_identica) 
         for g in gruppi:
             if len(g['fori']) == len(fori) and copia_identica(g['poly'], c):
                 g['quantita'] += 1
+                g.setdefault('copie', []).append(c)      # dove sono le altre copie (per disegnarle)
                 break
         else:
             if any(_vista_di(c, g['poly']) for g in gruppi):
                 continue
             gruppi.append({'poly': c, 'fori': fori, 'quantita': 1})
     return gruppi
+
+
+def _in_ordine_di_lettura(pezzi: list) -> list:
+    """Dall'alto a sinistra al basso a destra: righe di pezzi che si
+    sovrappongono in altezza, ogni riga da sinistra a destra."""
+    resto = sorted(pezzi, key=lambda p: -p['bbox'][3])
+    righe = []
+    for p in resto:
+        y0, y1 = p['bbox'][1], p['bbox'][3]
+        for r in righe:
+            # stessa riga: si sovrappone in altezza per almeno meta' del piu' basso
+            ry0, ry1 = r['y0'], r['y1']
+            sov = min(y1, ry1) - max(y0, ry0)
+            if sov >= 0.5 * min(y1 - y0, ry1 - ry0):
+                r['pezzi'].append(p)
+                r['y0'], r['y1'] = min(ry0, y0), max(ry1, y1)
+                break
+        else:
+            righe.append({'y0': y0, 'y1': y1, 'pezzi': [p]})
+    out = []
+    for r in sorted(righe, key=lambda r: -r['y1']):
+        out.extend(sorted(r['pezzi'], key=lambda p: p['bbox'][0]))
+    return out
+
+
+def _gruppi_da_base(base: dict, togli_cornici: bool = False) -> list:
+    """gruppi_pezzi dai contorni del documento (_poligoni_documento).
+    togli_cornici: un rettangolo che racchiude almeno due contorni (almeno il
+    5% della sua area) non e' un pezzo ma la cornice / la lamiera attorno ai
+    pezzi: si toglie e i contorni dentro diventano pezzi. Solo quando la
+    lettura normale trova meno di due pezzi (lo ha detto il laser che sono di
+    piu'): un pezzo rettangolare coi fori grandi resterebbe un pezzo."""
+    from .dxf_polygon_detector_v3 import (_separa_cartiglio, _Indice, _prep_buf, _copia_identica,
+                                          _is_rectangle_like)
+    polys = base.get('polys') or []
+    if not polys:
+        return []
+    candidati, _n = _separa_cartiglio(polys, base.get('testi'))
+    for _giro in range(3 if togli_cornici else 0):
+        ind = _Indice(candidati)
+        preps = [_prep_buf(o) for o in candidati]
+        top = [c for c in candidati if not ind.contenitori(c, preps)]
+        cornici = []
+        for c in top:
+            if not _is_rectangle_like(c):
+                continue
+            dentro = ind.contenuti(c, _prep_buf(c))
+            if len(dentro) >= 2 and sum(o.area for o in dentro) >= 0.05 * c.area:
+                cornici.append(c)
+        if not cornici:
+            break
+        candidati = [c for c in candidati if not any(c is x for x in cornici)]
+    if not candidati:
+        return []
+    ind = _Indice(candidati)
+    preps = [_prep_buf(o) for o in candidati]
+    top = [c for c in candidati if not ind.contenitori(c, preps)]
+    centri = base.get('centri_cerchi') or []
+    return gruppi_pezzi(candidati, top, base.get('testi'), lambda a, b: _copia_identica(a, b, candidati, centri))
+
+
+def pezzi_del_foglio_da_file(path: str, cfg: dict | None = None) -> list:
+    """Tutti i pezzi piani del foglio, SU RICHIESTA (tasto P del laser: "ci
+    sono piu' pezzi"), anche col classificatore del tipo di disegno spento:
+    qui non si decide se il foglio ha piu' pezzi, lo ha gia' detto il laser.
+
+    Stessa lettura del detector (contorni in mm, cartiglio tolto, contorni di
+    primo livello, gruppi_pezzi: viste, strisce e celle scartate, copie
+    identiche contate). Coordinate in MM (come il CAD e pick_candidates), y in
+    su; in ordine di lettura.
+
+    [{'contorno': [[x, y]...], 'fori': [[[x, y]...]...], 'copie': [contorno
+      delle altre copie], 'quantita', 'area_dm2', 'area_lorda_dm2',
+      'perimetro_taglio_m', 'n_forature', 'bbox_width_mm', 'bbox_height_mm',
+      'bbox': [x0, y0, x1, y1]}]"""
+    import ezdxf
+    from .dxf_polygon_detector_v3 import _poligoni_documento, _misure
+    cfg = cfg or {}
+    doc = ezdxf.readfile(path)
+    gruppi = _gruppi_da_base(_poligoni_documento(doc, cfg))
+    if sum(g['quantita'] for g in gruppi) < 2:
+        # Il laser dice che i pezzi sono piu' d'uno ma la lettura normale ne
+        # trova uno solo: si riprova (1) togliendo le cornici che racchiudono
+        # i pezzi (foglio disegnato col rettangolo della lamiera attorno) e
+        # (2) contando anche le linee a tratti (pezzi disegnati sul layer
+        # delle linee nascoste). Vince la lettura con piu' pezzi.
+        prove = [_gruppi_da_base(_poligoni_documento(doc, cfg), togli_cornici=True)]
+        con_tratti = _poligoni_documento(doc, cfg, con_tratteggi=True)
+        prove += [_gruppi_da_base(con_tratti), _gruppi_da_base(con_tratti, togli_cornici=True)]
+        for g in prove:
+            if sum(x['quantita'] for x in g) > sum(x['quantita'] for x in gruppi):
+                gruppi = g
+
+    def xy(poly):
+        return [[round(x, 3), round(y, 3)] for x, y in poly.exterior.coords]
+
+    out = []
+    for g in gruppi:
+        m = _misure(g['poly'], g['fori'], 1.0)
+        out.append({
+            'contorno': xy(g['poly']), 'fori': [xy(f) for f in g['fori']],
+            'copie': [xy(c) for c in g.get('copie') or []], 'quantita': g['quantita'],
+            'area_dm2': m['area_dm2'], 'area_lorda_dm2': m['area_lorda_dm2'],
+            'perimetro_taglio_m': m['perimetro_taglio_m'], 'n_forature': m['n_forature'],
+            'bbox_width_mm': m['bbox_width_mm'], 'bbox_height_mm': m['bbox_height_mm'],
+            'bbox': [round(v, 3) for v in g['poly'].bounds],
+        })
+    return _in_ordine_di_lettura(out)
 
 
 def pezzi_del_foglio(candidati: list, top_level: list, testi: list, scala: float,
