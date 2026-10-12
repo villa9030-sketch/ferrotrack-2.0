@@ -358,6 +358,8 @@ def stub_importa_pezzi_dxf(pezzi: list, cartella: str, user_data=None, attesa_s:
             f.write(prc)
         g = _guasto('la creazione dei pezzi nuovi')
         _annota({'tipo': 'pezzi', 'cartella': d, 'codici': [p.get('codice') for p in pezzi],
+                 'pezzi': [{'codice': p.get('codice'), 'materiale': p.get('materiale'),
+                            'spessore': p.get('spessore')} for p in pezzi],
                  'errori_formato': errori, 'user_data': user_data, 'esito': 'fallito' if g else 'ok',
                  'guasto': g})
         if g:
@@ -431,6 +433,28 @@ def _pezzi_e_ricorda(pezzi, cartella, user_data=None, attesa_s=900):
             _STUB_PEZZI[str(p['codice']).strip()] = {'materiale': p.get('materiale'), 'spessore': p.get('spessore')}
     return esito
 
+
+# Dopo un riavvio (prova di arresto brusco) Lantek finto "ricorda" cio' che ha gia' importato.
+try:
+    with _orig_open(_REGISTRO_INVII, encoding='utf-8') as _f:
+        for _r in _f:
+            try:
+                _v = json.loads(_r)
+            except Exception:
+                continue
+            if _v.get('esito') != 'ok':
+                continue
+            if _v.get('tipo') == 'xml':
+                for _p in _v.get('prodotti') or []:
+                    _d = _STUB_ORDINI.setdefault(str(_p.get('SaleOrder') or '').strip(), {})
+                    _k = str(_p.get('Product') or '').strip().upper()
+                    _d[_k] = _d.get(_k, 0) + float(_p.get('Quantity') or 0)
+            elif _v.get('tipo') == 'pezzi':
+                for _p in _v.get('pezzi') or []:
+                    _STUB_PEZZI[str(_p.get('codice')).strip()] = {'materiale': _p.get('materiale'),
+                                                                  'spessore': _p.get('spessore')}
+except FileNotFoundError:
+    pass
 
 lt._ordini_lantek = _ordini_con_stub
 lt.pezzi_in_lantek = _pezzi_con_stub

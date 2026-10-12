@@ -254,6 +254,12 @@ class Flussi:
         c, d = self.las.post(b + '/smistamento', {'va_tagliato': True})
         self.ok(c == 200, 'Smistamento al laser', 'GRAVE', 'HTTP %s %s' % (c, str(d)[:200]),
                 'POST smistamento {va_tagliato:true}', chiave=('smista',))
+        self.n_laser = getattr(self, 'n_laser', 0) + 1
+        if self.n_laser % 10 == 1:
+            try:
+                self.pagina_laser(oid)
+            except Exception as e:
+                self.reg.eccezione('b2 pagina laser', e)
         c, an = self.las.get(b + '/laser?fresco=1', timeout=600)
         if not self.ok(c == 200 and isinstance(an, dict), 'Analisi laser dell\'ordine', 'GRAVE',
                        'HTTP %s %s' % (c, str(an)[:200]), 'GET /api/orders/<id>/laser?fresco=1',
@@ -342,6 +348,46 @@ class Flussi:
         self.ok(c2 in (200, 400, 409), 'Taglio fatto premuto due volte', 'MEDIO', 'HTTP %s' % c2,
                 chiave=('taglio2', c2))
         self.reg.nota('ordine %s: risposte controllo %s' % (oid[:8], risposte))
+
+    def pagina_laser(self, oid):
+        """La pagina vera del laser (headless): si apre, si clicca l'ordine, niente errori."""
+        from playwright.sync_api import sync_playwright
+        from comune import contesto_browser
+        base = self.ctx.server.base
+        errori, r500 = [], []
+        with sync_playwright() as p:
+            b = p.chromium.launch(headless=True, args=['--disable-gpu', '--explicitly-allowed-ports=' +
+                                                       ','.join(str(x) for x in range(5060, 5070))])
+            try:
+                c = b.new_context(viewport={'width': 1600, 'height': 1000})
+                contesto_browser(c, base, self.reg, 'laser')
+                pg = c.new_page()
+                pg.on('pageerror', lambda e: errori.append(str(e)[:300]))
+                pg.on('response', lambda r: r500.append('%s %s' % (r.status, r.url)) if r.status >= 500 else None)
+                pg.goto(base + '/laser.html', timeout=60000)
+                try:
+                    pg.wait_for_load_state('networkidle', timeout=20000)
+                except Exception:
+                    pass
+                riga = pg.locator('.lz-r[data-id="%s"]' % oid)
+                trovata = riga.count() > 0
+                if trovata:
+                    riga.first.click()
+                    pg.wait_for_timeout(4000)
+                    for tasto in ('ArrowDown', 'ArrowUp'):
+                        pg.keyboard.press(tasto)
+                        pg.wait_for_timeout(800)
+                self.ok(trovata, "Pagina laser: l'ordine appena smistato compare nella lista", 'MEDIO',
+                        'ordine %s non trovato fra le righe .lz-r' % oid[:8], 'aprire laser.html dopo lo smistamento',
+                        chiave=('pag_laser_lista',))
+                self.ok(not errori, 'Pagina laser: errori JavaScript lavorando su un ordine', 'GRAVE',
+                        '; '.join(errori[:3]), "laser.html, clic sull'ordine, frecce", chiave=('pag_laser_js',),
+                        prova={'errori': errori})
+                self.ok(not r500, 'Pagina laser: errori 500 lavorando su un ordine', 'GRAVE', '; '.join(r500[:3]),
+                        chiave=('pag_laser_500',))
+                c.close()
+            finally:
+                b.close()
 
     # --------------------------------------------------------------- officina
     def officina(self, oid):
@@ -481,6 +527,9 @@ def esegui(ctx):
         fatti += 1
         if ctx.profilo == 'rapido' and fatti >= 3:
             break
+        if ctx.profilo == 'notte':
+            # ritmo da officina vera, non una raffica: ~1 ordine ogni 1-2 minuti
+            time.sleep(random.uniform(45, 90))
     ctx.b2_contatore = i
     ctx.reg.nota('ordini creati in questo giro: %d (tentati %d)' % (len(f.creati), fatti))
     try:

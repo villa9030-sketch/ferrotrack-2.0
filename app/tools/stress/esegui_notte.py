@@ -148,7 +148,7 @@ def main():
             if scelti and i not in scelti:
                 continue
             ora_ = datetime.now()
-            if ora_ >= fine:
+            if ora_ >= fine + timedelta(minutes=(0 if a.profilo == 'notte' else 10)):
                 reg.inizio_blocco(nome)
                 reg.fine_blocco(nome, 'saltato (tempo finito)')
                 continue

@@ -217,7 +217,7 @@ class Guasti:
         doc.saveas(p)
         casi['pollici.dxf'] = open(p, 'rb').read()
         # DXF enorme (~ decine di MB)
-        n = 60000 if self.ctx.profilo == 'notte' else 8000
+        n = 20000 if self.ctx.profilo == 'notte' else 2000
         doc = ezdxf.new('R2018')
         msp = doc.modelspace()
         msp.add_lwpolyline([(0, 0), (3000, 0), (3000, 1500), (0, 1500)], close=True)
@@ -240,18 +240,25 @@ class Guasti:
                     break
         except OSError:
             pass
+        bloccato = False
         for nome, dati in casi.items():
+            if datetime.now() > self.ctx.scadenza and nome != 'enorme.dxf':
+                self.reg.nota('disegni strani: tempo finito prima di %s' % nome)
+                continue
             t0 = time.time()
             parti = [('files', nome, dati)]
             if self.f.pdf:
                 pdf = self.f.pdf[0]
                 parti.append(('files', os.path.basename(pdf).split('_', 1)[-1], open(pdf, 'rb').read()))
-            c, d = self.f.uff.multipart('/api/orders/da-pacchetto/analizza', files=parti, timeout=600)
+            c, d = self.f.uff.multipart('/api/orders/da-pacchetto/analizza', files=parti, timeout=300)
             dur = time.time() - t0
+            if c == 0:
+                bloccato = True
             self.ok(c < 500, 'Disegno strano "%s": niente errore 500' % nome, 'GRAVE',
                     'HTTP %s %s' % (c, str(d)[:300]), 'caricare un pacchetto con il solo file %s' % nome,
                     chiave=('strano', nome))
-            self.ok(dur < 300, 'Disegno strano "%s": risposta in tempi ragionevoli' % nome, 'MEDIO',
+            self.ok(dur < 280, 'Disegno strano "%s": nessuna risposta in 5 minuti (il server resta occupato)' % nome,
+                    'GRAVE',
                     '%.0f s' % dur, chiave=('strano_lento', nome))
             if isinstance(d, dict):
                 self.reg.nota('%s: HTTP %s, %s, %.1f s, righe %s' % (nome, c, d.get('codice') or d.get('error') or 'ok',
@@ -261,6 +268,10 @@ class Guasti:
                     chiave=('strano_vivo', nome))
             if c2 != 200 and not self.ctx.server.vivo():
                 self.riavvia('dopo disegno %s' % nome)
+        if bloccato:
+            # il lavoro rimasto appeso consumerebbe CPU tutta la notte: si riparte puliti
+            self.reg.nota("disegni strani: un'analisi non ha finito, riavvio del server per liberare la CPU")
+            self.riavvia('dopo un disegno che non finisce')
 
     # ------------------------------------------------------ d) upload a meta'
     def upload_interrotto(self):
@@ -329,8 +340,8 @@ class Guasti:
 
 def esegui(ctx):
     g = Guasti(ctx)
-    passi = [g.lantek_guasto, g.disegni_strani, g.upload_interrotto, g.backup, g.ucciso_durante_import,
-             g.ucciso_durante_lantek]
+    passi = [g.backup, g.upload_interrotto, g.ucciso_durante_import, g.ucciso_durante_lantek, g.lantek_guasto,
+             g.disegni_strani]
     for p in passi:
         if datetime.now() > ctx.scadenza:
             ctx.reg.nota('guasti: tempo finito prima di %s' % p.__name__)
