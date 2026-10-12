@@ -1,4 +1,4 @@
-/* Pagina laser — "Da procurare" (12/10/2026): i pezzi che non si tagliano
+/* "Da procurare" (12/10/2026): i pezzi che non si tagliano
    al laser e vanno procurati. Tubi e profili (comprati in barre da 6 m e
    tagliati in casa), laser tubo, meccanica, commerciali, altro.
 
@@ -12,13 +12,58 @@
      A  Segna arrivato
    ogni cambio si puo' annullare dall'avviso. Le voci nascono da sole (tasto
    N nel controllo dei disegni, righe tubolari della distinta): qui niente
-   si sposta da solo, si rilegge dopo un'azione. Server: backend/procura.py. */
+   si sposta da solo, si rilegge dopo un'azione. Server: backend/procura.py.
+
+   Lo STESSO modulo serve due pagine (cosi' non divergono mai):
+     - laser.html: usa la base del laser (laser-base.js, LZ.s, i tasti di
+       laser-avvio.js), il chip sull'ordine, l'ordine aperto si rilegge;
+     - impiegata.html (Ufficio / amministrazione, dove si ordina davvero):
+       senza la base del laser; il modulo ha i suoi aiuti, i suoi tasti e
+       aggiorna da solo il bottone "Da procurare (N)" ogni minuto.
+   Stile in procura.css (stesso file nelle due pagine). */
 (function () {
   'use strict';
-  const LZ = window.LZ;
-  const S = LZ.s;
-  const esc = LZ.esc;
+  const LZ = window.LZ = window.LZ || {};
+  const SUL_LASER = !!LZ.s;               // pagina del laser (laser-base.js caricato)
+  const S = LZ.s || { riep: {}, aperto: null };
+  const esc = s => FT.esc(s);
   const P = LZ.procura = {};
+
+  // ── Aiuti: quelli del laser se ci sono, altrimenti i suoi ────────────
+  async function chiama(url, opz) {
+    try {
+      const r = await fetch(url, opz);
+      let d = null;
+      try { d = await r.json(); } catch (_) { /* risposta non JSON */ }
+      d = d || {};
+      return { ok: r.ok && d.success !== false, status: r.status, d };
+    } catch (e) {
+      return { ok: false, status: 0, d: { error: 'Server non raggiungibile' } };
+    }
+  }
+  const H = {
+    get: LZ.get || (url => chiama(url, { cache: 'no-store' })),
+    post: LZ.post || ((url, corpo) => chiama(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) })),
+    ico: LZ.ico || (n => `<i data-lucide="${n}" aria-hidden="true"></i>`),
+    tasto: LZ.tasto || (k => `<span class="lz-tasto" aria-hidden="true">${k}</span>`),
+    plur: LZ.plur || ((n, uno, tanti) => `${n} ${n === 1 ? uno : tanti}`),
+    azione: LZ.azione || (fn => fn()),
+    metti: LZ.metti || function (el, html, scorre) {
+      if (!el || el._lzHtml === html) return false;
+      const y = scorre ? scorre.scrollTop : 0;
+      const a = document.activeElement;
+      const fuoco = a && el.contains(a) && a.dataset ? a.dataset.fuoco : null;
+      el.innerHTML = html;
+      el._lzHtml = html;
+      if (scorre) scorre.scrollTop = y;
+      try { if (window.lucide) window.lucide.createIcons({ root: el }); } catch (_) { /* icone facoltative */ }
+      if (fuoco) { const n = el.querySelector(`[data-fuoco="${CSS.escape(fuoco)}"]`); if (n) n.focus({ preventScroll: true }); }
+      return true;
+    },
+    // dove si era: sul laser l'ordine aperto e lo scorrimento; altrove fuoco e pagina
+    fotografa: LZ.fotografa || (() => ({ y: window.scrollY, fuoco: document.activeElement })),
+    ripristina: LZ.ripristina || (f => { if (!f) return; window.scrollTo(0, f.y); if (f.fuoco && f.fuoco.focus && document.contains(f.fuoco)) f.fuoco.focus({ preventScroll: true }); }),
+  };
   const STATI = [['da_ordinare', 'Da ordinare'], ['ordinato', 'Ordinati'], ['arrivato', 'Arrivati'], ['tutti', 'Tutti']];
   const TIPI = [['', 'Tutti i tipi'], ['tubo', 'Tubi e profili'], ['laser_tubo', 'Laser tubo'], ['meccanica', 'Meccanica'],
                 ['commerciale', 'Commerciali'], ['altro', 'Altro']];
@@ -29,7 +74,7 @@
 
   // ── Il bottone in testata: "Da procurare (N)" ───────────────────────
   P.conta = async function () {
-    const r = await LZ.get('/api/procura/conteggio');
+    const r = await H.get('/api/procura/conteggio');
     if (r.ok) { P.n = r.d; bottone(); }
   };
   function bottone() {
@@ -39,7 +84,7 @@
     b.classList.toggle('att', !!(P.n && P.n.da_ordinare));
     b.classList.toggle('err', !!(P.n && P.n.scaduti));
     const t = `${n ? `${n} da procurare` : 'niente da procurare'}${P.n && P.n.scaduti ? `, ${P.n.scaduti} in ritardo` : ''}`;
-    b.title = `Da procurare: ${t} (D)`;
+    b.title = `Da procurare: ${t}${SUL_LASER ? ' (D)' : ''}`;
     const c = b.querySelector('.n');
     if (c) c.textContent = n ? `(${n})` : '';
   }
@@ -56,9 +101,9 @@
 
   // ── Apri / chiudi ───────────────────────────────────────────────────
   P.apri = function (filtri) {
-    if (st || LZ.controllo.aperto() || LZ.lantek.aperto()) return;
-    LZ.chiudiMenu();
-    st = { foto: LZ.fotografa(), filtri: { stato: 'da_ordinare', tipo: '', ordine: '', ...(filtri || {}) },
+    if (st || (SUL_LASER && (LZ.controllo.aperto() || LZ.lantek.aperto()))) return;
+    if (LZ.chiudiMenu) LZ.chiudiMenu();
+    st = { foto: H.fotografa(), filtri: { stato: 'da_ordinare', tipo: '', ordine: '', ...(filtri || {}) },
            dati: null, carica: true, errore: null, sel: new Set(), aperti: new Set(), modulo: null, lavoro: false };
     const el = document.createElement('div');
     el.className = 'lz-ctl lz-pc';
@@ -68,7 +113,7 @@
     el.setAttribute('aria-label', 'Da procurare');
     el.innerHTML = `<div class="lz-ctl-barra" id="lz-pc-barra"></div>
       <div class="lz-pc-corpo" id="lz-pc-corpo"></div><div id="lz-pc-az"></div>`;
-    document.getElementById('lz-sopra').appendChild(el);
+    (document.getElementById('lz-sopra') || document.body).appendChild(el);
     el.addEventListener('click', clic);
     el.addEventListener('change', cambio);
     disegna();
@@ -80,7 +125,7 @@
     st = null;
     const el = document.getElementById('lz-pc');
     if (el) el.remove();
-    LZ.ripristina(foto);
+    H.ripristina(foto);
   };
 
   async function carica() {
@@ -91,7 +136,7 @@
     if (f.ordine) q.set('ordine', f.ordine);
     st.carica = true;
     disegna();
-    const r = await LZ.get('/api/procura?' + q.toString());
+    const r = await H.get('/api/procura?' + q.toString());
     if (!st) return;
     st.carica = false;
     if (!r.ok) { st.errore = r.d.error || 'Il server non ha risposto'; disegna(); return; }
@@ -113,12 +158,12 @@
   const metri = v => `${FT.numero(Number(v), Number(v) % 1 ? 2 : 0)} m`;
 
   function statoHtml(v) {
-    if (v.stato === 'arrivato') return `<span class="lz-st ok">${LZ.ico('check')}arrivato ${v.arrivato_il ? esc(FT.fmtDataBreve(v.arrivato_il)) : ''}</span>`;
+    if (v.stato === 'arrivato') return `<span class="lz-st ok">${H.ico('check')}arrivato ${v.arrivato_il ? esc(FT.fmtDataBreve(v.arrivato_il)) : ''}</span>`;
     if (v.stato === 'ordinato') {
       const prev = v.data_prevista ? `prev. ${FT.fmtDataBreve(v.data_prevista)}` : 'senza data';
-      return `<span class="lz-st${v.scaduta ? ' err' : ''}" title="${esc(`Ordinato${v.fornitore ? ' a ' + v.fornitore : ''}${v.ordinato_il ? ' il ' + FT.fmtData(v.ordinato_il) : ''}`)}">${LZ.ico(v.scaduta ? 'clock-alert' : 'truck')}${esc(v.fornitore || 'ordinato')} · ${esc(prev)}${v.scaduta ? ' (in ritardo)' : ''}</span>`;
+      return `<span class="lz-st${v.scaduta ? ' err' : ''}" title="${esc(`Ordinato${v.fornitore ? ' a ' + v.fornitore : ''}${v.ordinato_il ? ' il ' + FT.fmtData(v.ordinato_il) : ''}`)}">${H.ico(v.scaduta ? 'clock-alert' : 'truck')}${esc(v.fornitore || 'ordinato')} · ${esc(prev)}${v.scaduta ? ' (in ritardo)' : ''}</span>`;
     }
-    return `<span class="lz-st att">${LZ.ico('circle-dot')}da ordinare</span>`;
+    return `<span class="lz-st att">${H.ico('circle-dot')}da ordinare</span>`;
   }
   const ordineHtml = o => `<span class="lz-pc-ord" title="${esc(o.etichetta)}"><b>${esc(o.cliente || '')}</b> <span class="mono">${esc(o.numero || '')}</span></span>`;
   const casella = (id, nome) => `<input type="checkbox" data-pc-sel="${esc(id)}" ${st.sel.has(id) ? 'checked' : ''} aria-label="Seleziona ${esc(nome)}">`;
@@ -128,15 +173,15 @@
     const c = d.conteggi || {};
     const f = st.filtri;
     const ordini = d.ordini || [];
-    LZ.metti(document.getElementById('lz-pc-barra'), `
+    H.metti(document.getElementById('lz-pc-barra'), `
       <span class="tit">Da procurare</span>
       <span class="lz-seg" role="group" aria-label="Stato">${STATI.map(([k, t]) => `<button type="button" class="${f.stato === k ? 'on' : ''}" data-pc-stato="${k}"
         aria-pressed="${f.stato === k}">${t}${k !== 'tutti' && c[k] != null ? ` <span class="n">${c[k]}</span>` : ''}</button>`).join('')}</span>
       <select data-pc-f="tipo" aria-label="Tipo">${TIPI.map(([k, t]) => `<option value="${k}"${f.tipo === k ? ' selected' : ''}>${t}</option>`).join('')}</select>
       <select data-pc-f="ordine" aria-label="Ordine"><option value="">Tutti gli ordini</option>${ordini.map(o => `<option value="${esc(o.id)}"${f.ordine === o.id ? ' selected' : ''}>${esc(o.etichetta)}</option>`).join('')}</select>
       <span class="sp"></span>
-      ${st.carica && st.dati ? `<span class="lz-gira" style="display:inline-grid">${LZ.ico('loader-circle')}</span>` : ''}
-      <button class="lz-btn" type="button" data-pc="chiudi">Chiudi${LZ.tasto('Esc')}</button>`);
+      ${st.carica && st.dati ? `<span class="lz-gira" style="display:inline-grid">${H.ico('loader-circle')}</span>` : ''}
+      <button class="lz-btn" type="button" data-pc="chiudi">Chiudi${H.tasto('Esc')}</button>`);
   }
 
   function disegna() {
@@ -145,17 +190,17 @@
     const corpo = document.getElementById('lz-pc-corpo');
     let h;
     if (!st.dati) {
-      h = st.errore ? `<div class="lz-errore">${LZ.ico('triangle-alert')}<div><b>Non riesco a leggere «Da procurare»</b><p>${esc(st.errore)}</p>
+      h = st.errore ? `<div class="lz-errore">${H.ico('triangle-alert')}<div><b>Non riesco a leggere «Da procurare»</b><p>${esc(st.errore)}</p>
           <button class="lz-btn piccolo" type="button" data-pc="riprova">Riprova</button></div></div>`
         : `<div aria-busy="true">${Array.from({ length: 6 }, () => '<div class="lz-skel" style="height:40px;margin-bottom:8px"></div>').join('')}</div>`;
     } else if (!voci().length) {
       const f = st.filtri;
-      h = `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('package-check')}</div><b>${f.stato === 'da_ordinare' && !f.tipo && !f.ordine ? 'Niente da ordinare' : 'Nessuna voce con questi filtri'}</b>
+      h = `<div class="lz-vuoto"><div><div class="ico">${H.ico('package-check')}</div><b>${f.stato === 'da_ordinare' && !f.tipo && !f.ordine ? 'Niente da ordinare' : 'Nessuna voce con questi filtri'}</b>
         <p>Le voci arrivano da sole: tasto N nel controllo dei disegni («non è da laser»), e righe dei tubolari della distinta.</p></div></div>`;
     } else {
       h = tubiHtml() + altriHtml();
     }
-    LZ.metti(corpo, `<div class="lz-pc-dentro">${h}</div>`, corpo);
+    H.metti(corpo, `<div class="lz-pc-dentro">${h}</div>`, corpo);
     azioni();
   }
 
@@ -170,14 +215,14 @@
       <tbody>${gruppi.map(g => {
         const tutti = g.voci.every(id => st.sel.has(id)), qualcuno = g.voci.some(id => st.sel.has(id));
         const aperto = st.aperti.has(g.chiave);
-        const avvisi = [g.troppo_lunghi.length ? `<span class="lz-st err">${LZ.ico('triangle-alert')}${g.troppo_lunghi.map(t => `${esc(t.codice || '')} ${mm(t.lunghezza_mm)}`).join(', ')}: più lungo di una barra</span>` : '',
-          g.senza_lunghezza.length ? `<span class="lz-st att">${LZ.ico('ruler')}${g.senza_lunghezza.reduce((s, t) => s + t.n, 0)} pz senza lunghezza</span>` : ''].filter(Boolean).join('');
+        const avvisi = [g.troppo_lunghi.length ? `<span class="lz-st err">${H.ico('triangle-alert')}${g.troppo_lunghi.map(t => `${esc(t.codice || '')} ${mm(t.lunghezza_mm)}`).join(', ')}: più lungo di una barra</span>` : '',
+          g.senza_lunghezza.length ? `<span class="lz-st att">${H.ico('ruler')}${g.senza_lunghezza.reduce((s, t) => s + t.n, 0)} pz senza lunghezza</span>` : ''].filter(Boolean).join('');
         let riga = `<tr class="lz-pc-g${aperto ? ' aperto' : ''}" data-fuoco="pc-g-${esc(g.chiave)}">
           <td class="ck"><input type="checkbox" data-pc-gruppo="${esc(g.chiave)}" ${tutti ? 'checked' : ''} ${!tutti && qualcuno ? 'data-meta="1"' : ''} aria-label="Seleziona ${esc(g.profilo)}"></td>
           <td class="cod">${esc(g.profilo)}</td><td>${esc(mat(g.materiale))}</td>
           <td class="r q">${FT.numero(g.n_pezzi)}</td><td class="r">${metri(g.metri)}</td>
           <td class="r"><b class="lz-pc-barre">${g.n_barre}</b></td><td>${avvisi}</td>
-          <td class="men"><button class="lz-btn piccolo ghost" type="button" data-pc-apri="${esc(g.chiave)}" aria-expanded="${aperto}">${LZ.ico(aperto ? 'chevron-up' : 'chevron-down')}Piano di taglio</button></td></tr>`;
+          <td class="men"><button class="lz-btn piccolo ghost" type="button" data-pc-apri="${esc(g.chiave)}" aria-expanded="${aperto}">${H.ico(aperto ? 'chevron-up' : 'chevron-down')}Piano di taglio</button></td></tr>`;
         if (aperto) riga += `<tr class="lz-pc-piano"><td></td><td colspan="7">${pianoHtml(g)}${daDoveHtml(g, ids)}</td></tr>`;
         return riga;
       }).join('')}</tbody></table></section>`;
@@ -213,7 +258,7 @@
         <td class="lav">${esc([v.descrizione, v.profilo, v.lunghezza_mm ? mm(v.lunghezza_mm) : ''].filter(Boolean).join(' · ') || '—')}${v.nota ? `<small>${esc(v.nota)}</small>` : ''}</td>
         <td class="r q">${FT.numero(v.quantita)}</td>
         <td>${ordineHtml(v.ordine)}</td>
-        <td>${v.n_disegni ? `<span class="lz-st ok">${LZ.ico('file-check')}sì (${v.n_disegni})</span>` : '<span class="lz-st">no</span>'}</td>
+        <td>${v.n_disegni ? `<span class="lz-st ok">${H.ico('file-check')}sì (${v.n_disegni})</span>` : '<span class="lz-st">no</span>'}</td>
         <td>${statoHtml(v)}</td></tr>`).join('')}</tbody></table></section>`;
   }
 
@@ -222,28 +267,28 @@
     const box = document.getElementById('lz-pc-az');
     if (!box || !st) return;
     const n = st.sel.size;
-    if (!n) { LZ.metti(box, ''); return; }
+    if (!n) { H.metti(box, ''); return; }
     const sel = voci().filter(v => st.sel.has(v.id));
     const ordini = new Set(sel.map(v => v.order_id)).size;
     let h;
     if (st.modulo === 'ordinato') {
       h = `<div class="lz-pc-az modulo">
-        <span class="q"><b>${LZ.plur(n, 'voce', 'voci')}</b>: segna ordinato</span>
+        <span class="q"><b>${H.plur(n, 'voce', 'voci')}</b>: segna ordinato</span>
         <label>Fornitore <input type="text" maxlength="80" data-pc-forn data-fuoco="pc-forn" placeholder="a chi l'hai ordinato" value="${esc(st.forn || '')}"></label>
         <label>Data prevista <input type="date" data-pc-data data-fuoco="pc-data" min="${esc(FT.oggiISO())}" value="${esc(st.data || '')}"></label>
         <span class="sp"></span>
-        <button class="lz-btn" type="button" data-pc="modulo-via">Annulla${LZ.tasto('Esc')}</button>
-        <button class="lz-btn pri" type="button" data-pc="ordinato-ok" ${st.lavoro ? 'disabled' : ''}>Segna ordinato${LZ.tasto('Invio')}</button></div>`;
+        <button class="lz-btn" type="button" data-pc="modulo-via">Annulla${H.tasto('Esc')}</button>
+        <button class="lz-btn pri" type="button" data-pc="ordinato-ok" ${st.lavoro ? 'disabled' : ''}>Segna ordinato${H.tasto('Invio')}</button></div>`;
     } else {
       h = `<div class="lz-pc-az">
-        <span class="q"><b>${LZ.plur(n, 'voce selezionata', 'voci selezionate')}</b>${ordini > 1 ? ` da ${ordini} ordini` : ''}</span>
+        <span class="q"><b>${H.plur(n, 'voce selezionata', 'voci selezionate')}</b>${ordini > 1 ? ` da ${ordini} ordini` : ''}</span>
         <button class="lz-link" type="button" data-pc="sel-via">Togli selezione</button>
         <span class="sp"></span>
-        <button class="lz-btn pri" type="button" data-pc="richiesta" ${st.lavoro ? 'disabled' : ''}>${LZ.ico('file-archive')}Prepara richiesta d'offerta${LZ.tasto('R')}</button>
-        <button class="lz-btn" type="button" data-pc="ordinato" ${st.lavoro ? 'disabled' : ''}>${LZ.ico('truck')}Segna ordinato${LZ.tasto('O')}</button>
-        <button class="lz-btn" type="button" data-pc="arrivato" ${st.lavoro ? 'disabled' : ''}>${LZ.ico('package-check')}Segna arrivato${LZ.tasto('A')}</button></div>`;
+        <button class="lz-btn pri" type="button" data-pc="richiesta" ${st.lavoro ? 'disabled' : ''}>${H.ico('file-archive')}Prepara richiesta d'offerta${H.tasto('R')}</button>
+        <button class="lz-btn" type="button" data-pc="ordinato" ${st.lavoro ? 'disabled' : ''}>${H.ico('truck')}Segna ordinato${H.tasto('O')}</button>
+        <button class="lz-btn" type="button" data-pc="arrivato" ${st.lavoro ? 'disabled' : ''}>${H.ico('package-check')}Segna arrivato${H.tasto('A')}</button></div>`;
     }
-    LZ.metti(box, h);
+    H.metti(box, h);
     document.querySelectorAll('#lz-pc input[data-meta]').forEach(i => { i.indeterminate = true; });
   }
 
@@ -306,10 +351,15 @@
   };
 
   // ── Azioni ──────────────────────────────────────────────────────────
-  async function dopo() {
-    await carica();
+  /** Dopo un cambio: sul laser il chip e l'ordine aperto si rileggono. */
+  function rileggiPagina() {
+    if (!SUL_LASER) return;
     LZ.avvio.caricaRiep();
     if (S.aperto) LZ.ordine.carica(S.aperto);
+  }
+  async function dopo() {
+    await carica();
+    rileggiPagina();
   }
 
   function apriOrdinato() {
@@ -333,21 +383,21 @@
     if (!st || !st.sel.size || st.lavoro) return;
     const ids = [...st.sel];
     st.lavoro = true; azioni();
-    const r = await LZ.azione(() => LZ.post('/api/procura/stato', { ids, stato, ...(extra || {}) }));
+    const r = await H.azione(() => H.post('/api/procura/stato', { ids, stato, ...(extra || {}) }));
     if (!st) return;
     st.lavoro = false;
     if (!r.ok) { azioni(); FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
     st.modulo = null; st.sel.clear(); st.data = '';
     const prima = r.d.prima || [];
     const t = stato === 'ordinato' ? `ordinat${r.d.n === 1 ? 'a' : 'e'} (${extra.fornitore})` : stato === 'arrivato' ? `arrivat${r.d.n === 1 ? 'a' : 'e'}` : 'di nuovo da ordinare';
-    FT.toast(`${LZ.plur(r.d.n, 'voce', 'voci')} ${t}`, 'ok', { testo: 'Annulla', fn: () => annulla(prima) }, 10000);
+    FT.toast(`${H.plur(r.d.n, 'voce', 'voci')} ${t}`, 'ok', { testo: 'Annulla', fn: () => annulla(prima) }, 10000);
     await dopo();
   }
   async function annulla(prima) {
-    const r = await LZ.azione(() => LZ.post('/api/procura/annulla', { prima }));
+    const r = await H.azione(() => H.post('/api/procura/annulla', { prima }));
     if (!r.ok) { FT.toast('Non annullato: ' + (r.d.error || 'errore del server'), 'err'); return; }
     FT.toast('Annullato: tornato com\'era', 'ok');
-    if (st) await dopo(); else { P.conta(); LZ.avvio.caricaRiep(); if (S.aperto) LZ.ordine.carica(S.aperto); }
+    if (st) await dopo(); else { P.conta(); rileggiPagina(); }
   }
 
   /** ZIP con il PDF della richiesta e i disegni dei pezzi scelti. */
@@ -369,11 +419,22 @@
       a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
       const n = Number(r.headers.get('X-File-Zip') || 1) - 1;
-      FT.toast(`${nome}: PDF + ${LZ.plur(n, 'disegno', 'disegni')}`, 'ok', null, 7000);
+      FT.toast(`${nome}: PDF + ${H.plur(n, 'disegno', 'disegni')}`, 'ok', null, 7000);
     } catch (e) {
       FT.toast('Richiesta non preparata: ' + e.message, 'err');
     } finally {
       if (st) { st.lavoro = false; azioni(); }
     }
+  }
+
+  // ── Fuori dal laser (Ufficio): tasti propri e bottone aggiornato ─────
+  if (!SUL_LASER) {
+    document.addEventListener('keydown', e => {
+      if (!st || document.querySelector('.ft-modal-bg.open')) return;
+      if (P.tasto(e)) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+    const giro = () => { if (!document.hidden && !st) P.conta(); };
+    document.addEventListener('DOMContentLoaded', () => { if (document.getElementById('lz-procura-btn')) { P.conta(); setInterval(giro, 60000); } });
+    document.addEventListener('visibilitychange', giro);
   }
 })();

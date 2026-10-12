@@ -47,7 +47,7 @@ if not hasattr(werkzeug, '__version__'):
 from sqlalchemy import create_engine  # noqa: E402
 
 from backend import models  # noqa: E402
-from backend.models import Base, User, Preventivo, AuditLog, DaProcurare  # noqa: E402
+from backend.models import Base, User, Preventivo, AuditLog, DaProcurare, Notification  # noqa: E402
 from backend import models_ore  # noqa: E402,F401
 
 _TMP = os.path.join(tempfile.gettempdir(), f'test_pc_{uuid.uuid4().hex[:8]}.db')
@@ -104,6 +104,17 @@ def audit(azione, oid=None):
         if oid:
             q = q.filter(AuditLog.entity_id == oid)
         return [(a.user_name, a.detail) for a in q.all()]
+    finally:
+        s.close()
+
+
+def avvisi_ufficio(oid):
+    """Gli avvisi "Da procurare" alla campanella dell'Ufficio per un ordine."""
+    s = models.SessionLocal()
+    try:
+        return [(n.message, n.is_read) for n in s.query(Notification).filter(
+            Notification.user_id == 'postazione-amministrazione', Notification.order_id == oid,
+            Notification.notification_type == 'procura', Notification.is_deleted == False).all()]  # noqa: E712
     finally:
         s.close()
 
@@ -192,6 +203,14 @@ def test_lettura():
           p['tipo'] == 'tubo' and p['profilo'] == 'Angolare 50x50x5' and p['fonte'] == 'cartiglio' and not p['alternativa'], p)
     p = PC.proposta(['Staffa di supporto'], None, None)
     check('niente da leggere: nessuna proposta', p['tipo'] is None, p)
+    p = PC.proposta(['Particolare selezione AISI 304'], 'Angolare supporto guide', None, [620, 40])
+    check('solo la parola ("Angolare supporto guide", come nell\'archivio): T, profilo da scrivere, lunghezza dal disegno',
+          p['tipo'] == 'tubo' and p['profilo'] is None and p['solo_parola'] == 'ANGOLARE' and p['lunghezza_mm'] == 620
+          and p['fonte'] == 'cartiglio', p)
+    check('"S235" e\' il materiale, non lo spessore', (PC.leggi_profilo('Piatto 40x5 S235 Lg.300') or {}).get('nome') == 'Piatto 40x5'
+          and PC.parola_profilo('Piatto CVE-025/050 S235JR') == 'PIATTO', PC.leggi_profilo('Piatto 40x5 S235 Lg.300'))
+    check('niente parola per le lamiere', PC.parola_profilo('Lamiera fix tondo sp.4') is None
+          and PC.parola_profilo('Angolare 40x55 H38 sp.3 AISI304') is None)
     # sezione di tubo disegnata (cerchi concentrici a parte) e foro svasato dentro un pezzo
     import ezdxf
     d = tempfile.mkdtemp(prefix='ft_pc_dxf_')
@@ -257,9 +276,27 @@ def test_barre():
         json.dump(cfg, f)
 
 
+def test_taglia_entro():
+    print('\nB2) Taglia entro: laser tubo e meccanica dal fornitore = +5')
+    from backend import taglia_entro as TE
+    f = TE.lavorazioni_ordine([{'tipo': 'lamiera', 'lavorazioni': ['Taglio laser', 'Piegatura (2 pieghe)']}])
+    base = TE.anticipo_da(TE.con_procura(TE.con_esterna(f, None, ''), []), None)
+    con = TE.anticipo_da(TE.con_procura(TE.con_esterna(f, None, ''), ['meccanica dal fornitore']), None)
+    check('piega 2 giorni -> 7 con la meccanica dal fornitore, e il motivo lo dice',
+          base['giorni'] == 2 and con['giorni'] == 7 and 'da procurare: meccanica dal fornitore' in con['motivo'], (base, con))
+    no = TE.anticipo_da(TE.con_procura(TE.con_esterna(f, False, ''), ['laser tubo dal fornitore']), None)
+    check('anche con "Lavorazione esterna: no" (quella parla del dopo laser)', no['giorni'] == 7, no)
+    due = TE.anticipo_da(TE.con_procura(TE.con_esterna(f, True, 'zincatura'), ['laser tubo dal fornitore']), None)
+    check('zincatura + laser tubo: +5 una volta sola, tutte e due nel motivo', due['giorni'] == 7
+          and 'zincatura' in due['motivo'] and 'laser tubo' in due['motivo'], due)
+    an = TE.anticipo([{'tipo': 'lamiera', 'lavorazioni': ['Taglio laser']}], procura=['meccanica dal fornitore'])
+    check('anticipo(..., procura=...): 1 + 5', an['giorni'] == 6, an)
+
+
 def main():
     test_lettura()
     test_barre()
+    test_taglia_entro()
 
     from tests.accesso_aiuto import postazioni, entra, modalita, persona, PIN_UFFICIO
     s = models.SessionLocal()
@@ -271,6 +308,8 @@ def main():
     laser = entra(A.app, 'laser')
     rep = entra(A.app, 'reparto')
     uff = entra(A.app, 'ufficio', pin=PIN_UFFICIO)
+    persona('carla', 'Carla Commerciale', ruolo='Commerciale', pin='3691')
+    com = entra(A.app, 'commerciale', pin='3691')
 
     print('\nC) Righe tubolari della distinta: entrano da sole')
     oid, pid = nuovo_ordine('7001', [{'codice': 'P-LAM-00'}, {'codice': 'P-TUBO-00', 'codice_assieme': 'ASS1'},
@@ -294,6 +333,8 @@ def main():
           d.get('procura'))
     check('laser tubo dal fornitore = lavorazione esterna nel taglia entro (+5)',
           'laser tubo dal fornitore' in (d.get('taglia_entro') or {}).get('motivo', ''), d.get('taglia_entro'))
+    check("avviso all'Ufficio: uno per l'ordine, \"2 pezzi da procurare per DECA S.r.l. 7001\"",
+          avvisi_ufficio(oid) == [('2 pezzi da procurare per DECA S.r.l. 7001', False)], avvisi_ufficio(oid))
     riep(laser, oid)
     check('riletto: niente doppioni', len([v for v in voci_db(oid).values() if v.origine == 'tubolare']) == 2)
     # la distinta cambia: quantita' aggiornata, riga sparita tolta
@@ -336,6 +377,8 @@ def main():
     o = laser.get(f'/api/orders/{oid}/laser').get_json() or {}
     pz = next((p for p in o.get('pezzi') or [] if p['codice'] == 'P-TUBO-00'), {})
     check('il pezzo resta fuori da Lantek come prima', pz.get('escluso') == "non è da laser" and pz.get('decisione') == 'non_laser', pz)
+    check("avviso raggruppato: sempre uno per l'ordine, col numero di adesso",
+          avvisi_ufficio(oid) == [('2 pezzi da procurare per DECA S.r.l. 7001', False)], avvisi_ufficio(oid))
     check('l\'ordine aperto ha le sue voci', len(o.get('procura_voci') or []) == 2, o.get('procura_voci'))
     check('storico PROCURA_CLASSIFICA', any('P-TUBO-00' in d_ and 'Tubo/profilo' in d_ and '795 mm' in d_
                                             for _, d_ in audit('PROCURA_CLASSIFICA', oid)), audit('PROCURA_CLASSIFICA', oid))
@@ -485,6 +528,40 @@ def main():
     j = laser.get('/api/procura?stato=tutti').get_json() or {}
     check('ripristinato: tornano', r.status_code == 200 and sum(1 for v in j.get('voci') or [] if v['order_id'] == oid) == 2,
           (r.status_code, j.get('conteggi')))
+
+    print("\nH) Ufficio (amministrazione): vede, ordina, riceve gli avvisi")
+    j = uff.get('/api/procura?stato=tutti').get_json() or {}
+    check("l'Ufficio vede le voci di tutti gli ordini", j.get('success') and len(j.get('voci') or []) >= 3, len(j.get('voci') or []))
+    r = uff.post('/api/procura/stato', json={'ids': [com_id], 'stato': 'ordinato', 'fornitore': 'Ferramenta Verdi',
+                                             'data_prevista': (date.today() + timedelta(days=3)).isoformat()})
+    check("l'Ufficio segna ordinato", r.status_code == 200, r.get_json())
+    check("storico con chi l'ha fatto (la persona col PIN)", any(u == 'Elena Ufficio' and 'Ferramenta Verdi' in d_
+                                                               for u, d_ in audit('PROCURA_STATO', oid)), audit('PROCURA_STATO', oid))
+    r = uff.post('/api/procura/richiesta-offerta', json={'ids': [com_id]})
+    check("l'Ufficio prepara la richiesta d'offerta", r.status_code == 200 and r.mimetype == 'application/zip', r.status_code)
+    r = uff.post('/api/procura/stato', json={'ids': [com_id], 'stato': 'arrivato'})
+    check("l'Ufficio segna arrivato", r.status_code == 200)
+    for metodo, url, corpo in (('get', '/api/procura', None), ('post', '/api/procura/stato', {'ids': [com_id], 'stato': 'ordinato'})):
+        r = getattr(com, metodo)(url, json=corpo) if corpo else getattr(com, metodo)(url)
+        check(f'Commerciale: {metodo.upper()} {url} -> 403', r.status_code == 403, r.status_code)
+    # avviso letto: le voci nuove ne fanno nascere un altro
+    s = models.SessionLocal()
+    for n in s.query(Notification).filter(Notification.order_id == oid, Notification.notification_type == 'procura').all():
+        n.is_read = True
+    s.commit()
+    s.close()
+    aid3 = articolo_id(pid, 'P-LAM-00')
+    laser.post(f'/api/orders/{oid}/pezzi/{aid3}/decisione', json={'scelta': 'non_laser', 'procura': {'tipo': 'meccanica'}})
+    av = avvisi_ufficio(oid)
+    nuovi = [m for m, letto in av if not letto]
+    check('letto il primo, le voci nuove fanno un avviso nuovo (uno solo)',
+          len(av) == 2 and len(nuovi) == 1 and nuovi[0].endswith('pezzi da procurare per DECA S.r.l. 7001'), av)
+    j = uff.get('/api/notifications?limit=50').get_json() or {}
+    msgs = [n['message'] for n in ((j.get('data') or {}).get('notifications') or [])]
+    check("nella campanella dell'Ufficio", nuovi and nuovi[0] in msgs, msgs)
+    j = laser.get('/api/notifications?limit=50').get_json() or {}
+    check('non in quella del laser', not any('da procurare' in (n.get('message') or '')
+                                              for n in ((j.get('data') or {}).get('notifications') or [])))
 
     print('\n' + '=' * 60)
     print(f'{OK} OK, {len(KO)} KO')

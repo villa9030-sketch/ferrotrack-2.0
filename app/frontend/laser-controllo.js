@@ -661,7 +661,10 @@
     else if (pp.tipo) {
       const l = pp.lunghezza_mm ? `, ${FT.numero(pp.lunghezza_mm)} mm` : '';
       testa = `<div class="lz-risposta lz-pr-prop">Il motore pensa: <b>${esc(nomeTipo(pp.tipo))}</b>${pp.profilo ? ` — ${esc(pp.profilo)}${esc(l)}` : ''}
-        <small>${esc(pp.sezione ? 'C\'è una sezione di tubo nel disegno: tubo (T) o laser tubo (L)?' : `letto nella ${pp.fonte || 'descrizione'}${pp.testo ? ': «' + pp.testo + '»' : ''}`)}</small>
+        <small>${esc(pp.sezione ? 'C\'è una sezione di tubo nel disegno: tubo (T) o laser tubo (L)?'
+          : `letto ${pp.fonte === 'cartiglio' ? 'nel cartiglio' : `nella ${pp.fonte || 'descrizione'}`}${pp.testo ? ': «' + pp.testo + '»' : ''}`)}</small>
+        ${pp.solo_parola ? '<small>Senza misure: scrivi tu il profilo.</small>' : ''}
+        ${(pp.sezione || pp.solo_parola) && pp.lunghezza_mm ? '<small>Lunghezza presa dal disegno: controllala.</small>' : ''}
         <small>Decidi tu col tasto.</small></div>`;
     } else testa = '<div class="lz-risposta">Il motore non ha letto un profilo: scegli tu.</div>';
     const q = pr.quantita != null ? pr.quantita : p.quantita;

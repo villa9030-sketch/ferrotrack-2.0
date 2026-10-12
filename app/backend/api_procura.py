@@ -9,8 +9,12 @@
   POST /api/procura/<id>                corregge profilo, lunghezza, quantita', nota
   GET  /api/orders/<id>/procura         le voci di un ordine
 
-Le voci le vedono e le cambiano il laser e l'ufficio (non il tablet: lui
-vede solo "mancano N pezzi da procurare"). Ogni cambio va nello storico.
+Le voci le vedono e le cambiano il laser, l'Ufficio (amministrazione: e'
+li' che si ordina, laser-procura.js anche in impiegata.html) e un
+amministratore col PIN; non il tablet (lui vede solo "mancano N pezzi da
+procurare"). Ogni cambio va nello storico, con chi l'ha fatto. Le voci
+nuove arrivano anche come avviso alla campanella dell'Ufficio, uno per
+ordine (procura.avvisa_ufficio).
 Le funzioni di app.py si importano DENTRO le funzioni (app.py importa questo
 file per registrarlo).
 """
@@ -21,7 +25,7 @@ from datetime import date, datetime
 
 from flask import Blueprint, Response, jsonify, request
 
-from .accesso import richiede
+from .accesso import ADMIN, richiede
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,7 @@ def _descr_voce(v: dict) -> str:
 
 
 @bp_procura.route('/api/procura', methods=['GET'])
-@richiede('laser', 'ufficio')
+@richiede('laser', 'ufficio', ADMIN)
 def api_procura_elenco():
     """{voci, gruppi (tubi per profilo + materiale, in barre), conteggi, ordini,
     tipi, config}. ?stato=da_ordinare (default) | ordinato | arrivato | aperti
@@ -92,7 +96,7 @@ def api_procura_elenco():
 
 
 @bp_procura.route('/api/procura/conteggio', methods=['GET'])
-@richiede('laser', 'ufficio')
+@richiede('laser', 'ufficio', ADMIN)
 def api_procura_conteggio():
     """{aperti: non ancora arrivate, da_ordinare, scaduti}."""
     from . import procura as pc
@@ -108,7 +112,7 @@ def api_procura_conteggio():
 
 
 @bp_procura.route('/api/orders/<order_id>/procura', methods=['GET'])
-@richiede('laser', 'ufficio')
+@richiede('laser', 'ufficio', ADMIN)
 def api_ordine_procura(order_id):
     from . import procura as pc
     A = _app()
@@ -129,7 +133,7 @@ def _ids(corpo) -> list:
 
 
 @bp_procura.route('/api/procura/stato', methods=['POST'])
-@richiede('laser', 'ufficio')
+@richiede('laser', 'ufficio', ADMIN)
 def api_procura_stato():
     """Corpo: {ids: [...], stato: "ordinato" | "arrivato" | "da_ordinare",
     fornitore: "Rossi tubi" (con ordinato), data_prevista: "2026-10-20"}.
@@ -178,7 +182,7 @@ def api_procura_stato():
 
 
 @bp_procura.route('/api/procura/annulla', methods=['POST'])
-@richiede('laser', 'ufficio')
+@richiede('laser', 'ufficio', ADMIN)
 def api_procura_annulla():
     """Corpo: {prima: [...]} come l'ha data /api/procura/stato."""
     from . import procura as pc
@@ -205,7 +209,7 @@ def api_procura_annulla():
 
 
 @bp_procura.route('/api/procura/<voce_id>', methods=['POST'])
-@richiede('laser', 'ufficio')
+@richiede('laser', 'ufficio', ADMIN)
 def api_procura_modifica(voce_id):
     """Corpo: {profilo?, lunghezza_mm?, quantita?, nota?, tipo?}."""
     from . import procura as pc
@@ -245,7 +249,7 @@ def api_procura_modifica(voce_id):
 
 
 @bp_procura.route('/api/procura/richiesta-offerta', methods=['POST'])
-@richiede('laser', 'ufficio')
+@richiede('laser', 'ufficio', ADMIN)
 def api_procura_richiesta():
     """Corpo: {ids: [...]} -> ZIP "Richiesta offerta AAAA-MM-GG.zip": il PDF
     (titolo, data, tubi in barre, tabella dei pezzi) e in disegni/ i file dei

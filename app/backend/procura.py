@@ -110,7 +110,8 @@ def _g(v: float) -> str:
 _NUM = r'(\d+(?:[.,]\d+)?)'
 _X = r'\s*[xX×*]\s*'
 _RX_LUNG = re.compile(r'(?:\blg|\blungh(?:ezza)?|\blung|\bL\s*(?=[=:.]))\s*[.=:]?\s*' + _NUM + r'\s*(?:mm)?', re.I)
-_RX_SP = re.compile(r'\b(?:sp|s|th)\s*[.=:]?\s*' + _NUM, re.I)
+# "sp.2", "sp 2", "s=2", "th 2" (non "S235": e' il materiale)
+_RX_SP = re.compile(r'\b(?:sp\s*[.=:]?|s\s*[=:]|th\s*[.=:]?)\s*' + _NUM, re.I)
 _RX_DIAM = re.compile(r'(?:[Øø⌀Ф]|\bdiam\.?|\bd\.(?=\s*\d)|\bD\s*(?=\d))\s*' + _NUM, re.I)
 _RX_TRAVE = re.compile(r'\b(UPN|UPE|IPE|IPN|HEA|HEB|HEM)\s*' + _NUM, re.I)
 
@@ -432,17 +433,38 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
                 return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': lung,
                         'fonte': fonte, 'testo': p['testo'],
                         'alternativa': 'laser_tubo' if p['famiglia'] in ('SHS', 'RHS', 'CHS') else None}
+    lung_dis = None
+    try:
+        if misure and misure[0] and misure[1]:
+            lung_dis = round(max(float(misure[0]), float(misure[1])))
+    except (TypeError, ValueError):
+        lung_dis = None
     sez = sezione_tubo(percorso)
     if sez:
-        lung = None
-        try:
-            if misure and misure[0] and misure[1]:
-                lung = round(max(float(misure[0]), float(misure[1])))
-        except (TypeError, ValueError):
-            lung = None
-        return {**vuota, 'tipo': 'tubo', 'profilo': sez['nome'], 'lunghezza_mm': lung,
+        return {**vuota, 'tipo': 'tubo', 'profilo': sez['nome'], 'lunghezza_mm': lung_dis,
                 'fonte': 'sezione di tubo nel disegno', 'testo': None, 'sezione': True, 'alternativa': 'laser_tubo'}
+    # Solo la parola, senza misure ("Angolare supporto guide", "Piatto per
+    # deviatore": nell'archivio quasi sempre cosi'): e' un profilo da barra,
+    # T si pre-sceglie ma il profilo lo scrive chi guarda il disegno.
+    for fonte, testi in (("riga dell'ordine", testi_riga or []), ('cartiglio', [testo_cartiglio] if testo_cartiglio else [])):
+        for t in testi:
+            w = parola_profilo(t)
+            if w:
+                return {**vuota, 'tipo': 'tubo', 'profilo': None, 'lunghezza_mm': lung_dis, 'fonte': fonte,
+                        'testo': _norm(t)[:120], 'solo_parola': w,
+                        'alternativa': 'laser_tubo' if w.startswith('TUB') else None}
     return vuota
+
+
+def parola_profilo(testo) -> str | None:
+    """La parola del profilo che apre la descrizione (o un suo pezzo), senza
+    le misure: "Angolare supporto guide" -> 'ANGOLARE'. None per le lamiere."""
+    t = _norm(testo)
+    for seg in [x.strip() for x in re.split(r'\s[-–]\s|[;:()]|,\s', t) if x and x.strip()]:
+        m = _RX_INIZIO.match(seg)
+        if m and not _RX_LAMIERA.search(seg) and not _RX_SP.search(seg):
+            return seg.split()[0].upper().rstrip('.')
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -602,12 +624,15 @@ def classifica(order_id: str, articolo_id, *, tipo: str, codice=None, descrizion
         r.materiale = (str(materiale).strip() or None) if materiale else None
         r.nota = (str(nota).strip()[:200] or None) if nota else None
         s.commit()
-        return {**_diz(r), 'nuova': nuovo}
+        out = {**_diz(r), 'nuova': nuovo}
     except Exception:
         s.rollback()
         raise
     finally:
         s.close()
+    if nuovo:
+        avvisa_ufficio(order_id)
+    return out
 
 
 def togli_classificato(order_id: str, articolo_id) -> dict | None:
@@ -705,15 +730,60 @@ def sincronizza_righe(order_id: str, righe: list) -> int:
             if k not in nuove and r.stato == 'da_ordinare':
                 s.delete(r)
                 n += 1
+        nuove_voci = sum(1 for k in nuove if k not in ci)
         if n:
             s.commit()
-        return n
     except Exception:
         s.rollback()
         logger.warning('voci tubolari non sincronizzate per %s', order_id, exc_info=True)
         return 0
     finally:
         s.close()
+    if nuove_voci:
+        avvisa_ufficio(order_id)
+    return n
+
+
+def avvisa_ufficio(order_id: str) -> None:
+    """Un avviso alla campanella dell'Ufficio (amministrazione: e' li' che si
+    ordina) quando nascono voci nuove: UNO per ordine, non uno per pezzo.
+    Se c'e' gia' un avviso non letto per quell'ordine, si aggiorna il numero
+    ("3 pezzi da procurare per DECA A 001302"); letto o cancellato, ne nasce
+    uno nuovo. Non blocca mai il salvataggio."""
+    try:
+        import uuid as _uuid
+        from .accesso import STAZIONI
+        from .database import get_session
+        from .models import DaProcurare, Notification
+        dest = STAZIONI['ufficio']['utente']
+        s = get_session()
+        try:
+            o = _ordini_vivi(s, {order_id}).get(order_id)
+            if not o:
+                return
+            n = s.query(DaProcurare).filter(DaProcurare.order_id == order_id,
+                                            DaProcurare.stato == 'da_ordinare').count()
+            if not n:
+                return
+            msg = f"{n} {'pezzo' if n == 1 else 'pezzi'} da procurare per {o['etichetta']}"
+            av = s.query(Notification).filter(Notification.user_id == dest, Notification.order_id == order_id,
+                                              Notification.notification_type == 'procura',
+                                              Notification.is_read == False,  # noqa: E712
+                                              Notification.is_deleted == False).first()  # noqa: E712
+            if av:
+                av.message, av.timestamp = msg, datetime.utcnow()
+            else:
+                s.add(Notification(id=str(_uuid.uuid4()), user_id=dest, order_id=order_id, title='Da procurare',
+                                   message=msg, notification_type='procura', notification_category='attiva',
+                                   is_read=False, is_deleted=False, timestamp=datetime.utcnow()))
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+        finally:
+            s.close()
+    except Exception:            # noqa: BLE001
+        logger.warning("avviso all'Ufficio non scritto per %s", order_id, exc_info=True)
 
 
 _SYNC = {'t': 0.0}
@@ -1114,7 +1184,7 @@ def pdf_richiesta(voci: list, gruppi: list, azienda: dict | None = None, quando:
         righe.append([P(v.get('codice') or '—', 'cb'), P(v.get('descrizione') or '—'), P(pl or '—'),
                       P(v.get('quantita')), P(_mat(v.get('materiale'))), P(TIPI_BREVI.get(v.get('tipo'), v.get('tipo'))),
                       P(v.get('nota') or '')])
-    t = Table(righe, colWidths=[30 * mm, 42 * mm, 34 * mm, 11 * mm, 20 * mm, 22 * mm, None], repeatRows=1)
+    t = Table(righe, colWidths=[26 * mm, 36 * mm, 30 * mm, 10 * mm, 18 * mm, 25 * mm, None], repeatRows=1)
     t.setStyle(stile_tab)
     el.append(t)
 
