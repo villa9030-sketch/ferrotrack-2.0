@@ -55,12 +55,17 @@ def main():
     ap.add_argument('--porta', type=int, default=5060)
     ap.add_argument('--senza-uploads', action='store_true', help='non ricopiare uploads (solo per prove del banco)')
     ap.add_argument('--blocchi', default='', help='es. 1,2 (default: tutti)')
+    ap.add_argument('--cartella', default='', help='cartella della prova (default: stress/<data_ora>)')
     a = ap.parse_args()
     priorita_bassa()
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
     inizio = datetime.now()
     run_dir = os.path.join(CARTELLA_RUNS, inizio.strftime('%Y%m%d_%H%M%S'))
+    if a.cartella:
+        run_dir = os.path.abspath(a.cartella)
+        if os.path.normcase(os.path.dirname(run_dir)) != os.path.normcase(CARTELLA_RUNS):
+            raise SystemExit('La cartella della prova deve stare in %s' % CARTELLA_RUNS)
     os.makedirs(run_dir, exist_ok=True)
     tmp = os.path.join(run_dir, 'tmp')
     os.makedirs(tmp, exist_ok=True)
@@ -152,6 +157,8 @@ def main():
             rimasti = (fine - ora_).total_seconds() / 60
             minuti = min(minuti, max(1, rimasti - sum(
                 (b[2] if a.profilo == 'notte' else b[3]) * 0.3 for b in BLOCCHI[i:])))
+            if os.environ.get('STRESS_MINUTI'):        # solo per provare il banco
+                minuti = float(os.environ['STRESS_MINUTI'])
             ctx.scadenza = ora_ + timedelta(minutes=minuti)
             reg.inizio_blocco(nome)
             try:

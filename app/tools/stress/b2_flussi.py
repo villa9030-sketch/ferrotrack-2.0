@@ -74,8 +74,14 @@ def sorgenti(seme=7):
     return out, altri
 
 
+_PDF_INIZIALI = []
+
+
 def pdf_ordini():
-    return sorted(glob.glob(os.path.join(STRESS_UPLOADS, 'pdfs', '*.pdf')))
+    # solo i PDF che c'erano all'inizio (non quelli caricati dalla prova)
+    if not _PDF_INIZIALI:
+        _PDF_INIZIALI.extend(sorted(glob.glob(os.path.join(STRESS_UPLOADS, 'pdfs', '*.pdf'))))
+    return list(_PDF_INIZIALI)
 
 
 class Flussi:
@@ -136,7 +142,8 @@ class Flussi:
         if dwg:
             files = [f for f in files if f.lower().endswith(('.dwg', '.pdf'))][:4] or files
         parti = [('files', os.path.basename(f), _leggi(f)) for f in files]
-        if self.pdf and self.rnd.random() < 0.5:
+        senza_pdf = not any(f.lower().endswith('.pdf') for f in files)
+        if self.pdf and (senza_pdf or self.rnd.random() < 0.5):
             p = self.rnd.choice(self.pdf)
             parti.append(('files', os.path.basename(p).split('_', 1)[-1], _leggi(p)))
         tipo = 'dwg' if dwg else 'pacchetto'
