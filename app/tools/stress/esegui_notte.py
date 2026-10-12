@@ -222,6 +222,37 @@ def verifica_produzione(ctx, prima):
                      passi='vedi guardia_violazioni.log', blocco='Sicurezza', chiave=('guardia',))
     diversi = [k for k in prima if prima.get(k) != dopo.get(k)]
     meta = {'cambiati_durante_la_prova': diversi}
+    # Tracce della prova nella produzione? Gli ordini della prova hanno numeri
+    # STPDF/STPAC/STPRE/STCON: non devono MAI comparire nei dati veri.
+    tracce = []
+    try:
+        import sqlite3
+        from comune import PROD_DB, DISEGNI_LANTEK, PROD_UPLOADS
+        c = sqlite3.connect('file:%s?mode=ro' % PROD_DB.replace('\\', '/'), uri=True)
+        try:
+            for (n,) in c.execute("select numero_ordine from orders where numero_ordine like 'STPDF%' or "
+                                  "numero_ordine like 'STPAC%' or numero_ordine like 'STPRE%' or "
+                                  "numero_ordine like 'STCON%'"):
+                tracce.append('ordine %s nel database di produzione' % n)
+            for (n,) in c.execute("select name from users where name like 'Stress %' or name = "
+                                  "'Amministratore Stress'"):
+                tracce.append('persona %s nel database di produzione' % n)
+        except Exception:
+            pass
+        finally:
+            c.close()
+        for radice in (DISEGNI_LANTEK, os.path.join(PROD_UPLOADS, 'lantek_import')):
+            for d, dirs, files in os.walk(radice):
+                for x in dirs + files:
+                    if any(t in x for t in ('STPDF', 'STPAC', 'STPRE', 'STCON')):
+                        tracce.append(os.path.join(d, x))
+    except Exception as e:
+        reg.eccezione('verifica tracce in produzione', e)
+    meta['tracce_della_prova_in_produzione'] = tracce
+    if tracce:
+        reg.problema('BLOCCANTE', 'Tracce della prova trovate nei dati VERI', '; '.join(tracce[:5]),
+                     blocco='Sicurezza', chiave=('tracce',))
+    ctx.tracce_in_produzione = tracce
     # Il server vero gira: il suo DB cambia da solo. Si segnala solo, senza colpe.
     with open(os.path.join(ctx.run_dir, 'verifica_produzione.json'), 'w', encoding='utf-8') as f:
         json.dump({'prima': prima, 'dopo': dopo, **meta}, f, indent=1)

@@ -54,9 +54,14 @@ def scrivi(ctx, meta):
                  '(vedi guardia_violazioni.log).')
     else:
         L.append('- Nessun tentativo di scrittura fuori dalla copia.')
+    tracce = getattr(ctx, 'tracce_in_produzione', None)
+    if tracce:
+        L.append('- **ATTENZIONE: tracce della prova nei dati veri**: ' + '; '.join(_md(t) for t in tracce[:5]))
+    elif tracce is not None:
+        L.append('- Nessuna traccia della prova nei dati veri (ordini ST..., persone "Stress", file per Lantek).')
     if cambiati:
         L.append('- Cambiati durante la prova (il server vero lavora per conto suo, e\' normale per il suo '
-                 'database): ' + ', '.join(os.path.basename(c) or c for c in cambiati))
+                 'database e ai suoi file, se qualcuno ci lavora): ' + ', '.join(os.path.basename(c) or c for c in cambiati))
     else:
         L.append('- Database, uploads e DISEGNI LANTEK di produzione: invariati.')
     L.append('')
