@@ -2829,6 +2829,7 @@ function riepilogoHtml() {
         <div><dt>Ricevuto il</dt><dd>${d.data_ricezione ? FT.fmtData(d.data_ricezione) : '—'}<small>${d.data_ricezione ? FT.fmtOra(d.data_ricezione) : ''}</small></dd></div>
         <div><dt>Consegna prevista</dt><dd>${prev ? FT.fmtData(prev) : '—'}<small class="${s.classe}">${s.testo}</small></dd></div>
         <div><dt>Laser</dt><dd>${laserHtml(o)}<small>${o.taglio_il ? 'il ' + FT.fmtDataOra(o.taglio_il) : ''}</small></dd></div>
+        ${d.lavorazione_esterna != null ? `<div><dt>Lavorazione esterna</dt><dd>${d.lavorazione_esterna ? 'Sì' : 'No'}<small>${d.lavorazione_esterna ? esc(d.lavorazione_esterna_nota || 'dopo il laser') : 'niente fuori dopo il laser'}</small></dd></div>` : ''}
         <div><dt>Lavorazione finita</dt><dd>${complet ? FT.fmtData(complet) : (tappa(o) >= 1 ? 'prima di FerroTrack' : '—')}<small>${o.completato_da ? esc(o.completato_da) : ''}</small></dd></div>
         <div><dt>DDT</dt><dd>${dd.num ? `<span class="ft-mono">${esc(dd.num)}</span>` : '—'}<small>${dd.data ? fmtGiorno(dd.data) : ''}</small></dd></div>
         <div><dt>Consegnato il</dt><dd>${consegnaEff}</dd></div>
@@ -2842,7 +2843,15 @@ function riepilogoHtml() {
           <label class="ft-field"><span>Cliente <span class="req">*</span></span><input type="text" id="edit-cliente" class="ft-input" value="${esc(d.cliente || '')}"></label>
           <label class="ft-field"><span>Numero ordine <span class="req">*</span></span><input type="text" id="edit-numero-ordine" class="ft-input" value="${esc(d.numero_ordine || '')}"></label>
           <label class="ft-field"><span>Consegna prevista <span class="req">*</span></span><input type="date" id="edit-data-consegna" class="ft-input" value="${giorno(d.data_consegna)}"></label>
-          <div></div>
+          <div class="ft-field"><span>Lavorazione esterna dopo il laser</span>
+            <div style="display:flex; gap:8px;">
+              <select id="edit-lav-esterna" class="ft-input" style="flex:0 0 auto; width:auto;" onchange="$('edit-lav-esterna-nota').hidden = this.value !== 'si'"
+                title="Zincatura, verniciatura, cataforesi…: il laser deve tagliarlo 5 giorni lavorativi prima">
+                <option value=""${d.lavorazione_esterna == null ? ' selected' : ''}>Non detto (dalle note)</option>
+                <option value="si"${d.lavorazione_esterna === true ? ' selected' : ''}>Sì</option>
+                <option value="no"${d.lavorazione_esterna === false ? ' selected' : ''}>No</option></select>
+              <input type="text" id="edit-lav-esterna-nota" class="ft-input" maxlength="60" placeholder="quale? es. zincatura"
+                value="${esc(d.lavorazione_esterna_nota || '')}"${d.lavorazione_esterna === true ? '' : ' hidden'}></div></div>
           <label class="ft-field span-2"><span>Note</span><textarea id="edit-note" class="ft-textarea" rows="3">${esc(d.note || '')}</textarea></label>
         </div>
         <div class="ft-alert err" id="edit-msg" hidden style="margin-top:12px;"></div>
@@ -2888,10 +2897,13 @@ async function salvaModificheOrdine(orderId) {
   const numero_ordine = $('edit-numero-ordine').value.trim();
   const data_consegna = $('edit-data-consegna').value;
   const note = $('edit-note').value.trim();
+  const le = $('edit-lav-esterna').value;
+  const lavorazione_esterna = le === 'si' ? true : le === 'no' ? false : null;
+  const lavorazione_esterna_nota = le === 'si' ? $('edit-lav-esterna-nota').value.trim() : '';
   const msg = $('edit-msg');
   const manca = !cliente ? 'il cliente' : !numero_ordine ? 'il numero ordine' : !data_consegna ? 'la data di consegna' : '';
   if (manca) { msg.textContent = `Manca ${manca}.`; msg.hidden = false; return; }
-  const res = await inviaJson(`/api/orders/${orderId}`, { cliente, numero_ordine, data_consegna, note }, 'PUT');
+  const res = await inviaJson(`/api/orders/${orderId}`, { cliente, numero_ordine, data_consegna, note, lavorazione_esterna, lavorazione_esterna_nota }, 'PUT');
   if (riuscita(res) && res.data && res.data.success) {
     FT.toast('Ordine aggiornato', 'ok');
     await caricaViste(true);

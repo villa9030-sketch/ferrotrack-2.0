@@ -11,8 +11,11 @@ Si prova che:
  3. niente si apre o si sposta da solo dopo il cambio (aggiornamento automatico)
  4. la saturazione (carico-laser.js, la stessa dell'ufficio) mette l'ordine
     nel giorno del taglia entro
+ 5. la spunta "Lavorazione esterna" (con cosa): +5 giorni subito, il motivo
+    lo dice; tolta la spunta (= no) niente +5; "Non so" torna alla deduzione
 
-Le sole scritture lasciate passare sono /pianifica-taglio (copia del database),
+Le sole scritture lasciate passare sono /pianifica-taglio e /lavorazione-esterna
+(copia del database),
 rimesse com'erano alla fine; ogni altra scrittura e' bloccata nel browser.
 Serve il server di prova (default 127.0.0.1:5056).
 
@@ -54,7 +57,7 @@ if not _salute.get('istanza_di_prova'):
     print("RIFIUTO: %s non e' un'istanza di prova." % B)
     sys.exit(1)
 
-scritture = {'pianifica': [], 'bloccate': []}
+scritture = {'pianifica': [], 'esterna': [], 'bloccate': []}
 
 
 def filtro(route):
@@ -64,6 +67,9 @@ def filtro(route):
         return route.continue_()
     if req.url.split('?')[0].endswith('/pianifica-taglio'):
         scritture['pianifica'].append((req.url, req.post_data))
+        return route.continue_()
+    if req.url.split('?')[0].endswith('/lavorazione-esterna'):
+        scritture['esterna'].append((req.url, req.post_data))
         return route.continue_()
     scritture['bloccate'].append(req.method + ' ' + req.url)
     return route.abort()
@@ -165,6 +171,44 @@ with sync_playwright() as p:
     diversi = pg.evaluate("""() => LZ.ordiniLaser().filter(o => LZ.statoLaser(o) !== 'tagliato')
         .filter(o => CaricoLaser.giorno(o) !== LZ.entro(o)).map(o => [o.id, CaricoLaser.giorno(o), LZ.entro(o)])""")
     check('ogni ordine da tagliare pesa sul suo taglia entro', not diversi, diversi[:3])
+    print('\n5) Spunta "Lavorazione esterna"')
+    cand = pg.evaluate('''() => LZ.ordiniLaser().filter(o => ['coda', 'smistare'].includes(LZ.statoLaser(o))
+        && o.lavorazione_esterna == null && !o.data_taglio_pianificata && o.data_consegna
+        && LZ.te(o) && !(LZ.te(o).voci || []).includes('esterna')).map(o => o.id)''')
+    if not cand:
+        print('Nessun ordine adatto (da tagliare, senza esterna): parte 5 saltata.')
+    else:
+        oid = cand[0]
+        pg.click(f'.lz-r[data-id="{oid}"]')
+        pg.wait_for_selector(f'input[data-esterna="{oid}"]', timeout=20000)
+        g0 = pg.evaluate(f'LZ.te(LZ.trova("{oid}")).giorni')
+        check("la spunta c'e', vicino al taglia entro, non spuntata",
+              pg.locator(f'.lz-entro input[data-esterna="{oid}"]').count() == 1
+              and not pg.locator(f'input[data-esterna="{oid}"]').is_checked())
+        pg.locator(f'input[data-esterna="{oid}"]').check()
+        pg.wait_for_function(f'LZ.trova("{oid}").lavorazione_esterna === true && (LZ.te(LZ.trova("{oid}")) || {{}}).giorni === {g0} + 5',
+                             timeout=30000)
+        check('spuntata: +5 giorni sul taglia entro', True)
+        nota = pg.locator(f'input[data-esterna-nota="{oid}"]')
+        check('compare il campo "quale?"', nota.count() == 1)
+        nota.fill('zincatura')
+        nota.press('Enter')
+        pg.wait_for_function(f'LZ.trova("{oid}").lavorazione_esterna_nota === "zincatura"', timeout=30000)
+        pg.wait_for_timeout(300)
+        mot = pg.locator('.lz-entro small.mot').inner_text()
+        check('il motivo dice la lavorazione esterna (zincatura)', 'zincatura' in mot and 'dedotto' not in mot, mot)
+        check("l'ordine resta aperto", pg.evaluate('LZ.s.aperto') == oid)
+        g = pg.evaluate(f'CaricoLaser.giorno(LZ.trova("{oid}"))')
+        check('saturazione: sul taglia entro nuovo', g == pg.evaluate(f'LZ.entro(LZ.trova("{oid}"))'), g)
+        pg.locator(f'input[data-esterna="{oid}"]').uncheck()
+        pg.wait_for_function(f'LZ.trova("{oid}").lavorazione_esterna === false && (LZ.te(LZ.trova("{oid}")) || {{}}).giorni === {g0}',
+                             timeout=30000)
+        check('tolta la spunta (= no): niente +5', True)
+        pg.click('[data-az="esterna-togli"]')
+        pg.wait_for_function(f'LZ.trova("{oid}").lavorazione_esterna === null', timeout=30000)
+        check('"Non so": torna non detta (come prima)', pg.evaluate(f'LZ.te(LZ.trova("{oid}")).giorni') == g0)
+        check('salvate con /lavorazione-esterna', len(scritture['esterna']) == 4, scritture['esterna'])
+
     check('nessun errore nella pagina', not err, err[:3])
     print('  scritture bloccate:', len(scritture['bloccate']), scritture['bloccate'][:3])
     b.close()

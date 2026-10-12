@@ -202,6 +202,14 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-fatti .lz-entro-mano { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; }
 .lz-fatti .lz-entro-mano input { height: 28px; border: 1px solid var(--lz-line); border-radius: 6px; padding: 0 6px; font: 13px var(--lz-font); color: var(--lz-ink-2); background: var(--lz-surface); }
 .lz-fatti .lz-entro-mano input:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 1px; }
+/* "Lavorazione esterna" sotto il taglia entro: ambra = dedotta, da confermare */
+.lz-fatti .lz-esterna { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; max-width: 260px; }
+.lz-fatti .lz-esterna label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--lz-ink-2); cursor: pointer; }
+.lz-fatti .lz-esterna input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--lz-accent); }
+.lz-fatti .lz-esterna.att input[type=checkbox] { accent-color: var(--lz-amber); }
+.lz-fatti .lz-esterna input.nota { height: 28px; width: 150px; border: 1px solid var(--lz-line); border-radius: 6px; padding: 0 8px; font: 13px var(--lz-font); color: var(--lz-ink-2); background: var(--lz-surface); }
+.lz-fatti .lz-esterna input:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 1px; }
+.lz-fatti .lz-esterna small.att { color: var(--lz-amber); font-weight: 600; white-space: normal; }
 .lz-ore-mano { display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; }
 .lz-ore-mano input { width: 64px; height: 28px; border: 1px solid var(--lz-line); border-radius: 6px; padding: 0 8px; font: 14px var(--lz-font); }
 

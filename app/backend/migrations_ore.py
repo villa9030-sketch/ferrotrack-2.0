@@ -69,7 +69,12 @@ _NUOVE_TABELLE_COLS = {
                'durata_laser_manuale_min': 'FLOAT',
                # Importato in Lantek (fase fra "da importare" e "tagliato")
                'importato_lantek_il': 'DATETIME',
-               'importato_lantek_da': 'VARCHAR'},
+               'importato_lantek_da': 'VARCHAR',
+               # "Taglia entro": lavorazione esterna dopo il laser detta da
+               # una persona. Resta vuota di proposito (= non detto: si
+               # deduce dalle parole di note e lavorazioni).
+               'lavorazione_esterna': 'BOOLEAN',
+               'lavorazione_esterna_nota': 'VARCHAR'},
 }
 
 # Con che valore nasce una colonna nuova sulle righe che c'erano gia'.

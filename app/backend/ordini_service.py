@@ -257,6 +257,8 @@ def _riga(order, nomi: dict, numcli: dict | None = None) -> dict:
         'importato_lantek_il': iso_utc(getattr(order, 'importato_lantek_il', None)),
         'data_taglio_pianificata': iso_data(getattr(order, 'data_taglio_pianificata', None)),
         'durata_laser_manuale_min': getattr(order, 'durata_laser_manuale_min', None),
+        'lavorazione_esterna': getattr(order, 'lavorazione_esterna', None),
+        'lavorazione_esterna_nota': getattr(order, 'lavorazione_esterna_nota', None),
         'taglio_completato': bool(getattr(order, 'taglio_completato', False)),
         'data_taglio_completato': iso_utc(getattr(order, 'data_taglio_completato', None)),
         # I fatti, distinti

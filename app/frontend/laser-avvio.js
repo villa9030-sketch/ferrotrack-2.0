@@ -16,6 +16,7 @@
   const impr = l => l.map(o => [o.id, o.status, o.cliente, o.numero_ordine, o.numero_ordine_cliente, o.data_consegna,
     o.taglio_richiesto == null ? '-' : o.taglio_richiesto ? 1 : 0, o.taglio_completato ? 1 : 0, o.data_taglio_completato || '',
     o.importato_lantek_il || '', o.pdf_file ? 1 : 0, o.durata_laser_manuale_min || '', o.data_taglio_pianificata || '',
+    o.lavorazione_esterna == null ? '-' : o.lavorazione_esterna ? 1 : 0, o.lavorazione_esterna_nota || '',
     o.is_deleted ? 1 : 0].join('|')).sort().join(';');
 
   function inLinea(ok) {

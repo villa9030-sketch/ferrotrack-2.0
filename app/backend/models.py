@@ -132,6 +132,12 @@ class Order(Base):
     # "da importare" e "tagliato". Vuoto = ancora da importare.
     importato_lantek_il = Column(DateTime, nullable=True)
     importato_lantek_da = Column(String, nullable=True)
+    # Dopo il laser c'e' una lavorazione fatta fuori (zincatura, verniciatura,
+    # cataforesi...)? A TRE stati: True si', False no, None = non detto (il
+    # "taglia entro" la deduce dalle parole di note e lavorazioni). La nota
+    # dice quale, in breve ("zincatura").
+    lavorazione_esterna = Column(Boolean, nullable=True, default=None)
+    lavorazione_esterna_nota = Column(String, nullable=True)
 
     taglio_completato = Column(Boolean, default=False)
     data_taglio_completato = Column(DateTime, nullable=True)

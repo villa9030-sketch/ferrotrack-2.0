@@ -931,6 +931,8 @@ class OrderManager:
                     'data_taglio_pianificata': iso_data(getattr(order, 'data_taglio_pianificata', None)),
                     'importato_lantek_il': iso_utc(getattr(order, 'importato_lantek_il', None)),
                     'durata_laser_manuale_min': getattr(order, 'durata_laser_manuale_min', None),
+                    'lavorazione_esterna': getattr(order, 'lavorazione_esterna', None),
+                    'lavorazione_esterna_nota': getattr(order, 'lavorazione_esterna_nota', None),
                     'data_taglio_completato': iso_utc(getattr(order, 'data_taglio_completato', None)),
                     'taglio_completato_da': getattr(order, 'taglio_completato_da', None),
                     'fase': _fase_ordine(order),
@@ -1005,6 +1007,21 @@ class OrderManager:
             applicati, ignorati = [], []
             for campo, valore in (updates or {}).items():
                 if campo in ('order_id', 'user_id', 'id'):
+                    continue
+                if campo == 'lavorazione_esterna':
+                    # a tre stati: null = non detto (il "taglia entro" la
+                    # deduce dalle note), quindi null qui si scrive
+                    if not (valore is None or isinstance(valore, bool)):
+                        return {'success': False, 'error': 'Lavorazione esterna: sì, no o non detto'}
+                    order.lavorazione_esterna = valore
+                    if not valore:
+                        order.lavorazione_esterna_nota = None
+                    applicati.append(campo)
+                    continue
+                if campo == 'lavorazione_esterna_nota':
+                    if updates.get('lavorazione_esterna', order.lavorazione_esterna):
+                        order.lavorazione_esterna_nota = str(valore or '').strip()[:60] or None
+                        applicati.append(campo)
                     continue
                 if campo not in allowed:
                     ignorati.append(campo)
@@ -2087,6 +2104,8 @@ class OrderManager:
                 "taglio_richiesto": getattr(order, 'taglio_richiesto', None),
                 "data_taglio_pianificata": iso_data(getattr(order, 'data_taglio_pianificata', None)),
                 "durata_laser_manuale_min": getattr(order, 'durata_laser_manuale_min', None),
+                "lavorazione_esterna": getattr(order, 'lavorazione_esterna', None),
+                "lavorazione_esterna_nota": getattr(order, 'lavorazione_esterna_nota', None),
                 "data_taglio_completato": iso_utc(getattr(order, 'data_taglio_completato', None)),
                 "taglio_completato_da": getattr(order, 'taglio_completato_da', None),
                 "fase": _fase_ordine(order),

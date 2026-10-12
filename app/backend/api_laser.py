@@ -314,10 +314,67 @@ def con_taglia_entro(order, a: dict, cal=None) -> dict:
     sta nella cache): la data scelta a mano e la consegna si vedono subito."""
     from . import taglia_entro as _te
     cal = cal if cal is not None else _app()._cal_config()
-    ant = _te.anticipo_da(a['dopo_laser'], cal) if a.get('dopo_laser') else None
+    flag = getattr(order, 'lavorazione_esterna', None)
+    nota = getattr(order, 'lavorazione_esterna_nota', None) or ''
+    # la spunta "Lavorazione esterna" vale subito (non sta nella cache)
+    ant = (_te.anticipo_da(_te.con_esterna(a['dopo_laser'], flag, nota), cal)
+           if a.get('dopo_laser') or flag is not None else None)
     te = _te.taglia_entro(getattr(order, 'data_consegna', None), ant, cal,
                           getattr(order, 'data_taglio_pianificata', None))
-    return {**a, 'taglia_entro': te}
+    return {**a, 'taglia_entro': te,
+            'lavorazione_esterna': {'valore': flag, 'nota': nota}}
+
+
+@bp_laser.route('/api/orders/<order_id>/lavorazione-esterna', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_lavorazione_esterna(order_id):
+    """Dopo il laser l'ordine va fuori (zincatura, verniciatura...)? Lo dice
+    una persona e il "taglia entro" se ne fida (backend/taglia_entro.py).
+
+    Corpo: {"valore": true | false | null, "nota": "zincatura"} (null = non
+    detto: torna la deduzione dalle note). Risposta: {success, valore, nota}"""
+    try:
+        corpo = request.get_json(silent=True) or {}
+        if 'valore' not in corpo:
+            return jsonify({'success': False, 'error': 'Manca il valore (sì, no o non detto)'}), 400
+        valore = corpo.get('valore')
+        if not (valore is None or isinstance(valore, bool)):
+            return jsonify({'success': False, 'error': 'Valore non valido: true, false o null'}), 400
+        nota = str(corpo.get('nota') or '').strip()[:60] if valore else ''
+        r = salva_lavorazione_esterna(order_id, valore, nota)
+        if not r.get('success'):
+            return jsonify(r), 404 if r.get('codice') == 'non_trovato' else 400
+        return jsonify(r), 200
+    except Exception as e:
+        logger.exception('lavorazione esterna non salvata')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
+def salva_lavorazione_esterna(order_id, valore, nota='') -> dict:
+    """Scrive la spunta "Lavorazione esterna" sull'ordine, con l'audit.
+    valore True / False / None (non detto)."""
+    A = _app()
+    from .database import get_session
+    from .models import Order
+    session = get_session()
+    try:
+        o = session.query(Order).filter(Order.id == order_id).first()
+        if not o or o.is_deleted:
+            return {'success': False, 'codice': 'non_trovato', 'error': 'Ordine non trovato'}
+        prima = (o.lavorazione_esterna, o.lavorazione_esterna_nota)
+        o.lavorazione_esterna = valore
+        o.lavorazione_esterna_nota = (nota or None) if valore else None
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    testo = lambda v, n: 'sì' + (f' ({n})' if n else '') if v else 'no' if v is False else 'non detto'  # noqa: E731
+    A._audit('ORDINE_LAV_ESTERNA', 'orders', order_id,
+             f'lavorazione esterna: {testo(*prima)} -> {testo(valore, nota)}')
+    invalida(order_id)
+    return {'success': True, 'valore': valore, 'nota': (nota or None) if valore else None}
 
 
 def _analisi_in_cache(order, forza=False) -> dict:

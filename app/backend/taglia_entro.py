@@ -17,6 +17,12 @@ i valori di partenza). I giorni lavorativi sono quelli del calendario del
 laser: giorni della settimana + giorni speciali (ore 0 = fermo, ore > 0 =
 si lavora anche se e' sabato).
 
+La lavorazione esterna la puo' dire una persona (orders.lavorazione_esterna,
+spunta "Lavorazione esterna" nella pagina laser e nell'ufficio): si' = +5,
+no = niente +5 anche se le parole tornano; non detto = si deduce dalle parole
+di note e lavorazioni, e il motivo chiede di confermarlo
+("dedotto dalle note: conferma").
+
 Se il laser ha scelto una data a mano (orders.data_taglio_pianificata, da
 /pianifica-taglio) quella E' la data "taglia entro"; tolta, torna il calcolo.
 
@@ -112,9 +118,30 @@ def lavorazioni_ordine(righe, origine: str = 'distinta', note: str = '') -> dict
             'svasature': bool(not senza_distinta and svas), 'esterne': esterne[:3]}
 
 
+DEDOTTA = 'dedotto dalle note: conferma'
+
+
+def con_esterna(fatti: dict | None, flag=None, nota: str = '') -> dict:
+    """lavorazioni_ordine con la lavorazione esterna detta da una persona
+    (orders.lavorazione_esterna): True = c'e' (nota: quale), False = non c'e'
+    anche se le parole tornano, None = resta la deduzione dalle parole.
+    Aggiunge 'esterna_fonte': 'detta' | 'dedotta' | None."""
+    f = dict(fatti or {'senza_distinta': True, 'base': 'taglio'})
+    if flag is True:
+        f['esterne'] = [str(nota or '').strip()[:40] or 'lavorazione esterna']
+        f['esterna_fonte'] = 'detta'
+    elif flag is False:
+        f['esterne'] = []
+        f['esterna_fonte'] = 'detta'
+    else:
+        f['esterna_fonte'] = 'dedotta' if f.get('esterne') else None
+    return f
+
+
 def anticipo_da(fatti: dict | None, cal: dict | None = None) -> dict:
-    """Giorni di anticipo e motivo da lavorazioni_ordine, coi numeri del
-    calendario. {giorni, motivo, lavorazioni, voci, noto, esterna}"""
+    """Giorni di anticipo e motivo da lavorazioni_ordine (o con_esterna),
+    coi numeri del calendario. {giorni, motivo, lavorazioni, voci, noto,
+    esterna, esterna_fonte}"""
     cfg = anticipo_config(cal)
     f = fatti or {'senza_distinta': True, 'base': 'taglio'}
     base = f.get('base') if f.get('base') in ('taglio', 'piega', 'saldatura', 'montaggio') else 'taglio'
@@ -127,22 +154,32 @@ def anticipo_da(fatti: dict | None, cal: dict | None = None) -> dict:
         etichette.append('filettature e svasature' if filett and svas else 'svasature' if svas else 'filettature')
         giorni += cfg['filettatura']
     esterne = list(f.get('esterne') or [])
+    # dedotta dalle parole (nessuno l'ha detta): si chiede di confermarla
+    fonte = f.get('esterna_fonte') or ('dedotta' if esterne else None)
+    est = 'lavorazione esterna'
+    if fonte == 'dedotta':
+        est += f' ({DEDOTTA})'
+    elif esterne and esterne[0] != est:
+        est += f' ({esterne[0]})'           # detta, con cosa: "zincatura"
     if esterne:
         voci.append('esterna')
-        etichette.append('lavorazione esterna')
+        etichette.append(est)
         giorni += cfg['esterna']
     if f.get('senza_distinta'):
-        testa = 'ordine solo PDF, lavorazioni non note' + (' + lavorazione esterna' if esterne else '')
+        testa = 'ordine solo PDF, lavorazioni non note' + (f' + {est}' if esterne else '')
     else:
         testa = ' + '.join(etichette) if etichette else 'solo taglio laser'
     return {'giorni': giorni, 'voci': voci, 'noto': not f.get('senza_distinta'), 'lavorazioni': testa,
-            'motivo': f'{testa}: {_gg(giorni)} prima della consegna', 'esterna': esterne}
+            'motivo': f'{testa}: {_gg(giorni)} prima della consegna', 'esterna': esterne,
+            'esterna_fonte': fonte if esterne or fonte == 'detta' else None}
 
 
-def anticipo(righe, origine: str = 'distinta', note: str = '', cal: dict | None = None) -> dict:
+def anticipo(righe, origine: str = 'distinta', note: str = '', cal: dict | None = None,
+             esterna=None, esterna_nota: str = '') -> dict:
     """Quanti giorni lavorativi prima della consegna va tagliato l'ordine
-    (lavorazioni_ordine + anticipo_da)."""
-    return anticipo_da(lavorazioni_ordine(righe, origine, note), cal)
+    (lavorazioni_ordine + con_esterna + anticipo_da). esterna: la spunta
+    dell'ordine (True / False / None = non detta)."""
+    return anticipo_da(con_esterna(lavorazioni_ordine(righe, origine, note), esterna, esterna_nota), cal)
 
 
 def _gg(n) -> str:
@@ -204,7 +241,9 @@ def taglia_entro(consegna, ant: dict | None, cal: dict | None, manuale=None) -> 
     out = {'data': calc.isoformat() if calc else None, 'giorni': ant.get('giorni'),
            'motivo': ant.get('motivo') if cons else 'senza data di consegna', 'fonte': 'calcolata',
            'calcolata': calc.isoformat() if calc else None, 'consegna': cons.isoformat() if cons else None,
-           'voci': ant.get('voci') or []}
+           'voci': ant.get('voci') or [],
+           # la lavorazione esterna: detta da una persona o dedotta dalle parole
+           'esterna': list(ant.get('esterna') or []), 'esterna_fonte': ant.get('esterna_fonte')}
     man = _giorno(manuale)
     if man:
         out.update({'data': man.isoformat(), 'fonte': 'a mano',
@@ -215,6 +254,7 @@ def taglia_entro(consegna, ant: dict | None, cal: dict | None, manuale=None) -> 
 
 def per_ordine(order, righe, origine: str, cal: dict | None) -> dict:
     """taglia_entro di un ordine (Order) con la sua distinta."""
-    ant = anticipo(righe, origine, getattr(order, 'note', '') or '', cal)
+    ant = anticipo(righe, origine, getattr(order, 'note', '') or '', cal,
+                   getattr(order, 'lavorazione_esterna', None), getattr(order, 'lavorazione_esterna_nota', '') or '')
     return taglia_entro(getattr(order, 'data_consegna', None), ant, cal,
                         getattr(order, 'data_taglio_pianificata', None))

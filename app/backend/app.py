@@ -586,6 +586,8 @@ def update_order(order_id):
         if result.get('success'):
             _audit('ORDINE_MODIFICA', 'orders', order_id,
                    '; '.join(f'{k}: {v} -> {data.get(k)}' for k, v in _prima.items()))
+            # note e lavorazione esterna cambiano il "taglia entro" del laser
+            _invalida_analisi_laser(order_id)
             return jsonify(result), 200
         # 404 solo se l'ordine non c'e': un dato non valido e' 400, altrimenti
         # chi chiama non distingue "non esiste" da "hai sbagliato a scrivere".

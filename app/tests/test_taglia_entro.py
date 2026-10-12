@@ -8,6 +8,10 @@ Copre:
  3. data scelta a mano (data_taglio_pianificata): e' lei il taglia entro
  4. ordine solo PDF / senza distinta: 1 giorno, e lo dice
  5. numeri in app_config (laser_calendario.anticipo_giorni) e loro controlli
+ 7. la spunta "Lavorazione esterna" dell'ordine: si' = +5, no = niente +5
+    anche se le parole tornano, non detta = deduzione dalle parole col motivo
+    "(dedotto dalle note: conferma)"; /lavorazione-esterna e la modifica
+    dell'ordine dall'ufficio
  6. API: /api/laser/ordini e /api/orders/<id>/laser col taglia_entro,
     /pianifica-taglio a mano e "torna al calcolo", /api/laser/banco col
     giorno di ogni ordine per la saturazione
@@ -113,9 +117,9 @@ def regola():
         ('assieme con saldatura', [{'tipo': 'assieme', 'codice': 'SA1', 'lavorazioni': ['Saldatura']}], 4, ['saldatura'], None),
         ('puntatura = saldatura', [LAM('Puntatura')], 4, ['saldatura'], None),
         ('tubo con lav. esterna', [LAM(), {'tipo': 'tubolare', 'codice': 'T1', 'lavorazioni': ['Taglio dritto (2)'],
-                                           'lav_esterna': 'laser tubo'}], 6, ['taglio', 'esterna'], 'lavorazione esterna: 6'),
+                                           'lav_esterna': 'laser tubo'}], 6, ['taglio', 'esterna'], 'lavorazione esterna (dedotto dalle note: conferma): 6'),
         ('piega + zincatura scritta nella lavorazione', [LAM('Piegatura (1 pieghe)', 'Zincatura a caldo')], 7, ['piega', 'esterna'],
-         'piegatura + lavorazione esterna: 7'),
+         'piegatura + lavorazione esterna (dedotto dalle note: conferma): 7'),
         ('saldatura + filett. + esterna', [LAM('Saldatura', 'Filettatura (2)'), {'tipo': 'tubolare', 'lav_esterna': 'x',
                                                                                  'lavorazioni': []}], 10, None, None),
         ('lavorazioni come dizionari (ordini a mano)', [{'tipo': 'articolo', 'lavorazioni': [{'nome': 'Piegatura', 'quantita': 2}]}],
@@ -273,12 +277,84 @@ def api():
     check('lunedi 11/01 laser fermo (giorno speciale): taglia entro venerdi 08/01', te['data'] == '2027-01-08', te)
 
 
+def spunta_esterna():
+    print('\n7) Spunta "Lavorazione esterna"')
+    piega = [LAM('Piegatura (2 pieghe)')]
+    a = T.anticipo(piega, 'distinta', 'Zincatura a caldo', CAL)
+    check('non detta + zincatura nelle note: +5 e il motivo chiede di confermare',
+          a['giorni'] == 7 and '(dedotto dalle note: conferma)' in a['motivo'] and a['esterna_fonte'] == 'dedotta', a)
+    a = T.anticipo(piega, 'distinta', 'Zincatura a caldo', CAL, esterna=False)
+    check('detta NO: niente +5 anche se le parole tornano', a['giorni'] == 2 and 'esterna' not in a['voci']
+          and 'dedotto' not in a['motivo'] and a['esterna_fonte'] == 'detta', a)
+    a = T.anticipo(piega, 'distinta', '', CAL, esterna=True, esterna_nota='zincatura')
+    check("detta SI' senza parole: +5, il motivo dice cosa e non chiede conferma",
+          a['giorni'] == 7 and 'lavorazione esterna (zincatura)' in a['motivo'] and 'dedotto' not in a['motivo'], a)
+    a = T.anticipo(piega, 'distinta', '', CAL, esterna=True)
+    check("detta SI' senza nota: lavorazione esterna", a['giorni'] == 7 and 'dedotto' not in a['motivo'], a)
+    a = T.anticipo(piega, 'distinta', '', CAL)
+    check('non detta e niente parole: niente +5, niente richiesta', a['giorni'] == 2 and a['esterna_fonte'] is None, a)
+    a = T.anticipo([], 'pdf', '', CAL, esterna=True, esterna_nota='verniciatura')
+    check("solo PDF + detta si': 1 + 5", a['giorni'] == 6 and 'verniciatura' in a['motivo'], a)
+
+    from tests.accesso_aiuto import entra, ufficio_pronto
+    laser = entra(A.app, 'laser')
+    ufficio = ufficio_pronto(A.app)
+    rep = entra(A.app, 'reparto')
+    oid = str(uuid.uuid4())
+    s = models.SessionLocal()
+    s.add(Order(id=oid, cliente='Cliente Zinco', numero_ordine='ZN-1', data_consegna=datetime(2027, 1, 15),
+                taglio_richiesto=True, note='Zincatura a caldo a carico nostro'))
+    s.commit(); s.close()
+    te = laser.get(f'/api/laser/ordini?ordine={oid}').get_json()['ordini'][oid]['taglia_entro']
+    check('API, non detta: 6 gg (solo PDF + esterna dedotta), motivo da confermare',
+          te['giorni'] == 6 and 'dedotto dalle note' in te['motivo'] and te['esterna_fonte'] == 'dedotta', te)
+    r = laser.post(f'/api/orders/{oid}/lavorazione-esterna', json={'valore': False})
+    te = laser.get(f'/api/laser/ordini?ordine={oid}').get_json()['ordini'][oid]
+    check('API detta NO: subito 1 gg, niente +5', r.status_code == 200 and te['taglia_entro']['giorni'] == 1
+          and te['lavorazione_esterna']['valore'] is False, te.get('taglia_entro'))
+    r = laser.post(f'/api/orders/{oid}/lavorazione-esterna', json={'valore': True, 'nota': 'zincatura'})
+    te = laser.get(f'/api/orders/{oid}/laser').get_json()
+    check("API detta SI' (zincatura): 6 gg, nota salvata", r.status_code == 200 and te['taglia_entro']['giorni'] == 6
+          and te['lavorazione_esterna'] == {'valore': True, 'nota': 'zincatura'}
+          and 'zincatura' in te['taglia_entro']['motivo'], te.get('taglia_entro'))
+    b = laser.get('/api/laser/banco?da_smistare=1').get_json() or {}
+    check('il banco (saturazione) usa la spunta', (b.get('taglia_entro') or {}).get(oid) == '2027-01-06', b.get('taglia_entro'))
+    o = (laser.get(f'/api/orders/{oid}').get_json() or {})
+    o = o.get('data') or o
+    check('/api/orders/<id> ha la spunta', o.get('lavorazione_esterna') is True and o.get('lavorazione_esterna_nota') == 'zincatura', o)
+    r = laser.post(f'/api/orders/{oid}/lavorazione-esterna', json={'valore': None})
+    te = laser.get(f'/api/laser/ordini?ordine={oid}').get_json()['ordini'][oid]['taglia_entro']
+    check('API null: torna la deduzione', r.status_code == 200 and te['esterna_fonte'] == 'dedotta', te)
+    for corpo in ({'valore': 'si'}, {}, {'valore': 1}):
+        r = laser.post(f'/api/orders/{oid}/lavorazione-esterna', json=corpo)
+        check(f'API valore non valido {corpo}: rifiutato', r.status_code == 400, r.get_json())
+    r = laser.post('/api/orders/non-esiste/lavorazione-esterna', json={'valore': True})
+    check("ordine che non c'e': 404", r.status_code == 404)
+    r = rep.post(f'/api/orders/{oid}/lavorazione-esterna', json={'valore': True})
+    check('il reparto non la cambia', r.status_code in (401, 403), r.status_code)
+    r = ufficio.put(f'/api/orders/{oid}', json={'lavorazione_esterna': True, 'lavorazione_esterna_nota': 'verniciatura'})
+    s = models.SessionLocal()
+    o = s.query(Order).filter(Order.id == oid).first()
+    check("ufficio (modifica ordine): si' + verniciatura", r.status_code == 200 and o.lavorazione_esterna is True
+          and o.lavorazione_esterna_nota == 'verniciatura', r.get_json())
+    s.close()
+    r = ufficio.put(f'/api/orders/{oid}', json={'lavorazione_esterna': None, 'lavorazione_esterna_nota': ''})
+    s = models.SessionLocal()
+    o = s.query(Order).filter(Order.id == oid).first()
+    check('ufficio: null = non detto, la nota sparisce', r.status_code == 200 and o.lavorazione_esterna is None
+          and not o.lavorazione_esterna_nota, r.get_json())
+    s.close()
+    r = ufficio.put(f'/api/orders/{oid}', json={'lavorazione_esterna': 'forse'})
+    check('ufficio: valore non valido rifiutato', r.status_code == 400, r.get_json())
+
+
 def main():
     regola()
     calendario()
     a_mano_e_pdf()
     configurazione()
     api()
+    spunta_esterna()
     print(f'\n{OK} ok, {len(KO)} ko')
     if KO:
         print('FALLITI:', *KO, sep='\n  ')

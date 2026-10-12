@@ -132,6 +132,7 @@
     if (LZ.staScrivendo(el)) return;              // non si ridisegna sotto le dita
     el.classList.toggle('con-pdf', S.scheda === 'pdf');
     LZ.metti(document.getElementById('lz-o-testa'), testa(o));
+    O.segnaMeta();
     LZ.metti(document.getElementById('lz-o-passo'), passoHtml(o));
     LZ.metti(document.getElementById('lz-o-schede'), schede(o));
     LZ.metti(document.getElementById('lz-o-scheda'), scheda(o), el);
@@ -163,6 +164,7 @@
         <input type="date" data-entro="${esc(o.id)}" data-fuoco="entro-${esc(o.id)}" value="${esc(ge || '')}" min="${esc(FT.oggiISO())}"
           aria-label="Cambia a mano la data entro cui tagliare" title="Cambia a mano la data entro cui tagliare">
         ${aMano ? `<button class="lz-link" type="button" data-az="entro-calcolo" data-fuoco="entro-calcolo">Torna al calcolo</button>` : ''}</span>`;
+    const esterna = st === 'tagliato' ? '' : campoEsterna(o, te);
     return `<div class="lz-o-testa">
       <div class="lz-o-tit"><h2 title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</h2>
         <div class="lz-o-sotto"><span class="mono">${esc(LZ.numero(o))}</span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}</div></div>
@@ -170,13 +172,36 @@
       <div class="lz-fatti">
         <div class="lz-entro"><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
           <small class="${ritE ? 'rit' : ''}">${st === 'tagliato' ? 'tagliato' : esc(qe.t)}</small>
-          <small class="mot" title="${esc(motivo)}">${esc(motivo)}</small>${cambia}</div>
+          <small class="mot" title="${esc(motivo)}">${esc(motivo)}</small>${cambia}${esterna}</div>
         <div><span>Consegna</span><b class="num${q.rit && st !== 'tagliato' ? ' rit' : ''}">${g ? FT.fmtData(g) : '—'}</b><small class="${q.rit && st !== 'tagliato' ? 'rit' : ''}">${esc(q.t)}</small></div>
         <div><span>Codici</span><b class="num">${info.n_codici != null ? FT.numero(info.n_codici) : '—'}</b><small>${info.n_esclusi ? `${info.n_esclusi} fuori da Lantek` : '&nbsp;'}</small></div>
         <div><span>Pezzi</span><b class="num">${info.n_pezzi != null ? FT.numero(info.n_pezzi) : '—'}</b><small>&nbsp;</small></div>
         <div><span>Ore laser</span>${ore}</div>
       </div></div>`;
   }
+
+  /** "Lavorazione esterna" (zincatura, verniciatura...) dopo il laser: la
+      dice il laser e il "taglia entro" se ne fida (+5 giorni). Non detta: si
+      deduce dalle note, e la spunta resta a meta' (ambra) finche' non la
+      confermi. */
+  function campoEsterna(o, te) {
+    const v = o.lavorazione_esterna;            // true | false | null (non detta)
+    const dedotta = v == null && te && te.esterna_fonte === 'dedotta';
+    const id = esc(o.id);
+    return `<span class="lz-esterna${dedotta ? ' att' : ''}">
+        <label title="Dopo il laser va fuori (zincatura, verniciatura, cataforesi…): +5 giorni lavorativi">
+          <input type="checkbox" data-esterna="${id}" data-fuoco="esterna-${id}" ${v === true ? 'checked' : ''} ${dedotta ? 'data-meta="1"' : ''}
+            aria-label="Lavorazione esterna dopo il laser">Lavorazione esterna</label>
+        ${v === true ? `<input type="text" class="nota" data-esterna-nota="${id}" data-fuoco="esterna-nota-${id}" maxlength="60"
+            value="${esc(o.lavorazione_esterna_nota || '')}" placeholder="quale? es. zincatura" aria-label="Quale lavorazione esterna">` : ''}
+        ${dedotta ? `<small class="att" title="Trovata nelle note o nelle lavorazioni: spunta se è vero, togli la spunta se no">dedotta dalle note: da confermare</small>
+          <button class="lz-link" type="button" data-az="esterna-no" data-fuoco="esterna-no">No, non va fuori</button>` : ''}
+        ${v != null ? `<button class="lz-link" type="button" data-az="esterna-togli" data-fuoco="esterna-togli">${v ? 'Togli' : 'Non so'}</button>` : ''}</span>`;
+  }
+  /** La spunta "a meta'" (dedotta, non ancora confermata) si mette dopo il disegno. */
+  O.segnaMeta = function () {
+    document.querySelectorAll('#lz-dett input[data-esterna]').forEach(i => { i.indeterminate = !!i.dataset.meta; });
+  };
 
   function passoHtml(o) {
     const p = O.passo(o);
@@ -390,6 +415,10 @@
   document.addEventListener('change', e => {
     const inp = e.target.closest('input[data-durata]');
     if (inp) O.durataAMano(inp.dataset.durata, inp.value);
+    const es = e.target.closest('input[data-esterna]');
+    if (es) O.esterna(es.dataset.esterna, es.checked, null);
+    const esn = e.target.closest('input[data-esterna-nota]');
+    if (esn) O.esterna(esn.dataset.esternaNota, true, esn.value.trim());
     const en = e.target.closest('input[data-entro]');
     // la data si scrive anche a tasti: si salva solo quando e' una data vera da oggi in poi
     if (en && /^\d{4}-\d{2}-\d{2}$/.test(en.value) && en.value >= FT.oggiISO() && en.value < '2100') O.entroAMano(en.dataset.entro, en.value);
@@ -412,6 +441,8 @@
       case 'importato': return O.importato(id, false);
       case 'ricontrolla': return O.ricontrolla(id);
       case 'entro-calcolo': return O.entroAMano(id, null);
+      case 'esterna-togli': return O.esterna(id, null, null);
+      case 'esterna-no': return O.esterna(id, false, null);
       case 'controlla': return LZ.controllo.inizia([id]);
       case 'lantek': return LZ.lantek.apri([id]);
       case 'abbina': S.scheda = 'pezzi'; O.disegna(); return LZ.abbina && LZ.abbina.vai(id);
@@ -539,6 +570,21 @@
     if (!r.ok) { FT.toast(r.d.error || 'Data non salvata', 'err'); return; }
     FT.toast(data ? `Taglia entro ${FT.fmtData(data)} (a mano)` : 'Taglia entro: torna al calcolo', 'ok');
     if (document.activeElement) document.activeElement.blur();
+    await LZ.avvio.caricaOrdini(true);
+    await LZ.avvio.caricaRiep(id);
+    await LZ.sat.carica(true);
+    LZ.ridisegna();
+  });
+  /** Lavorazione esterna: true / false / null (non detta: si deduce dalle note).
+      nota: cosa (solo con true; null = lascia quella che c'e'). */
+  O.esterna = (id, valore, nota) => LZ.azione(async () => {
+    const o = LZ.trova(id);
+    const corpo = { valore, nota: nota != null ? nota : ((o && o.lavorazione_esterna_nota) || '') };
+    const r = await LZ.post(`/api/orders/${id}/lavorazione-esterna`, corpo);
+    if (!r.ok) { FT.toast(r.d.error || 'Non salvato', 'err'); LZ.ridisegna(); return; }
+    FT.toast(valore ? `Lavorazione esterna${r.d.nota ? ' (' + r.d.nota + ')' : ''}: +5 giorni sul taglia entro`
+      : valore === false ? 'Nessuna lavorazione esterna' : 'Lavorazione esterna: torna dedotta dalle note', 'ok');
+    if (document.activeElement) document.activeElement.blur();      // il ridisegno non aspetta il campo
     await LZ.avvio.caricaOrdini(true);
     await LZ.avvio.caricaRiep(id);
     await LZ.sat.carica(true);
