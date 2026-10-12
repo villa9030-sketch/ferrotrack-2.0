@@ -226,6 +226,17 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                                    'disegno': bool(r.get('disegno')),
                                    'materiale': (x or {}).get('materiale') or r.get('materiale'),
                                    'spessore': (x or {}).get('spessore') or r.get('spessore_mm')})
+                    if campo == 'spessore' and completa and r.get('disegno'):
+                        # la lettura migliore del motore, gia' scelta: il
+                        # laser guarda e conferma (Invio)
+                        try:
+                            art_sp, perc_sp = A._articolo_ordine(order, r.get('articolo_id'))
+                            prop = proposta_spessore(perc_sp, art_sp)
+                        except Exception:
+                            logger.warning('spessore proposto non letto per %s', cod, exc_info=True)
+                            prop = None
+                        if prop:
+                            blocco['proposta'] = prop
             elif no and no.get('verifica') and mt.get('stato') == 'deciso':
                 blocco = {'motivo': no['motivo'], 'cosa': 'Riapri il disegno e scegli il contorno (tasto S).'}
         chiave = cod.lower()
@@ -483,6 +494,101 @@ def _lettura_motore(percorso: str) -> dict:
             _FOGLI.pop(next(iter(_FOGLI)))
         _FOGLI[chiave] = r
     return r
+
+
+# Da dove viene lo spessore letto sul disegno, in parole del laser
+_FONTI_SPESSORE = {
+    'testo': 'scritto nel cartiglio', 'cella': 'cartiglio', 'cartiglio_tabellare': 'cartiglio',
+    'cartiglio_descrizione': 'descrizione nel cartiglio', 'piatto': 'descrizione del piatto',
+    'vista_laterale': 'vista di fianco', 'peso_area': 'peso del cartiglio / area', 'filename': 'nome del file',
+}
+
+
+def _fonte_breve(src) -> str:
+    s = str(src or '').split('+')[0]
+    return _FONTI_SPESSORE.get(s, s.replace('_', ' '))
+
+
+def lettura_spessore(percorso: str, art: dict | None = None) -> dict:
+    """La lettura dello spessore del motore sul disegno (dxf_scanner: testo
+    del cartiglio, vista di fianco, peso/area, nome file...), come al
+    caricamento dell'ordine: prima la cache dei disegni gia' letti
+    (dxf_cache), altrimenti la si rifa' qui. In cache per (percorso, data).
+
+    {spessore_mm, confidence, source, fonti, confermato_da} (spessore_mm None
+    se il disegno non lo dice)."""
+    try:
+        mt = os.path.getmtime(percorso)
+    except OSError:
+        mt = 0
+    chiave = ('sp', percorso, mt)
+    with _FOGLI_LOCK:
+        if chiave in _FOGLI:
+            return _FOGLI[chiave]
+    from .preventivi import dxf_cache, dxf_scanner
+    cfg = _cfg_riconoscimento()
+    r = None
+    try:
+        h = dxf_cache.hash_file(percorso)
+        nomi = {os.path.basename(percorso), os.path.basename(str((art or {}).get('dxf_filename') or ''))}
+        for nome in [n for n in nomi if n]:
+            c = dxf_cache.get(dxf_cache.chiave_cache(h, nome, cfg))
+            sp = ((c or {}).get('payload') or {}).get('spessore')
+            if isinstance(sp, dict) and sp.get('spessore_mm'):
+                r = sp
+                break
+    except Exception as e:      # noqa: BLE001
+        logger.warning('cache dello spessore non letta per %s: %s', percorso, e)
+    if r is None:
+        try:
+            det = _lettura_motore(percorso)
+            cart = dxf_scanner.estrai_materiale_da_cartiglio(percorso) or {}
+            mat = (art or {}).get('materiale') or (cart.get('materiale') if (cart.get('confidence') or 0) >= 0.5 else None)
+            dim = dxf_scanner.estrai_dimensioni_da_descrizione_cartiglio(percorso) or {}
+            altre = ([{'spessore_mm': dim['spessore_mm'], 'confidence': dim.get('confidence') or 0,
+                       'source': dim.get('source') or 'cartiglio_descrizione', 'warnings': [], 'details': {}}]
+                     if dim.get('spessore_mm') else [])
+            # l'area del contorno confermato dal laser vale piu' di quella letta
+            area = ((art or {}).get('area_dm2') if (art or {}).get('geometria_manuale_confermata')
+                    else det.get('area_dm2'))
+            r = dxf_scanner.estrai_spessore_da_cartiglio(
+                percorso, area_dm2=area, materiale=mat,
+                area_incerta=bool(det.get('needs_manual_select')) and not (art or {}).get('geometria_manuale_confermata'),
+                vista=det.get('spessore_vista'), altre_fonti=altre)
+        except Exception as e:      # noqa: BLE001
+            logger.warning('spessore non letto per %s: %s', percorso, e)
+            r = {'spessore_mm': None, 'confidence': 0.0, 'source': 'none', 'fonti': []}
+    with _FOGLI_LOCK:
+        while len(_FOGLI) >= _FOGLI_MAX:
+            _FOGLI.pop(next(iter(_FOGLI)))
+        _FOGLI[chiave] = r
+    return r
+
+
+def proposta_spessore(percorso: str | None, art: dict | None = None) -> dict | None:
+    """Lo spessore da proporre su una riga bloccata per "spessore mancante":
+    la lettura migliore del motore, arrotondata agli spessori a magazzino.
+    {spessore_mm, fonte: "vista di fianco", fonti: [...], sicura} o None."""
+    if not percorso or not str(percorso).lower().endswith('.dxf'):
+        return None
+    r = lettura_spessore(percorso, art)
+    v = r.get('spessore_mm')
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not SPESSORE_MIN_MM <= v <= SPESSORE_MAX_MM:
+        return None
+    from .preventivi.pick_part import _snap_stock
+    s = _snap_stock(v)
+    if abs(s - v) > 0.15 * v:            # lontano da uno spessore a magazzino: niente proposta
+        return None
+    conf = float(r.get('confidence') or 0)
+    fonti = [_fonte_breve(x) for x in (r.get('confermato_da') or [r.get('source')])]
+    return {'spessore_mm': s, 'fonte': ' + '.join(list(dict.fromkeys(f for f in fonti if f))[:2]),
+            'sicura': conf >= 0.7, 'confidenza': round(conf, 2),
+            'altre': sorted({float(x['spessore_mm']) for x in r.get('alternative') or []
+                             if x.get('spessore_mm') and abs(float(x['spessore_mm']) - s) > 0.05})[:3]}
 
 
 def _f(v: float) -> str:

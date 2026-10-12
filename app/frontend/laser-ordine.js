@@ -74,9 +74,12 @@
     }
     const bl = info.bloccati || [];
     if (bl.length) {
+      // uno spessore proposto da confermare: Invio lo salva (non Ricontrolla)
+      const prop = O.primaProposta(info);
       return { tono: 'err', ico: 'octagon-alert', t: `Bloccato: ${LZ.plur(bl.length, 'codice', 'codici')} da sistemare`,
-               s: 'Finché non li sistemi, l\'ordine non parte. Quando hai fatto, premi Ricontrolla.',
-               bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
+               s: prop ? 'Guarda lo spessore proposto sul disegno e confermalo con Invio, oppure sceglilo tu.'
+                 : 'Finché non li sistemi, l\'ordine non parte. Quando hai fatto, premi Ricontrolla.',
+               bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: !prop, tasto: prop ? null : 'Invio' }] };
     }
     if (info.tutto_in_lantek) {
       return { tono: '', ico: 'circle-check', t: 'È già tutto in Lantek',
@@ -93,10 +96,22 @@
              bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
   };
 
-  /** Invio = il pulsante principale del prossimo passo. */
+  /** Il primo pezzo bloccato con uno spessore proposto dal motore (articolo_id) o null. */
+  O.primaProposta = function (info) {
+    const b = ((info || {}).bloccati || []).find(x => x.campo === 'spessore' && x.articolo_id && x.proposta && x.proposta.spessore_mm);
+    return b ? b.articolo_id : null;
+  };
+
+  /** Invio = il pulsante principale del prossimo passo (o lo spessore proposto da confermare). */
   O.invio = function () {
     const o = LZ.trova(S.aperto);
     if (!o) return false;
+    if (LZ.statoLaser(o) === 'coda') {
+      const D = S.dett[o.id] || {};
+      const aid = O.primaProposta(D.dati || S.riep[o.id]);
+      const box = aid != null && document.querySelector(`#lz-dett .lz-dati[data-dati="${CSS.escape(String(aid))}"]`);
+      if (box) { O.salvaDati(o.id, box); return true; }
+    }
     const p = O.passo(o);
     const b = (p.bottoni || []).find(x => x.pri);
     if (!b) return false;
@@ -235,10 +250,17 @@
     const aid = esc(b.articolo_id), cod = esc(b.codice);
     const vedi = b.disegno ? `<button class="lz-btn piccolo ghost" type="button" data-vedi="${aid}" title="Apri il disegno grande">${LZ.ico('maximize-2')}Guarda il disegno</button>` : '';
     if (b.campo === 'spessore') {
-      return `<span class="lz-dati" data-dati="${aid}" data-codice="${cod}">
-        <span class="lz-chips">${SPESSORI.map(s => `<button class="lz-chip" type="button" data-sp="${s}">${String(s).replace('.', ',')}</button>`).join('')}</span>
+      // la lettura migliore del motore (vista di fianco, cartiglio, peso/area…)
+      // e' gia' scelta: il laser guarda il disegno e conferma con Invio
+      const pr = b.proposta && b.proposta.spessore_mm ? b.proposta : null;
+      const valori = pr && !SPESSORI.includes(pr.spessore_mm) ? SPESSORI.concat([pr.spessore_mm]).sort((x, y) => x - y) : SPESSORI;
+      const primo = pr && O.primaProposta(info) === b.articolo_id;
+      const chip = s => `<button class="lz-chip${pr && pr.spessore_mm === s ? ' on' : ''}" type="button" data-sp="${s}">${String(s).replace('.', ',')}</button>`;
+      return `<span class="lz-dati${pr ? ' proposta' : ''}" data-dati="${aid}" data-codice="${cod}">
+        ${pr ? `<span class="lz-proposto${pr.sicura ? '' : ' att'}">Proposto: <b>${esc(String(pr.spessore_mm).replace('.', ','))} mm</b> (${esc(pr.fonte || 'letto sul disegno')})${pr.sicura ? '' : ' · da controllare'}${(pr.altre || []).length ? ` · altre letture: ${pr.altre.map(x => String(x).replace('.', ',')).join(', ')} mm` : ''}</span>` : ''}
+        <span class="lz-chips">${valori.map(chip).join('')}</span>
         <label class="lz-sp">altro <input type="text" inputmode="decimal" placeholder="mm" aria-label="Spessore in mm di ${cod}"></label>
-        <button class="lz-btn piccolo pri" type="button" data-salva-dati>Salva</button>${vedi}</span>`;
+        <button class="lz-btn piccolo pri" type="button" data-salva-dati data-fuoco="salva-dati-${aid}">Salva${primo ? LZ.tasto('Invio') : ''}</button>${vedi}</span>`;
     }
     const mats = (info.materiali_lantek || []);
     return `<span class="lz-dati" data-dati="${aid}" data-codice="${cod}">

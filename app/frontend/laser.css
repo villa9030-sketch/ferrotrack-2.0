@@ -471,6 +471,11 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-chip.on { background: var(--lz-accent); border-color: var(--lz-accent); color: #fff; }
 .lz-sp { display: inline-flex; align-items: center; gap: 6px; color: var(--lz-ink-2); font-size: 13px; }
 .lz-sp input { width: 64px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; }
+/* spessore proposto dal motore: gia' scelto, si conferma con Invio */
+.lz-dati .lz-proposto { flex: 1 0 100%; font-size: 13px; color: var(--lz-ink-2); }
+.lz-dati .lz-proposto b { color: var(--lz-ink); font-weight: 650; }
+.lz-dati .lz-proposto.att { color: var(--lz-amber); }
+.lz-dati .lz-proposto.att b { color: var(--lz-amber); }
 .lz-dati select { height: 32px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; background: #fff; }
 .lz-chip:focus-visible, .lz-sp input:focus-visible, .lz-dati select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 2px; }
 .lz-salva { font-size: 13px; color: var(--lz-ink-3); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
