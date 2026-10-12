@@ -54,3 +54,6 @@ Thumbs.db
 
 # Esempi per il motore di riconoscimento (disegni dei clienti): solo su questo PC
 app/dati_motore/
+
+# Abbinamenti e dati dei clienti: solo su questo PC
+app/dati_clienti/
