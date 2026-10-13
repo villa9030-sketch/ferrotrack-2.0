@@ -154,7 +154,9 @@ with sync_playwright() as p:
         pg.wait_for_function(f'LZ.procura.n && LZ.procura.n.aperti === {n0 + 1}', timeout=30000)
         dec = stato['decisioni'][-1] if stato['decisioni'] else {}
         check('salvato: non_laser + tubo, profilo e lunghezza',
-              dec.get('scelta') == 'non_laser' and dec.get('procura') == {'tipo': 'tubo', 'profilo': PROFILO, 'lunghezza_mm': 795, 'nota': None},
+              # (dal 12/10 la decisione porta anche materiale, descrizione e pezzi per assieme)
+              dec.get('scelta') == 'non_laser' and {k: (dec.get('procura') or {}).get(k) for k in ('tipo', 'profilo', 'lunghezza_mm', 'nota')}
+              == {'tipo': 'tubo', 'profilo': PROFILO, 'lunghezza_mm': 795, 'nota': None},
               dec)
 
         print('2) L\'ordine dice "Da procurare"')
@@ -167,7 +169,8 @@ with sync_playwright() as p:
         check('sezione dell\'ordine col pezzo e "da ordinare"', cod in sez and 'da ordinare' in sez and 'non è pronto per il montaggio' in sez, sez)
         check('bottone in testata: una voce in piu\'', f'({n0 + 1})' in pg.inner_text('#lz-procura-btn'), pg.inner_text('#lz-procura-btn'))
         riga = pg.locator(f'#lz-dett tr[data-vedi="{aid}"]').inner_text()
-        check('il pezzo resta fuori da Lantek', 'non è da laser' in riga, riga)
+        # dal 12/10 la riga dice cosa e' (tubo/profilo) invece di "non e' da laser"
+        check('il pezzo resta fuori da Lantek', 'non è da laser' in riga or 'Tubo/profilo' in riga, riga)
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'ft_procura_2_ordine.png'))
 
         print('3) D: il pannello')
