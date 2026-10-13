@@ -2257,6 +2257,49 @@ def _precarica_tempi_lantek(session, ordini) -> None:
         logger.warning('tempi di Lantek non precaricati', exc_info=True)
 
 
+def _carico_laser(per_ord: dict, dati_ord: dict, entro: dict, cal: dict) -> dict:
+    """durate {ordine: {min, fonte}}, giorni {ordine: 'AAAA-MM-GG'} su cui
+    pesa, e il riepilogo (periodo, in ritardo, taglio in ritardo): lo stesso
+    conto per l'ufficio e per il laser (backend/carico_laser.py)."""
+    from . import carico_laser as _cl
+    from .ordini_service import fase as _fase
+    from .orario import oggi_locale
+    oggi = oggi_locale()
+    formati = _formati_lamiera()
+    parametri = {'margine_mm': 10, 'distanza_mm': 5}
+    durate, giorni, righe = {}, {}, []
+    for oid, d in dati_ord.items():
+        gruppi = list((per_ord.get(oid) or {}).values())
+        chiave = repr((sorted((k, sorted((p['quantita'], p['w_mm'] or 0, p['h_mm'] or 0, p['tempo_min'] or 0)
+                                         for p in v)) for k, v in (per_ord.get(oid) or {}).items()),
+                       d['manuale'], [(f['w_mm'], f['h_mm']) for f in formati],
+                       cal.get('carico_min_lamiera'), cal.get('scarico_s_pezzo')))
+        du = _DURATE_MEMO.get(chiave)
+        if du is None:
+            du = _cl.durata_ordine(gruppi, d['manuale'], cal, formati, parametri)
+            if len(_DURATE_MEMO) > 500:
+                _DURATE_MEMO.clear()
+            _DURATE_MEMO[chiave] = du
+        g, arretrato = _cl.giorno_carico(d['tagliato'], d['giorno_taglio'], entro.get(oid), d['consegna'], oggi)
+        durate[oid] = du
+        giorni[oid] = g.isoformat() if g else None
+        righe.append({'id': oid, 'tagliato': d['tagliato'], 'giorno': g, 'arretrato': arretrato, 'min': du['min']})
+    s = get_session()
+    try:
+        from .ordini_service import STATI_ARCHIVIO
+        aperti = s.query(Order).filter(
+            Order.is_deleted == False,  # noqa: E712
+            (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO))).all()
+        ritardo = [o.id for o in aperti if _cl.in_ritardo(_fase(o), o.data_consegna, oggi)]
+    finally:
+        s.close()
+    return {'durate': durate, 'giorni_carico': giorni,
+            'riepilogo': _cl.riepilogo(righe, cal, oggi, ritardo)}
+
+
+_DURATE_MEMO: dict = {}
+
+
 @app.route('/api/laser/banco', methods=['GET'])
 @richiede('laser', 'ufficio')
 def api_laser_banco():
@@ -2303,6 +2346,8 @@ def api_laser_banco():
             # la distinta di ogni ordine li trova gia' in memoria
             _precarica_tempi_lantek(session, ordini)
             gruppi, senza = {}, []
+            per_ord = {}      # ordine -> {chiave lamiera: [pezzi]} (carico_laser)
+            dati_ord = {}     # ordine -> cosa serve a carico_laser
             # pezzi da procurare fatti fuori (laser tubo, meccanica): +5 come
             # la lavorazione esterna (backend/procura.py)
             try:
@@ -2316,6 +2361,9 @@ def api_laser_banco():
                 # il giorno in cui l'ordine pesa sul laser: "taglia entro"
                 # (consegna meno le lavorazioni dopo il laser, o scelto a mano)
                 entro[o.id] = _te.per_ordine(o, righe, origine, cal, (proc.get(o.id) or {}).get('esterne'))['data']
+                dati_ord[o.id] = {'tagliato': bool(o.taglio_completato),
+                                  'giorno_taglio': data_locale(o.data_taglio_completato) if o.data_taglio_completato else None,
+                                  'consegna': o.data_consegna, 'manuale': o.durata_laser_manuale_min}
                 # il numero che conosce l'officina: quello dell'ordine del cliente
                 num_cli = ((_prev or {}).get('numero_ordine_cliente') or '').strip()
                 info = {'ordine_id': o.id, 'numero_ordine': num_cli or o.numero_ordine or '',
@@ -2337,6 +2385,9 @@ def api_laser_banco():
                     g = gruppi.setdefault(chiave, {
                         'chiave': chiave, 'materiale': mat, 'spessore_mm': sp, 'pezzi': []})
                     disegno = r.get('disegno')
+                    per_ord.setdefault(o.id, {}).setdefault(chiave, []).append(
+                        {'quantita': int(r.get('quantita') or 1), 'w_mm': r.get('bbox_w_mm'),
+                         'h_mm': r.get('bbox_h_mm'), 'tempo_min': r.get('tempo_min')})
                     g['pezzi'].append({
                         **info,
                         'codice': r.get('codice') or '', 'descrizione': r.get('descrizione') or '',
@@ -2371,7 +2422,9 @@ def api_laser_banco():
             })
         # La lamiera piu' urgente (da tagliare prima) per prima; a parita', la piu' grossa.
         out.sort(key=lambda g: (g['taglia_entro_prima'] or g['consegna_prima'] or '9999', -g['area_dm2']))
-        return jsonify({'success': True, 'gruppi': out, 'senza_distinta': senza,
+        # Carico del laser e ritardi: UN conto per ufficio e laser (backend/carico_laser.py)
+        carico = _carico_laser(per_ord, dati_ord, entro, cal)
+        return jsonify({'success': True, 'gruppi': out, 'senza_distinta': senza, **carico,
                         # {ordine: 'AAAA-MM-GG'}: il giorno su cui l'ordine pesa
                         # nella saturazione (carico-laser.js, ufficio e laser)
                         'taglia_entro': entro,

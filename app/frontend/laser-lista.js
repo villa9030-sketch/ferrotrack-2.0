@@ -64,10 +64,13 @@
     for (const id of [...S.spuntati]) { const o = LZ.trova(id); if (!o || !L.spuntabile(o)) S.spuntati.delete(id); }
 
     const attivi = ordini.filter(o => LZ.statoLaser(o) !== 'tagliato');
-    // in ritardo: il "taglia entro" e' passato e non e' ancora tagliato
-    const rit = attivi.filter(o => (LZ.giorniEntro(o) ?? 0) < 0).length;
+    // Le stesse parole e gli stessi numeri dell'ufficio (backend/carico_laser.py):
+    // "In ritardo" = consegna passata; "Taglio in ritardo" = taglia entro passato.
+    const rp = window.CaricoLaser && CaricoLaser.riepilogo();
+    const rit = rp ? rp.in_ritardo.n : 0;
+    const ritT = rp ? rp.taglio_in_ritardo.n : attivi.filter(o => (LZ.giorniEntro(o) ?? 0) < 0).length;
     LZ.metti(document.getElementById('lz-l-testa'), `<h1>Ordini al laser</h1>
-      <div class="lz-riass"><span>${LZ.plur(attivi.length, 'ordine', 'ordini')}</span>${rit ? `<span>·</span><span class="rit">${rit} in ritardo</span>` : ''}</div>
+      <div class="lz-riass"><span>${LZ.plur(attivi.length, 'ordine', 'ordini')}</span>${ritT ? `<span>·</span><span class="rit" title="${esc(rp ? rp.taglio_in_ritardo.definizione : '')}">Taglio in ritardo: ${ritT}</span>` : ''}${rit ? `<span>·</span><span class="rit" title="${esc(rp.in_ritardo.definizione)}">In ritardo: ${rit}</span>` : ''}</div>
       ${promemoria(attivi)}${LZ.sat.html()}`);
 
     const daCtl = attivi.filter(o => L.spuntabile(o) && (S.riep[o.id] || {}).n_controllare);

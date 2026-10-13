@@ -117,8 +117,10 @@ with sync_playwright() as p:
     if nonrit:
         check('non in ritardo: niente rosso', pg.locator(f'.lz-r[data-id="{nonrit[0]["id"]}"] .lz-data small.rit').count() == 0)
     testa = pg.locator('.lz-lista-testa').inner_text()
-    check('il conto "in ritardo" in testa segue il taglia entro',
-          (f'{len(rit)} in ritardo' in testa) if rit else 'in ritardo' not in testa.split('Questa settimana')[0], testa)
+    # "Taglio in ritardo" (taglia entro passato) e' detto cosi', non "in ritardo":
+    # "In ritardo" e' la consegna, come all'ufficio (backend/carico_laser.py)
+    check('il conto "Taglio in ritardo" in testa segue il taglia entro',
+          (f'Taglio in ritardo: {len(rit)}' in testa) if rit else 'Taglio in ritardo' not in testa, testa)
 
     print('\n2) Taglia entro nell\'ordine aperto, a mano e "Torna al calcolo"')
     sc = [r for r in righe if not r['man']]
@@ -165,12 +167,14 @@ with sync_playwright() as p:
         check('e la data di prima', te['data'] == sc[len(sc) // 2]['entro'], (te, sc[len(sc) // 2]))
         check('"Torna al calcolo" sparito', pg.locator('[data-az="entro-calcolo"]').count() == 0)
         g = pg.evaluate(f'CaricoLaser.giorno(LZ.trova("{oid}"))')
-        check('saturazione: di nuovo sul giorno calcolato', g == te['data'], g)
+        # da tagliare col taglia entro gia' passato: pesa su oggi
+        check('saturazione: di nuovo sul giorno calcolato (oggi, se passato)', g == max(te['data'], date.today().isoformat()), g)
 
     print('\n4) Saturazione = taglia entro (stesso conto dell\'ufficio)')
     diversi = pg.evaluate("""() => LZ.ordiniLaser().filter(o => LZ.statoLaser(o) !== 'tagliato')
-        .filter(o => CaricoLaser.giorno(o) !== LZ.entro(o)).map(o => [o.id, CaricoLaser.giorno(o), LZ.entro(o)])""")
-    check('ogni ordine da tagliare pesa sul suo taglia entro', not diversi, diversi[:3])
+        .filter(o => CaricoLaser.giorno(o) !== (LZ.entro(o) && LZ.entro(o) < FT.oggiISO() ? FT.oggiISO() : LZ.entro(o)))
+        .map(o => [o.id, CaricoLaser.giorno(o), LZ.entro(o)])""")
+    check('ogni ordine da tagliare pesa sul suo taglia entro (oggi, se gia passato)', not diversi, diversi[:3])
     print('\n5) Spunta "Lavorazione esterna"')
     cand = pg.evaluate('''() => LZ.ordiniLaser().filter(o => ['coda', 'smistare'].includes(LZ.statoLaser(o))
         && o.lavorazione_esterna == null && !o.data_taglio_pianificata && o.data_consegna
@@ -199,7 +203,8 @@ with sync_playwright() as p:
         check('il motivo dice la lavorazione esterna (zincatura)', 'zincatura' in mot and 'dedotto' not in mot, mot)
         check("l'ordine resta aperto", pg.evaluate('LZ.s.aperto') == oid)
         g = pg.evaluate(f'CaricoLaser.giorno(LZ.trova("{oid}"))')
-        check('saturazione: sul taglia entro nuovo', g == pg.evaluate(f'LZ.entro(LZ.trova("{oid}"))'), g)
+        e = pg.evaluate(f'LZ.entro(LZ.trova("{oid}"))')
+        check('saturazione: sul taglia entro nuovo (oggi, se passato)', g == max(e, date.today().isoformat()), (g, e))
         pg.locator(f'input[data-esterna="{oid}"]').uncheck()
         pg.wait_for_function(f'LZ.trova("{oid}").lavorazione_esterna === false && (LZ.te(LZ.trova("{oid}")) || {{}}).giorni === {g0}',
                              timeout=30000)

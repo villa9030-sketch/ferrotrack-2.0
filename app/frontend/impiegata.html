@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="/procura.css?v=2">
 <script src="/ft-accesso.js" data-stazioni="ufficio"></script>
 <script src="/ft-ui.js"></script>
-<script src="/carico-laser.js"></script>
+<script src="/carico-laser.js?v=3"></script>
 <style>
 /* Ufficio — solo quello che la base comune (ft-ui.css) non ha ancora.
    Le classi "ft-" qui sotto sono candidate a salire in ft-ui.css;
@@ -538,7 +538,7 @@ body.ft [hidden] { display: none !important; }
     <div class="og-card"><div class="og-card-h"><i data-lucide="list-checks"></i><h2>Da fare</h2><span id="og-dafare-n"></span></div>
       <div id="og-dafare"><div style="padding:18px"><div class="ft-skel" style="height:40px;margin-bottom:8px"></div><div class="ft-skel" style="height:40px"></div></div></div></div>
     <div class="og-col">
-      <div class="og-card"><div class="og-card-h"><i data-lucide="gauge"></i><h2>Laser · prossimi giorni</h2><span id="og-laser-n"></span></div>
+      <div class="og-card"><div class="og-card-h"><i data-lucide="gauge"></i><h2>Laser · prossimi 5 giorni lavorativi</h2><span id="og-laser-n"></span></div>
         <div id="og-laser"></div></div>
       <div class="og-card"><div class="og-card-h"><i data-lucide="triangle-alert"></i><h2>A rischio</h2><span id="og-rischio-n"></span></div>
         <div id="og-rischio"></div></div>
@@ -2161,7 +2161,11 @@ function renderOggi() {
   const aperti = tutti.filter(o => o.fase !== 'archivio');
   const consG = o => { const c = giorno(o.data_consegna); return c ? FT.giorniDa(c) : null; };
   const nonConsegnato = o => o.fase === 'aperto' || o.fase === 'pronto_ddt';
-  const ritardo = aperti.filter(o => nonConsegnato(o) && consG(o) != null && consG(o) < 0).sort((a, b) => consG(a) - consG(b));
+  // "In ritardo" = consegna passata e non consegnato: lo conta il server
+  // (backend/carico_laser.py), lo stesso numero che vede il laser.
+  const rp = CL_PRONTO ? CaricoLaser.riepilogo() : null;
+  const idRit = rp ? new Set(rp.in_ritardo.ids) : null;
+  const ritardo = aperti.filter(o => idRit ? idRit.has(o.id) : (nonConsegnato(o) && consG(o) != null && consG(o) < 0)).sort((a, b) => consG(a) - consG(b));
   const visti = new Set(ritardo.map(o => o.id));
   const prossime = aperti.filter(o => nonConsegnato(o) && !visti.has(o.id) && [0, 1].includes(consG(o)));
   prossime.forEach(o => visti.add(o.id));
@@ -2210,7 +2214,7 @@ function renderOggi() {
   } else {
     const c = CaricoLaser.cfg();
     const turno = c.ore_turno * 60, utili = (c.ore_turno - c.ore_riserva) * 60;
-    const giorni = CaricoLaser.giorniLavorativi(oggi, 10);
+    const giorni = CaricoLaser.giorniLavorativi(oggi, 5);
     const ord = ordiniPerLaser();
     let tot = 0, cap = 0;
     const righe = giorni.map(ds => {
@@ -2223,9 +2227,12 @@ function renderOggi() {
         <span class="v">${(k.min / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} / ${(k.cap / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })} h${k.ignoti ? ` <em>+${k.ignoti}?</em>` : ''}</span></div>`;
     }).join('');
     const libero = CaricoLaser.primoGiornoLibero(ord);
-    $('og-laser').innerHTML = `<div class="og-giorni">${righe}</div>
+    const tr = rp && rp.taglio_in_ritardo;
+    $('og-laser').innerHTML = (rp ? `<div class="og-nota" style="margin-top:0"><b>${esc(rp.periodo.etichetta)}: ${CaricoLaser.fmtOre(rp.periodo.min)} su ${CaricoLaser.fmtOre(rp.periodo.cap)}</b>${rp.periodo.ignoti ? ` · ${rp.periodo.ignoti} ordini senza durata` : ''}</div>` : '')
+      + (tr && tr.n ? `<div class="og-nota" style="color:var(--ft-err)" title="${esc(tr.definizione)}"><b>Taglio in ritardo: ${tr.n} ${tr.n === 1 ? 'ordine' : 'ordini'}</b>${tr.min ? ` · ${CaricoLaser.fmtOre(tr.min)} di laser` : ''} (contati su oggi)</div>` : '')
+      + `<div class="og-giorni">${righe}</div>
       <div class="og-nota">Primo giorno con spazio al laser: <b>${libero ? giornoBreve(libero) : 'oltre 2 mesi'}</b>. La tacca è il limite delle ore utili (turno meno riserva per le emergenze).</div>`;
-    $('og-laser-n').textContent = `${CaricoLaser.fmtOre(tot)} su ${CaricoLaser.fmtOre(cap)}`;
+    $('og-laser-n').textContent = rp ? `${CaricoLaser.fmtOre(rp.periodo.min)} su ${CaricoLaser.fmtOre(rp.periodo.cap)}` : `${CaricoLaser.fmtOre(tot)} su ${CaricoLaser.fmtOre(cap)}`;
   }
   // ── A rischio ──
   $('og-rischio').innerHTML = rischio.length ? rischio.map(({ o, m }) => rigaOggi(o,

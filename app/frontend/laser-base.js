@@ -152,7 +152,7 @@
   };
   LZ.quando = o => quandoG(LZ.giorniA(o), 'ritardo ');
   /** Quanto manca al "taglia entro": oggi, tra 3 gg, in ritardo 2 gg (rosso). */
-  LZ.quandoEntro = o => quandoG(LZ.giorniEntro(o), 'in ritardo ');
+  LZ.quandoEntro = o => quandoG(LZ.giorniEntro(o), 'taglio in ritardo ');
   LZ.ore = function (min) {
     if (min == null) return '—';
     if (min < 60) return `${Math.max(1, Math.round(min))} min`;
