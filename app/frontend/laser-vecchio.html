@@ -1832,6 +1832,10 @@ async function markLaserDone(orderId) {
       fatto = true;
       FT.toast('Taglio segnato: ordine tolto dalla coda', 'ok',
         { testo: 'Annulla', fn: () => undoLaserDone(orderId, true) });
+    } else if (d.gia_fatto) {
+      // Un'altra postazione (o un doppio tocco) l'ha appena segnato.
+      fatto = true;
+      FT.toast(d.error || 'Taglio già segnato come fatto', 'warn');
     } else {
       FT.toast('Non riuscito: ' + (d.error || 'errore del server'), 'err');
     }

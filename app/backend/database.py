@@ -272,18 +272,19 @@ class OrderManager:
             OrderManager._avvisa_ufficio_lavoro_finito(
                 order_id, numero, cliente, user_id, avviso)
 
-        try:
-            AuditManager.log(
-                user_id=user_id, action='CLOSE_ORDER',
-                entity_type='order', entity_id=order_id,
-                detail=('Lavoro finito -> pronto per DDT'
-                        + (' [taglio non segnato dal laser]' if taglio_mancante else '')),
-            )
-        except Exception:
-            pass
+        if not gia:
+            try:
+                AuditManager.log(
+                    user_id=user_id, action='CLOSE_ORDER',
+                    entity_type='order', entity_id=order_id,
+                    detail=('Lavoro finito -> pronto per DDT'
+                            + (' [taglio non segnato dal laser]' if taglio_mancante else '')),
+                )
+            except Exception:
+                pass
         out = {'success': True, 'order_id': order_id,
                'nuovo_status': ordine.get('status') or 'DA_FATTURARE',
-               'gia_registrato': gia, 'ordine': ordine}
+               'gia_registrato': gia, 'gia_fatto': gia, 'ordine': ordine}
         if avviso:
             out['avviso'] = avviso
         return out
@@ -467,10 +468,22 @@ class OrderManager:
             if not order:
                 return {'success': False, 'error': 'Ordine non trovato'}
             if order.taglio_completato:
-                return {'success': False, 'error': 'Taglio già marcato come completato'}
-            order.taglio_completato = True
-            order.data_taglio_completato = datetime.utcnow()
-            order.taglio_completato_da = user_id or None
+                return OrderManager._taglio_gia_fatto(session, order)
+            # Scrittura CONDIZIONATA e atomica: con due postazioni che premono
+            # "Taglio fatto" insieme, solo la prima cambia la riga; la seconda
+            # trova 0 righe e risponde "gia' fatto" (niente storico doppio).
+            n = session.query(Order).filter(
+                Order.id == order_id,
+                or_(Order.taglio_completato.is_(None), Order.taglio_completato == False),  # noqa: E712
+            ).update({Order.taglio_completato: True,
+                      Order.data_taglio_completato: datetime.utcnow(),
+                      Order.taglio_completato_da: user_id or None},
+                     synchronize_session=False)
+            if n != 1:
+                session.rollback()
+                session.expire_all()
+                order = session.query(Order).filter(Order.id == order_id).first()
+                return OrderManager._taglio_gia_fatto(session, order)
             session.commit()
             try:
                 AuditManager.log(
@@ -485,6 +498,25 @@ class OrderManager:
             return {'success': False, 'error': str(e)}
         finally:
             session.close()
+
+    @staticmethod
+    def _taglio_gia_fatto(session, order) -> dict:
+        """Risposta per "Taglio fatto" premuto su un taglio gia' segnato
+        (doppio clic o un'altra postazione): non e' un guasto, lo si dice."""
+        chi, quando = '', ''
+        try:
+            if order is not None and order.taglio_completato_da:
+                u = session.query(User).filter(User.id == order.taglio_completato_da).first()
+                chi = (u.name if u else '') or ''
+            if order is not None and order.data_taglio_completato:
+                from .orario import iso_utc as _iso
+                quando = _iso(order.data_taglio_completato)
+        except Exception:
+            pass
+        return {'success': False, 'gia_fatto': True, 'codice': 'gia_fatto',
+                'error': 'Taglio gia\' segnato come fatto' + (f' da {chi}' if chi else '')
+                         + ': nessuna modifica.',
+                'segnato_da': chi or None, 'segnato_il': quando or None}
 
     @staticmethod
     def mark_laser_undone(order_id: str, user_id: str = '') -> dict:

@@ -386,9 +386,25 @@ def registra_completamento(order_id: str, user_id: str, quando=None) -> dict:
             return {'error': 'Ordine gia\' archiviato: riaprilo prima di modificarlo.',
                     'codice': 'archiviato'}
         if getattr(o, 'data_completamento_operativo', None):
-            return {'success': True, 'gia_registrato': True,
+            return {'success': True, 'gia_registrato': True, 'gia_fatto': True,
                     'ordine': _riga(o, _nomi(session))}
-        o.data_completamento_operativo = quando or datetime.utcnow()
+        # Scrittura CONDIZIONATA e atomica: due postazioni che premono
+        # "Lavoro finito" nello stesso istante leggono tutte e due "non
+        # finito"; solo la prima cambia la riga, la seconda trova 0 righe e
+        # risponde "gia' registrato" (niente secondo avviso ne' storico doppio).
+        adesso = quando or datetime.utcnow()
+        n = session.query(Order).filter(
+            Order.id == order_id, Order.data_completamento_operativo.is_(None),
+        ).update({Order.data_completamento_operativo: adesso,
+                  Order.completato_operativo_da: user_id or None},
+                 synchronize_session=False)
+        if n != 1:
+            session.rollback()
+            session.expire_all()
+            o = _carica(session, order_id)
+            return {'success': True, 'gia_registrato': True, 'gia_fatto': True,
+                    'ordine': _riga(o, _nomi(session)) if o else {}}
+        o.data_completamento_operativo = adesso
         o.completato_operativo_da = user_id or None
         # Lo stato storico resta allineato: chi legge `status` vede quello che
         # vedeva prima quando l'officina dichiarava finito.

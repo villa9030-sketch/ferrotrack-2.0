@@ -721,6 +721,11 @@
     if (!ok) return;
     await LZ.azione(async () => {
       const r = await LZ.post(`/api/orders/${id}/mark-laser-done`, {});
+      if (r.d && r.d.gia_fatto) {
+        // Un'altra postazione (o un doppio tocco) l'ha appena segnato: va bene così.
+        FT.toast(r.d.error || 'Taglio già segnato come fatto', 'warn');
+        await O.dopo(id); return;
+      }
       if (!r.ok) { FT.toast('Non riuscito: ' + (r.d.error || 'errore del server'), 'err'); return; }
       FT.toast('Taglio segnato: l\'ordine è passato in officina', 'ok', { testo: 'Annulla', fn: () => O.annullaTaglio(id, true) });
       await O.dopo(id);

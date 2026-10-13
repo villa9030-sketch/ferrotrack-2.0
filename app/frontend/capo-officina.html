@@ -836,7 +836,11 @@ async function closeOrder(orderId, label) {
       body: '{}'
     });
     const data = await r.json();
-    if (r.ok && data.success) {
+    if (r.ok && data.success && (data.gia_fatto || data.gia_registrato)) {
+      // Un'altra postazione l'aveva appena segnato: nessun avviso doppio.
+      alert('Era già segnato come finito (da un\'altra postazione): nessuna modifica.');
+      loadOrdini();
+    } else if (r.ok && data.success) {
       alert(`✓ Lavoro finito, ordine mandato all'amministrazione per la fatturazione.`);
       loadOrdini();
     } else {

@@ -662,6 +662,9 @@ def mark_laser_done(order_id):
     try:
         # Solo la stazione Laser (regola sopra): chi ha tagliato e' il laser
         result = OrderManager.mark_laser_done(order_id, user_id=_chi())
+        if result.get('gia_fatto'):
+            # Gia' segnato (doppio clic, o un'altra postazione un attimo prima)
+            return jsonify(result), 409
         _invalida_analisi_laser(order_id)
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
