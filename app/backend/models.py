@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import create_engine, Column, String, DateTime, Date, Integer, Float, Text, JSON, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, String, DateTime, Date, Integer, Float, Text, JSON, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import enum
@@ -382,6 +382,74 @@ class AssiemeLantek(Base):
     creato_da = Column(String, nullable=True)
 
 
+class LantekCorrezione(Base):
+    """Un codice "da correggere in Lantek" (Stefano, 12/10/2026).
+
+    In "Manda a Lantek" il codice c'e' gia' in Lantek con uno spessore o un
+    materiale diverso dall'ordine e chi conferma sceglie il valore
+    dell'ORDINE: il codice resta fuori dall'invio e va corretto a mano in
+    Lantek. Qui resta scritto (cosa deve diventare, chi, quando) finche' non
+    e' risolto, cosi' non si dimentica: FerroTrack rilegge Lantek (sola
+    lettura) e quando coincide lo dice ("pronto da mandare").
+
+    Aperta = chiuso_il vuoto. corretto_il = quando FerroTrack ha visto Lantek
+    coincidere. esito alla chiusura: 'mandato' (ha l'ordine di produzione),
+    'usa_lantek' (ha cambiato idea: va bene il valore di Lantek)."""
+    __tablename__ = 'lantek_correzioni'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    order_id = Column(String, nullable=False, index=True)
+    codice = Column(String, nullable=False)                # PrdRef esatto in Lantek
+    spessore_voluto = Column(Float, nullable=True)         # None = lo spessore va bene
+    materiale_voluto = Column(String, nullable=True)       # nome del materiale in Lantek
+    spessore_lantek = Column(Float, nullable=True)         # com'era in Lantek alla scelta
+    materiale_lantek = Column(String, nullable=True)
+    creato_il = Column(DateTime, default=datetime.utcnow)
+    creato_da = Column(String, nullable=True)
+    corretto_il = Column(DateTime, nullable=True)
+    chiuso_il = Column(DateTime, nullable=True)
+    chiuso_da = Column(String, nullable=True)
+    esito = Column(String, nullable=True)
+
+
+class DaProcurare(Base):
+    """Un pezzo dell'ordine che NON si taglia al laser e va procurato
+    (Stefano, 12/10/2026): tubi e profili da barra (taglio in casa), tubi
+    tagliati al laser tubo da un fornitore, meccanica (tornitura,
+    fresatura), commerciali da comprare finiti, altro.
+
+    Nasce da solo: quando il laser dice "non e' da laser" e lo classifica
+    (tasto N nel controllo dei disegni), o dalle righe tubolari della
+    distinta (backend/procura.py). Uno per ordine + chiave: 'art:<id>' per
+    un pezzo classificato, 'tub:...' per una riga tubolare.
+
+    Stati: da_ordinare -> ordinato (fornitore, data prevista) -> arrivato.
+    Gli ordini eliminati nascondono le loro voci (si filtra leggendo)."""
+    __tablename__ = 'da_procurare'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    order_id = Column(String, nullable=False, index=True)
+    chiave = Column(String, nullable=False)                # unica per ordine
+    origine = Column(String, nullable=False, default='classificato')   # classificato | tubolare
+    articolo_id = Column(String, nullable=True)
+    codice = Column(String, nullable=True)
+    tipo = Column(String, nullable=False)                  # tubo | laser_tubo | meccanica | commerciale | altro
+    descrizione = Column(String, nullable=True)
+    profilo = Column(String, nullable=True)                # "Quadro 40x40 sp.2mm"
+    lunghezza_mm = Column(Float, nullable=True)            # di UN pezzo
+    quantita = Column(Integer, nullable=False, default=1)  # pezzi in tutto (ordine x assieme)
+    materiale = Column(String, nullable=True)
+    stato = Column(String, nullable=False, default='da_ordinare')      # da_ordinare | ordinato | arrivato
+    fornitore = Column(String, nullable=True)
+    data_prevista = Column(Date, nullable=True)
+    ordinato_il = Column(DateTime, nullable=True)
+    arrivato_il = Column(DateTime, nullable=True)
+    nota = Column(String, nullable=True)
+    creato_il = Column(DateTime, default=datetime.utcnow)
+    creato_da = Column(String, nullable=True)
+    aggiornato_il = Column(DateTime, nullable=True)
+    aggiornato_da = Column(String, nullable=True)
+    __table_args__ = (UniqueConstraint('order_id', 'chiave', name='ux_da_procurare_ordine_chiave'),)
+
+
 # ============================================================================
 #  PREVENTIVI — moduli portati dal Preventivatore desktop (Tkinter → web)
 # ============================================================================
@@ -536,7 +604,10 @@ class PreventivoPiastra(Base):
 
 
 # Configurazione database
-engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False})
+# timeout: quanto una scrittura aspetta che un'altra postazione finisca la sua
+# prima di arrendersi con "database is locked" (il default di sqlite3 e' 5 s,
+# poco quando un'analisi pesante scrive mentre tablet e ufficio salvano).
+engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False, 'timeout': 20})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 from sqlalchemy import event

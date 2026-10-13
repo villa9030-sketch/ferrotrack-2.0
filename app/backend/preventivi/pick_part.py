@@ -103,6 +103,7 @@ def _scala(msp) -> float:
 # Insieme al documento restano validi anche i calcoli memoizzati da _cache_doc.
 _DOC_CACHE: 'OrderedDict[tuple, Any]' = OrderedDict()
 _DOC_CACHE_MAX = 12
+_DOC_CACHE_MAX_BYTE = 12 * 1024 * 1024     # somma delle dimensioni dei file (in memoria ~10x)
 _DOC_CACHE_LOCK = threading.Lock()
 
 
@@ -121,7 +122,10 @@ def _leggi_dxf(path: str):
     doc = ezdxf.readfile(path)
     with _DOC_CACHE_LOCK:
         _DOC_CACHE[chiave] = doc
-        while len(_DOC_CACHE) > _DOC_CACHE_MAX:
+        # Tetto anche sul peso: un documento ezdxf occupa in memoria molte
+        # volte il file; 12 disegni grandi tenevano centinaia di MB.
+        while len(_DOC_CACHE) > 1 and (len(_DOC_CACHE) > _DOC_CACHE_MAX or
+                                       sum(k[2] for k in _DOC_CACHE) > _DOC_CACHE_MAX_BYTE):
             _DOC_CACHE.popitem(last=False)
     return doc
 

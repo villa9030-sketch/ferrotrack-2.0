@@ -178,6 +178,8 @@ def distinte_per_codici(cartella: str, codici: list, profondita: int = 3) -> dic
         except OSError:
             continue
         if firma not in _CACHE:
+            if len(_CACHE) > 300:      # tetto: non cresce per sempre
+                _CACHE.clear()
             _CACHE[firma] = leggi_distinta(p)
         d = _CACHE[firma]
         if not d:

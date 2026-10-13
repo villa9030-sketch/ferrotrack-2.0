@@ -49,13 +49,15 @@
     for (const [k, v] of Object.entries(nuovi)) {
       const prima = S.riep[k];
       if (k === S.aperto && prima && JSON.stringify(prima) !== JSON.stringify(v)) cambiatoAperto = true;
+      LZ.avvisaCorretti(k, prima, v);
       S.riep[k] = v;
     }
     if (!id) for (const k of Object.keys(S.riep)) if (!(k in nuovi)) delete S.riep[k];
     S.riepPronto = true;
     LZ.ridisegna();
+    if (!id) LZ.procura.conta();          // il bottone "Da procurare (N)"
     // l'ordine aperto e' cambiato (da un'altra postazione, da Lantek): si rilegge
-    if (cambiatoAperto && !id && !LZ.controllo.aperto() && !LZ.lantek.aperto()) LZ.ordine.carica(S.aperto);
+    if (cambiatoAperto && !id && !LZ.controllo.aperto() && !LZ.lantek.aperto() && !LZ.procura.aperto()) LZ.ordine.carica(S.aperto);
     return true;
   };
 
@@ -119,8 +121,9 @@
 
   // ── Tasti ───────────────────────────────────────────────────────────
   document.addEventListener('keydown', e => {
-    if (document.querySelector('.ft-modal-bg.open, .fts-velo')) return;      // conferme e finestre comuni
+    if (document.querySelector('.ft-modal-bg.open, .fts-velo, #lz-elimina')) return;      // conferme e finestre comuni
     if (LZ.controllo.aperto()) { if (LZ.controllo.tasto(e)) e.preventDefault(); return; }
+    if (LZ.procura.aperto()) { if (LZ.procura.tasto(e)) e.preventDefault(); return; }
     if (LZ.lantek.aperto()) { if (LZ.lantek.tasto(e)) e.preventDefault(); return; }
     if (e.key === 'Escape' && LZ.chiudiMenu()) { e.preventDefault(); return; }
     if (document.querySelector('.lz-menu')) return;
@@ -140,6 +143,7 @@
       return;
     }
     if (k === 'l' && S.spuntati.size) { e.preventDefault(); LZ.lista.mandaSpuntati(); return; }
+    if (k === 'd') { e.preventDefault(); LZ.procura.apri(); return; }
     if (k === 'Enter') {
       // Invio sul pulsante col fuoco lo preme; altrimenti e' il passo principale
       if (t && t.tagName === 'BUTTON' && !t.closest('.lz-r')) return;

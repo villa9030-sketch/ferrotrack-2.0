@@ -196,7 +196,7 @@ def _dentro_al_disegno(percorso, geo_bounds) -> bool:
         return True
 
 
-def _aggiorna_pezzo(preventivo_id, articolo_id, geo, chi, scelta='scelto') -> dict:
+def _aggiorna_pezzo(preventivo_id, articolo_id, geo, chi, scelta='scelto', contorno=None) -> dict:
     """Scrive la geometria scelta a mano su UNA riga del pezzo (colonne +
     campi extra), come conferma_controllo_articolo: il preventivo accettato
     non si riscrive (replace_articoli e' bloccato, giustamente)."""
@@ -236,6 +236,8 @@ def _aggiorna_pezzo(preventivo_id, articolo_id, geo, chi, scelta='scelto') -> di
             ab['confermato'] = True
         # decisione del laser (pagina laser): il contorno ora e' deciso
         extra['decisione_laser'] = {'scelta': scelta, 'chi': chi or None, 'quando': quando}
+        if contorno:
+            extra['contorno_scelto'] = {'outer': contorno[0], 'holes': contorno[1] or []}
         riga_n = extra.get('riga')
         extra = PreventivoManager._extra_articolo(extra)
         if isinstance(riga_n, int):
@@ -387,7 +389,8 @@ def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, 
     nome = os.path.basename(percorso)
     prima = (art.get('area_dm2'), art.get('perimetro_taglio_m'), art.get('n_forature'))
     esito = _aggiorna_pezzo(order.preventivo_id_origine, articolo_id, geo, chi,
-                            scelta='giusto' if dal_motore else 'scelto')
+                            scelta='giusto' if dal_motore else 'scelto',
+                            contorno=(outer_xy, holes_xy))
     if not esito.get('success'):
         return {'success': False, 'error': esito.get('error') or 'Pezzo non salvato'}, 500
 

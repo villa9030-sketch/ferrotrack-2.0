@@ -36,7 +36,7 @@
     await Promise.all(st.ids.map(async id => {
       const r = await LZ.get(`/api/orders/${encodeURIComponent(id)}/laser?fresco=1`);
       if (!st) return;
-      if (r.ok) st.dati[id] = r.d; else st.errori[id] = r.d.error || 'il server non ha risposto';
+      if (r.ok) { st.dati[id] = r.d; giaScelte(id, r.d); } else st.errori[id] = r.d.error || 'il server non ha risposto';
     }));
     if (!st) return;
     st.fase = 'conferma';
@@ -55,9 +55,19 @@
     if (fatto) for (const id of ids) LZ.ordine.dopo(id);
   };
 
+  /** Scelte gia' fatte prima: i codici ancora "da correggere in Lantek"
+      restano fuori (ordine), quelli per cui si e' detto "va bene Lantek" si
+      mandano come sono in Lantek. Si possono sempre cambiare qui. */
+  function giaScelte(id, d) {
+    const s = st.scelte[id] = st.scelte[id] || {};
+    for (const c of d.usa_lantek || []) s[c] = 'lantek';
+    for (const c of d.correzioni || []) if (c.stato === 'da_correggere') s[c.codice] = 'ordine';
+  }
+
   // ── Cosa parte, ordine per ordine ───────────────────────────────────
   function perche(d) {
     if (!d) return 'non letto';
+    if (d.n_correggere && !d.n_invio) return `${LZ.plur(d.n_correggere, 'codice', 'codici')} da correggere in Lantek`;
     if (d.lantek && d.lantek.letto && !d.lantek.disponibile) return 'Lantek non risponde';
     if (d.n_abbinare) return `${LZ.plur(d.n_abbinare, 'riga', 'righe')} da abbinare`;
     if (d.n_controllare) return `${LZ.plur(d.n_controllare, 'disegno', 'disegni')} da controllare`;
@@ -113,7 +123,7 @@
       ${nuovi.length ? `<div class="lz-voce"><b class="n">${nuovi.length}</b><span>nuovi: creo il pezzo col suo disegno pulito, poi l'ordine<br><span class="mono">${elenco(nuovi.map(x => x.codice))}</span></span></div>` : ''}`;
     if (d.n_in_produzione) h += `<div class="lz-voce fuori"><b class="n">${d.n_in_produzione}</b><span>hanno già l'ordine di produzione in Lantek: non li rimando</span></div>`;
     for (const [m, cod] of motivi) h += `<div class="lz-voce fuori"><b class="n">${cod.length}</b><span>restano fuori (${esc(m)})<br><span class="mono">${elenco(cod)}</span></span></div>`;
-    if (fuoriScelti.length) h += `<div class="lz-voce fuori"><b class="n">${fuoriScelti.length}</b><span>restano fuori: li correggi tu in Lantek<br><span class="mono">${elenco(fuoriScelti)}</span></span></div>`;
+    if (fuoriScelti.length) h += `<div class="lz-voce fuori"><b class="n">${fuoriScelti.length}</b><span>restano fuori: li correggi tu in Lantek (restano segnati «da correggere» finché non sono a posto)<br><span class="mono">${elenco(fuoriScelti)}</span></span></div>`;
     if (rifatti.length) h += `<div class="lz-voce"><b class="n">${rifatti.length}</b><span>erano già stati fatti in passato con questo ordine: si rifanno</span></div>`;
     if (Object.keys(df).length) {
       h += `<div class="lz-diffs"><p>Ordine e Lantek non coincidono: quale tagli?</p>
@@ -223,8 +233,10 @@
                dett: righe.map(esc).join('<br>') + (errori.length ? `<ul>${errori.join('')}</ul>` : '') + 'Riapri l\'ordine e premi Ricontrolla.' };
     }
     if (fuori.length) {
+      const resto = `Da correggere in Lantek: <span class="mono">${elenco(fuori)}</span>. L'ordine resta rosso «da correggere» finché non sono a posto: FerroTrack rilegge Lantek e ti avvisa quando si possono mandare.`;
+      if (!x.mandati && !x.pezzi_nuovi) return { stato: 'ok', titolo: 'Niente mandato: prima correggi Lantek', dett: resto };
       return { stato: 'ok', titolo: 'Mandato, tranne i codici che correggi tu',
-               dett: righe.map(esc).join('<br>') + `<br>Restano da mandare: <span class="mono">${elenco(fuori)}</span>. L'ordine resta fra quelli da mettere in Lantek.` };
+               dett: righe.map(esc).join('<br>') + '<br>' + resto };
     }
     const imp = await LZ.post(`/api/orders/${encodeURIComponent(id)}/importato`, { annulla: false });
     return { stato: 'ok', titolo: 'Fatto: l\'ordine è in Lantek',

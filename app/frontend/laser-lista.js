@@ -44,9 +44,17 @@
       <div class="lz-data" title="${esc(`Taglia entro ${g ? FT.fmtData(g) : '—'}${te && te.motivo ? ' · ' + te.motivo : ''} · consegna ${cons ? FT.fmtData(cons) : '—'}`)}">
         <span class="sr">Taglia entro </span>${g ? FT.fmtDataBreve(g) : '—'}<small class="${q.rit && !tagliato ? 'rit' : ''}">${tagliato ? 'tagliato ' + esc(FT.fmtOra(o.data_taglio_completato)) : esc(q.t)}</small>
         <small class="cons">cons. ${cons ? FT.fmtDataBreve(cons) : '—'}</small></div>
-      <div class="lz-cli"><b title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</b><span title="${esc(LZ.numero(o))}">${esc(LZ.numero(o))}</span></div>
-      ${LZ.chip(o)}
+      <div class="lz-cli"><b title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</b><span title="${esc(LZ.numero(o))}">${esc(LZ.numero(o))}${procura(o)}</span></div>
+      ${LZ.chip(o, '', true)}
     </div>`;
+  }
+
+  /** Pezzi da procurare non ancora arrivati: un segno piccolo sulla riga
+      (il chip intero sta sull'ordine aperto). Rosso se in ritardo. */
+  function procura(o) {
+    const p = (S.riep[o.id] || {}).procura;
+    if (!p || !p.n) return '';
+    return ` <em class="lz-pc-mini${p.n_scaduti ? ' rit' : ''}" title="${esc(`Da procurare: ${p.n}${p.n_scaduti ? `, ${p.n_scaduti} in ritardo` : ''}`)}">${LZ.ico('package')}${p.n}</em>`;
   }
 
   L.disegna = function () {
@@ -60,7 +68,7 @@
     const rit = attivi.filter(o => (LZ.giorniEntro(o) ?? 0) < 0).length;
     LZ.metti(document.getElementById('lz-l-testa'), `<h1>Ordini al laser</h1>
       <div class="lz-riass"><span>${LZ.plur(attivi.length, 'ordine', 'ordini')}</span>${rit ? `<span>·</span><span class="rit">${rit} in ritardo</span>` : ''}</div>
-      ${LZ.sat.html()}`);
+      ${promemoria(attivi)}${LZ.sat.html()}`);
 
     const daCtl = attivi.filter(o => L.spuntabile(o) && (S.riep[o.id] || {}).n_controllare);
     LZ.metti(document.getElementById('lz-l-str'),
@@ -84,6 +92,23 @@
     }
     LZ.metti(righe, html, righe);
     disegnaAzione();
+  };
+
+  /** Promemoria fisso: i codici "da correggere in Lantek" non si dimenticano
+      (clic: apre il primo ordine che ne ha). Resta finche' non sono risolti. */
+  function promemoria(attivi) {
+    const conta = k => attivi.reduce((s, o) => s + ((S.riep[o.id] || {})[k] || 0), 0);
+    const nDa = conta('n_correggere'), nOk = conta('n_corretti');
+    if (!nDa && !nOk) return '';
+    return `<div class="lz-promemoria">${nDa ? `<button class="lz-ricorda" type="button" data-az="vai-correggere" data-fuoco="vai-correggere"
+        title="Codici tenuti fuori da Lantek perché diversi dall'ordine: correggili in Lantek">${LZ.ico('pencil-ruler')}<span>${LZ.plur(nDa, 'codice', 'codici')} da correggere in Lantek</span></button>` : ''}
+      ${nOk ? `<button class="lz-ricorda pronti" type="button" data-az="vai-corretti" data-fuoco="vai-corretti"
+        title="Corretti in Lantek: si possono mandare">${LZ.ico('send')}<span>${LZ.plur(nOk, 'codice corretto', 'codici corretti')}: da mandare</span></button>` : ''}</div>`;
+  }
+  /** Il primo ordine (nell'ordine dell'elenco) con codici da correggere / corretti. */
+  L.apriCorrezione = function (k) {
+    const o = LZ.ordiniLaser().find(x => LZ.statoLaser(x) !== 'tagliato' && (S.riep[x.id] || {})[k]);
+    if (o) L.apri(o.id);
   };
 
   function disegnaAzione() {
@@ -112,6 +137,8 @@
       else if (a === 'sel-via') { S.spuntati.clear(); LZ.ridisegna(); }
       else if (a === 'ctl-multi') L.controllaSpuntati();
       else if (a === 'lantek-multi') L.mandaSpuntati();
+      else if (a === 'vai-correggere') L.apriCorrezione('n_correggere');
+      else if (a === 'vai-corretti') L.apriCorrezione('n_corretti');
       return;
     }
     if (e.target.closest('input[data-sp]')) return;

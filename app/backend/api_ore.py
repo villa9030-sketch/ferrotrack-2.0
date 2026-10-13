@@ -233,6 +233,8 @@ def api_salva_giornata():
     codice = res.get('codice')
     if codice == 'conflitto':
         return jsonify({'success': False, **res}), 409
+    if codice == 'occupato':
+        return jsonify({'success': False, **res}), 503
     if codice in ('operatore_non_valido', 'giorno_non_corrente'):
         return jsonify({'success': False, **res}), 403
     if codice == 'errore_server':

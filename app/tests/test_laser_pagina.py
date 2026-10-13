@@ -344,6 +344,22 @@ def main():
     check('due polilinee chiuse sul TAGLIO, in mm',
           sorted(e.dxf.layer for e in doc9.modelspace()) == ['TAGLIO', 'TAGLIO'] and doc9.header.get('$INSUNITS') == 4)
 
+    print('\n10) Contorno scelto a mano: si rivede quello, e il DXF segue lo spessore')
+    o10 = A._ordine_esistente(oid)
+    art10, perc10 = A._articolo_ordine(o10, arts['P-SPESS-00'])
+    art10 = dict(art10, decisione_laser={'scelta': 'scelto'},
+                 contorno_scelto={'outer': [[0, 0], [50, 0], [50, 20], [0, 20]], 'holes': []})
+    c10 = AL._contorno_salvato(o10, art10, perc10)
+    check('contorno salvato sul pezzo: si usa quello', c10 and c10['outer'][1] == [50, 0], c10)
+    lam_vecchia = os.path.join(A.DRAWINGS_FOLDER, oid, 'LANTEK', A._nome_lamiera('S235', 3))
+    nome10 = A._nome_base_disegno(os.path.basename(perc10))
+    check('prima: DXF nella cartella del 3 mm', os.path.isfile(os.path.join(lam_vecchia, nome10)))
+    n10 = AL._sposta_dxf_lantek(o10, art10, perc10, 'S235', 5)
+    lam_nuova = os.path.join(A.DRAWINGS_FOLDER, oid, 'LANTEK', A._nome_lamiera('S235', 5))
+    check('spessore cambiato a 5 mm: DXF spostato', n10 == 1 and os.path.isfile(os.path.join(lam_nuova, nome10))
+          and not os.path.isfile(os.path.join(lam_vecchia, nome10)), n10)
+    AL._sposta_dxf_lantek(o10, art10, perc10, 'S235', 3)      # rimesso com'era per le prove dopo
+
     print(f'\nPASSATI: {OK}   FALLITI: {len(KO)}')
     if KO:
         print('Falliti: ' + ', '.join(KO))

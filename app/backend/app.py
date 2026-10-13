@@ -116,6 +116,9 @@ from .api_laser import bp_laser  # noqa: E402
 app.register_blueprint(bp_laser)
 from .api_pezzi_foglio import bp_pezzi_foglio  # noqa: E402
 app.register_blueprint(bp_pezzi_foglio)
+# Da procurare: tubi, laser tubo, meccanica, commerciali (backend/procura.py).
+from .api_procura import bp_procura  # noqa: E402
+app.register_blueprint(bp_procura)
 # Il controllo unico degli accessi, prima di qualunque altra cosa.
 from . import accesso  # noqa: E402
 from .accesso import richiede, identita, ADMIN, PUBBLICO, UFFICI  # noqa: E402,F401
@@ -520,6 +523,12 @@ def create_order():
         except Exception as exc:
             logger.warning('notifica nuovo ordine ai capi fallita: %s', exc)
 
+        # Storico: chi ha creato l'ordine (dal PDF o a mano). Gli altri
+        # ingressi (pacchetto, preventivo accettato) lo scrivono gia'.
+        _audit('CREATE_ORDER', 'order', order.id,
+               f'Ordine {numero_ordine} ({cliente}) creato dall\'ufficio'
+               + (f', PDF {os.path.basename(data.get("pdf_filename"))}' if data.get('pdf_filename') else ''))
+
         return jsonify({
             'success': True,
             'order_id': order.id,
@@ -599,9 +608,11 @@ def update_order(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/orders/<order_id>', methods=['DELETE'])
-@richiede('ufficio')
+@richiede('ufficio', 'laser')
 def delete_order(order_id):
-    """Soft delete di un ordine (is_deleted=True): solo amministrazione/capi, con audit."""
+    """Soft delete di un ordine (is_deleted=True), con audit. L'Ufficio e il
+    laser (Stefano, 12/10/2026: lo elimina dalla pagina laser, menu ⋯).
+    Recuperabile: POST /api/orders/<id>/ripristina."""
     try:
         session = get_session()
         try:
@@ -611,11 +622,40 @@ def delete_order(order_id):
             order.is_deleted = True
             session.commit()
             _audit('ORDINE_ELIMINATO', 'orders', order_id,
-                   f'{getattr(order, "numero_ordine", "")} {getattr(order, "cliente", "")} (recuperabile)')
+                   f'{getattr(order, "numero_ordine", "")} {getattr(order, "cliente", "")} (recuperabile)'
+                   + (" — era gia' segnato in Lantek" if getattr(order, 'importato_lantek_il', None) else ''))
+            _invalida_analisi_laser(order_id)
             return jsonify({'success': True, 'message': f'Ordine {order_id} eliminato (recuperabile)'}), 200
         finally:
             session.close()
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/ripristina', methods=['POST'])
+@richiede('ufficio', 'laser')
+def ripristina_ordine(order_id):
+    """Rimette un ordine eliminato (is_deleted=False), con audit: "Annulla"
+    subito dopo "Elimina ordine" nella pagina laser."""
+    try:
+        session = get_session()
+        try:
+            order = session.query(Order).filter(Order.id == order_id).first()
+            if not order:
+                return jsonify({'success': False, 'codice': 'non_trovato', 'error': 'Ordine non trovato'}), 404
+            if not order.is_deleted:
+                return jsonify({'success': False, 'codice': 'non_eliminato',
+                                'error': "L'ordine non è eliminato"}), 409
+            order.is_deleted = False
+            session.commit()
+            _audit('ORDINE_RIPRISTINATO', 'orders', order_id,
+                   f'{getattr(order, "numero_ordine", "")} {getattr(order, "cliente", "")}')
+            _invalida_analisi_laser(order_id)
+            return jsonify({'success': True}), 200
+        finally:
+            session.close()
+    except Exception as e:
+        logger.exception('ripristino ordine fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -628,6 +668,9 @@ def mark_laser_done(order_id):
     try:
         # Solo la stazione Laser (regola sopra): chi ha tagliato e' il laser
         result = OrderManager.mark_laser_done(order_id, user_id=_chi())
+        if result.get('gia_fatto'):
+            # Gia' segnato (doppio clic, o un'altra postazione un attimo prima)
+            return jsonify(result), 409
         _invalida_analisi_laser(order_id)
         return jsonify(result), (200 if result.get('success') else 400)
     except Exception as e:
@@ -1908,8 +1951,11 @@ def _segnalazioni_di_oggi(order_ids) -> dict:
         session.close()
 
 
-def _ordine_per_tablet(o, segnalazioni: dict, piatti=None) -> dict:
-    """Un ordine come lo mostra il tablet: testata, reparti, taglio, pezzi."""
+def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None) -> dict:
+    """Un ordine come lo mostra il tablet: testata, reparti, taglio, pezzi.
+    procura: {order_id: riassunto} dei pezzi "da procurare" non arrivati
+    (backend/procura.py): finche' mancano, l'ordine non e' pronto per il
+    montaggio e il tablet lo dice."""
     from .ordini_service import stato_taglio, fase_laser
     from . import tablet_officina as tab
     disegni = _disegni_ordine(o, piatti=piatti, righe_file=list(o.files or []))
@@ -1994,6 +2040,8 @@ def _ordine_per_tablet(o, segnalazioni: dict, piatti=None) -> dict:
         'has_pdf': bool(pdf and pdf.filepath and os.path.exists(pdf.filepath)),
         'pezzi': pezzi,
         'segnalazioni_oggi': segnalazioni.get(o.id, []),
+        'da_procurare': {'mancano': ((procura or {}).get(o.id) or {}).get('n') or 0,
+                         'in_ritardo': ((procura or {}).get(o.id) or {}).get('n_scaduti') or 0},
     }
 
 
@@ -2020,7 +2068,13 @@ def api_officina_tablet():
             ordini = [o for o in ordini if fase_ordine(o) == 'aperto']
             segnalazioni = _segnalazioni_di_oggi([o.id for o in ordini])
             piatti = _elenco_cartella(DRAWINGS_FOLDER)   # una volta, non per ogni ordine
-            out = [_ordine_per_tablet(o, segnalazioni, piatti) for o in ordini]
+            try:
+                from . import procura as _pc
+                proc = _pc.riassunto_per_ordini([o.id for o in ordini])
+            except Exception:
+                logger.warning('da procurare non letto per il tablet', exc_info=True)
+                proc = {}
+            out = [_ordine_per_tablet(o, segnalazioni, piatti, proc) for o in ordini]
         finally:
             session.close()
         ms = round((time.perf_counter() - t0) * 1000)
@@ -2244,11 +2298,19 @@ def api_laser_banco():
             # la distinta di ogni ordine li trova gia' in memoria
             _precarica_tempi_lantek(session, ordini)
             gruppi, senza = {}, []
+            # pezzi da procurare fatti fuori (laser tubo, meccanica): +5 come
+            # la lavorazione esterna (backend/procura.py)
+            try:
+                from . import procura as _pc
+                proc = _pc.riassunto_per_ordini([o.id for o in ordini])
+            except Exception:
+                logger.warning('da procurare non letto per il banco', exc_info=True)
+                proc = {}
             for o in ordini:
                 righe, origine, _prev = _distinta_ordine(o)
                 # il giorno in cui l'ordine pesa sul laser: "taglia entro"
                 # (consegna meno le lavorazioni dopo il laser, o scelto a mano)
-                entro[o.id] = _te.per_ordine(o, righe, origine, cal)['data']
+                entro[o.id] = _te.per_ordine(o, righe, origine, cal, (proc.get(o.id) or {}).get('esterne'))['data']
                 # il numero che conosce l'officina: quello dell'ordine del cliente
                 num_cli = ((_prev or {}).get('numero_ordine_cliente') or '').strip()
                 info = {'ordine_id': o.id, 'numero_ordine': num_cli or o.numero_ordine or '',
@@ -4045,7 +4107,7 @@ def api_preventivi_import_dxf(preventivo_id):
         # della cartella di un ALTRO preventivo).
         # Config rilevamento da app_config.json (sezione dxf_detection) — valori calibrati
         # sul config Preventivatore desktop (ratio_min=1.8, filtra_zona=True, ecc.)
-        from .preventivi.dxf_batch_worker import process_single_dxf
+        from .preventivi.analisi_isolata import analizza as _analizza_dxf
         app_cfg = ConfigManager.load_config()
         dxf_cfg = app_cfg.get('dxf_detection') or {
             'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
@@ -4054,7 +4116,8 @@ def api_preventivi_import_dxf(preventivo_id):
             'dxf_semicerchio_angolo_min': 150.0, 'dxf_semicerchio_angolo_max': 320.0,
             'dxf_filtra_zona_sviluppata': True,
         }
-        payload = process_single_dxf(tmp_path, saved_filename, dxf_cfg)
+        # fuori dal server e con un tempo massimo (analisi_isolata)
+        payload = _analizza_dxf(tmp_path, saved_filename, dxf_cfg)
         # Materiale del cartiglio che corrisponde a un materiale aggiunto (C75...)
         from .preventivi.materiali_personali import applica_a_risultato as _mat_pers
         payload = _mat_pers(payload, ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali'))
@@ -4208,9 +4271,6 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     Ritorna {preventivo_id, articoli_db, saved_tasks, n_step, dxf_results},
     oppure None se il preventivo non si e' potuto creare.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from .preventivi.dxf_batch_worker import process_single_dxf
-
     # 2. Crea preventivo BOZZA
     data_consegna_dt = None
     if result.data_consegna:
@@ -4314,19 +4374,15 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_rfq, trova as _trova_mat
     _mats_rfq = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
     if saved_tasks:
-        max_workers = min(8, max(1, len(saved_tasks)))
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {
-                pool.submit(process_single_dxf, path, fname, dxf_cfg): fname
-                for path, fname in saved_tasks
-            }
-            for fut in as_completed(futures):
-                fname = futures[fut]
-                try:
-                    dxf_results[fname] = _mat_pers_rfq(fut.result(), _mats_rfq)
-                except Exception as e:
-                    logger.exception('rfq worker fail per %s', fname)
-                    dxf_results[fname] = {'success': False, 'error': str(e)}
+        # Fuori dal server e con un tempo massimo per disegno: un DXF enorme
+        # torna "da guardare" invece di bloccare l'analisi (analisi_isolata).
+        from .preventivi import analisi_isolata
+        for fname, r in analisi_isolata.analizza_tutti(saved_tasks, dxf_cfg).items():
+            try:
+                dxf_results[fname] = _mat_pers_rfq(r, _mats_rfq)
+            except Exception as e:
+                logger.exception('rfq worker fail per %s', fname)
+                dxf_results[fname] = {'success': False, 'error': str(e)}
 
     # 5. Costruisci articoli DB combinando dati PDF + DXF
     # L'assieme NON è un pezzo tagliabile: il suo disegno 2D (master) non va
@@ -4790,8 +4846,10 @@ def api_ordine_pacchetto_analizza():
                 'area_dm2': it.get('area_dm2') or None,
                 'confidenza': round(float(conf), 3) if isinstance(conf, (int, float)) else None,
                 'disegno': dxf,
+                # disegno non letto (troppo complesso...): niente anteprima,
+                # che lo rileggerebbe nel server
                 'url_svg': (f'/api/preventivi/{pid}/dxf/{quote(dxf)}/svg'
-                            if dxf and dxf.lower().endswith('.dxf') else None),
+                            if dxf and dxf.lower().endswith('.dxf') and not it.get('_errore_dxf') else None),
                 'avvisi': _avvisi_riga_pacchetto(it, fonte),
                 # disegno/contorno/materiale/spessore: li controlla il laser
                 'avvisi_tecnici': _avvisi_tecnici_pacchetto(it) if dxf else [],
@@ -5023,7 +5081,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
         try:
             AuditManager.log(
                 user_id=user_id, action='CREATE_ORDER_FROM_PACKAGE',
-                entity_type='orders', entity_id=order.id,
+                entity_type='order', entity_id=order.id,
                 detail=f'Ordine {numero} ({cliente}) dal pacchetto {pacchetto_id}: '
                        f'{len(nuovi)} pezzi, {len(attesi) - mancanti} disegni'
                        + (f', {mancanti} file non trasferiti' if mancanti else ''))
@@ -5085,7 +5143,6 @@ def api_preventivi_import_dxf_batch(preventivo_id):
     Response: {success: bool, results: [{filename, ...payload o {error}}]}
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from .preventivi.dxf_batch_worker import process_single_dxf
     try:
         admin_id = _chi()
         files = request.files.getlist('files')
@@ -5153,9 +5210,11 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         max_workers = min(8, max(1, len(saved_tasks)))
         from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_b
         _mats_b = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # Fuori dal server e con un tempo massimo per disegno (analisi_isolata)
+        from .preventivi import analisi_isolata
+        with ThreadPoolExecutor(max_workers=min(max_workers, analisi_isolata.PROCESSI_MAX)) as pool:
             futures = {
-                pool.submit(process_single_dxf, path, fname, dxf_cfg): (fname, originale)
+                pool.submit(analisi_isolata.analizza, path, fname, dxf_cfg): (fname, originale)
                 for path, fname, originale in saved_tasks
             }
             for fut in as_completed(futures):
@@ -5420,10 +5479,11 @@ def api_preventivi_disegno_pdf(preventivo_id, filename):
 # per DXF (ezdxf.readfile + Frontend + SVGBackend). Con più thumbnail nella
 # tabella articoli, senza cache l'apertura preventivo diventa lenta.
 # Chiave: (path, mtime). Se il file cambia (nuovo import), il mtime cambia e
-# la cache viene invalidata. Cap a 128 entry (LRU manuale) per non crescere
-# indefinitamente.
-_SVG_CACHE = {}
+# la cache viene invalidata. Tetto: 128 voci E 64 MB (un disegno grande fa
+# un SVG di qualche MB: col solo numero di voci la memoria saliva per ore).
+from .cache_limitata import CacheLimitata
 _SVG_CACHE_MAX = 128
+_SVG_CACHE = CacheLimitata(_SVG_CACHE_MAX, 64 * 1024 * 1024)
 
 
 def _get_dxf_svg_cached(dxf_path: str) -> str:
@@ -5436,11 +5496,7 @@ def _get_dxf_svg_cached(dxf_path: str) -> str:
     if hit is not None:
         return hit
     svg = _dxf_scanner.dxf_to_svg_string(dxf_path)
-    if len(_SVG_CACHE) >= _SVG_CACHE_MAX:
-        # Evict qualsiasi entry (dict Python mantiene insertion order, tolgo la più vecchia)
-        for old_key in list(_SVG_CACHE.keys())[:8]:
-            _SVG_CACHE.pop(old_key, None)
-    _SVG_CACHE[key] = svg
+    _SVG_CACHE.put(key, svg)
     return svg
 
 
@@ -5448,8 +5504,8 @@ def _get_dxf_svg_cached(dxf_path: str) -> str:
 # all'apertura. Parsing ezdxf ~0.1-0.5s per file; con la cache la RIapertura è
 # istantanea e il pre-warm all'apertura preventivo rende snappy anche la prima.
 # Chiave (path, mtime): un nuovo import cambia mtime → invalidazione automatica.
-_GEOMETRY_CACHE = {}
 _GEOMETRY_CACHE_MAX = 128
+_GEOMETRY_CACHE = CacheLimitata(_GEOMETRY_CACHE_MAX, 64 * 1024 * 1024)
 
 
 def _get_dxf_geometry_cached(dxf_path: str, detection_cfg: dict) -> str:
@@ -5467,10 +5523,7 @@ def _get_dxf_geometry_cached(dxf_path: str, detection_cfg: dict) -> str:
         return hit
     geo = geometry_json(dxf_path, detection_cfg or {})
     payload = _json_mod.dumps(geo)
-    if len(_GEOMETRY_CACHE) >= _GEOMETRY_CACHE_MAX:
-        for old_key in list(_GEOMETRY_CACHE.keys())[:8]:
-            _GEOMETRY_CACHE.pop(old_key, None)
-    _GEOMETRY_CACHE[key] = payload
+    _GEOMETRY_CACHE.put(key, payload)
     return payload
 
 
@@ -7956,7 +8009,20 @@ def api_ordine_lantek_invia(order_id):
             return jsonify({'success': False, 'codice': 'cambiato',
                             'error': "L'elenco è cambiato da quando l'hai visto: ricontrolla e conferma di nuovo"}), 409
         righe = [r for r in righe if r['codice'] not in tenuti_fuori]
+        # i codici tenuti fuori scegliendo il valore dell'ordine restano scritti
+        # "da correggere in Lantek" finche' non si risolvono (lantek_correzioni.py)
+        from . import lantek_correzioni as _lc
+        da_correggere = _lc.registra(order_id, q['righe'], tenuti_fuori, _chi_nome()) if tenuti_fuori else []
+        if da_correggere:
+            _audit('LANTEK_DA_CORREGGERE', 'orders', order_id,
+                   'Da correggere in Lantek: ' + '; '.join(f"{x['codice']} {_lc.descrivi(x)}" for x in da_correggere))
+            _invalida_analisi_laser(order_id)
         if not righe and not nuovi_si:
+            if da_correggere:
+                # niente da mandare adesso: si manda quando Lantek e' corretto
+                return jsonify({'success': True, 'pezzi_nuovi': 0, 'pezzi_creati': 0, 'pezzi_non_creati': [],
+                                'mandati': 0, 'rapporto': {}, 'verificati': 0, 'mancanti': [],
+                                'da_correggere': [x['codice'] for x in da_correggere]}), 200
             return jsonify({'success': False, 'codice': 'niente_da_mandare',
                             'error': 'Hai tenuto fuori tutti i codici: niente da mandare'}), 409
         if not _lt.xmlimporter_disponibile():
@@ -8000,8 +8066,12 @@ def api_ordine_lantek_invia(order_id):
                f"Mandati a Lantek (ordine {q['commessa']}): {len(creati)} di {len(nuovi_si)} pezzi nuovi creati, "
                f"{len(presenti)} di {len(righe)} ordini di produzione verificati"
                + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else ''))
+        # un codice da correggere mandato adesso (corretto in Lantek, o scelto
+        # "va bene Lantek" nella conferma) e' risolto
+        if presenti:
+            _lc.chiudi(order_id, presenti, 'mandato', _chi_nome())
         _invalida_analisi_laser(order_id)
-        return jsonify({'success': True,
+        return jsonify({'success': True, 'da_correggere': [x['codice'] for x in da_correggere],
                         'pezzi_nuovi': len(nuovi_si), 'pezzi_creati': len(creati),
                         'pezzi_non_creati': [x['codice'] for x in nuovi_si if x['codice'] not in creati],
                         'mandati': len(righe), 'rapporto': rap, 'verificati': len(presenti),

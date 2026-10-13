@@ -13,6 +13,13 @@
    sul bordo di un pezzo mancante lo aggiunge; Invio conferma tutto
    (backend/api_pezzi_foglio.py). "A mano in Lantek" resta possibile (M).
 
+   N "non e' da laser" (12/10/2026): subito dopo si dice COSA serve, perche'
+   qualcuno lo procuri (backend/procura.py, "Da procurare"):
+   T tubo/profilo da ordinare · L taglio laser tubo · M meccanica ·
+   C commerciale · A altro (con una nota) · Esc torna al disegno.
+   Il motore propone (T col profilo e la lunghezza letti nella riga
+   dell'ordine o nel cartiglio): Invio conferma la proposta, ma decide il tasto.
+
    Una coda sola anche su piu' ordini: nella barra le tacche, con un
    separatore fra un ordine e l'altro, e il nome dell'ordine sempre visibile. */
 (function () {
@@ -25,6 +32,15 @@
                    piu_pezzi: 'più pezzi: a mano in Lantek', non_laser: 'non è da laser',
                    piu_pezzi_confermati: 'più pezzi: confermati uno per uno' };
   // colori dei pezzi del foglio: tenui, distinti fra loro (sul disegno grigio)
+  // "Da procurare" dopo N: i tasti e i nomi (backend/procura.py)
+  const PROCURA = [
+    { k: 't', tipo: 'tubo', t: 'Tubo/profilo da ordinare', s: 'barra da 6 m, taglio in casa', ico: 'ruler' },
+    { k: 'l', tipo: 'laser_tubo', t: 'Taglio laser tubo', s: 'dal fornitore', ico: 'zap' },
+    { k: 'm', tipo: 'meccanica', t: 'Meccanica', s: 'tornitura, fresatura: dal fornitore', ico: 'cog' },
+    { k: 'c', tipo: 'commerciale', t: 'Commerciale', s: 'da comprare finito', ico: 'shopping-cart' },
+    { k: 'a', tipo: 'altro', t: 'Altro', s: 'scrivi una nota corta', ico: 'pencil-line' },
+  ];
+  C.PROCURA = PROCURA;
   const COLORI_PF = ['#2459D8', '#B45309', '#0F766E', '#9333EA', '#BE123C', '#4D7C0F', '#0369A1', '#A16207', '#6D28D9', '#C2410C'];
   let st = null;          // stato del controllo aperto (null = chiuso)
   // Salvataggi in sottofondo: la risposta passa subito al disegno dopo, il
@@ -58,12 +74,13 @@
     if (st) return;
     apri([{ id, aid }], true);
     if (modo === 'pezzi') entraPezzi();         // "Rivedi i pezzi del foglio" dal menu della riga
+    else if (modo === 'procura') entraProcura(); // "Non è da laser" dal menu della riga
   };
 
   function apri(coda, solo) {
     LZ.chiudiMenu();
     st = { coda, i: 0, solo, foto: LZ.fotografa(), letture: {}, risposte: {}, modo: 'vedi', cand: [], sel: 0,
-           attesa: false, vb: null, trascina: null, fatte: 0 };
+           attesa: false, vb: null, trascina: null, fatte: 0, procurati: {}, pr: null };
     const box = document.getElementById('lz-sopra');
     const el = document.createElement('div');
     el.className = 'lz-ctl';
@@ -122,7 +139,7 @@
   // ── Disegno ─────────────────────────────────────────────────────────
   function mostra() {
     if (!st) return;
-    st.modo = 'vedi'; st.cand = []; st.sel = 0; st.vb = null; st.pf = null;
+    st.modo = 'vedi'; st.cand = []; st.sel = 0; st.vb = null; st.pf = null; st.pr = null;
     barra();
     lato();
     const v = voce();
@@ -136,7 +153,7 @@
       if (rec.stato !== 'ok') {
         f.innerHTML = `<div class="lz-foglio-msg"><div><b>Non riesco a mostrare il disegno</b><p>${esc(rec.d.error || 'Errore del server')}</p></div></div>`;
       } else {
-        f.innerHTML = rec.d.svg + `<div class="lz-leg">${rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'}</div>
+        f.innerHTML = rec.d.svg + `<div class="lz-leg">${rec.d.contorno_tuo ? '<i></i>In verde: il contorno che hai scelto tu' : rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'}</div>
           <div class="lz-zoom"><button class="lz-btn" type="button" data-z="piu" title="Ingrandisci" aria-label="Ingrandisci">${LZ.ico('plus')}</button>
           <button class="lz-btn" type="button" data-z="meno" title="Rimpicciolisci" aria-label="Rimpicciolisci">${LZ.ico('minus')}</button>
           <button class="lz-btn" type="button" data-z="tutto" title="Foglio intero (0)" aria-label="Foglio intero">${LZ.ico('scan')}</button></div>`;
@@ -194,6 +211,8 @@
     let corpo;
     if (st.modo === 'pezzi') {
       corpo = pezziHtml();
+    } else if (st.modo === 'procura') {
+      corpo = procuraHtml(p);
     } else if (st.modo === 'scegli') {
       corpo = `<div class="lz-scegli-guida"><b>Clicca il bordo del pezzo giusto</b>sul disegno a sinistra. ${st.cand.length > 1 ? 'Ci sono più contorni possibili: scegli quello giusto (1, 2, 3…).' : ''}</div>
         ${st.cand.length ? `<div class="lz-decidi">${st.cand.map((c, k) => `<button class="lz-btn${k === st.sel ? ' pri' : ''}" type="button" data-cand="${k}">
@@ -213,7 +232,7 @@
       corpo = `${perche.length ? `<div class="lz-perche"><b>Perché te lo chiedo</b><ul>${perche.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>`
           : p.motore === 'sicuro' ? `<div class="lz-sicuro">${LZ.ico('circle-check')}Il motore è sicuro di questo disegno.</div>` : ''}
         ${lt && lt.suggerimento && !risposta ? `<div class="lz-risposta">Il motore pensa: <b>${esc(SCELTE[lt.suggerimento])}</b>. Decidi tu col tasto.</div>` : ''}
-        ${risposta ? `<div class="lz-risposta">Hai risposto: <b>${esc(SCELTE[risposta] || risposta)}</b></div>` : ''}
+        ${risposta ? `<div class="lz-risposta">Hai risposto: <b>${esc(SCELTE[risposta] || risposta)}</b>${risposta === 'non_laser' && st.procurati[chiave(v)] ? ` · da procurare come <b>${esc(st.procurati[chiave(v)])}</b>` : ''}</div>` : ''}
         <div class="lz-decidi">
           <button class="lz-btn pri" type="button" data-c="giusto" ${lt && !lt.ha_contorno && nuovo ? 'disabled' : ''}><span>${LZ.ico('check')}Sì, è il pezzo giusto</span>${LZ.tasto('Invio')}</button>
           <button class="lz-btn" type="button" data-c="scegli"><span>${LZ.ico('mouse-pointer-click')}No, lo scelgo io sul disegno</span>${LZ.tasto('S')}</button>
@@ -224,7 +243,7 @@
     LZ.metti(document.getElementById('lz-ctl-lato'), `
       <div class="ord"><b>${esc(o.cliente || '')}</b><span class="mono">${esc(LZ.numero(o))}</span></div>
       <div class="cod">${esc(p.codice || '')}</div>
-      ${st.modo === 'pezzi' ? '' : dati}${rigaOrd}${corpo}
+      ${st.modo === 'pezzi' || st.modo === 'procura' ? '' : dati}${rigaOrd}${corpo}
       ${st.attesa ? '<div class="lz-sicuro"><span class="lz-gira" style="display:inline-grid">' + LZ.ico('loader-circle') + '</span>Salvo…</div>' : ''}
       ${st.solo ? '' : `<div class="lz-fondo"><button class="lz-btn" type="button" data-c="indietro" ${st.i ? '' : 'disabled'}>${LZ.ico('arrow-left')}Indietro</button>
         <button class="lz-btn" type="button" data-c="salta" ${st.i < st.coda.length - 1 ? '' : 'disabled'}>Salta${LZ.ico('arrow-right')}</button></div>`}`);
@@ -369,7 +388,7 @@
     const g = f.querySelector('.fg-scelte'); if (g) g.innerHTML = '';
     const rec = st.letture[chiave(voce())];
     const leg = f.querySelector('.lz-leg');
-    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
+    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.contorno_tuo ? '<i></i>In verde: il contorno che hai scelto tu' : rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
     lato();
   }
 
@@ -407,7 +426,7 @@
     const g = f.querySelector('.fg-pf'); if (g) g.remove();
     const rec = st.letture[chiave(voce())];
     const leg = f.querySelector('.lz-leg');
-    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
+    if (leg) { leg.classList.remove('blu'); leg.innerHTML = rec && rec.d && rec.d.contorno_tuo ? '<i></i>In verde: il contorno che hai scelto tu' : rec && rec.d && rec.d.ha_contorno ? '<i></i>In verde: il pezzo che taglierei' : 'Il motore non ha trovato un contorno: sceglilo tu (S)'; }
     lato();
   }
 
@@ -465,6 +484,11 @@
   /** Codice e quantita' scritti nell'elenco: si aggiorna lo stato senza
       ridisegnare il pannello (il cursore resta dov'e'). */
   function alCambio(e) {
+    if (st && st.pr && e.target.dataset && e.target.dataset.pr) {
+      const k = e.target.dataset.pr;
+      st.pr[k] = e.target.value;
+      return;
+    }
     if (!st || !st.pf || !st.pf.pezzi) return;
     const t = e.target, d = t.dataset || {};
     const n = v => Math.max(0, Math.round(Number(String(v).replace(',', '.')) || 0));
@@ -589,8 +613,106 @@
     C.chiudi();
   }
 
+  // ── Non e' da laser: cosa procurare (N, poi T/L/M/C/A) ──────────────
+  const urlPr = v => `/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}/procura-proposta`;
+
+  async function entraProcura() {
+    if (!st || st.attesa || st.modo === 'procura') return;
+    if (st.modo === 'scegli') esciScegli();
+    if (st.modo === 'pezzi') esciPezzi();
+    const v = voce(), k = chiave(v);
+    st.modo = 'procura';
+    st.pr = { carica: true, tipo: null, profilo: '', lunghezza: '', nota: '' };
+    lato();
+    const r = await LZ.get(urlPr(v));
+    if (!st || chiave(voce()) !== k || st.modo !== 'procura') return;
+    const pr = st.pr;
+    pr.carica = false;
+    if (r.ok) {
+      pr.proposta = r.d.proposta || {};
+      pr.attuale = r.d.attuale || null;
+      pr.quantita = r.d.quantita;
+      // gia' classificato: si riparte da li'; se no dalla proposta del motore
+      const a = pr.attuale, pp = pr.proposta;
+      pr.tipo = (a && a.tipo) || pp.tipo || null;
+      // i campi gia' scritti a mano nel frattempo non si toccano
+      if (!pr.profilo) pr.profilo = (a ? a.profilo : pp.profilo) || '';
+      if (!pr.lunghezza) pr.lunghezza = String((a ? a.lunghezza_mm : pp.lunghezza_mm) || '');
+      if (!pr.nota) pr.nota = (a && a.nota) || '';
+    } else {
+      pr.errore = r.d.error || 'Proposta non letta';
+    }
+    lato();
+  }
+  function esciProcura() {
+    if (!st) return;
+    st.modo = 'vedi'; st.pr = null;
+    lato();
+  }
+  const nomeTipo = tipo => (PROCURA.find(x => x.tipo === tipo) || {}).t || tipo;
+
+  function procuraHtml(p) {
+    const pr = st.pr || {};
+    const pp = pr.proposta || {};
+    let testa = '';
+    if (pr.carica) testa = `<div class="lz-sicuro"><span class="lz-gira" style="display:inline-grid">${LZ.ico('loader-circle')}</span>Guardo la riga dell'ordine e il disegno…</div>`;
+    else if (pr.errore) testa = `<div class="lz-risposta">Proposta non letta (${esc(pr.errore)}): scegli tu.</div>`;
+    else if (pr.attuale) testa = `<div class="lz-risposta">Già in «Da procurare» come <b>${esc(nomeTipo(pr.attuale.tipo))}</b> (${esc(String(pr.attuale.stato).replace('_', ' '))}): scegli di nuovo per cambiarlo.</div>`;
+    else if (pp.tipo) {
+      const l = pp.lunghezza_mm ? `, ${FT.numero(pp.lunghezza_mm)} mm` : '';
+      testa = `<div class="lz-risposta lz-pr-prop">Il motore pensa: <b>${esc(nomeTipo(pp.tipo))}</b>${pp.profilo ? ` — ${esc(pp.profilo)}${esc(l)}` : ''}
+        <small>${esc(pp.sezione ? 'C\'è una sezione di tubo nel disegno: tubo (T) o laser tubo (L)?'
+          : `letto ${pp.fonte === 'cartiglio' ? 'nel cartiglio' : `nella ${pp.fonte || 'descrizione'}`}${pp.testo ? ': «' + pp.testo + '»' : ''}`)}</small>
+        ${pp.solo_parola ? '<small>Senza misure: scrivi tu il profilo.</small>' : ''}
+        ${(pp.sezione || pp.solo_parola) && pp.lunghezza_mm ? '<small>Lunghezza presa dal disegno: controllala.</small>' : ''}
+        <small>Decidi tu col tasto.</small></div>`;
+    } else testa = '<div class="lz-risposta">Il motore non ha letto un profilo: scegli tu.</div>';
+    const q = pr.quantita != null ? pr.quantita : p.quantita;
+    const sugg = new Set([pp.tipo, pp.alternativa].filter(Boolean));
+    return `<div class="lz-scegli-guida"><b>Non è da laser: cosa serve?</b>Resta fuori da Lantek e va in «Da procurare»${q ? ` (${FT.numero(q)} pz)` : ''}, così qualcuno lo procura.</div>
+      ${testa}
+      <div class="lz-decidi lz-pr-tasti">
+        ${PROCURA.map(x => `<button class="lz-btn${pr.tipo === x.tipo ? ' pri' : sugg.has(x.tipo) ? ' suggerito' : ''}" type="button" data-c="pr-${x.tipo}" ${pr.carica ? 'disabled' : ''}>
+          <span>${LZ.ico(x.ico)}<span class="tt">${esc(x.t)}<small>${esc(x.s)}</small></span></span>${LZ.tasto(x.k.toUpperCase())}</button>`).join('')}
+        <button class="lz-btn" type="button" data-c="pr-esci"><span>${LZ.ico('arrow-left')}Torna al disegno</span>${LZ.tasto('Esc')}</button>
+      </div>
+      <div class="lz-pr-campi">
+        <label class="lungo">Profilo <input type="text" maxlength="80" data-pr="profilo" data-fuoco="pr-profilo" value="${esc(pr.profilo || '')}" placeholder="es. Tubo quadro 40x40 sp.2mm" spellcheck="false"></label>
+        <label>Lunghezza <span class="mm"><input type="text" inputmode="decimal" maxlength="8" data-pr="lunghezza" data-fuoco="pr-lunghezza" value="${esc(pr.lunghezza || '')}" placeholder="—"> mm</span></label>
+        <label class="lungo">Nota <input type="text" maxlength="200" data-pr="nota" data-fuoco="pr-nota" value="${esc(pr.nota || '')}" placeholder="${pr.tipo === 'altro' ? 'serve per «Altro»: cos\'è?' : 'facoltativa'}"></label>
+      </div>
+      ${pr.tipo && !pr.carica ? `<div class="lz-pr-invio">${LZ.tasto('Invio')} conferma <b>${esc(nomeTipo(pr.tipo))}</b></div>` : ''}`;
+  }
+
+  /** Un tasto T/L/M/C/A (o Invio sul tipo gia' scelto): si salva e si va avanti. */
+  function confermaProcura(tipo) {
+    if (!st || !st.pr || st.pr.carica || st.attesa) return;
+    const pr = st.pr;
+    if (!tipo) { FT.toast('Scegli cosa serve: T, L, M, C o A', 'warn'); return; }
+    if (tipo === 'altro' && !String(pr.nota || '').trim()) {
+      pr.tipo = 'altro';
+      lato();
+      const n = document.querySelector('#lz-ctl-lato [data-pr="nota"]');
+      if (n) n.focus();
+      FT.toast('Altro: scrivi una nota corta, poi Invio', '');
+      return;
+    }
+    const l = String(pr.lunghezza || '').trim().replace(',', '.');
+    if (l && !(Number(l) >= 1 && Number(l) <= 24000)) {
+      FT.toast('Lunghezza non valida: scrivi i mm (1-24000)', 'warn');
+      const n = document.querySelector('#lz-ctl-lato [data-pr="lunghezza"]');
+      if (n) n.focus();
+      return;
+    }
+    const dati = { tipo, profilo: String(pr.profilo || '').trim() || null, lunghezza_mm: l ? Number(l) : null,
+                   nota: String(pr.nota || '').trim() || null };
+    st.procurati[chiave(voce())] = nomeTipo(tipo);
+    st.modo = 'vedi'; st.pr = null;
+    rispondi('non_laser', dati);
+  }
+
   // ── Risposte ────────────────────────────────────────────────────────
-  async function rispondi(scelta) {
+  async function rispondi(scelta, procura) {
     if (!st || st.attesa) return;
     const v = voce(), p = pezzo(v), k = chiave(v);
     const base = `/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}`;
@@ -603,6 +725,7 @@
       url = base + '/contorno'; corpo = { outer_xy: c.outer_xy, holes_xy: c.holes_xy || [], pagina: 'laser' };
     } else {
       url = base + '/decisione'; corpo = { scelta };
+      if (scelta === 'non_laser' && procura) corpo.procura = procura;
     }
     const prima = { decisione: p.decisione, da_controllare: p.da_controllare };
     st.risposte[k] = scelta;
@@ -644,6 +767,7 @@
         return;
       }
       if (r.d.pronto_lantek === false && r.d.motivo) FT.toast(`${p.codice}: ${r.d.motivo}`, 'warn', null, 9000);
+      if (r.d.procura && LZ.procura) LZ.procura.conta();
     });
   }
   function segnaSalvataggi() {
@@ -670,6 +794,9 @@
     if (!c) return;
     const a = c.dataset.c;
     if (a === 'pezzi') entraPezzi();
+    else if (a === 'non_laser') entraProcura();
+    else if (a === 'pr-esci') esciProcura();
+    else if (a.startsWith('pr-')) confermaProcura(a.slice(3));
     else if (a === 'pf-esci') esciPezzi();
     else if (a === 'pf-conferma') confermaPezzi();
     else if (a === 'pf-annulla') annullaPezzi();
@@ -705,6 +832,23 @@
       if (k === '-') { zoom(1.4); return true; }
       return k === ' ' || k === 'Tab' ? false : true;
     }
+    if (st.modo === 'procura') {
+      // nei campi (profilo, lunghezza, nota) si scrive; Invio conferma, Esc esce dal campo
+      if (inCampo) {
+        if (k === 'Enter') { e.target.blur(); confermaProcura(st.pr && st.pr.tipo); return true; }
+        if (k === 'Escape') { e.target.blur(); return true; }
+        return false;
+      }
+      if (k === 'Escape') { esciProcura(); return true; }
+      if (st.attesa) return true;
+      const x = PROCURA.find(y => y.k === k);
+      if (x) { confermaProcura(x.tipo); return true; }
+      if (k === 'Enter') { confermaProcura(st.pr && st.pr.tipo); return true; }
+      if (k === '0') { tutto(); return true; }
+      if (k === '+' || k === '=') { zoom(1 / 1.4); return true; }
+      if (k === '-') { zoom(1.4); return true; }
+      return k === ' ' || k === 'Tab' ? false : true;
+    }
     if (k === 'Escape') { if (st.modo === 'scegli') esciScegli(); else C.chiudi(); return true; }
     if (st.attesa) return true;
     if (st.modo === 'scegli') {
@@ -719,7 +863,7 @@
       if (k === 's') { entraScegli(); return true; }
       if (k === 'v') { rispondi('sviluppo'); return true; }
       if (k === 'p') { entraPezzi(); return true; }
-      if (k === 'n') { rispondi('non_laser'); return true; }
+      if (k === 'n') { entraProcura(); return true; }
     }
     if (k === 'ArrowRight') { sposta(1); return true; }
     if (k === 'ArrowLeft') { sposta(-1); return true; }

@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="/ft-ui.css">
+<link rel="stylesheet" href="/procura.css?v=1">
 <script src="/ft-accesso.js" data-stazioni="ufficio"></script>
 <script src="/ft-ui.js"></script>
 <script src="/carico-laser.js"></script>
@@ -493,6 +494,10 @@ body.ft [hidden] { display: none !important; }
     <div class="imp-cerca-res" id="cerca-res" role="listbox"></div>
   </div>
   <div class="ft-topbar-end">
+    <!-- Da procurare (12/10/2026): tubi, laser tubo, meccanica, commerciali da
+         ordinare. Lo stesso pannello del laser (laser-procura.js, procura.css):
+         qui si prepara la richiesta d'offerta e si segna ordinato / arrivato. -->
+    <button class="lz-btn piccolo lz-procura-btn" id="lz-procura-btn" type="button" onclick="LZ.procura.apri()" title="Da procurare"><i data-lucide="package"></i><span>Da procurare <span class="n"></span></span></button>
     <span class="ft-live off imp-conn" id="conn-badge" title="Il server non risponde: i dati mostrati potrebbero essere vecchi">Offline</span>
     <div class="imp-notif">
       <button class="ft-icon-btn" id="notif-btn" onclick="toggleNotifPanel()" title="Notifiche" aria-label="Notifiche">
@@ -2523,7 +2528,10 @@ async function chiamaAzione(url, metodo, corpo, riuscito, annulla) {
   if (metodo !== 'DELETE') opt.body = JSON.stringify(corpo || {});
   const res = await api(u, opt);
   if (!riuscita(res)) return { ok: false, errore: msgErrore(res) };
-  if (riuscito) FT.toast(riuscito, 'ok', annulla);
+  // Gia' fatto da un'altra postazione un attimo prima: niente "Annulla", che
+  // annullerebbe il lavoro di un altro.
+  if (res.data && res.data.gia_fatto) FT.toast("Era già fatto (da un'altra postazione): nessuna modifica.", 'warn');
+  else if (riuscito) FT.toast(riuscito, 'ok', annulla);
   await caricaViste(true);
   updateFattBadge();
   if (drawerId) renderDrawer();
@@ -3398,7 +3406,8 @@ if (sessionStorage.getItem('wantsFs') === '1') {
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 </script>
-<script src="https://unpkg.com/lucide@latest"></script>
+<script src="/laser-procura.js?v=1"></script>
+<script src="/vendor/lucide.min.js"></script>
 <script>FT.icone();</script>
 </body>
 </html>

@@ -199,7 +199,7 @@ with sync_playwright() as p:
         check('riassunto: gia\' in Lantek, nuovi', 'già in Lantek' in testo, testo[:300])
         check('nessun invio prima della conferma', not finti['invia'])
         for r in pg.locator('#lz-lantek input[value="lantek"]').all():
-            r.check()
+            r.check(force=True)   # l'input sta sotto la sua etichetta (scelta a pulsante)
         pg.keyboard.press('Enter')
         pg.wait_for_function("document.querySelector('#lz-lantek') && document.querySelector('#lz-lantek').innerText.includes('Mandato a Lantek')", timeout=60000)
         dett = pg.evaluate(f'LZ.s.dett["{oid}"].dati.invio')

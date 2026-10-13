@@ -13,6 +13,8 @@ stessa cosa:
   GET  /api/orders/<id>/pezzi/<pz>/foglio.svg lo stesso foglio come immagine
   POST /api/orders/<id>/pezzi/<pz>/giusto     "si', e' il pezzo giusto"
   POST /api/orders/<id>/pezzi/<pz>/decisione  va sviluppato / piu' pezzi / non da laser
+                                              (con N: cosa procurare, backend/procura.py)
+  GET  /api/orders/<id>/pezzi/<pz>/procura-proposta  cosa proporre col tasto N
 
 Lantek si legge e basta (lantek.py, sola lettura): niente qui manda niente a
 Lantek, lo fa solo /lantek-invia dopo la conferma.
@@ -146,6 +148,10 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
     from . import lantek as _lt
     stato = stato_laser(order)
     righe_dist, righe_pdf, esclusi = A._distinta_lantek_con_esclusi(order)
+    # le righe tubolari della distinta finiscono da sole in "Da procurare"
+    if righe_dist and not righe_pdf:
+        from . import procura as _pc
+        _pc.sincronizza_righe(order.id, righe_dist)
     lam = [r for r in righe_dist if r.get('tipo') == 'lamiera' and r.get('codice')]
     tutte_lam = lam + [x['_riga'] for x in esclusi if x.get('_riga')]
     altri = [r for r in righe_dist if r.get('tipo') != 'lamiera']
@@ -274,6 +280,17 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
             })
 
     invio_codici = [r['codice'] for r in _lt.righe_per_xml(q['righe'])] if q else []
+    # codici "da correggere in Lantek" (lantek_correzioni.py): finche' Lantek
+    # non coincide non partono, e l'ordine non e' "tutto in Lantek"
+    from . import lantek_correzioni as _lc
+    in_prod = ({str(r['codice']).strip().upper() for r in q['righe'] if r.get('in_produzione')}
+               if q and lt.get('disponibile') else None)
+    try:
+        corr = _lc.stato(order.id, in_prod)
+    except Exception:
+        logger.warning('correzioni Lantek non lette per %s', order.id, exc_info=True)
+        corr = {'correzioni': [], 'n_correggere': 0, 'n_corretti': 0}
+    fermi = {c['codice'].strip().upper() for c in corr['correzioni'] if c['stato'] == 'da_correggere'}
     da_abbinare_n = len((pdf or {}).get('da_abbinare') or [])
     n_codici = len({str(r['codice']).strip().lower() for r in tutte_lam})
     out = {
@@ -289,16 +306,19 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         'lantek': {'letto': q is not None, 'disponibile': bool(lt.get('disponibile')),
                    'errore': lt.get('errore'), 'crea_pezzi': bool(procesos),
                    'invio_automatico': bool(q is not None and _lt.xmlimporter_disponibile())},
-        'n_invio': len(invio_codici) + len(nuovi_si),
+        'n_invio': len([c for c in invio_codici if str(c).strip().upper() not in fermi]) + len(nuovi_si),
         'n_in_produzione': sum(1 for r in (q or {}).get('righe') or [] if r.get('in_produzione')),
         'dopo_laser': dopo,
+        'correzioni': corr['correzioni'],
+        'n_correggere': corr['n_correggere'], 'n_corretti': corr['n_corretti'],
     }
     out['pronto'] = bool(out['lantek']['disponibile'] and not n_controllare and not bloccati
                          and not da_abbinare_n and out['n_invio'])
     # niente da mandare e niente in sospeso: i codici hanno gia' l'ordine di
     # produzione in Lantek (o sono tenuti fuori)
     out['tutto_in_lantek'] = bool(out['lantek']['disponibile'] and not out['n_invio'] and not n_controllare
-                                  and not bloccati and not da_abbinare_n and n_codici)
+                                  and not bloccati and not da_abbinare_n and n_codici
+                                  and not corr['n_correggere'])
     if completa:
         righe_q = {r['codice']: r for r in (q or {}).get('righe') or []}
         out.update({
@@ -321,24 +341,42 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                            for c in invio_codici for a in (righe_q.get(c) or {}).get('avvisi') or []
                            if not a.startswith('non ancora in Lantek')],
             'pdf': pdf,
+            # chi ha gia' scelto "va bene Lantek" per un codice da correggere
+            'usa_lantek': [c for c in _lc.usa_lantek(order.id) if c in invio_codici],
         })
     return out
 
 
-def con_taglia_entro(order, a: dict, cal=None) -> dict:
+def _procura_ordine(order_id) -> dict:
+    """Le voci "da procurare" non arrivate di un ordine (procura.riassunto_per_ordini)."""
+    try:
+        from . import procura as _pc
+        return _pc.riassunto_per_ordini([order_id]).get(order_id) or {}
+    except Exception:
+        logger.warning('da procurare non letto per %s', order_id, exc_info=True)
+        return {}
+
+
+def con_taglia_entro(order, a: dict, cal=None, procura: dict | None = None) -> dict:
     """Il riassunto con il "taglia entro" dell'ordine. Si calcola ADESSO (non
-    sta nella cache): la data scelta a mano e la consegna si vedono subito."""
+    sta nella cache): la data scelta a mano e la consegna si vedono subito.
+    procura: le voci "da procurare" non arrivate dell'ordine (None = si
+    leggono qui): laser tubo e meccanica dal fornitore contano come
+    lavorazione esterna (+5); servono anche al chip "Da procurare (N)"."""
     from . import taglia_entro as _te
     cal = cal if cal is not None else _app()._cal_config()
     flag = getattr(order, 'lavorazione_esterna', None)
     nota = getattr(order, 'lavorazione_esterna_nota', None) or ''
+    pc = procura if procura is not None else _procura_ordine(order.id)
     # la spunta "Lavorazione esterna" vale subito (non sta nella cache)
-    ant = (_te.anticipo_da(_te.con_esterna(a['dopo_laser'], flag, nota), cal)
-           if a.get('dopo_laser') or flag is not None else None)
+    ant = (_te.anticipo_da(_te.con_procura(_te.con_esterna(a['dopo_laser'], flag, nota), pc.get('esterne')), cal)
+           if a.get('dopo_laser') or flag is not None or pc.get('esterne') else None)
     te = _te.taglia_entro(getattr(order, 'data_consegna', None), ant, cal,
                           getattr(order, 'data_taglio_pianificata', None))
     return {**a, 'taglia_entro': te,
-            'lavorazione_esterna': {'valore': flag, 'nota': nota}}
+            'lavorazione_esterna': {'valore': flag, 'nota': nota},
+            'procura': {'n': pc.get('n') or 0, 'n_da_ordinare': pc.get('n_da_ordinare') or 0,
+                        'n_ordinati': pc.get('n_ordinati') or 0, 'n_scaduti': pc.get('n_scaduti') or 0}}
 
 
 @bp_laser.route('/api/orders/<order_id>/lavorazione-esterna', methods=['POST'])
@@ -432,13 +470,20 @@ def api_laser_ordini():
             session.close()
         out = {}
         cal = _app()._cal_config()
+        from . import procura as _pc
+        try:
+            _pc.sincronizza_tutti()
+            proc = _pc.riassunto_per_ordini([o.id for o in ordini])
+        except Exception:
+            logger.warning('da procurare non letto', exc_info=True)
+            proc = {}
         for o in ordini:
             try:
                 out[o.id] = _analisi_in_cache(o, forza=fresco or bool(solo))
             except Exception as e:
                 logger.exception('analisi laser di %s fallita', o.id)
                 out[o.id] = {'id': o.id, 'stato': stato_laser(o), 'errore': str(e)[:200]}
-            out[o.id] = con_taglia_entro(o, out[o.id], cal)
+            out[o.id] = con_taglia_entro(o, out[o.id], cal, proc.get(o.id) or {})
         return jsonify({'success': True, 'ordini': out}), 200
     except Exception as e:
         logger.exception('elenco laser fallito')
@@ -461,13 +506,46 @@ def api_ordine_laser(order_id):
         a = analisi(order, completa=True, con_lantek=True)
         # anche l'elenco vede subito lo stesso stato
         ridotto = {k: v for k, v in a.items() if k not in ('pezzi', 'altri', 'esclusi', 'invio', 'differenze',
-                                                          'pdf', 'commessa', 'cliente_lantek', 'consegna_lantek')}
+                                                          'pdf', 'commessa', 'cliente_lantek', 'consegna_lantek',
+                                                          'usa_lantek')}
         with _LOCK:
             _CACHE[order.id] = (time.time(), ridotto)
-        return jsonify({'success': True, **con_taglia_entro(order, a)}), 200
+        from . import procura as _pc
+        return jsonify({'success': True, **con_taglia_entro(order, a),
+                        'procura_voci': _pc.elenco('tutti', ordine=order.id)}), 200
     except Exception as e:
         logger.exception('ordine laser fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bp_laser.route('/api/orders/<order_id>/lantek-correzioni', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_lantek_correzione(order_id):
+    """Un codice "da correggere in Lantek": chi l'ha deciso cambia idea e va
+    bene il valore che c'e' in Lantek. La correzione si chiude e il codice
+    si puo' mandare subito (sempre con la conferma di "Manda a Lantek").
+
+    Corpo: {"codice": "11PCOPA0025-01", "azione": "usa_lantek"}"""
+    A = _app()
+    from . import lantek_correzioni as _lc
+    try:
+        if not A._ordine_esistente(order_id):
+            return A._non_trovato_ordine()
+        corpo = request.get_json(silent=True) or {}
+        codice = str(corpo.get('codice') or '').strip()
+        if corpo.get('azione') != 'usa_lantek' or not codice:
+            return jsonify({'success': False, 'error': 'Serve il codice e azione "usa_lantek"'}), 400
+        chiuse = _lc.chiudi(order_id, [codice], 'usa_lantek', A._chi_nome())
+        if not chiuse:
+            return jsonify({'success': False, 'codice': 'non_trovato',
+                            'error': f'{codice} non è fra i codici da correggere di quest\'ordine'}), 404
+        A._audit('LANTEK_USA_LANTEK', 'orders', order_id,
+                 f"{codice}: va bene com'è in Lantek (non più da correggere: era {_lc.descrivi(chiuse[0])})")
+        invalida(order_id)
+        return jsonify({'success': True, 'codice': chiuse[0]['codice']}), 200
+    except Exception as e:
+        logger.exception('correzione Lantek non salvata')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -700,6 +778,74 @@ def _pezzo(order_id, articolo_id):
     return order, art, percorso, None
 
 
+def _sposta_dxf_lantek(order, art, percorso, materiale, spessore) -> int:
+    """Cambiati spessore o materiale: i DXF per Lantek del pezzo (e dei pezzi del
+    foglio) vanno nella cartella della lamiera giusta (LANTEK/<lamiera>/).
+    Ritorna quanti file ha spostato."""
+    import glob
+    import shutil
+    A = _app()
+    cart = os.path.join(A.DRAWINGS_FOLDER, order.id, 'LANTEK')
+    dest_dir = os.path.join(cart, A._nome_lamiera(materiale, spessore))
+    nomi = []
+    if percorso:
+        nomi.append(A._nome_base_disegno(os.path.basename(percorso)))
+    for pz in art.get('pezzi_foglio') or []:
+        if isinstance(pz, dict) and pz.get('codice'):
+            nomi.append(str(pz['codice']) + '.dxf')
+    n = 0
+    for nome in nomi:
+        for f in glob.glob(os.path.join(cart, '*', nome)):
+            if A.CARTELLA_DA_PREPARARE in f or os.path.dirname(f) == dest_dir:
+                continue
+            os.makedirs(dest_dir, exist_ok=True)
+            shutil.move(f, os.path.join(dest_dir, nome))
+            n += 1
+    return n
+
+
+def _contorno_salvato(order, art, percorso) -> dict | None:
+    """Il contorno scelto a mano (o confermato) per questo pezzo, in mm come il
+    foglio: dal campo salvato o, per i pezzi salvati prima, dal DXF per Lantek
+    scritto dal contorno scelto (polilinee chiuse sul TAGLIO)."""
+    cs = art.get('contorno_scelto')
+    if isinstance(cs, dict) and cs.get('outer'):
+        return {'outer': cs['outer'], 'holes': cs.get('holes') or []}
+    dec = (art.get('decisione_laser') or {}).get('scelta')
+    if dec not in ('scelto', 'giusto'):
+        return None
+    try:
+        import glob
+        import ezdxf
+        A = _app()
+        nome = A._nome_base_disegno(os.path.basename(percorso))
+        cart = os.path.join(A.DRAWINGS_FOLDER, order.id, 'LANTEK')
+        for f in glob.glob(os.path.join(cart, '*', nome)):
+            if A.CARTELLA_DA_PREPARARE in f:
+                continue
+            doc = ezdxf.readfile(f)
+            anelli = []
+            for e in doc.modelspace().query('LWPOLYLINE[layer=="TAGLIO"]'):
+                if e.closed:
+                    anelli.append([[float(x), float(y)] for x, y, *_ in e.get_points()])
+            if not anelli:
+                return None
+            from shapely.geometry import Polygon
+            anelli.sort(key=lambda a: -Polygon(a).area if len(a) >= 3 else 0)
+            # solo se sta nel foglio (i puliti copiati dal disegno possono essere spostati)
+            gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+            bb = gj.get('extents')
+            xs = [p[0] for p in anelli[0]]
+            ys = [p[1] for p in anelli[0]]
+            if bb and len(bb) == 4 and not (bb[0] - 1 <= min(xs) and max(xs) <= bb[2] + 1
+                                            and bb[1] - 1 <= min(ys) and max(ys) <= bb[3] + 1):
+                return None
+            return {'outer': anelli[0], 'holes': anelli[1:]}
+    except Exception:
+        logger.warning('contorno salvato non letto per %s', percorso, exc_info=True)
+    return None
+
+
 def _foglio(percorso: str) -> dict:
     """{svg, vista, contorno, avvisi, confidenza} del foglio, in cache."""
     try:
@@ -844,6 +990,12 @@ def api_pezzo_lettura(order_id, articolo_id):
         if err:
             return err
         f = _foglio(percorso)
+        # contorno scelto (o confermato) a mano: si mostra quello, non il motore
+        tuo = _contorno_salvato(order, art, percorso)
+        if tuo:
+            gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+            svg_tuo, vista_tuo = svg_foglio(gj, tuo)
+            f = {**f, 'svg': svg_tuo, 'vista': vista_tuo, 'contorno': tuo}
         mt = A._stato_motore(art)
         perche = list(mt.get('motivi') or [])
         for b in A.motivi_brevi(f['avvisi']):
@@ -855,7 +1007,7 @@ def api_pezzo_lettura(order_id, articolo_id):
             logger.warning('riga dell\'ordine non letta per %s', art.get('codice'), exc_info=True)
             riga = None
         return jsonify({'riga_ordine': riga,'success': True, 'codice': art.get('codice'), 'svg': f['svg'], 'vista': f['vista'],
-                        'ha_contorno': bool(f['contorno']), 'perche': perche[:3],
+                        'ha_contorno': bool(f['contorno']), 'contorno_tuo': bool(tuo), 'perche': perche[:3],
                         'suggerimento': f.get('suggerimento'),
                         'motore': mt.get('stato'), 'decisione': mt.get('decisione'),
                         'misure': [art.get('bbox_w_mm'), art.get('bbox_h_mm')]}), 200
@@ -984,6 +1136,91 @@ _SCELTE = {'sviluppo': 'va sviluppato', 'piu_pezzi': "ci sono più pezzi: da far
            'non_laser': "non è da laser"}
 
 
+def _procura_dal_corpo(corpo: dict):
+    """{tipo, profilo, lunghezza_mm, nota} mandato col tasto N, controllato.
+    (dati, None) o (None, errore); (None, None) se non c'e'."""
+    from . import procura as _pc
+    pr = corpo.get('procura')
+    if pr is None:
+        return None, None
+    if not isinstance(pr, dict) or pr.get('tipo') not in _pc.TIPI:
+        return None, 'Cosa procurare? tubo, laser_tubo, meccanica, commerciale o altro'
+    lung = pr.get('lunghezza_mm')
+    if lung not in (None, ''):
+        try:
+            lung = round(float(str(lung).replace(',', '.')), 1)
+        except (TypeError, ValueError):
+            return None, 'Lunghezza non valida: scrivi i mm'
+        if not 1 <= lung <= 24000:
+            return None, 'Lunghezza fuori misura (1-24000 mm)'
+    else:
+        lung = None
+    nota = str(pr.get('nota') or '').strip()[:200]
+    if pr['tipo'] == 'altro' and not nota:
+        return None, "Per \"Altro\" scrivi una nota corta: cos'è"
+    return {'tipo': pr['tipo'], 'profilo': str(pr.get('profilo') or '').strip()[:80] or None,
+            'lunghezza_mm': lung, 'nota': nota or None}, None
+
+
+def _quantita_distinta(order, articolo_id) -> int:
+    """Pezzi in tutto del pezzo nell'ordine (quantita' x assieme, come la distinta)."""
+    try:
+        for r in _app()._distinta_ordine(order)[0]:
+            if r.get('tipo') == 'lamiera' and str(r.get('articolo_id')) == str(articolo_id):
+                return max(1, int(r.get('quantita') or 1))
+    except Exception:
+        logger.warning("quantita' del pezzo non letta", exc_info=True)
+    return 1
+
+
+def _testi_riga(order, art) -> list:
+    """Le descrizioni della riga dell'ordine del cliente del pezzo."""
+    try:
+        riga = riga_ordine_di(order, art)
+        return [str(r['descrizione']) for r in (riga or {}).get('righe') or [] if r.get('descrizione')]
+    except Exception:
+        logger.warning("riga dell'ordine non letta per %s", (art or {}).get('codice'), exc_info=True)
+        return []
+
+
+def _profilo_cartiglio(percorso) -> str | None:
+    if not (percorso and str(percorso).lower().endswith('.dxf')):
+        return None
+    try:
+        from .preventivi.verifica_coerenza import descrizione_profilo
+        return descrizione_profilo(percorso)
+    except Exception:
+        return None
+
+
+@bp_laser.route('/api/orders/<order_id>/pezzi/<articolo_id>/procura-proposta', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_pezzo_procura_proposta(order_id, articolo_id):
+    """Cosa proporre quando il laser dice "non e' da laser" (tasto N): il
+    profilo e la lunghezza letti nella riga dell'ordine del cliente o nel
+    cartiglio ("Tubo 40x40x2 Lg. 795", "Angolare 50x5"...), o una sezione di
+    tubo disegnata. Solo un suggerimento: decide il tasto.
+    {success, proposta: {tipo, profilo, lunghezza_mm, fonte, testo, sezione,
+     alternativa}, attuale: la voce gia' salvata o null, quantita}"""
+    A = _app()
+    from . import procura as _pc
+    try:
+        order = A._ordine_esistente(order_id)
+        if not order:
+            return A._non_trovato_ordine()
+        art, percorso = A._articolo_ordine(order, articolo_id)
+        if not art:
+            return jsonify({'success': False, 'error': "Pezzo non trovato in quest'ordine"}), 404
+        prop = _pc.proposta(_testi_riga(order, art), _profilo_cartiglio(percorso), percorso,
+                            [art.get('bbox_w_mm'), art.get('bbox_h_mm')])
+        attuale = next((v for v in _pc.elenco('tutti', ordine=order.id) if v['chiave'] == f'art:{articolo_id}'), None)
+        return jsonify({'success': True, 'proposta': prop, 'attuale': attuale,
+                        'quantita': _quantita_distinta(order, articolo_id)}), 200
+    except Exception as e:
+        logger.exception('proposta da procurare fallita')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
 @bp_laser.route('/api/orders/<order_id>/pezzi/<articolo_id>/decisione', methods=['POST'])
 @richiede('laser', 'ufficio')
 def api_pezzo_decisione(order_id, articolo_id):
@@ -991,13 +1228,22 @@ def api_pezzo_decisione(order_id, articolo_id):
 
     Corpo: {"scelta": "sviluppo" | "piu_pezzi" | "non_laser"} oppure
     {"scelta": null} per toglierla. Il pezzo resta fuori da "Manda a Lantek"
-    col suo motivo; finisce anche nel registro degli esempi del motore."""
+    col suo motivo; finisce anche nel registro degli esempi del motore.
+
+    Con "non_laser" si dice anche cosa procurare (tasto N, poi T/L/M/C/A):
+    "procura": {"tipo": "tubo" | "laser_tubo" | "meccanica" | "commerciale" |
+    "altro", "profilo": "Tubo quadro 40x40 sp.2mm", "lunghezza_mm": 795,
+    "nota": "..."} -> la voce in "Da procurare" (backend/procura.py). Tolta o
+    cambiata la decisione, la voce si toglie (se non e' gia' ordinata)."""
     A = _app()
     try:
         corpo = request.get_json(silent=True) or {}
         scelta = corpo.get('scelta')
         if scelta is not None and scelta not in _SCELTE:
             return jsonify({'success': False, 'error': 'Scelta non valida (sviluppo, piu_pezzi, non_laser)'}), 400
+        procura, err_pr = _procura_dal_corpo(corpo) if scelta == 'non_laser' else (None, None)
+        if err_pr:
+            return jsonify({'success': False, 'error': err_pr}), 400
         order = A._ordine_esistente(order_id)
         if not order:
             return A._non_trovato_ordine()
@@ -1017,8 +1263,28 @@ def api_pezzo_decisione(order_id, articolo_id):
         A._audit('PEZZO_DECISIONE', 'orders', order_id,
                  f"Pezzo {art.get('codice') or articolo_id}: "
                  + (_SCELTE[scelta] + ' (fuori da Lantek)' if scelta else 'decisione tolta'))
+        from . import procura as _pc
+        voce = None
+        if scelta == 'non_laser' and procura:
+            testi = _testi_riga(order, art)
+            voce = _pc.classifica(order_id, articolo_id, tipo=procura['tipo'], codice=art.get('codice'),
+                                  descrizione=(testi[0] if testi else None) or _profilo_cartiglio(_percorso),
+                                  profilo=procura['profilo'], lunghezza_mm=procura['lunghezza_mm'],
+                                  quantita=_quantita_distinta(order, articolo_id),
+                                  materiale=art.get('materiale'), nota=procura['nota'], chi=chi)
+            det = ', '.join(x for x in (procura['profilo'] or '',
+                                        f"{procura['lunghezza_mm']:g} mm" if procura['lunghezza_mm'] else '',
+                                        procura['nota'] or '') if x)
+            A._audit('PROCURA_CLASSIFICA', 'orders', order_id,
+                     f"{art.get('codice') or articolo_id}: da procurare come {_pc.TIPI[procura['tipo']]}"
+                     + (f' ({det})' if det else '') + f" · {voce['quantita']} pz")
+        elif scelta != 'non_laser':
+            via = _pc.togli_classificato(order_id, articolo_id)
+            if via and via.get('tolta'):
+                A._audit('PROCURA_TOLTA', 'orders', order_id,
+                         f"{art.get('codice') or articolo_id}: tolto da \"Da procurare\" (decisione cambiata)")
         invalida(order_id)
-        return jsonify({'success': True, 'scelta': scelta, 'prima': esito.get('prima')}), 200
+        return jsonify({'success': True, 'scelta': scelta, 'prima': esito.get('prima'), 'procura': voce}), 200
     except Exception as e:
         logger.exception('decisione sul pezzo fallita')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
@@ -1097,6 +1363,11 @@ def api_pezzo_dati(order_id, articolo_id):
             _lt._svuota_cache()
         except Exception:
             pass
+        try:
+            _sposta_dxf_lantek(order, art, _percorso, mat or art.get('materiale'),
+                               sp if sp is not None else art.get('spessore_mm'))
+        except Exception:
+            logger.warning('DXF per Lantek non spostato nella cartella del nuovo spessore', exc_info=True)
         invalida(order_id)
         return jsonify({'success': True, 'spessore_mm': sp, 'materiale': mat}), 200
     except Exception as e:

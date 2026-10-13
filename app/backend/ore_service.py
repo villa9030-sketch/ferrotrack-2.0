@@ -24,6 +24,8 @@ try:
 except Exception:  # pragma: no cover - fallback estremo
     _TZ = None
 
+from sqlalchemy.exc import IntegrityError, OperationalError
+
 from .database import get_session
 from .orario import iso_utc
 from .models import RUOLI_OPERAI, RUOLO_OPERAIO, User
@@ -486,6 +488,27 @@ def _normalizza_righe(righe, clienti_validi):
 # ---------------------------------------------------------------------------
 # Salvataggio
 # ---------------------------------------------------------------------------
+def _conflitto(session, operatore_id, d, richiesta_id=None) -> dict:
+    """Risposta di conflitto con lo stato ATTUALE della giornata (riletto).
+
+    Se chi ha vinto era la STESSA richiesta (doppio invio partito insieme),
+    non e' un conflitto: il salvataggio c'e' gia', si risponde come idempotente.
+    """
+    session.expire_all()
+    g = session.query(GiornataOre).filter(
+        GiornataOre.operatore_id == operatore_id, GiornataOre.data == d).first()
+    if g is not None and richiesta_id and g.ultima_richiesta_id == richiesta_id:
+        out = _serializza(g)
+        out['idempotente'] = True
+        return {'success': True, 'giornata': out}
+    stato = _serializza(g) if g is not None else {
+        'dichiarata': False, 'operatore_id': operatore_id,
+        'data': d.isoformat(), 'revisione': 0, 'righe': [], 'totale_minuti': 0}
+    return {'error': 'La giornata e\' stata modificata da qualcun altro. '
+                     'Controlla i dati aggiornati prima di salvare.',
+            'codice': 'conflitto', 'giornata': stato}
+
+
 def salva_giornata(operatore_id, data, righe, *, origine='tablet',
                    device_label=None, modificata_da=None,
                    revisione_attesa=None, richiesta_id=None, note=None,
@@ -554,24 +577,9 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
             except (TypeError, ValueError):
                 rev_attesa = -1
             if rev_attesa != rev_corrente:
-                stato = _serializza(g) if g is not None else {
-                    'dichiarata': False, 'operatore_id': operatore_id,
-                    'data': d.isoformat(), 'revisione': 0, 'righe': [], 'totale_minuti': 0}
-                return {'error': 'La giornata e\' stata modificata da qualcun altro. '
-                                 'Controlla i dati aggiornati prima di salvare.',
-                        'codice': 'conflitto', 'giornata': stato}
+                return _conflitto(session, operatore_id, d, richiesta_id)
 
         ora = datetime.utcnow()
-        # Storico: una giornata salvata prima che lo storico esistesse non ha
-        # versioni; la si fotografa com'era, prima di sostituirne le righe.
-        if g is not None and not session.query(VersioneGiornataOre.id).filter(
-                VersioneGiornataOre.giornata_id == g.id).first():
-            _fotografa(session, g, [{'cliente': r.cliente,
-                                     'attivita_interna': bool(r.attivita_interna),
-                                     'minuti': int(r.minuti or 0)}
-                                    for r in session.query(RigaOre).filter(
-                                        RigaOre.giornata_id == g.id).all()],
-                       quando=g.aggiornata_il or g.dichiarata_il)
         if g is None:
             g = GiornataOre(
                 id=str(uuid.uuid4()), operatore_id=operatore_id, data=d,
@@ -582,8 +590,37 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
                 scostamento_confermato=bool(scostamento_confermato),
             )
             session.add(g)
-            session.flush()
+            try:
+                session.flush()
+            except IntegrityError:
+                # Due postazioni hanno creato la stessa giornata nello stesso
+                # istante: il vincolo unico (operaio, data) fa vincere la prima.
+                session.rollback()
+                return _conflitto(session, operatore_id, d, richiesta_id)
         else:
+            # Confronta-e-scrivi ATOMICO: la revisione sale solo se e' ancora
+            # quella letta. E' la prima scrittura della transazione, quindi
+            # prende il blocco in scrittura di SQLite e vede l'ultimo dato
+            # salvato: se un'altra postazione ha salvato nel frattempo, qui
+            # non cambia nessuna riga e la richiesta diventa un conflitto (409)
+            # invece di sovrascrivere in silenzio.
+            n = session.query(GiornataOre).filter(
+                GiornataOre.id == g.id, GiornataOre.revisione == rev_corrente,
+            ).update({GiornataOre.revisione: rev_corrente + 1},
+                     synchronize_session=False)
+            if n != 1:
+                session.rollback()
+                return _conflitto(session, operatore_id, d, richiesta_id)
+            # Storico: una giornata salvata prima che lo storico esistesse non
+            # ha versioni; la si fotografa com'era, prima di sostituirne le righe.
+            if not session.query(VersioneGiornataOre.id).filter(
+                    VersioneGiornataOre.giornata_id == g.id).first():
+                _fotografa(session, g, [{'cliente': r.cliente,
+                                         'attivita_interna': bool(r.attivita_interna),
+                                         'minuti': int(r.minuti or 0)}
+                                        for r in session.query(RigaOre).filter(
+                                            RigaOre.giornata_id == g.id).all()],
+                           quando=g.aggiornata_il or g.dichiarata_il)
             g.revisione = rev_corrente + 1
             g.aggiornata_il = ora
             g.origine = origine
@@ -610,6 +647,14 @@ def salva_giornata(operatore_id, data, righe, *, origine='tablet',
         session.commit()
         session.refresh(g)
         return {'success': True, 'giornata': _serializza(g)}
+    except OperationalError as e:
+        session.rollback()
+        # "database is locked": un'altra postazione sta scrivendo da troppo.
+        # Niente e' stato salvato: si dice di riprovare, non "errore interno".
+        logger.warning('salva_giornata: database occupato: %s', e)
+        return {'error': 'Il server e\' occupato in questo momento: niente e\' stato '
+                         'salvato. Riprova tra qualche secondo.',
+                'codice': 'occupato'}
     except Exception as e:
         session.rollback()
         # Il dettaglio tecnico resta nei log del server: all'operaio va un
