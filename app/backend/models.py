@@ -604,7 +604,10 @@ class PreventivoPiastra(Base):
 
 
 # Configurazione database
-engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False})
+# timeout: quanto una scrittura aspetta che un'altra postazione finisca la sua
+# prima di arrendersi con "database is locked" (il default di sqlite3 e' 5 s,
+# poco quando un'analisi pesante scrive mentre tablet e ufficio salvano).
+engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False, 'timeout': 20})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 from sqlalchemy import event
