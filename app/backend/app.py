@@ -116,6 +116,9 @@ from .api_laser import bp_laser  # noqa: E402
 app.register_blueprint(bp_laser)
 from .api_pezzi_foglio import bp_pezzi_foglio  # noqa: E402
 app.register_blueprint(bp_pezzi_foglio)
+# Da procurare: tubi, laser tubo, meccanica, commerciali (backend/procura.py).
+from .api_procura import bp_procura  # noqa: E402
+app.register_blueprint(bp_procura)
 # Il controllo unico degli accessi, prima di qualunque altra cosa.
 from . import accesso  # noqa: E402
 from .accesso import richiede, identita, ADMIN, PUBBLICO, UFFICI  # noqa: E402,F401
@@ -1939,8 +1942,11 @@ def _segnalazioni_di_oggi(order_ids) -> dict:
         session.close()
 
 
-def _ordine_per_tablet(o, segnalazioni: dict, piatti=None) -> dict:
-    """Un ordine come lo mostra il tablet: testata, reparti, taglio, pezzi."""
+def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None) -> dict:
+    """Un ordine come lo mostra il tablet: testata, reparti, taglio, pezzi.
+    procura: {order_id: riassunto} dei pezzi "da procurare" non arrivati
+    (backend/procura.py): finche' mancano, l'ordine non e' pronto per il
+    montaggio e il tablet lo dice."""
     from .ordini_service import stato_taglio, fase_laser
     from . import tablet_officina as tab
     disegni = _disegni_ordine(o, piatti=piatti, righe_file=list(o.files or []))
@@ -2025,6 +2031,8 @@ def _ordine_per_tablet(o, segnalazioni: dict, piatti=None) -> dict:
         'has_pdf': bool(pdf and pdf.filepath and os.path.exists(pdf.filepath)),
         'pezzi': pezzi,
         'segnalazioni_oggi': segnalazioni.get(o.id, []),
+        'da_procurare': {'mancano': ((procura or {}).get(o.id) or {}).get('n') or 0,
+                         'in_ritardo': ((procura or {}).get(o.id) or {}).get('n_scaduti') or 0},
     }
 
 
@@ -2051,7 +2059,13 @@ def api_officina_tablet():
             ordini = [o for o in ordini if fase_ordine(o) == 'aperto']
             segnalazioni = _segnalazioni_di_oggi([o.id for o in ordini])
             piatti = _elenco_cartella(DRAWINGS_FOLDER)   # una volta, non per ogni ordine
-            out = [_ordine_per_tablet(o, segnalazioni, piatti) for o in ordini]
+            try:
+                from . import procura as _pc
+                proc = _pc.riassunto_per_ordini([o.id for o in ordini])
+            except Exception:
+                logger.warning('da procurare non letto per il tablet', exc_info=True)
+                proc = {}
+            out = [_ordine_per_tablet(o, segnalazioni, piatti, proc) for o in ordini]
         finally:
             session.close()
         ms = round((time.perf_counter() - t0) * 1000)
@@ -2275,11 +2289,19 @@ def api_laser_banco():
             # la distinta di ogni ordine li trova gia' in memoria
             _precarica_tempi_lantek(session, ordini)
             gruppi, senza = {}, []
+            # pezzi da procurare fatti fuori (laser tubo, meccanica): +5 come
+            # la lavorazione esterna (backend/procura.py)
+            try:
+                from . import procura as _pc
+                proc = _pc.riassunto_per_ordini([o.id for o in ordini])
+            except Exception:
+                logger.warning('da procurare non letto per il banco', exc_info=True)
+                proc = {}
             for o in ordini:
                 righe, origine, _prev = _distinta_ordine(o)
                 # il giorno in cui l'ordine pesa sul laser: "taglia entro"
                 # (consegna meno le lavorazioni dopo il laser, o scelto a mano)
-                entro[o.id] = _te.per_ordine(o, righe, origine, cal)['data']
+                entro[o.id] = _te.per_ordine(o, righe, origine, cal, (proc.get(o.id) or {}).get('esterne'))['data']
                 # il numero che conosce l'officina: quello dell'ordine del cliente
                 num_cli = ((_prev or {}).get('numero_ordine_cliente') or '').strip()
                 info = {'ordine_id': o.id, 'numero_ordine': num_cli or o.numero_ordine or '',

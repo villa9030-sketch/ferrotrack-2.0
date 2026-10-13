@@ -20,7 +20,7 @@
                       : { ...prima, carica: false, errore: (r.d && r.d.error) || 'Il server non ha risposto', t: Date.now() };
     if (r.ok) {
       // l'elenco vede subito lo stesso stato
-      const { pezzi, altri, esclusi, invio, differenze, pdf, usa_lantek, ...rid } = r.d;   // eslint-disable-line no-unused-vars
+      const { pezzi, altri, esclusi, invio, differenze, pdf, usa_lantek, procura_voci, ...rid } = r.d;   // eslint-disable-line no-unused-vars
       LZ.avvisaCorretti(id, S.riep[id], rid);
       S.riep[id] = rid;
     }
@@ -204,7 +204,7 @@
     const esterna = st === 'tagliato' ? '' : campoEsterna(o, te);
     return `<div class="lz-o-testa">
       <div class="lz-o-tit"><h2 title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</h2>
-        <div class="lz-o-sotto"><span class="mono">${esc(LZ.numero(o))}</span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}</div></div>
+        <div class="lz-o-sotto"><span class="mono">${esc(LZ.numero(o))}</span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${LZ.procura.chip(o)}</div></div>
       <div class="lz-o-az"><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
       <div class="lz-fatti">
         <div class="lz-entro"><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
@@ -411,9 +411,28 @@
     const tub = (d.altri || []).filter(x => x.tipo === 'tubolare');
     const note = [];
     if (ass.length) note.push(`${LZ.plur(ass.length, 'assieme', 'assiemi')} (<span class="mono">${ass.slice(0, 6).map(esc).join(', ')}${ass.length > 6 ? '…' : ''}</span>): non vanno al laser, i loro pezzi sono nelle righe sopra.`);
-    if (tub.length) note.push(`${LZ.plur(tub.length, 'tubolare', 'tubolari')}: si tagliano a parte, non al laser.`);
+    if (tub.length) note.push(`${LZ.plur(tub.length, 'tubolare', 'tubolari')}: non vanno al laser, sono in «Da procurare» qui sotto.`);
     if (note.length) h += `<p class="lz-sotto-tab">${note.join('<br>')}</p>`;
+    h += procuraHtml(o, d);
     return h;
+  }
+
+  /** I pezzi da procurare dell'ordine (tubi, laser tubo, meccanica,
+      commerciali) e a che punto sono. Il pannello "Da procurare" fa il resto. */
+  function procuraHtml(o, d) {
+    const vv = d.procura_voci || [];
+    if (!vv.length) return '';
+    const mancano = vv.filter(v => v.stato !== 'arrivato').length;
+    const st = v => v.stato === 'arrivato' ? `<span class="lz-st ok">${LZ.ico('check')}arrivato</span>`
+      : v.stato === 'ordinato' ? `<span class="lz-st${v.scaduta ? ' err' : ''}">${LZ.ico(v.scaduta ? 'clock-alert' : 'truck')}${esc(v.fornitore || 'ordinato')}${v.data_prevista ? ' · prev. ' + esc(FT.fmtDataBreve(v.data_prevista)) : ''}${v.scaduta ? ' (in ritardo)' : ''}</span>`
+        : `<span class="lz-st att">${LZ.ico('circle-dot')}da ordinare</span>`;
+    return `<section class="lz-o-procura" aria-label="Da procurare">
+      <div class="testa"><b>Da procurare</b><span>${mancano ? `${LZ.plur(mancano, 'pezzo manca', 'pezzi mancano')}: l'ordine non è pronto per il montaggio` : 'tutto arrivato'}</span>
+        <span class="sp"></span><button class="lz-btn piccolo" type="button" data-az="procura" data-fuoco="o-procura">${LZ.ico('package')}Apri «Da procurare»</button></div>
+      <table class="lz-tab"><tbody>${vv.map(v => `<tr><td><span class="lz-pc-tipo t-${esc(v.tipo)}">${esc(v.tipo_testo)}</span></td>
+        <td class="cod">${esc(v.codice || '—')}</td>
+        <td class="lav">${esc([v.profilo || v.descrizione, v.lunghezza_mm ? FT.numero(v.lunghezza_mm) + ' mm' : ''].filter(Boolean).join(' · ') || '—')}</td>
+        <td class="r q">${FT.numero(v.quantita)}</td><td>${st(v)}</td></tr>`).join('')}</tbody></table></section>`;
   }
 
   // ── Disegni ─────────────────────────────────────────────────────────
@@ -514,6 +533,7 @@
       case 'lantek': return LZ.lantek.apri([id]);
       case 'abbina': S.scheda = 'pezzi'; O.disegna(); return LZ.abbina && LZ.abbina.vai(id);
       case 'menu': return menuOrdine(o, ancora);
+      case 'procura': return LZ.procura.apri({ ordine: id, stato: 'tutti' });
       case 'usa-lantek': return ancora && O.usaLantek(id, ancora.dataset.codice);
       case 'pdf-stampa': {
         const f = document.getElementById('lz-pdf');
@@ -647,7 +667,8 @@
     const v = [{ tit: p.codice }];
     if (p.disegno && /\.dxf$/i.test(p.disegno)) v.push({ t: 'Apri il disegno grande', ico: 'maximize-2', fn: () => LZ.controllo.vedi(o.id, p.articolo_id) });
     v.push({ sep: true }, { tit: 'Tienilo fuori da Lantek' });
-    v.push({ t: 'Non è da laser', ico: 'circle-minus', fn: () => O.decidi(o.id, p.articolo_id, 'non_laser', p.codice) });
+    // "non e' da laser": si dice anche cosa procurare (T/L/M/C/A), nel controllo
+    v.push({ t: 'Non è da laser: da procurare…', ico: 'circle-minus', fn: () => LZ.controllo.vedi(o.id, p.articolo_id, 'procura') });
     v.push({ t: 'Lo faccio a mano in Lantek', ico: 'hand', fn: () => O.decidi(o.id, p.articolo_id, 'piu_pezzi', p.codice) });
     v.push({ t: 'Va sviluppato', ico: 'move-diagonal', fn: () => O.decidi(o.id, p.articolo_id, 'sviluppo', p.codice) });
     if (p.decisione) v.push({ sep: true }, { t: 'Togli la decisione', ico: 'undo-2', fn: () => O.decidi(o.id, p.articolo_id, null, p.codice) });
@@ -789,7 +810,8 @@
     if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore'), 'err'); return; }
     const prima = r.d.prima;
     FT.toast(scelta ? `${codice}: ${DECISI[scelta]}, resta fuori da Lantek` : `${codice}: decisione tolta`, 'ok',
-      { testo: 'Annulla', fn: () => O.decidi(id, aid, ['sviluppo', 'piu_pezzi', 'non_laser'].includes(prima) ? prima : null, codice) });
+      // "non e' da laser" si rimette col controllo (serve cosa procurare): l'annulla toglie la decisione
+      { testo: 'Annulla', fn: () => O.decidi(id, aid, ['sviluppo', 'piu_pezzi'].includes(prima) ? prima : null, codice) });
     await O.dopo(id);
   });
 })();

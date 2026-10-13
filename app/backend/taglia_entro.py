@@ -11,6 +11,8 @@ aggiunte):
   + filettature o svasature               +1
   + lavorazione esterna (zincatura,
     verniciatura, lav. esterna)           +5
+    (anche i pezzi "da procurare" fatti fuori e non ancora arrivati:
+    laser tubo e meccanica dal fornitore, backend/procura.py)
 
 I numeri stanno in app_config, laser_calendario.anticipo_giorni (questi sono
 i valori di partenza). I giorni lavorativi sono quelli del calendario del
@@ -138,6 +140,19 @@ def con_esterna(fatti: dict | None, flag=None, nota: str = '') -> dict:
     return f
 
 
+def con_procura(fatti: dict | None, esterne_procura=None) -> dict:
+    """lavorazioni_ordine (o con_esterna) con i pezzi "da procurare" fatti
+    fuori e non ancora arrivati (backend/procura.py: laser tubo e meccanica
+    dal fornitore). Contano come lavorazione esterna (+5) anche se la spunta
+    "Lavorazione esterna" dice no: quella parla di cosa succede DOPO il
+    laser, questi sono pezzi che arrivano da fuori. Aggiunge 'procura'."""
+    f = dict(fatti or {'senza_distinta': True, 'base': 'taglio'})
+    voci = [str(x).strip() for x in (esterne_procura or []) if str(x).strip()]
+    if voci:
+        f['procura'] = voci[:3]
+    return f
+
+
 def anticipo_da(fatti: dict | None, cal: dict | None = None) -> dict:
     """Giorni di anticipo e motivo da lavorazioni_ordine (o con_esterna),
     coi numeri del calendario. {giorni, motivo, lavorazioni, voci, noto,
@@ -161,25 +176,31 @@ def anticipo_da(fatti: dict | None, cal: dict | None = None) -> dict:
         est += f' ({DEDOTTA})'
     elif esterne and esterne[0] != est:
         est += f' ({esterne[0]})'           # detta, con cosa: "zincatura"
-    if esterne:
+    procura = list(f.get('procura') or [])
+    if procura:
+        # pezzi da procurare fatti fuori: si dice quali, nella stessa voce
+        est = (est[:-1] + ', ' if est.endswith(')') else est + ' (') + 'da procurare: ' + ', '.join(procura) + ')'
+    if esterne or procura:
         voci.append('esterna')
         etichette.append(est)
         giorni += cfg['esterna']
     if f.get('senza_distinta'):
-        testa = 'ordine solo PDF, lavorazioni non note' + (f' + {est}' if esterne else '')
+        testa = 'ordine solo PDF, lavorazioni non note' + (f' + {est}' if esterne or procura else '')
     else:
         testa = ' + '.join(etichette) if etichette else 'solo taglio laser'
     return {'giorni': giorni, 'voci': voci, 'noto': not f.get('senza_distinta'), 'lavorazioni': testa,
             'motivo': f'{testa}: {_gg(giorni)} prima della consegna', 'esterna': esterne,
-            'esterna_fonte': fonte if esterne or fonte == 'detta' else None}
+            'esterna_fonte': fonte if esterne or fonte == 'detta' else None, 'procura': procura}
 
 
 def anticipo(righe, origine: str = 'distinta', note: str = '', cal: dict | None = None,
-             esterna=None, esterna_nota: str = '') -> dict:
+             esterna=None, esterna_nota: str = '', procura=None) -> dict:
     """Quanti giorni lavorativi prima della consegna va tagliato l'ordine
-    (lavorazioni_ordine + con_esterna + anticipo_da). esterna: la spunta
-    dell'ordine (True / False / None = non detta)."""
-    return anticipo_da(con_esterna(lavorazioni_ordine(righe, origine, note), esterna, esterna_nota), cal)
+    (lavorazioni_ordine + con_esterna + con_procura + anticipo_da). esterna:
+    la spunta dell'ordine (True / False / None = non detta); procura: i pezzi
+    da procurare fatti fuori ("laser tubo dal fornitore", ...)."""
+    return anticipo_da(con_procura(con_esterna(lavorazioni_ordine(righe, origine, note), esterna, esterna_nota),
+                                   procura), cal)
 
 
 def _gg(n) -> str:
@@ -252,9 +273,11 @@ def taglia_entro(consegna, ant: dict | None, cal: dict | None, manuale=None) -> 
     return out
 
 
-def per_ordine(order, righe, origine: str, cal: dict | None) -> dict:
-    """taglia_entro di un ordine (Order) con la sua distinta."""
+def per_ordine(order, righe, origine: str, cal: dict | None, procura=None) -> dict:
+    """taglia_entro di un ordine (Order) con la sua distinta (procura: come
+    in anticipo)."""
     ant = anticipo(righe, origine, getattr(order, 'note', '') or '', cal,
-                   getattr(order, 'lavorazione_esterna', None), getattr(order, 'lavorazione_esterna_nota', '') or '')
+                   getattr(order, 'lavorazione_esterna', None), getattr(order, 'lavorazione_esterna_nota', '') or '',
+                   procura)
     return taglia_entro(getattr(order, 'data_consegna', None), ant, cal,
                         getattr(order, 'data_taglio_pianificata', None))

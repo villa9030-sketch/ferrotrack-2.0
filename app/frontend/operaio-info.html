@@ -122,6 +122,13 @@ body.ft { display: flex; flex-direction: column; overflow: hidden; }
 .tag.da-smistare, .tag.nota-flag { background: var(--ft-warn-bg); color: var(--ft-warn); border-color: var(--ft-warn-line); }
 .tag.nota-flag { font-weight: 700; }
 .tag.segnalato { background: var(--ft-err-bg); color: var(--ft-err); border-color: var(--ft-err-line); }
+/* Pezzi "da procurare" (tubi, laser tubo, meccanica, commerciali) non ancora
+   arrivati: l'ordine non e' pronto per il montaggio */
+.tag.procura { background: var(--ft-warn-bg); color: var(--ft-warn); border-color: var(--ft-warn-line); }
+.tag.procura.rit { background: var(--ft-err-bg); color: var(--ft-err); border-color: var(--ft-err-line); }
+.avviso-procura { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--ft-warn-bg); border: 1px solid var(--ft-warn-line);
+  color: var(--ft-warn); font-weight: 600; font-size: 14px; }
+.avviso-procura.rit { background: var(--ft-err-bg); border-color: var(--ft-err-line); color: var(--ft-err); }
 .lav { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 7px; background: var(--ft-accent-bg); color: var(--ft-accent-ink);
   font-size: 14px; font-weight: 700; }
 .lav.on { background: var(--ft-accent); color: #fff; }
@@ -785,7 +792,7 @@ function disegna() {
         <div class="consegna"><div class="d">${dataBreve(o.data_consegna)}</div><div class="e">${u.txt}</div></div>
       </div>
       <div class="o-lav">${chipsReparti(o, 'lav')}</div>
-      <div class="o-bot">${statoLaser(o)}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}</span>` : ''}${segn ? `<span class="tag segnalato">Segnalato oggi</span>` : ''}<span class="conta">${o.pezzi_totali ? o.pezzi_totali + ' pz' : ''}</span></div>
+      <div class="o-bot">${statoLaser(o)}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}</span>` : ''}${segn ? `<span class="tag segnalato">Segnalato oggi</span>` : ''}${tagProcura(o)}<span class="conta">${o.pezzi_totali ? o.pezzi_totali + ' pz' : ''}</span></div>
     </div>`;
   }).join('') : `<div class="vuoto">${ORDINI.length ? 'Nessun ordine con questi filtri.' : (ULTIMO_OK ? 'Nessun ordine aperto.' : 'Carico gli ordini…')}</div>`;
 }
@@ -922,6 +929,7 @@ function mostraOrdine(o, forza) {
       <div class="oa-r2">${statoLaser(o)}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>` : ''}${chipsReparti(o, 'lav')}
         ${tt.totale ? `<span class="taglio-ord"><span>${tt.tagliati} ${tt.tagliati === 1 ? 'pezzo' : 'pezzi'} su ${tt.totale} tagliati</span><span class="barra"><i style="width:${Math.round(100 * tt.tagliati / tt.totale)}%"></i></span>${tt.fonte === 'lantek' ? '<small>dalla lista di Lantek</small>' : ''}</span>` : ''}
 </div>
+      ${avvisoProcura(o)}
       ${segn.length ? `<div class="avvisi-oggi">${segn.map(s => `<div>Segnalato oggi alle ${hhmm(new Date(s.quando))}: ${esc(s.etichetta)}${s.codice_pezzo ? ' · pezzo ' + esc(s.codice_pezzo) : ''}${s.nota ? ' — ' + esc(s.nota) : ''}</div>`).join('')}</div>` : ''}
     </div>
     <div class="schede" id="schede"></div>
@@ -930,6 +938,18 @@ function mostraOrdine(o, forza) {
   if (pos) document.getElementById('oa-corpo').scrollTop = pos;
   // Aprendo l'ordine o cambiando scheda i pezzi (o i disegni) entrano in sequenza.
   if (forza) { const c = document.getElementById('oa-corpo'); FT.sequenza(c.querySelector('.griglia') || c); }
+}
+/* Pezzi da procurare non ancora arrivati (backend/procura.py): finche'
+   mancano l'ordine non e' pronto per il montaggio. Rosso se qualcuno e' in
+   ritardo sulla data prevista. */
+function tagProcura(o) {
+  const p = o.da_procurare || {};
+  return p.mancano ? `<span class="tag procura${p.in_ritardo ? ' rit' : ''}">Mancano ${p.mancano} da procurare</span>` : '';
+}
+function avvisoProcura(o) {
+  const p = o.da_procurare || {};
+  if (!p.mancano) return '';
+  return `<div class="avviso-procura${p.in_ritardo ? ' rit' : ''}">Mancano ${p.mancano} ${p.mancano === 1 ? 'pezzo' : 'pezzi'} da procurare: non è ancora pronto per il montaggio${p.in_ritardo ? ` (${p.in_ritardo} in ritardo)` : ''}.</div>`;
 }
 function disegniDi(o) {
   return (o && o.disegni ? o.disegni : []).map(x => ({ nome: x.nome, svg: x.url_svg ? API + x.url_svg : null }));

@@ -537,3 +537,27 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-avviso.err { background: var(--lz-red-bg); border-color: var(--lz-red-line); color: var(--lz-red); }
 .lz-btn.elimina { background: var(--lz-red); border-color: var(--lz-red); color: #fff; }
 .lz-btn.elimina:hover { background: #9A1D14; border-color: #9A1D14; }
+
+/* ── Da procurare (12/10/2026): il bottone e il pannello stanno in procura.css
+   (stessi file nella pagina dell'Ufficio); qui solo le parti del laser ── */
+/* Nel controllo dei disegni: N, poi cosa procurare */
+.lz-pr-campi { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; padding: 10px 12px; border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); background: var(--lz-surface); }
+.lz-pr-campi label { display: grid; gap: 3px; font-size: 12px; color: var(--lz-ink-3); }
+.lz-pr-campi label.lungo { grid-column: 1 / -1; }
+.lz-pr-campi input { height: 32px; min-width: 0; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 7px; font: 13.5px var(--lz-font); color: var(--lz-ink); background: #fff; }
+.lz-pr-campi .mm { display: inline-flex; align-items: center; gap: 6px; color: var(--lz-ink-3); font-size: 13px; }
+.lz-pr-campi .mm input { width: 90px; font-variant-numeric: tabular-nums; }
+.lz-pr-campi input:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 1px; }
+.lz-pr-tasti .lz-btn { height: auto; min-height: 42px; padding-top: 6px; padding-bottom: 6px; }
+.lz-pr-tasti .lz-btn .tt { display: grid; text-align: left; line-height: 1.25; }
+.lz-pr-tasti .lz-btn .tt small { font-size: 11.5px; font-weight: 400; opacity: .75; }
+.lz-pr-prop small { display: block; color: var(--lz-ink-3); margin-top: 2px; overflow-wrap: anywhere; }
+.lz-pr-invio { font-size: 12.5px; color: var(--lz-ink-3); display: flex; align-items: center; gap: 6px; }
+
+/* Nell'ordine aperto: i suoi pezzi da procurare */
+.lz-o-procura { margin-top: 16px; border: 1px solid var(--lz-amber-line); border-radius: var(--lz-r-l); background: var(--lz-surface); overflow: hidden; }
+.lz-o-procura .testa { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--lz-amber-bg); border-bottom: 1px solid var(--lz-amber-line); font-size: 13.5px; }
+.lz-o-procura .testa b { color: var(--lz-amber); }
+.lz-o-procura .testa span { color: #6E4205; }
+.lz-o-procura .testa .sp { flex: 1; }
+.lz-o-procura .lz-tab { border: 0; border-radius: 0; }

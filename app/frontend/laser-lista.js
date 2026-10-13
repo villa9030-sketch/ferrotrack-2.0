@@ -44,9 +44,17 @@
       <div class="lz-data" title="${esc(`Taglia entro ${g ? FT.fmtData(g) : '—'}${te && te.motivo ? ' · ' + te.motivo : ''} · consegna ${cons ? FT.fmtData(cons) : '—'}`)}">
         <span class="sr">Taglia entro </span>${g ? FT.fmtDataBreve(g) : '—'}<small class="${q.rit && !tagliato ? 'rit' : ''}">${tagliato ? 'tagliato ' + esc(FT.fmtOra(o.data_taglio_completato)) : esc(q.t)}</small>
         <small class="cons">cons. ${cons ? FT.fmtDataBreve(cons) : '—'}</small></div>
-      <div class="lz-cli"><b title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</b><span title="${esc(LZ.numero(o))}">${esc(LZ.numero(o))}</span></div>
+      <div class="lz-cli"><b title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</b><span title="${esc(LZ.numero(o))}">${esc(LZ.numero(o))}${procura(o)}</span></div>
       ${LZ.chip(o, '', true)}
     </div>`;
+  }
+
+  /** Pezzi da procurare non ancora arrivati: un segno piccolo sulla riga
+      (il chip intero sta sull'ordine aperto). Rosso se in ritardo. */
+  function procura(o) {
+    const p = (S.riep[o.id] || {}).procura;
+    if (!p || !p.n) return '';
+    return ` <em class="lz-pc-mini${p.n_scaduti ? ' rit' : ''}" title="${esc(`Da procurare: ${p.n}${p.n_scaduti ? `, ${p.n_scaduti} in ritardo` : ''}`)}">${LZ.ico('package')}${p.n}</em>`;
   }
 
   L.disegna = function () {
