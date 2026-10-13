@@ -3340,6 +3340,74 @@ def _proprietario_avvisi() -> str:
     return accesso.STAZIONI[st]['utente'] if st in accesso.STAZIONI else ''
 
 
+def _pulisci_avvisi(user_id: str, stazione: str) -> int:
+    """Toglie le notifiche superate di questa stazione (backend/avvisi.py):
+    ordine eliminato o chiuso, "Nuovo ordine" gia' smistato, consegna a
+    rischio di un ordine gia' tagliato, da procurare gia' arrivato... Ritorna
+    quante ne ha tolte (e lo scrive nello storico)."""
+    from .models import Notification as _N
+    from . import avvisi as _av
+    from .ordini_service import fase as _fase
+    s = get_session()
+    try:
+        notif = s.query(_N).filter(_N.user_id == user_id, _N.is_deleted == False,  # noqa: E712
+                                   _N.order_id.isnot(None)).all()
+        if not notif:
+            return 0
+        ids = {n.order_id for n in notif}
+        ordini = {o.id: o for o in s.query(Order).filter(Order.id.in_(list(ids))).all()}
+        proc = {}
+        if any(n.notification_type == 'procura' for n in notif):
+            try:
+                from . import procura as _pc
+                proc = _pc.riassunto_per_ordini(list(ids))
+            except Exception:
+                logger.warning('da procurare non letto per le notifiche', exc_info=True)
+                proc = None
+        tolte = []
+        for n in notif:
+            o = ordini.get(n.order_id)
+            info = ({'eliminato': True} if o is None else
+                    {'eliminato': bool(o.is_deleted), 'fase': _fase(o), 'taglio_richiesto': o.taglio_richiesto,
+                     'tagliato': bool(o.taglio_completato), 'completato': bool(o.data_completamento_operativo)})
+            if n.notification_type == 'procura' and proc is None:
+                continue
+            perche = _av.superata(n.notification_type, info, ((proc or {}).get(n.order_id) or {}).get('n', 0), stazione)
+            if perche:
+                n.is_deleted = True
+                tolte.append(f'{n.title} ({perche})')
+        if tolte:
+            s.commit()
+            try:
+                AuditManager.log(user_id=user_id, action='NOTIFICHE_SUPERATE', entity_type='notifications',
+                                 entity_id=user_id, detail=f'{len(tolte)} tolte: ' + '; '.join(tolte[:20])[:1900])
+            except Exception:
+                pass
+        return len(tolte)
+    except Exception:
+        s.rollback()
+        logger.warning('pulizia notifiche non riuscita', exc_info=True)
+        return 0
+    finally:
+        s.close()
+
+
+def _simili_avviso(notification_id: str) -> list:
+    """Gli id delle notifiche dello stesso gruppo (stesso ordine e tipo, stessa
+    stazione): letta o tolta una, lo sono tutte (backend/avvisi.raggruppa)."""
+    from .models import Notification as _N
+    s = get_session()
+    try:
+        n = s.get(_N, notification_id)
+        if n is None or not n.order_id:
+            return [notification_id]
+        return [x.id for x in s.query(_N).filter(_N.user_id == n.user_id, _N.order_id == n.order_id,
+                                                  _N.notification_type == n.notification_type,
+                                                  _N.is_deleted == False).all()]  # noqa: E712
+    finally:
+        s.close()
+
+
 def _avviso_mio(notification_id: str) -> bool:
     from .models import Notification as _N
     s = get_session()
@@ -3359,8 +3427,11 @@ def handle_notifications():
         try:
             user_id = _proprietario_avvisi()    # lo user_id dell'indirizzo non conta
             limit = request.args.get('limit', 50, type=int)
-            notifications = NotificationManager.get_notifications(user_id, limit=limit)
-            unread_count = NotificationManager.get_unread_count(user_id)
+            # solo quelle che servono ancora, una per ordine e tipo (backend/avvisi.py)
+            from . import avvisi as _av
+            _pulisci_avvisi(user_id, identita().stazione or '')
+            notifications = _av.raggruppa(NotificationManager.get_notifications(user_id, limit=500))[:max(1, limit)]
+            unread_count = len(_av.raggruppa(NotificationManager.get_notifications(user_id, limit=2000, unread_only=True)))
 
             return jsonify({
                 'success': True,
@@ -3414,7 +3485,7 @@ def mark_notification_read(notification_id):
     try:
         if not _avviso_mio(notification_id):
             return jsonify({'success': False, 'error': 'Notifica non trovata'}), 404
-        success = NotificationManager.mark_as_read(notification_id)
+        success = all([NotificationManager.mark_as_read(x) for x in _simili_avviso(notification_id)])
         return jsonify({'success': success}), 200 if success else 404
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -3426,7 +3497,7 @@ def delete_notification(notification_id):
     try:
         if not _avviso_mio(notification_id):
             return jsonify({'success': False, 'error': 'Notifica non trovata'}), 404
-        success = NotificationManager.delete_notification(notification_id)
+        success = all([NotificationManager.delete_notification(x) for x in _simili_avviso(notification_id)])
 
         if success:
             return jsonify({'success': True, 'message': 'Notifica cancellata'}), 200

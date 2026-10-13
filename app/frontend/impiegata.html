@@ -853,6 +853,27 @@ body.ft [hidden] { display: none !important; }
 
 <!-- ═══════════════ FINESTRE ═══════════════ -->
 <!-- DDT -->
+<!-- Conferma di un preventivo: l'ordine del cliente (PDF) e "va al laser" -->
+<div class="ft-modal-bg" id="modal-accetta" onclick="if(event.target===this)chiudiAccetta()">
+  <div class="ft-modal" role="dialog" aria-modal="true" aria-labelledby="acc-t">
+    <div class="ft-modal-head"><div>
+      <h3 class="ft-modal-title" id="acc-t">Confermare l’ordine?</h3>
+      <p class="ft-modal-sub" id="acc-sub"></p>
+    </div><button class="ft-icon-btn ft-modal-x" onclick="chiudiAccetta()" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
+    <div class="ft-modal-body">
+      <p class="ft-hint" style="margin:0 0 14px;">Parte la produzione: i disegni vanno al laser e i capi vengono avvisati. Subito dopo si apre l’ordine: per l’officina stampalo con «Stampa ordine».</p>
+      <div id="acc-pdf"></div>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:14px;cursor:pointer" title="Proposta: il preventivo ha pezzi da tagliare. Il laser può sempre cambiarlo.">
+        <input type="checkbox" id="acc-laser" style="margin-top:3px"><span><b>Va al laser</b> <small class="ft-muted" id="acc-laser-sub"></small></span></label>
+      <div class="ft-alert err" id="acc-msg" hidden style="margin-top:14px;"></div>
+    </div>
+    <div class="ft-modal-foot">
+      <button class="ft-btn" onclick="chiudiAccetta()">Annulla</button>
+      <button class="ft-btn primary" id="acc-ok" onclick="eseguiAccetta()"><i data-lucide="check"></i> Conferma ordine</button>
+    </div>
+  </div>
+</div>
+
 <div class="ft-modal-bg" id="modal-ddt" onclick="if(event.target===this)chiudiModalDdt()">
   <div class="ft-modal" role="dialog" aria-modal="true" aria-labelledby="ddt-t">
     <div class="ft-modal-head"><div>
@@ -1901,26 +1922,81 @@ function confermaRowHtml(p) {
 }
 function updateConfermeBadge(n) { setCount('conferme-badge', n); }
 
+/* Conferma di un preventivo. Il PDF dell'ordine del cliente e' quello che il
+   laser legge per le quantita' (Stefano, 05/10): se il commerciale non l'ha
+   allegato lo si allega qui, e se manca lo si dice in rosso (si puo' anche
+   allegare dopo, dall'ordine: «Carica PDF»). "Va al laser" e' una proposta
+   (spuntata se ci sono pezzi da tagliare). */
+let ACC = null;   // { id, p, pdfGia, file, btn }
 async function confermaPreventivo(id, btn) {
   const p = _confermeItems.find(x => x.id === id) || {};
-  const ok = await FT.conferma({
-    titolo: `Confermare l'ordine di ${p.cliente || 'questo cliente'}?`,
-    testo: 'Parte la produzione: i disegni vanno al laser e i capi vengono avvisati. Subito dopo si apre l\u2019ordine: per l\u2019officina stampalo con \u201cStampa ordine\u201d.',
-    ok: 'Conferma ordine'
-  });
-  if (!ok) return;
-  if (btn) btn.disabled = true;
-  const res = await inviaJson(`/api/preventivi/${id}/accetta`, {});
-  if (riuscita(res) && res.data && res.data.success) {
-    FT.toast('Ordine creato: per l\u2019officina usa \u201cStampa ordine\u201d', 'ok');
-    loadConferme();
-    const d = res.data;
-    const oid = d.order_id || (d.ordine && d.ordine.id);
-    if (oid) { switchTab('ordini', 'aperto'); apriOrdine(oid); }
+  ACC = { id, p, pdfGia: null, file: null, btn };
+  $('acc-t').textContent = `Confermare l'ordine di ${p.cliente || 'questo cliente'}?`;
+  $('acc-sub').textContent = p.numero_ordine_cliente ? 'Rif. ' + p.numero_ordine_cliente : '';
+  $('acc-msg').hidden = true;
+  $('acc-ok').disabled = false;
+  $('acc-pdf').innerHTML = '<div class="ft-skel" style="height:44px"></div>';
+  $('acc-laser').checked = false;
+  $('acc-laser-sub').textContent = '';
+  FT.apri('modal-accetta');
+  FT.icone();
+  const [oc, pr] = await Promise.all([api(`/api/preventivi/${id}/ordine-cliente`), api(`/api/preventivi/${id}`)]);
+  if (!ACC || ACC.id !== id) return;
+  ACC.pdfGia = (oc.ok && oc.data && oc.data.file) || null;
+  const prev = (pr.ok && pr.data && (pr.data.preventivo || pr.data)) || {};
+  const nLaser = (prev.articoli || []).filter(a => a.dxf_filename || (a.materiale && a.spessore_mm)).length;
+  $('acc-laser').checked = nLaser > 0;
+  $('acc-laser-sub').textContent = nLaser
+    ? `proposta: ${nLaser === 1 ? '1 pezzo' : nLaser + ' pezzi'} da tagliare. Nasce fra gli ordini «${FTStati.laser.da_importare}».`
+    : `nessun pezzo da tagliare letto: nasce «${FTStati.laser.da_smistare}», lo decide il laser.`;
+  accettaPdfHtml();
+}
+function accettaPdfHtml() {
+  if (!ACC) return;
+  const input = `<input type="file" accept=".pdf,application/pdf" hidden onchange="ACC.file = this.files[0] || null; accettaPdfHtml()">`;
+  if (ACC.file) {
+    $('acc-pdf').innerHTML = `<div class="ft-alert ok"><i data-lucide="file-check"></i><div><b>Ordine del cliente: ${esc(ACC.file.name)}</b>
+      Diventa il PDF dell’ordine che vede il laser.</div><div class="ft-alert-actions"><label class="ft-btn sm">Cambia${input}</label></div></div>`;
+  } else if (ACC.pdfGia) {
+    $('acc-pdf').innerHTML = `<div class="ft-alert info"><i data-lucide="file-text"></i><div><b>Ordine del cliente allegato dal commerciale</b>
+      ${esc(ACC.pdfGia)}: diventa il PDF dell’ordine che vede il laser.</div><div class="ft-alert-actions"><label class="ft-btn sm">Usa un altro PDF${input}</label></div></div>`;
   } else {
-    if (btn) btn.disabled = false;
-    FT.toast('Conferma non riuscita: ' + msgErrore(res), 'err');
+    $('acc-pdf').innerHTML = `<div class="ft-alert err"><i data-lucide="file-warning"></i><div><b>Manca l’ordine del cliente (PDF).</b>
+      Il laser legge lì le quantità: allegalo adesso. Se non ce l’hai ancora, potrai caricarlo dopo dall’ordine («Carica PDF»).</div>
+      <div class="ft-alert-actions"><label class="ft-btn sm primary"><i data-lucide="file-up"></i> Allega il PDF${input}</label></div></div>`;
   }
+  FT.icone();
+}
+function chiudiAccetta() { ACC = null; FT.chiudi('modal-accetta'); }
+async function eseguiAccetta() {
+  if (!ACC) return;
+  const { id, file, btn } = ACC;
+  const alLaser = $('acc-laser').checked;
+  $('acc-ok').disabled = true;
+  if (btn) btn.disabled = true;
+  const res = await inviaJson(`/api/preventivi/${id}/accetta`, { al_laser: alLaser });
+  if (!(riuscita(res) && res.data && res.data.success)) {
+    $('acc-ok').disabled = false;
+    if (btn) btn.disabled = false;
+    $('acc-msg').textContent = 'Conferma non riuscita: ' + msgErrore(res);
+    $('acc-msg').hidden = false;
+    return;
+  }
+  const d = res.data;
+  const oid = d.order_id || (d.ordine && d.ordine.id);
+  let avviso = null;
+  if (file && oid) {
+    const fd = new FormData(); fd.append('file', file);
+    const up = await api(`/api/orders/${oid}/replace-pdf`, { method: 'POST', body: fd });
+    if (!(riuscita(up) && up.data && up.data.success)) avviso = 'Ordine creato, ma il PDF non è stato allegato: caricalo dall’ordine («Carica PDF»). ' + msgErrore(up);
+  } else if (!file && !ACC.pdfGia) {
+    avviso = 'Ordine creato senza il PDF del cliente: caricalo dall’ordine («Carica PDF») appena ce l’hai.';
+  }
+  chiudiAccetta();
+  FT.toast(`Ordine creato${d.al_laser ? ', mandato al laser' : ''}: per l\u2019officina usa \u201cStampa ordine\u201d`, 'ok');
+  if (avviso) FT.toast(avviso, 'warn', null, 10000);
+  loadConferme();
+  if (oid) { switchTab('ordini', 'aperto'); apriOrdine(oid); }
 }
 
 async function rifiutaPreventivoImp(id, btn) {

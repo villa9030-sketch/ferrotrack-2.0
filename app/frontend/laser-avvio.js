@@ -89,7 +89,7 @@
     const l = r.d.data.notifications || [];
     document.getElementById('notif-clear').style.display = l.length ? '' : 'none';
     const body = document.getElementById('notif-panel-body');
-    body.innerHTML = l.length ? l.map(n => `<div class="ft-pop-item lz-notif${n.is_read ? '' : ' unread'}" data-n="${esc(n.id)}" data-ordine="${esc(n.order_id || '')}">
+    body.innerHTML = l.length ? l.map(n => `<div class="ft-pop-item lz-notif${n.is_read ? '' : ' unread'}${n.importante ? ' importante' : ''}" data-n="${esc(n.id)}" data-ordine="${esc(n.order_id || '')}">
         <div><b>${esc(n.title)}</b><span>${esc(n.message)}</span><small>${esc(FT.fmtRelativo(n.timestamp))}</small></div>
         <button class="ft-icon-btn" data-via="${esc(n.id)}" title="Elimina" aria-label="Elimina">${LZ.ico('x')}</button></div>`).join('')
       : '<div class="ft-empty" style="padding:28px 16px;"><p>Nessuna notifica</p></div>';

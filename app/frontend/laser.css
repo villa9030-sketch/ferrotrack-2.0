@@ -69,6 +69,8 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-notif { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .lz-notif:hover { background: var(--lz-hover); }
 .lz-notif > div { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.lz-notif.importante { box-shadow: inset 3px 0 0 var(--ft-warn-dot, #F79009); }
+.lz-notif.importante b::before { content: "Da fare · "; font-weight: 600; color: var(--ft-warn, #B54708); }
 
 /* ── Impianto: elenco a sinistra, ordine a destra ───────────────── */
 .lz-main {

@@ -163,8 +163,116 @@ def forse_finiti():
           OS.motivo_non_forse_finito(o, rimandato_il=datetime(2026, 10, 10, 11), adesso=datetime(2026, 10, 11)) == 'rimandato')
 
 
+def preventivo_accettato():
+    print('\n2) Preventivo accettato: PDF del cliente al laser e "va al laser"')
+    from backend.database import PreventivoManager
+    from backend.models import Preventivo
+
+    def nuovo_prev(rif):
+        pr = PreventivoManager.create('DECA S.r.l.', 'paolo', quantita=1, numero_ordine_cliente=rif)
+        pid = pr['id'] if isinstance(pr, dict) else pr
+        PreventivoManager.replace_articoli(pid, [{'codice': 'P-1-00', 'quantita': 2, 'materiale': 'S235', 'spessore_mm': 3,
+                                                  'costo_base_override': 5, 'perimetro_taglio_m': 0.8, 'area_dm2': 2.9}])
+        s = models.SessionLocal()
+        s.query(Preventivo).filter(Preventivo.id == pid).first().status = 'INVIATO'
+        s.commit(); s.close()
+        return pid
+
+    pid = nuovo_prev('ACC-1')
+    r = UFF.get(f'/api/preventivi/{pid}/ordine-cliente')
+    check('la finestra sa se manca l\'ordine del cliente', r.status_code == 200 and r.get_json().get('file') is None, r.get_json())
+    r = UFF.post(f'/api/preventivi/{pid}/accetta', json={'al_laser': True})
+    d = r.get_json() or {}
+    oid = d.get('order_id')
+    check('accettato con "Va al laser": risposta al_laser', r.status_code == 200 and d.get('al_laser') is True, d)
+    s = models.SessionLocal()
+    o = s.query(Order).filter(Order.id == oid).first()
+    check('...e l\'ordine nasce fra quelli da tagliare', o is not None and o.taglio_richiesto is True)
+    s.close()
+    pdf = b'%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n'
+    import io
+    r = UFF.post(f'/api/orders/{oid}/replace-pdf', data={'file': (io.BytesIO(pdf), 'ORDINE DECA 1300.pdf')},
+                 content_type='multipart/form-data')
+    check('PDF del cliente allegato subito dopo (stessa finestra)', r.status_code == 200, r.get_json())
+    r = LAS.get(f'/api/orders/{oid}/pdf')
+    check('il laser vede quel PDF', r.status_code == 200 and r.data.startswith(b'%PDF'), r.status_code)
+    lst = {x['id']: x for x in (LAS.get('/api/orders').get_json() or {}).get('orders', [])}
+    check('e nella sua lista l\'ordine ha il PDF', bool((lst.get(oid) or {}).get('pdf_file')), lst.get(oid))
+
+    pid2 = nuovo_prev('ACC-2')
+    r = UFF.post(f'/api/preventivi/{pid2}/accetta', json={})
+    oid2 = (r.get_json() or {}).get('order_id')
+    s = models.SessionLocal()
+    o2 = s.query(Order).filter(Order.id == oid2).first()
+    check('senza spunta: resta da smistare (come prima)', o2 is not None and o2.taglio_richiesto is None)
+    s.close()
+    t = open(os.path.join(_APP, 'frontend', 'impiegata.html'), encoding='utf-8').read()
+    check('la finestra di conferma avvisa se manca il PDF e lo fa allegare',
+          'Manca l’ordine del cliente (PDF).' in t and "replace-pdf" in t and 'id="acc-laser"' in t)
+
+
+def notifiche():
+    print('\n3) Notifiche: solo quelle da fare, una per ordine')
+    from backend.models import Notification
+
+    def avviso(uid, oid, tipo, titolo, cat='attiva', letto=False):
+        s = models.SessionLocal()
+        s.add(Notification(id=str(uuid.uuid4()), user_id=uid, order_id=oid, title=titolo, message=titolo,
+                           notification_type=tipo, notification_category=cat, is_read=letto, is_deleted=False))
+        s.commit(); s.close()
+
+    s = models.SessionLocal()
+    for n in s.query(Notification).all():
+        n.is_deleted = True
+    s.commit(); s.close()
+    smistato = nuovo_ordine(taglio_richiesto=True)
+    da_smistare = nuovo_ordine()
+    eliminato = nuovo_ordine(taglio_richiesto=True, is_deleted=True)
+    tagliato = nuovo_ordine(taglio_richiesto=True, taglio_completato=True, data_taglio_completato=datetime.utcnow())
+    LZ = 'postazione-laser'
+    avviso(LZ, smistato, 'order', 'Nuovo ordine', 'informativa')
+    avviso(LZ, da_smistare, 'order', 'Nuovo ordine', 'informativa')
+    avviso(LZ, eliminato, 'consegna_rischio', 'Consegna in scadenza')
+    avviso(LZ, tagliato, 'consegna_rischio', 'Consegna in scadenza')
+    avviso(LZ, smistato, 'consegna_rischio', 'Consegna in scadenza')
+    avviso(LZ, smistato, 'consegna_rischio', 'Consegna SCADUTA')
+    avviso(LZ, None, 'lantek', 'Senza ordine')
+    d = (LAS.get('/api/notifications?limit=50').get_json() or {}).get('data') or {}
+    lista = d.get('notifications') or []
+    per = {(x['order_id'], x['notification_type']): x for x in lista}
+    check('"Nuovo ordine" gia\' smistato dal laser: tolto', (smistato, 'order') not in per, list(per))
+    check('"Nuovo ordine" da smistare: resta', (da_smistare, 'order') in per)
+    check('ordine eliminato: tolto', (eliminato, 'consegna_rischio') not in per)
+    check('consegna a rischio di un ordine gia\' tagliato: tolta', (tagliato, 'consegna_rischio') not in per)
+    g = per.get((smistato, 'consegna_rischio')) or {}
+    check('due avvisi uguali sullo stesso ordine: uno solo, col numero', g.get('ripetute') == 2
+          and '(+1 avviso precedente)' in (g.get('message') or ''), g)
+    check('gli avvisi da fare sono segnati importanti', g.get('importante') is True
+          and per[(da_smistare, 'order')].get('importante') is False)
+    check('quelli senza ordine restano', any(x['title'] == 'Senza ordine' for x in lista))
+    check('il numero sul campanello conta i gruppi', d.get('unread_count') == len(lista) == 3, (d.get('unread_count'), len(lista)))
+    r = LAS.put(f"/api/notifications/{g['id']}/read", json={})
+    d = (LAS.get('/api/notifications?limit=1').get_json() or {}).get('data') or {}
+    check('letta una del gruppo: lette tutte (il campanello scende di 1)', r.status_code == 200 and d.get('unread_count') == 2,
+          d.get('unread_count'))
+    from backend.models import AuditLog
+    s = models.SessionLocal()
+    check('le tolte sono scritte nello storico', s.query(AuditLog).filter(AuditLog.action == 'NOTIFICHE_SUPERATE').count() >= 1)
+    s.close()
+    # ufficio: "Nuovo ordine da protocollare" superato quando l'ordine e' avanti
+    UFF.post(f'/api/ordini/{da_smistare}/completamento', json={})
+    avviso('postazione-amministrazione', da_smistare, 'order', 'Nuovo ordine da protocollare')
+    avviso('postazione-amministrazione', smistato, 'order', 'Nuovo ordine da protocollare')
+    lista = ((UFF.get('/api/notifications').get_json() or {}).get('data') or {}).get('notifications') or []
+    ids = {x['order_id'] for x in lista}
+    check('ufficio: ordine gia\' avanti nel ciclo, avviso tolto; quello in lavorazione resta',
+          da_smistare not in ids and smistato in ids, ids)
+
+
 def main():
     forse_finiti()
+    preventivo_accettato()
+    notifiche()
     print(f'\n{OK} ok, {len(KO)} ko')
     if KO:
         print('FALLITI:', *KO, sep='\n  ')

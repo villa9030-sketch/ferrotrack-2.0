@@ -558,7 +558,8 @@ def main():
           len(av) == 2 and len(nuovi) == 1 and nuovi[0].endswith('pezzi da procurare per DECA S.r.l. 7001'), av)
     j = uff.get('/api/notifications?limit=50').get_json() or {}
     msgs = [n['message'] for n in ((j.get('data') or {}).get('notifications') or [])]
-    check("nella campanella dell'Ufficio", nuovi and nuovi[0] in msgs, msgs)
+    # stesso ordine e tipo: un avviso solo, il piu' recente (backend/avvisi.py)
+    check("nella campanella dell'Ufficio", nuovi and any(m.startswith(nuovi[0]) for m in msgs), msgs)
     j = laser.get('/api/notifications?limit=50').get_json() or {}
     check('non in quella del laser', not any('da procurare' in (n.get('message') or '')
                                               for n in ((j.get('data') or {}).get('notifications') or [])))
