@@ -14,6 +14,15 @@ sembrare fatto e il codice restava li'. Ora:
   - chi l'ha deciso puo' cambiare idea: "usa il valore di Lantek" e il codice
     si manda subito cosi' com'e';
   - quando il codice ha il suo ordine di produzione in Lantek e' chiuso.
+
+Quantita' cambiate DOPO l'invio (13/10/2026, DECA A 001221 BIS): un pezzo
+d'assieme mandato con 1 e poi corretto a 2 per assieme x 3 assiemi = 6.
+Cosa ha Lantek si sa dagli ordini di produzione di quell'ordine (sola
+lettura) o, se Lantek non risponde, dai file mandati all'XML Importer
+(uploads/lantek_import/Importer log/*.xml). Finche' non coincide l'ordine
+dice "In Lantek: X ha 1, ora servono 6 — correggi l'ordine di produzione";
+chi lo corregge a mano lo segna ("Corretto in Lantek", esito
+'quantita_corretta' per quel numero).
 """
 from __future__ import annotations
 
@@ -56,7 +65,9 @@ def _diz(r) -> dict:
             'creato_il': r.creato_il.isoformat() + 'Z' if r.creato_il else None, 'creato_da': r.creato_da,
             'corretto_il': r.corretto_il.isoformat() + 'Z' if r.corretto_il else None,
             'chiuso_il': r.chiuso_il.isoformat() + 'Z' if r.chiuso_il else None,
-            'chiuso_da': r.chiuso_da, 'esito': r.esito}
+            'chiuso_da': r.chiuso_da, 'esito': r.esito,
+            'quantita_voluta': getattr(r, 'quantita_voluta', None),
+            'quantita_lantek': getattr(r, 'quantita_lantek', None)}
 
 
 def descrivi(rec: dict) -> str:
@@ -281,3 +292,143 @@ def stato(order_id: str, in_produzione=None) -> dict:
     out['n_correggere'] = sum(1 for c in out['correzioni'] if c['stato'] == 'da_correggere')
     out['n_corretti'] = sum(1 for c in out['correzioni'] if c['stato'] == 'corretto')
     return out
+
+
+# ---------------------------------------------------------------------------
+# Quantita' cambiate dopo l'invio
+# ---------------------------------------------------------------------------
+_INVIATE: dict = {}
+
+
+def _base(c) -> str:
+    import re
+    return re.sub(r'-\d{2}$', '', str(c or '').strip().upper())
+
+
+def quantita_inviate(commessa: str, cartella: str) -> dict:
+    """{CODICE: pezzi} mandati a Lantek con l'XML Importer per quell'ordine
+    (SaleOrder = commessa), sommando tutti gli invii. {} se nessuno."""
+    import glob
+    import os
+    import xml.etree.ElementTree as ET
+    commessa = str(commessa or '').strip().upper()
+    if not commessa or not cartella:
+        return {}
+    out = {}
+    for f in sorted(glob.glob(os.path.join(glob.escape(cartella), 'Importer log', '*.xml'))):
+        # percorsi lunghi su Windows (oltre 260 caratteri): prefisso "\\?\"
+        lungo = ('\\\\?\\' + os.path.abspath(f)) if os.name == 'nt' and len(f) > 240 else f
+        try:
+            k = (f, os.path.getmtime(lungo))
+        except OSError:
+            continue
+        righe = _INVIATE.get(k)
+        if righe is None:
+            righe = []
+            try:
+                for cmd in ET.parse(lungo).getroot().iter('COMMAND'):
+                    campi = {x.get('FldRef'): x.get('FldValue') for x in cmd.iter('FIELD')}
+                    try:
+                        q = float(str(campi.get('Quantity') or '0').replace(',', '.'))
+                    except ValueError:
+                        q = 0
+                    righe.append((str(campi.get('SaleOrder') or '').strip().upper(),
+                                  str(campi.get('Product') or '').strip().upper(), q))
+            except Exception:
+                logger.warning('file mandato a Lantek non letto: %s', f, exc_info=True)
+            if len(_INVIATE) > 500:
+                _INVIATE.clear()
+            _INVIATE[k] = righe
+        for so, prod, q in righe:
+            if so == commessa and prod and q:
+                out[prod] = out.get(prod, 0) + q
+    return out
+
+
+def corrette_a_mano(order_id: str) -> dict:
+    """{CODICE: {quantita' segnate "corretto in Lantek"}}."""
+    from .database import get_session
+    from .models import LantekCorrezione
+    s = get_session()
+    try:
+        out = {}
+        for r in s.query(LantekCorrezione).filter(LantekCorrezione.order_id == order_id,
+                                                  LantekCorrezione.esito == 'quantita_corretta').all():
+            if r.quantita_voluta is not None:
+                out.setdefault(r.codice.strip().upper(), set()).add(float(r.quantita_voluta))
+        return out
+    finally:
+        s.close()
+
+
+def quantita_cambiate(order_id: str, righe_q: list, inviate: dict, lantek_ordine: dict | None = None) -> list:
+    """I codici gia' mandati a Lantek la cui quantita' e' cambiata dopo.
+
+    righe_q: righe come lantek.righe_quantita (codice, quantita' adesso);
+    inviate: quantita_inviate(); lantek_ordine: lantek.pezzi_dell_ordine()
+    (aperti + fatti) se Lantek risponde: e' lui a dire cosa c'e' davvero.
+    Solo i codici che FerroTrack ha MANDATO (nei file dell'XML Importer): un
+    ordine messo in Lantek a mano non si giudica da qui.
+    [{codice, tipo: 'quantita', stato: 'da_correggere', cosa, quantita_lantek,
+      quantita_voluta, fonte}]"""
+    if not righe_q or not inviate:
+        return []
+    fatte = corrette_a_mano(order_id)
+
+    def trova(diz, cod):
+        if not diz:
+            return None
+        if cod in diz:
+            return diz[cod]
+        b = _base(cod)
+        v = [q for c, q in diz.items() if _base(c) == b]
+        return sum(v) if v else None
+
+    out = []
+    for r in righe_q:
+        cod = str(r.get('codice') or '').strip().upper()
+        if not cod:
+            continue
+        voluta = float(r.get('quantita') or 0)
+        mandato = trova(inviate, cod)
+        if not mandato:
+            continue                     # mai mandato da FerroTrack
+        if lantek_ordine is not None:
+            in_lt, fonte = trova(lantek_ordine, cod), 'lantek'
+        else:
+            in_lt, fonte = mandato, 'invio'
+        if not in_lt or abs(float(in_lt) - voluta) < 0.001:
+            continue
+        if voluta in fatte.get(cod, set()):
+            continue                     # gia' corretto a mano per questo numero
+        q_lt = int(in_lt) if float(in_lt).is_integer() else in_lt
+        q_v = int(voluta) if voluta.is_integer() else voluta
+        out.append({'codice': r.get('codice'), 'tipo': 'quantita', 'stato': 'da_correggere',
+                    'cosa': f"quantità: in Lantek {q_lt:g}, ora servono {q_v:g}",
+                    'testo': f"In Lantek: {r.get('codice')} ha {q_lt:g}, ora servono {q_v:g} — correggi l'ordine di produzione",
+                    'quantita_lantek': q_lt, 'quantita_voluta': q_v, 'fonte': fonte,
+                    'spessore_voluto': None, 'materiale_voluto': None, 'spessore_lantek': None,
+                    'materiale_lantek': None, 'creato_il': None, 'creato_da': None, 'corretto_il': None})
+    return out
+
+
+def segna_quantita_corretta(order_id: str, codice: str, quantita, quantita_lantek=None, chi: str = '') -> dict:
+    """"Corretto in Lantek": la quantita' X del codice e' stata sistemata a
+    mano nell'ordine di produzione. Resta scritto (chi, quando, da quanto)."""
+    from .database import get_session
+    from .models import LantekCorrezione
+    ora = datetime.utcnow()
+    s = get_session()
+    try:
+        rec = LantekCorrezione(order_id=order_id, codice=str(codice).strip(), creato_il=ora, creato_da=chi or None,
+                               corretto_il=ora, chiuso_il=ora, chiuso_da=chi or None, esito='quantita_corretta',
+                               quantita_voluta=float(quantita),
+                               quantita_lantek=float(quantita_lantek) if quantita_lantek is not None else None)
+        s.add(rec)
+        s.commit()
+        return _diz(rec)
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()

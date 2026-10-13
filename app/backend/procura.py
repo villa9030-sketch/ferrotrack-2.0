@@ -433,12 +433,25 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
                 return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': lung,
                         'fonte': fonte, 'testo': p['testo'],
                         'alternativa': 'laser_tubo' if p['famiglia'] in ('SHS', 'RHS', 'CHS') else None}
+    # la lunghezza scritta a parole nella riga ("... MTR - Lg 581 - AISI304",
+    # anche la riga della distinta dell'assieme) vale piu' delle misure
+    lung_txt = next((_lunghezza(_norm(t)) for t in testi_riga or [] if _lunghezza(_norm(t))), None)
+    # La distinta scritta nel disegno stesso (DECA 26CCSA0038: "T.Quadro
+    # Aisi304 50x 50x 3 L. 581" nella tabella dei componenti)
+    for t in testi_profilo_dxf(percorso):
+        p = leggi_profilo(t)
+        if p:
+            return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': p.get('lunghezza_mm') or lung_txt,
+                    'fonte': 'disegno', 'testo': p['testo'],
+                    'alternativa': 'laser_tubo' if p['famiglia'] in ('SHS', 'RHS', 'CHS') else None}
     lung_dis = None
     try:
         if misure and misure[0] and misure[1]:
             lung_dis = round(max(float(misure[0]), float(misure[1])))
     except (TypeError, ValueError):
         lung_dis = None
+    if lung_txt:
+        lung_dis = lung_txt
     sez = sezione_tubo(percorso)
     if sez:
         return {**vuota, 'tipo': 'tubo', 'profilo': sez['nome'], 'lunghezza_mm': lung_dis,
@@ -453,7 +466,99 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
                 return {**vuota, 'tipo': 'tubo', 'profilo': None, 'lunghezza_mm': lung_dis, 'fonte': fonte,
                         'testo': _norm(t)[:120], 'solo_parola': w,
                         'alternativa': 'laser_tubo' if w.startswith('TUB') else None}
+    # Un pezzo lungo e stretto disegnato in DXF (DECA 26CCSA0038: 581x50) e'
+    # quasi sempre un tubo o un profilo visto di fianco: lato e lunghezza
+    # dal disegno, il profilo lo sceglie chi guarda (lato 50 x ?).
+    lato = misure_tubo(misure)
+    if lato:
+        return {**vuota, 'tipo': 'tubo', 'profilo': None, 'lunghezza_mm': lung_txt or lato['lunghezza_mm'],
+                'fonte': 'misure del disegno', 'lato_mm': lato['lato_mm'],
+                'testo': f"disegno {_g(lato['lunghezza_mm'])} x {_g(lato['lato_mm'])} mm: tubo o profilo "
+                         f"lato {_g(lato['lato_mm'])} x ?, L = {_g(lato['lunghezza_mm'])} mm",
+                'alternativa': 'laser_tubo'}
     return vuota
+
+
+_TESTI: dict = {}
+
+
+def testi_profilo_dxf(percorso: str | None) -> list:
+    """Le scritte del DXF che descrivono un profilo da barra (la riga della
+    distinta nel disegno: "T.Quadro Aisi304 50x 50x 3 L. 581"). In cache
+    finche' il file non cambia. [] se non ce ne sono."""
+    if not percorso or not str(percorso).lower().endswith('.dxf'):
+        return []
+    try:
+        k = (percorso, os.path.getmtime(percorso))
+    except OSError:
+        return []
+    with _SEZ_LOCK:
+        if k in _TESTI:
+            return _TESTI[k]
+    out = []
+    try:
+        import ezdxf
+        doc = ezdxf.readfile(percorso)
+        fonti = [doc.modelspace()] + [b for b in doc.blocks if not b.name.startswith('*')]
+        for f in fonti:
+            for e in f.query('TEXT MTEXT'):
+                try:
+                    t = e.plain_text() if e.dxftype() == 'MTEXT' else e.dxf.text
+                except Exception:        # noqa: BLE001
+                    continue
+                t = ' '.join(str(t or '').split())
+                if 6 <= len(t) <= 160 and t not in out and leggi_profilo(t):
+                    out.append(t)
+    except Exception:            # noqa: BLE001
+        logger.debug('scritte del disegno non lette: %s', percorso, exc_info=True)
+    with _SEZ_LOCK:
+        if len(_TESTI) > 200:
+            _TESTI.clear()
+        _TESTI[k] = out[:5]
+    return out[:5]
+
+
+def misure_tubo(misure) -> dict | None:
+    """{lato_mm, lunghezza_mm} se le misure del disegno sono quelle di un
+    tubo/profilo visto di fianco (lungo almeno 4 volte il lato, lato fino a
+    200 mm), altrimenti None."""
+    try:
+        a, b = float(misure[0]), float(misure[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    lung, lato = max(a, b), min(a, b)
+    if lato <= 0 or lato > 200 or lung < 4 * lato or lung > 24000:
+        return None
+    return {'lato_mm': round(lato, 1), 'lunghezza_mm': round(lung)}
+
+
+def nomi_profili() -> list:
+    """I profili del catalogo (profili_tubolari.json) scritti come li legge
+    leggi_profilo (cosi' si raggruppano bene nelle barre), per scegliere
+    scrivendo: "Tubo quadro 40x40 sp.2mm"..."""
+    out, visti = [], set()
+    for fam in ('SHS', 'RHS', 'CHS'):
+        for p in catalogo().get(fam, []) or []:
+            n = p.get('nome')
+            if not n:
+                continue
+            letto = leggi_profilo(('Tubo ' if not re.match(r'(?i)tub', n) else '') + _norm(n))
+            nome = letto['nome'] if letto else _norm(n)
+            if nome.lower() not in visti:
+                visti.add(nome.lower())
+                out.append(nome)
+    return out
+
+
+def da_completare(v: dict) -> str | None:
+    """Cosa manca a una voce perche' si possa ordinare: il profilo e la
+    lunghezza di un tubo / laser tubo. None se e' completa. Le voci da
+    completare restano fuori dal calcolo delle barre."""
+    if v.get('tipo') in ('tubo', 'laser_tubo'):
+        manca = [x for x, k in (('profilo', 'profilo'), ('lunghezza', 'lunghezza_mm')) if not v.get(k)]
+        if manca:
+            return 'manca ' + ' e '.join(manca)
+    return None
 
 
 def parola_profilo(testo) -> str | None:
@@ -516,9 +621,11 @@ def gruppi_tubi(voci: list, cfg: dict | None = None) -> list:
     cfg = cfg or config()
     per = {}
     for v in voci:
-        if v.get('tipo') != 'tubo':
-            continue
-        k = (chiave_profilo(v.get('profilo') or v.get('descrizione')), str(v.get('materiale') or '').strip().upper())
+        if v.get('tipo') != 'tubo' or not v.get('profilo'):
+            continue            # senza profilo: "da completare", fuori dalle barre
+        # "INOX_304" (cartiglio) e "INOX 304" (scritto a mano) sono lo stesso materiale
+        k = (chiave_profilo(v.get('profilo') or v.get('descrizione')),
+             ' '.join(str(v.get('materiale') or '').replace('_', ' ').upper().split()))
         g = per.setdefault(k, {'chiave': '|'.join(k), 'profilo': nome_profilo(v.get('profilo') or v.get('descrizione')),
                                'materiale': (v.get('materiale') or '').strip() or None, 'voci': [], 'pezzi': []})
         g['voci'].append(v['id'])
@@ -730,6 +837,21 @@ def sincronizza_righe(order_id: str, righe: list) -> int:
             if k not in nuove and r.stato == 'da_ordinare':
                 s.delete(r)
                 n += 1
+        # Voci dei pezzi classificati col tasto N: la quantita' e' quella
+        # della distinta (pezzi per assieme x assiemi, o x lotto), anche
+        # quando cambiano dopo (assieme da 1 a 3, pezzi per assieme scritti).
+        qta_pezzo = {}
+        for x in righe or []:
+            if isinstance(x, dict) and x.get('tipo') == 'lamiera' and x.get('articolo_id'):
+                qta_pezzo[str(x['articolo_id'])] = qta_pezzo.get(str(x['articolo_id']), 0) + _qta(x.get('quantita'))
+        if qta_pezzo:
+            for r in s.query(DaProcurare).filter(DaProcurare.order_id == order_id,
+                                                 DaProcurare.origine == 'classificato').all():
+                q = qta_pezzo.get(str(r.articolo_id or ''))
+                if q and r.quantita != q:
+                    r.quantita = q
+                    r.aggiornato_il, r.aggiornato_da = datetime.utcnow(), 'distinta'
+                    n += 1
         nuove_voci = sum(1 for k in nuove if k not in ci)
         if n:
             s.commit()
@@ -866,6 +988,7 @@ def elenco(stato: str | None = 'da_ordinare', tipo: str | None = None, ordine: s
         righe = q.all()
         vivi = _ordini_vivi(s, {r.order_id for r in righe})
         oggi = date.today()
+        ass = _assiemi_dei_pezzi(s, [r.articolo_id for r in righe if r.articolo_id and r.order_id in vivi])
         out = []
         for r in righe:
             o = vivi.get(r.order_id)
@@ -874,12 +997,49 @@ def elenco(stato: str | None = 'da_ordinare', tipo: str | None = None, ordine: s
             d = _diz(r)
             d['ordine'] = o
             d['scaduta'] = bool(r.stato == 'ordinato' and r.data_prevista and r.data_prevista < oggi)
+            a = ass.get(str(r.articolo_id or ''))
+            # pezzo di un assieme: quanti per assieme x quanti assiemi
+            d['assieme'] = a['assieme'] if a else None
+            d['per_assieme'] = a['per_assieme'] if a else None
+            d['qta_assieme'] = a['qta_assieme'] if a else None
+            d['qta_da_confermare'] = bool(a and a['da_confermare'])
+            d['da_completare'] = da_completare(d)
             out.append(d)
         out.sort(key=lambda d: ((d['ordine'] or {}).get('consegna') or '9999', d['ordine']['etichetta'],
                                 d['tipo'], d.get('codice') or '', d.get('profilo') or ''))
         return out
     finally:
         s.close()
+
+
+def _assiemi_dei_pezzi(session, articoli_ids) -> dict:
+    """{articolo_id: {assieme, per_assieme, qta_assieme, da_confermare}} per
+    i pezzi che stanno in un assieme (lettura diretta, leggera)."""
+    ids = sorted({str(i) for i in articoli_ids or [] if i})
+    if not ids:
+        return {}
+    from sqlalchemy import text as _text
+    out = {}
+    try:
+        for i in range(0, len(ids), 400):
+            parte = ids[i:i + 400]
+            seg = ', '.join(f':a{k}' for k in range(len(parte)))
+            par = {f'a{k}': v for k, v in enumerate(parte)}
+            for aid, pid, cod_ass, q, extra in session.execute(_text(
+                    'SELECT id, preventivo_id, codice_assieme, quantita, extra_campi FROM preventivo_articoli '
+                    f'WHERE id IN ({seg}) AND codice_assieme IS NOT NULL AND codice_assieme != \'\''), par).fetchall():
+                qa = session.execute(_text('SELECT qty FROM preventivo_assiemi WHERE preventivo_id = :p '
+                                           'AND codice_assieme = :c'), {'p': pid, 'c': cod_ass}).fetchone()
+                try:
+                    od = (json.loads(extra or '{}') or {}).get('ordine') or {}
+                except (TypeError, ValueError):
+                    od = {}
+                out[str(aid)] = {'assieme': cod_ass, 'per_assieme': _qta(q),
+                                 'qta_assieme': _qta(qa[0]) if qa else 1,
+                                 'da_confermare': isinstance(od, dict) and od.get('stato') == 'qta_da_confermare'}
+    except Exception:            # noqa: BLE001
+        logger.warning('assiemi dei pezzi da procurare non letti', exc_info=True)
+    return out
 
 
 def riassunto_per_ordini(ids=None) -> dict:
@@ -972,7 +1132,9 @@ def ripristina(foto: list, chi: str = '') -> list:
 
 
 def modifica(voce_id: str, campi: dict, chi: str = '') -> dict | None:
-    """Profilo, lunghezza, quantita' o nota di una voce (correzioni a mano)."""
+    """Profilo, lunghezza, quantita', materiale, descrizione, tipo o nota di
+    una voce (correzioni a mano). La quantita' di un pezzo di un assieme non
+    si scrive qui: segue i pezzi per assieme (api_procura)."""
     from .database import get_session
     from .models import DaProcurare
     s = get_session()
@@ -990,6 +1152,10 @@ def modifica(voce_id: str, campi: dict, chi: str = '') -> dict | None:
             r.quantita = max(1, int(campi['quantita']))
         if 'nota' in campi:
             r.nota = (str(campi['nota'] or '').strip()[:200] or None)
+        if 'materiale' in campi:
+            r.materiale = (str(campi['materiale'] or '').strip()[:40] or None)
+        if 'descrizione' in campi:
+            r.descrizione = (str(campi['descrizione'] or '').strip()[:200] or None)
         if 'tipo' in campi and campi['tipo'] in TIPI:
             r.tipo = campi['tipo']
         r.aggiornato_il, r.aggiornato_da = datetime.utcnow(), chi or None

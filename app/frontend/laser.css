@@ -561,3 +561,32 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-o-procura .testa span { color: #6E4205; }
 .lz-o-procura .testa .sp { flex: 1; }
 .lz-o-procura .lz-tab { border: 0; border-radius: 0; }
+
+/* ── Assiemi nella scheda Pezzi (13/10/2026) ─────────────────────────
+   La testata dell'assieme (codice, riga dell'ordine, quanti: si cambia)
+   e sotto i suoi pezzi, rientrati; i pezzi per assieme si scrivono nella
+   colonna Q.tà. Rosso = da confermare (blocca Lantek). */
+.lz-tab tr.lz-ass td { background: var(--lz-surface-2); padding: 7px 10px; border-bottom: 1px solid var(--lz-line); }
+.lz-tab tr.lz-ass + tr td { border-top: 0; }
+.lz-ass-riga { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lz-ass-riga .t { font-size: 12px; color: var(--lz-ink-3); text-transform: uppercase; letter-spacing: .04em; }
+.lz-ass-riga .mono { font-family: var(--lz-mono); font-size: 13px; }
+.lz-ass-riga .desc { color: var(--lz-ink-2); font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lz-ass-riga .sp { flex: 1 1 auto; }
+.lz-ass-riga .n { color: var(--lz-ink-3); font-size: 12.5px; white-space: nowrap; }
+.lz-assq { display: inline-flex; align-items: center; gap: 2px; font-weight: 650; font-size: 14px; color: var(--lz-ink); }
+.lz-assq input, .lz-pza input { width: 46px; height: 28px; padding: 0 6px; border: 1px solid var(--lz-line); border-radius: 7px;
+  font: 600 13.5px var(--lz-font); font-variant-numeric: tabular-nums; text-align: right; background: #fff; color: var(--lz-ink); }
+.lz-assq input:focus-visible, .lz-pza input:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 1px; }
+.lz-tab tr.comp td.cod { padding-left: 34px; }
+.lz-pza { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 3px; font-size: 12px; font-weight: 400; color: var(--lz-ink-3); }
+.lz-pza input { width: 40px; height: 24px; font-size: 12.5px; }
+.lz-pza.da input { border-color: var(--lz-red); background: var(--lz-red-bg); }
+.lz-pza.da { color: var(--lz-red); }
+.lz-pza-tot { font-size: 13px; color: var(--lz-ink-2); font-variant-numeric: tabular-nums; }
+/* tasto N: i campi obbligatori ancora vuoti (profilo e lunghezza del tubo,
+   pezzi per assieme che l'ordine non dice) */
+.lz-pr-campi label em { font-style: normal; color: var(--lz-amber); }
+.lz-pr-campi label.manca input { border-color: var(--lz-amber-line); background: var(--lz-amber-bg); }
+.lz-pr-campi label small { color: var(--lz-amber); font-size: 12px; }
+.lz-pr-campi .mm b { color: var(--lz-ink); }

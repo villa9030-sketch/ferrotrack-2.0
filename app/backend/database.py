@@ -5046,10 +5046,17 @@ class PreventivoManager:
             if dr:
                 out['disegno_rif'] = dr
         od = a.get('ordine')
-        if isinstance(od, dict) and od.get('stato') in ('ok', 'senza_qta', 'dubbio', 'non_trovato', 'controllato'):
+        if isinstance(od, dict) and od.get('stato') in ('ok', 'senza_qta', 'dubbio', 'non_trovato', 'controllato',
+                                                        'qta_da_confermare'):
             n = PreventivoManager._num_o_none
             out['ordine'] = {'stato': od['stato'], 'pos': n(od.get('pos'), 1e6), 'qta': n(od.get('qta'), 1e6),
                              'file': str(od.get('file') or '')[:200]}
+            # pezzi per assieme: da dove vengono (distinta) e chi li ha scritti a mano
+            for k in ('fonte', 'qta_da', 'qta_il'):
+                if od.get(k):
+                    out['ordine'][k] = str(od[k])[:60]
+            if od.get('descrizione'):
+                out['ordine']['descrizione'] = str(od['descrizione'])[:200]
             # righe dell'ordine una per una (commessa, quantita'): per DECA il
             # PDF del preventivo le riporta uguali
             righe = []

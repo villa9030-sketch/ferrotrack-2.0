@@ -44,7 +44,9 @@ class ArticoloRFQ:
     codice_assieme: str | None = None  # se il DXF è dentro una sottocartella-assieme
     # Da dove viene la quantita': 'pdf' (letta sulla riga dell'ordine),
     # 'dubbio' (riga con piu' codici), 'senza_qta' (codice citato senza
-    # quantita', messa 1), 'non_trovato' (disegno che nell'ordine non c'e').
+    # quantita', messa 1), 'non_trovato' (disegno che nell'ordine non c'e'),
+    # 'per_assieme' (componente di un assieme senza riga sua: quanti per
+    # assieme da confermare), 'distinta' (letta nella distinta dell'assieme).
     # Serve all'ufficio per sapere quali quantita' ricontrollare.
     qta_fonte: str = 'pdf'
     # Come il disegno e' stato abbinato: 'esatto' (nome = codice),
@@ -55,6 +57,9 @@ class ArticoloRFQ:
     # Righe dell'ordine con lo stesso codice (pos, qta, commessa): il PDF DECA
     # puo' ripetere un codice su piu' righe, le quantita' si sommano.
     righe_ordine: list = field(default_factory=list)
+    # Riga dell'ordine che E' l'assieme (codice = nome della sottocartella):
+    # la sua quantita' e' quella dell'assieme, non un pezzo da tagliare.
+    e_master: bool = False
 
 
 @dataclass
@@ -68,6 +73,15 @@ class RFQParseResult:
     articoli: list[ArticoloRFQ] = field(default_factory=list)
     dxf_no_match: list[str] = field(default_factory=list)  # DXF nella cartella senza articolo PDF
     assiemi: list[str] = field(default_factory=list)       # codici assieme rilevati dalle cartelle
+    # Quantita' e descrizione degli assiemi lette sulla loro riga dell'ordine
+    # (la riga "master"): {codice assieme: qta} / {codice assieme: testo}.
+    # Un assieme senza riga nell'ordine non c'e' qui (quantita' da controllare).
+    qta_assiemi: dict = field(default_factory=dict)
+    desc_assiemi: dict = field(default_factory=dict)
+    # Disegno d'insieme di ogni assieme (il DXF che porta il nome della sua
+    # cartella): {basename: codice assieme}. Non e' un pezzo: c'e' la sua
+    # distinta (assiemi_ordine.quantita_da_distinte).
+    master_dxf: dict = field(default_factory=dict)
     dxf_map: dict = field(default_factory=dict)            # {basename: bytes} per scrittura su disco
     step_map: dict = field(default_factory=dict)           # {basename: bytes} STEP assiemi 3D
     pdf_bytes: bytes | None = None                         # PDF ordine originale (disegni/lavorazioni per Mirko)
@@ -338,6 +352,8 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
         (pdf_bytes, pdf_filename, dxf_map, assieme_of)
         - dxf_map: {basename: bytes}
         - assieme_of: {basename: codice_assieme | None}
+        - step_map: {basename: bytes} degli STEP
+        - masters: {basename: codice assieme} dei disegni d'insieme
           codice_assieme = nome sottocartella per i COMPONENTI; None per i DXF
           alla radice o per il master dell'assieme.
     """
@@ -346,6 +362,7 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
     dxf_map: dict[str, bytes] = {}
     assieme_of: dict[str, str | None] = {}
     step_map: dict[str, bytes] = {}
+    masters: dict[str, str] = {}
 
     try:
         with zipfile.ZipFile(BytesIO(zip_bytes), 'r') as zf:
@@ -372,6 +389,14 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
 
             # Mappa assiemi dai percorsi DXF (radice comune calcolata sui DXF)
             assieme_by_base = assiemi_from_paths([n for _, n, _ in dxf_entries])
+            # Disegni d'insieme: il DXF nella cartella di primo livello che
+            # porta il suo nome (anche quando i componenti stanno fuori dalla
+            # cartella, come nel pacchetto DECA A 001221 BIS)
+            _tutti, _clen = _radice_comune_dxf([n for _, n, _ in dxf_entries])
+            for _, n, b in dxf_entries:
+                _dirs = _dirparts(n)[_clen:]
+                if _dirs and _e_disegno_cartella(os.path.splitext(b)[0], _dirs[0]):
+                    masters[b] = _dirs[0]
 
             # Selezione PDF ORDINE: preferisci un PDF il cui nome NON corrisponde a
             # un DXF (i PDF-disegno dei componenti si chiamano come il loro DXF).
@@ -401,7 +426,7 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
     except Exception as e:
         raise ValueError(f'Errore estrazione ZIP: {e}')
 
-    return pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map
+    return pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters
 
 
 # ─── Pipeline completo ────────────────────────────────────────────────────
@@ -422,12 +447,13 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
 
     # 1. Estrai ZIP (con riconoscimento assiemi dalle sottocartelle)
     try:
-        pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map = extract_zip_package(zip_bytes)
+        pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters = extract_zip_package(zip_bytes)
     except ValueError as e:
         result.error = str(e)
         return result
     result.dxf_map = dxf_map
     result.step_map = step_map
+    result.master_dxf = dict(masters or {})
     # Conserva il PDF ordine: è il documento con i disegni/lavorazioni che Mirko
     # deve vedere in produzione. Va salvato e allegato all'ordine all'accettazione.
     result.pdf_bytes = pdf_bytes
@@ -506,24 +532,57 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
         if folder and base in dxf_no_match_set:
             # componente di assieme senza riga PDF → crea articolo figlio
             stem = os.path.splitext(base)[0]
+            # Quanti per assieme non lo dice l'ordine: NON si mette 1 in
+            # silenzio. 'per_assieme' = da confermare (distinta dell'assieme,
+            # se c'e', altrimenti la scrive il laser: blocca Lantek).
             componenti_aggiunti.append(ArticoloRFQ(
                 codice=stem, quantita=1, matched_dxf=base, codice_assieme=folder,
-                descrizione='componente assieme (da cartella)',
+                descrizione='componente assieme (da cartella)', qta_fonte='per_assieme',
             ))
     articoli.extend(componenti_aggiunti)
     # i componenti aggiunti non sono più "orfani"
     dxf_no_match = [d for d in dxf_no_match if d not in {c.matched_dxf for c in componenti_aggiunti}]
 
-    # assiemi distinti rilevati
-    result.assiemi = sorted({v for v in assieme_of.values() if v})
+    # assiemi distinti rilevati: dalle cartelle dei componenti e dai disegni
+    # d'insieme (una cartella col solo disegno dell'assieme e' un assieme)
+    result.assiemi = sorted({v for v in assieme_of.values() if v} | set(result.master_dxf.values()))
+    # il disegno d'insieme non e' un pezzo da tagliare ne' "fuori ordine"
+    dxf_no_match = [d for d in dxf_no_match if d not in result.master_dxf]
 
     # Master dell'assieme: un articolo PDF il cui codice coincide col nome
     # dell'assieme (es. "13SA0070-00") È l'assieme stesso, non un pezzo standalone.
     # Raggruppalo sotto il suo assieme per non contarlo due volte nel totale.
+    # La sua quantita' (righe ripetute gia' sommate) e' quella dell'assieme:
+    # prima l'assieme nasceva sempre x1 (DECA A 001221 BIS: 2+1 = 3 strutture,
+    # registrate come 1).
     _assiemi_set = set(result.assiemi)
+    _per_base = {_codice_senza_rev(c): c for c in result.assiemi}
     for a in articoli:
-        if not a.codice_assieme and a.codice in _assiemi_set:
-            a.codice_assieme = a.codice
+        cod_ass = a.codice if a.codice in _assiemi_set else _per_base.get(_codice_senza_rev(a.codice))
+        if not cod_ass or (a.codice_assieme and a.codice_assieme != cod_ass):
+            continue
+        a.codice_assieme = cod_ass
+        a.e_master = True
+        if a.abbinamento == 'somiglianza' and a.matched_dxf:
+            # il disegno "simile" e' di un componente: torna al suo assieme
+            dxf_no_match.append(a.matched_dxf)
+            a.matched_dxf, a.abbinamento, a._matched_score = None, None, 0.0
+        result.qta_assiemi[cod_ass] = result.qta_assiemi.get(cod_ass, 0) + int(a.quantita or 0)
+        if a.descrizione and cod_ass not in result.desc_assiemi:
+            result.desc_assiemi[cod_ass] = a.descrizione.strip()[:200]
+    # disegni "rubati" per somiglianza dal master: sono componenti dell'assieme
+    for base in list(dxf_no_match):
+        folder = assieme_of.get(base)
+        if folder and base not in {c.matched_dxf for c in articoli}:
+            dxf_no_match.remove(base)
+            articoli.append(ArticoloRFQ(
+                codice=os.path.splitext(base)[0], quantita=1, matched_dxf=base, codice_assieme=folder,
+                descrizione='componente assieme (da cartella)', qta_fonte='per_assieme'))
+    senza_master = [c for c in result.assiemi if c not in result.qta_assiemi]
+    if senza_master:
+        result.warnings.append(
+            "Quantita' dell'assieme non trovata nell'ordine (messa 1, da controllare): "
+            + ', '.join(senza_master[:3]) + ('…' if len(senza_master) > 3 else ''))
 
     result.articoli = articoli
     result.dxf_no_match = dxf_no_match
