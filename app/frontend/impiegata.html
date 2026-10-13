@@ -2314,7 +2314,10 @@ function renderOggi() {
   const idRit = rp ? new Set(rp.in_ritardo.ids) : null;
   const ritardo = aperti.filter(o => idRit ? idRit.has(o.id) : (nonConsegnato(o) && consG(o) != null && consG(o) < 0)).sort((a, b) => consG(a) - consG(b));
   const visti = new Set(ritardo.map(o => o.id));
-  const prossime = aperti.filter(o => nonConsegnato(o) && !visti.has(o.id) && [0, 1].includes(consG(o)));
+  // i "forse finiti" (tagliati, niente in sospeso) stanno nella loro sezione,
+  // con la data di consegna; se sono in ritardo restano fra i ritardi
+  const idForse = new Set(FORSE_FINITI.filter(f => !visti.has(f.id)).map(f => f.id));
+  const prossime = aperti.filter(o => nonConsegnato(o) && !visti.has(o.id) && !idForse.has(o.id) && [0, 1].includes(consG(o)));
   prossime.forEach(o => visti.add(o.id));
   const ddt = aperti.filter(o => o.passo === 'attesa_ddt' && !visti.has(o.id));
   const daCons = aperti.filter(o => (o.passo === 'ddt_registrato' || o.passo === 'consegna_parziale') && !visti.has(o.id));
@@ -2340,7 +2343,7 @@ function renderOggi() {
   const sez = (id, cls, ico, titolo, lista, stato, az) => !lista.length ? '' :
     `<div class="og-sez ${cls}" id="${id}"><i data-lucide="${ico}"></i>${titolo}<em>${lista.length}</em></div>`
     + lista.map(o => rigaOggi(o, stato(o), az(o))).join('');
-  const forse = FORSE_FINITI.filter(f => !visti.has(f.id));
+  const forse = FORSE_FINITI.filter(f => idForse.has(f.id));
   let html = [
     forse.length ? `<div class="og-sez ok" id="og-s-forse"><i data-lucide="circle-check-big"></i>Forse finiti<em>${forse.length}</em></div>`
       + forse.map(rigaForseFinito).join('') : '',
