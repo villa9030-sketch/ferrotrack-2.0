@@ -269,10 +269,23 @@ def notifiche():
           da_smistare not in ids and smistato in ids, ids)
 
 
+def doppioni_bis():
+    print('\n4) Ordine ricaricato: "A 001221" dopo "A 001221 BIS"')
+    nuovo_ordine(numero='A 009221 BIS', cliente='DECA S.r.l.')
+    e = A._ordine_gia_caricato('A 009221', 'DECA S.r.l.')
+    check('il BIS gia\' caricato viene segnalato, come variante', e and e['numero_ordine'] == 'A 009221 BIS'
+          and e['variante'] is True, e)
+    e = A._ordine_gia_caricato('a 009221 bis', 'DECA S.r.l.')
+    check('lo stesso numero esatto: doppione, non variante', e and e['variante'] is False, e)
+    check('un altro numero no', A._ordine_gia_caricato('A 0092210', 'DECA S.r.l.') is None)
+    check('un altro cliente no', A._ordine_gia_caricato('A 009221', 'Poliform') is None)
+
+
 def main():
     forse_finiti()
     preventivo_accettato()
     notifiche()
+    doppioni_bis()
     print(f'\n{OK} ok, {len(KO)} ko')
     if KO:
         print('FALLITI:', *KO, sep='\n  ')

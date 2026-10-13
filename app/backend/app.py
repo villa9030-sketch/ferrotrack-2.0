@@ -4944,16 +4944,24 @@ def _ordine_gia_caricato(numero_ordine, cliente):
     if not numero:
         return None
     cli = (cliente or '').strip().lower()
+    # Lo stesso ordine ricaricato come "BIS"/"TER" (o viceversa) e' lo stesso
+    # PDF con gli stessi pezzi: A 001221 BIS era gia' in Lantek e ricaricando
+    # A 001221 nessuno avvisava (e in Lantek il riferimento e' diverso, quindi
+    # "gia' in produzione" non lo vede: i pezzi partirebbero due volte).
+    base = re.sub(r'[\s\-_/]*(bis|ter|quater)$', '', numero).strip()
+    varianti = {numero, base} | {f'{base} {x}' for x in ('bis', 'ter', 'quater')}
     session = get_session()
     try:
         from sqlalchemy import func
         q = session.query(Order).filter(
             Order.is_deleted == False,  # noqa: E712
-            func.lower(func.trim(Order.numero_ordine)) == numero)
+            func.lower(func.trim(Order.numero_ordine)).in_(sorted(varianti)))
         if cli:
             q = q.filter(func.lower(func.trim(Order.cliente)) == cli)
-        o = q.first()
-        return ({'id': o.id, 'numero_ordine': o.numero_ordine, 'cliente': o.cliente}
+        trovati = q.all()
+        o = next((x for x in trovati if (x.numero_ordine or '').strip().lower() == numero), None)             or (trovati[0] if trovati else None)
+        return ({'id': o.id, 'numero_ordine': o.numero_ordine, 'cliente': o.cliente,
+                 'variante': (o.numero_ordine or '').strip().lower() != numero}
                 if o else None)
     finally:
         session.close()

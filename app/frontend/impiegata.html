@@ -1465,7 +1465,8 @@ function pkgRender() {
   if (d.ordine_esistente) {
     const e = d.ordine_esistente;
     alerts.push(`<div class="ft-alert warn"><i data-lucide="copy"></i><div><b>Quest’ordine sembra già caricato.</b>
-      L’ordine ${esc(e.numero_ordine || '')} di ${esc(e.cliente || '')} esiste già: controlla di non crearlo due volte.</div>
+      L’ordine ${esc(e.numero_ordine || '')} di ${esc(e.cliente || '')} esiste già: controlla di non crearlo due volte.${e.variante
+        ? ' Stesso numero con «BIS/TER»: se i pezzi sono gli stessi, al laser partirebbero due volte.' : ''}</div>
       <div class="ft-alert-actions"><button class="ft-btn sm" onclick="pkgApriEsistente()">Apri l’ordine</button></div></div>`);
   }
   const senzaQta = PKG.righe.filter(r => !r.fuori_ordine).length && PKG.righe.filter(r => !r.fuori_ordine).every(r => r.quantita_fonte === 'mancante');
