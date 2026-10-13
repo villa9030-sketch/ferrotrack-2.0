@@ -58,14 +58,8 @@ ETICHETTE = {
 # cosa manca. "Pronti per DDT" contiene sia chi aspetta il DDT sia chi ce l'ha
 # gia' e aspetta la consegna; "consegnati" sia chi e' da fatturare sia chi ha
 # ancora un residuo da consegnare.
-ETICHETTE_PASSO = {
-    'in_lavorazione': 'In lavorazione',
-    'attesa_ddt': 'Pronto: da preparare il DDT',
-    'ddt_registrato': 'DDT registrato: da consegnare',
-    'consegna_parziale': 'Consegnato in parte: resta un residuo',
-    'da_fatturare': 'Consegnato: da fatturare',
-    'chiuso': 'Fatturato e chiuso',
-}
+# Le parole stanno in backend/stati.py (le stesse in ogni pagina).
+from .stati import PASSO_SPIEGA as ETICHETTE_PASSO  # noqa: E402
 
 # Stati storici che significano "pratica chiusa"
 _STATI_ARCHIVIO = ('CHIUSO', 'SPEDITO', 'ARCHIVIATO')

@@ -39,7 +39,7 @@
                bottoni: [{ t: 'No', az: 'smista-no' }, { t: 'Sì, va tagliato', az: 'smista-si', pri: true, tasto: 'Invio' }] };
     }
     if (st === 'tagliato') {
-      return { tono: '', ico: 'circle-check', t: 'Tagliato',
+      return { tono: '', ico: 'circle-check', t: window.FTStati.laser.tagliato,
                s: `Segnato ${esc(FT.fmtRelativo(o.data_taglio_completato))}. Se è uno sbaglio, annullalo.`,
                bottoni: [{ t: 'Annulla taglio', az: 'taglio-annulla' }] };
     }
@@ -125,7 +125,7 @@
                    + (info.n_correggere ? ` ${LZ.plur(info.n_correggere, 'altro resta', 'altri restano')} fuori finché non ${info.n_correggere === 1 ? 'lo' : 'li'} correggi.` : ''),
                  bottoni: [{ t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
       }
-      return { tono: 'pronto', ico: 'send', t: 'Pronto per Lantek',
+      return { tono: 'pronto', ico: 'send', t: window.FTStati.laser.da_importare,
                s: `${LZ.plur(n, 'codice', 'codici')}: creo i pezzi nuovi col disegno e gli ordini di produzione.`,
                bottoni: [{ t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
     }

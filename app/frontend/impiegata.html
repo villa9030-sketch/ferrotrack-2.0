@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/procura.css?v=2">
 <script src="/ft-accesso.js" data-stazioni="ufficio"></script>
 <script src="/ft-ui.js"></script>
+<script src="/ft-stati.js"></script>
 <script src="/carico-laser.js?v=3"></script>
 <style>
 /* Ufficio — solo quello che la base comune (ft-ui.css) non ha ancora.
@@ -1938,6 +1939,17 @@ function classeConsegna(o) {
   const s = FT.scadenza(giorno(o.data_consegna));
   return s.classe === 'late' ? 'err' : s.classe === 'soon' ? 'warn' : 'accent';
 }
+/** Lo stato nel calendario, con le parole di tutte le pagine (mai "Finito"):
+    il passo dell'ufficio se l'ordine e' nelle viste, altrimenti dallo stato. */
+function statoCalendario(o) {
+  const r = rigaDi(o.id);
+  const p = (r && r.passo) || FTStati.daStatus[o.status] || 'in_lavorazione';
+  if (p === 'in_lavorazione') {
+    const f = FTStati.faseLaser(r || o);
+    if (f && f !== 'non_serve') return FTStati.passo.in_lavorazione + ' · ' + FTStati.laser[f];
+  }
+  return FTStati.passo[p] || '—';
+}
 function ordiniDelGiorno(dateStr) { return allOrders.filter(o => giorno(o.data_consegna) === dateStr); }
 function isoLocale(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 
@@ -1988,7 +2000,7 @@ function showDayDetail(dateStr) {
       <div class="imp-day-item" onclick="apriOrdine('${esc(o.id)}')">
         <span class="ft-status ${classeConsegna(o)}"></span>
         <div class="ft-cell-main"><b>${esc(o.cliente || '—')}</b><code>${esc(o.numero_ordine || '')}</code></div>
-        <span class="ft-chip">${esc(STATI_FINITI.includes(o.status) ? 'Finito' : (o.fase_corrente || o.status || '—'))}</span>
+        <span class="ft-chip">${esc(statoCalendario(o))}</span>
         <i data-lucide="chevron-right" class="ft-muted"></i>
       </div>`).join('') + '</div>';
   }
@@ -2019,15 +2031,16 @@ const FASI_INFO = {
 };
 const TAPPE = ['Lavorazione', 'Pronto', 'DDT', 'Consegnato', 'Fatturato'];
 // Il passo preciso (dal server): dice cosa manca, non solo in che vista sta.
+// Le parole: backend/stati.py (/ft-stati.js), le stesse di laser e capo officina.
 const PASSI = {
-  in_lavorazione:    { t: 0, lbl: 'In lavorazione' },
-  attesa_ddt:        { t: 1, lbl: 'DDT da fare' },
-  ddt_registrato:    { t: 2, lbl: 'Da consegnare' },
-  consegna_parziale: { t: 3, lbl: 'Consegna parziale' },
-  da_fatturare:      { t: 3, lbl: 'Da fatturare' },
-  chiuso:            { t: 4, lbl: 'Fatturato' },
+  in_lavorazione:    { t: 0, lbl: FTStati.passo.in_lavorazione },
+  attesa_ddt:        { t: 1, lbl: FTStati.passo.attesa_ddt },
+  ddt_registrato:    { t: 2, lbl: FTStati.passo.ddt_registrato },
+  consegna_parziale: { t: 3, lbl: FTStati.passo.consegna_parziale },
+  da_fatturare:      { t: 3, lbl: FTStati.passo.da_fatturare },
+  chiuso:            { t: 4, lbl: FTStati.passo.chiuso },
 };
-const TAPPE_STATO = ['In lavorazione', 'DDT da fare', 'Da consegnare', 'Da fatturare', 'Fatturato'];
+const TAPPE_STATO = ['in_lavorazione', 'attesa_ddt', 'ddt_registrato', 'da_fatturare', 'chiuso'].map(k => FTStati.passo[k]);
 
 function rigaDi(id) { return (VISTE_DATI.ordini || []).find(x => x.id === id); }
 /** Un solo DDT ovunque: quello del ciclo nuovo, altrimenti quello storico. */
@@ -2060,13 +2073,13 @@ function stepsHtml(o, compatto) {
   return `<div class="imp-prog"><div class="ft-steps compact" aria-label="${lbl}">${passi}</div><span>${lbl}</span></div>`;
 }
 function laserHtml(o) {
-  if (o.laser_fase === 'da_importare') return `<span class="ft-chip info" title="Va tagliato: il laser deve ancora metterlo in Lantek${o.data_taglio_pianificata ? ' · taglio previsto il ' + FT.fmtData(o.data_taglio_pianificata) : ''}"><i data-lucide="file-input"></i> Da importare</span>`;
-  if (o.laser_fase === 'in_lantek') return `<span class="ft-chip" style="background:#EDE9FE;color:#5B21B6" title="In Lantek dal ${o.importato_lantek_il ? FT.fmtDataOra(o.importato_lantek_il) : '—'}: pronto da tagliare"><i data-lucide="scissors"></i> In Lantek</span>`;
-  if (o.taglio_stato === 'da_smistare') return '<span class="ft-chip" title="Il laser non ha ancora deciso se serve il taglio">Da smistare</span>';
-  if (o.taglio_stato === 'non_serve') return '<span class="ft-chip">Senza laser</span>';
-  if (o.taglio_fatto) return `<span class="ft-chip ok" title="${o.taglio_il ? 'Tagliato il ' + FT.fmtDataOra(o.taglio_il) : 'Taglio laser fatto'}"><i data-lucide="check"></i> Tagliato</span>`;
-  if (o.taglio_richiesto === false) return '<span class="ft-chip">Senza laser</span>';
-  return '<span class="ft-chip info"><i data-lucide="clock"></i> In coda laser</span>';
+  const L = FTStati.laser, f = o.laser_fase || FTStati.faseLaser(o);
+  if (f === 'da_importare') return `<span class="ft-chip info" title="${esc(FTStati.laserSpiega.da_importare)}${o.data_taglio_pianificata ? ' · taglio previsto il ' + FT.fmtData(o.data_taglio_pianificata) : ''}"><i data-lucide="file-input"></i> ${esc(L.da_importare)}</span>`;
+  if (f === 'in_lantek') return `<span class="ft-chip" style="background:#EDE9FE;color:#5B21B6" title="In Lantek dal ${o.importato_lantek_il ? FT.fmtDataOra(o.importato_lantek_il) : '—'}: pronto da tagliare"><i data-lucide="scissors"></i> ${esc(L.in_lantek)}</span>`;
+  if (f === 'da_smistare') return `<span class="ft-chip" title="${esc(FTStati.laserSpiega.da_smistare)}">${esc(L.da_smistare)}</span>`;
+  if (f === 'non_serve') return `<span class="ft-chip">${esc(L.non_serve)}</span>`;
+  if (f === 'tagliato') return `<span class="ft-chip ok" title="${o.taglio_il ? 'Tagliato il ' + FT.fmtDataOra(o.taglio_il) : esc(FTStati.laserSpiega.tagliato)}"><i data-lucide="check"></i> ${esc(L.tagliato)}</span>`;
+  return `<span class="ft-chip info"><i data-lucide="clock"></i> ${esc(L.da_importare)}</span>`;
 }
 /** Consegna: prevista contro effettiva. */
 function consegnaHtml(o) {
@@ -2105,8 +2118,9 @@ async function caricaOggi(forza) {
 /** Ordini che pesano sul laser (le pratiche chiuse no). */
 function ordiniPerLaser() { return (VISTE_DATI.ordini || []).filter(o => o.fase !== 'archivio'); }
 function etichettaLaser(o) {
-  return { da_smistare: 'Laser: da smistare', da_importare: 'Laser: da importare in Lantek', in_lantek: 'Laser: in Lantek, da tagliare',
-           tagliato: 'Tagliato', non_serve: 'Senza laser' }[o.laser_fase] || '';
+  const f = o.laser_fase;
+  if (!f) return '';
+  return f === 'tagliato' || f === 'non_serve' ? FTStati.laser[f] : 'Laser: ' + FTStati.laser[f];
 }
 function giornoBreve(ds) { return ds ? FT.data(ds).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'numeric' }) : '—'; }
 /** Perche' un ordine aperto rischia il ritardo (vuoto = nessun rischio). */
@@ -2316,8 +2330,8 @@ function storiaHtml(o, d, complet, dd, f) {
   const passi = [
     ['Ricevuto', d.data_ricezione, 'ordine caricato'],
     ['Smistato al laser', o.smistato_il, senzaLaser ? 'non passa dal laser' : 'va tagliato', senzaLaser],
-    ['In Lantek', o.importato_lantek_il, 'disegni importati, pronto da tagliare', senzaLaser],
-    ['Tagliato', o.taglio_il || o.data_taglio_completato, o.data_taglio_pianificata && !o.taglio_il ? 'previsto il ' + FT.fmtData(o.data_taglio_pianificata) : 'taglio laser fatto', senzaLaser],
+    [FTStati.laser.in_lantek, o.importato_lantek_il, 'disegni importati, pronto da tagliare', senzaLaser],
+    [FTStati.laser.tagliato, o.taglio_il || o.data_taglio_completato, o.data_taglio_pianificata && !o.taglio_il ? 'previsto il ' + FT.fmtData(o.data_taglio_pianificata) : 'taglio laser fatto', senzaLaser],
     ['Lavorazione finita', complet, o.completato_da ? esc(o.completato_da) : 'officina'],
     ['DDT', dd.num ? (dd.data || true) : null, dd.num ? 'DDT ' + esc(dd.num) : 'da fare'],
     ['Consegnato', o.consegna, o.consegna_parziale ? 'consegna parziale' : ''],

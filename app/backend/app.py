@@ -273,6 +273,15 @@ _LEGACY_REDIRECTS = {
 }
 
 
+@app.route('/ft-stati.js')
+def ft_stati_js():
+    """Le parole degli stati, uguali in ogni pagina (backend/stati.py)."""
+    from . import stati as _stati
+    resp = app.response_class(_stati.js(), mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
+
 @app.route('/<path:filename>')
 def serve_frontend(filename):
     """Serve frontend files. Redirect su pagine legacy demolite."""
