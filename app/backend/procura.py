@@ -433,6 +433,14 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
                 return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': lung,
                         'fonte': fonte, 'testo': p['testo'],
                         'alternativa': 'laser_tubo' if p['famiglia'] in ('SHS', 'RHS', 'CHS') else None}
+    # La distinta scritta nel disegno stesso (DECA 26CCSA0038: "T.Quadro
+    # Aisi304 50x 50x 3 L. 581" nella tabella dei componenti)
+    for t in testi_profilo_dxf(percorso):
+        p = leggi_profilo(t)
+        if p:
+            return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': p.get('lunghezza_mm'),
+                    'fonte': 'disegno', 'testo': p['testo'],
+                    'alternativa': 'laser_tubo' if p['famiglia'] in ('SHS', 'RHS', 'CHS') else None}
     lung_dis = None
     try:
         if misure and misure[0] and misure[1]:
@@ -464,6 +472,45 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
                          f"lato {_g(lato['lato_mm'])} x ?, L = {_g(lato['lunghezza_mm'])} mm",
                 'alternativa': 'laser_tubo'}
     return vuota
+
+
+_TESTI: dict = {}
+
+
+def testi_profilo_dxf(percorso: str | None) -> list:
+    """Le scritte del DXF che descrivono un profilo da barra (la riga della
+    distinta nel disegno: "T.Quadro Aisi304 50x 50x 3 L. 581"). In cache
+    finche' il file non cambia. [] se non ce ne sono."""
+    if not percorso or not str(percorso).lower().endswith('.dxf'):
+        return []
+    try:
+        k = (percorso, os.path.getmtime(percorso))
+    except OSError:
+        return []
+    with _SEZ_LOCK:
+        if k in _TESTI:
+            return _TESTI[k]
+    out = []
+    try:
+        import ezdxf
+        doc = ezdxf.readfile(percorso)
+        fonti = [doc.modelspace()] + [b for b in doc.blocks if not b.name.startswith('*')]
+        for f in fonti:
+            for e in f.query('TEXT MTEXT'):
+                try:
+                    t = e.plain_text() if e.dxftype() == 'MTEXT' else e.dxf.text
+                except Exception:        # noqa: BLE001
+                    continue
+                t = ' '.join(str(t or '').split())
+                if 6 <= len(t) <= 160 and t not in out and leggi_profilo(t):
+                    out.append(t)
+    except Exception:            # noqa: BLE001
+        logger.debug('scritte del disegno non lette: %s', percorso, exc_info=True)
+    with _SEZ_LOCK:
+        if len(_TESTI) > 200:
+            _TESTI.clear()
+        _TESTI[k] = out[:5]
+    return out[:5]
 
 
 def misure_tubo(misure) -> dict | None:
@@ -571,7 +618,9 @@ def gruppi_tubi(voci: list, cfg: dict | None = None) -> list:
     for v in voci:
         if v.get('tipo') != 'tubo' or not v.get('profilo'):
             continue            # senza profilo: "da completare", fuori dalle barre
-        k = (chiave_profilo(v.get('profilo') or v.get('descrizione')), str(v.get('materiale') or '').strip().upper())
+        # "INOX_304" (cartiglio) e "INOX 304" (scritto a mano) sono lo stesso materiale
+        k = (chiave_profilo(v.get('profilo') or v.get('descrizione')),
+             ' '.join(str(v.get('materiale') or '').replace('_', ' ').upper().split()))
         g = per.setdefault(k, {'chiave': '|'.join(k), 'profilo': nome_profilo(v.get('profilo') or v.get('descrizione')),
                                'materiale': (v.get('materiale') or '').strip() or None, 'voci': [], 'pezzi': []})
         g['voci'].append(v['id'])

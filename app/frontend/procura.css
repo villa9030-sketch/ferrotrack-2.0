@@ -128,3 +128,24 @@
 .lz-pc-az input[type=text] { width: 220px; }
 .lz-pc-az input:focus-visible, .lz-pc .lz-ctl-barra select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 1px; }
 
+
+/* ── Correzione di una voce (13/10/2026) e quantita' per assieme ──── */
+.lz-pc-per { display: block; font-weight: 400; font-size: 12px; color: var(--lz-ink-3); white-space: nowrap; }
+.lz-pc-mod { margin: 0 0 18px; padding: 14px 16px; border: 1px solid var(--lz-accent-line); border-radius: var(--lz-r-l); background: var(--lz-accent-bg); }
+.lz-pc-mod h2 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: baseline; gap: 10px; }
+.lz-pc-mod h2 small { font-weight: 400; color: var(--lz-ink-3); font-size: 12.5px; }
+.lz-pc-mod .lz-pr-campi { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 10px 12px;
+  border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); background: var(--lz-surface); }
+.lz-pc-mod .lz-pr-campi label { display: grid; gap: 3px; font-size: 12px; color: var(--lz-ink-3); }
+.lz-pc-mod .lz-pr-campi label.lungo { grid-column: 1 / -1; }
+.lz-pc-mod .lz-pr-campi input, .lz-pc-mod .lz-pr-campi select { height: 32px; min-width: 0; padding: 0 8px; border: 1px solid var(--lz-line);
+  border-radius: 7px; font: 13.5px var(--lz-font); color: var(--lz-ink); background: #fff; }
+.lz-pc-mod .lz-pr-campi .mm { display: inline-flex; align-items: center; gap: 6px; color: var(--lz-ink-3); font-size: 13px; }
+.lz-pc-mod .lz-pr-campi .mm input { width: 90px; font-variant-numeric: tabular-nums; }
+.lz-pc-mod .lz-pr-campi label em { font-style: normal; color: var(--lz-amber); }
+.lz-pc-mod .lz-pr-campi label.manca input { border-color: var(--lz-amber-line); background: var(--lz-amber-bg); }
+.lz-pc-mod .lz-pr-campi input:focus-visible, .lz-pc-mod .lz-pr-campi select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 1px; }
+.lz-pc-mod-az { display: flex; gap: 8px; margin-top: 10px; }
+.lz-pc-mod-az .sp { flex: 1 1 auto; }
+.lz-pc-dacomp h2 { color: var(--lz-amber); }
+.lz-pc-tab td small.lz-st { display: flex; margin-top: 3px; }

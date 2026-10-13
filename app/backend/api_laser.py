@@ -311,11 +311,11 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         commessa = (q or {}).get('commessa') or _lt.commessa_lantek(
             A._numero_per_cartelle(order) or getattr(order, 'numero_ordine', '') or '')
         inviate = _lc.quantita_inviate(commessa, os.path.join(A.UPLOAD_FOLDER, 'lantek_import'))
-        lt_ord = _lt.pezzi_dell_ordine(commessa) if lt.get('disponibile') else None
+        lt_ord = _lt.pezzi_dell_ordine(commessa) if inviate and lt.get('disponibile') else None
         sospesi = {str(r.get('codice') or '').strip().upper() for r in lam if r.get('qta_da_confermare')}
         ora_q = [x for x in ((q or {}).get('righe') or _lt.righe_quantita(lam, None))
                  if str(x.get('codice_ft') or x.get('codice') or '').strip().upper() not in sospesi]
-        cambiate = _lc.quantita_cambiate(order.id, ora_q, inviate, lt_ord) if (inviate or lt_ord) else []
+        cambiate = _lc.quantita_cambiate(order.id, ora_q, inviate, lt_ord) if inviate else []
     except Exception:
         logger.warning("quantita' mandate a Lantek non lette per %s", order.id, exc_info=True)
         cambiate = []
@@ -360,7 +360,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
             # gli assiemi (riga dell'ordine, quanti) coi loro pezzi sotto
             'assiemi': assiemi_ordine(order, righe_dist + [x['_riga'] for x in esclusi if x.get('_riga')]),
             'altri': [{'codice': r.get('codice'), 'tipo': r.get('tipo'), 'quantita': r.get('quantita'),
-                       'descrizione': r.get('descrizione')} for r in altri],
+                       'descrizione': r.get('descrizione'), 'assieme': r.get('assieme')} for r in altri],
             'esclusi': [{k: v for k, v in e.items() if k != '_riga'} for e in esclusi],
             'commessa': (q or {}).get('commessa'), 'cliente_lantek': (q or {}).get('cliente_lantek'),
             'consegna_lantek': (q or {}).get('consegna'),

@@ -316,15 +316,17 @@ def quantita_inviate(commessa: str, cartella: str) -> dict:
         return {}
     out = {}
     for f in sorted(glob.glob(os.path.join(glob.escape(cartella), 'Importer log', '*.xml'))):
+        # percorsi lunghi su Windows (oltre 260 caratteri): prefisso "\\?\"
+        lungo = ('\\\\?\\' + os.path.abspath(f)) if os.name == 'nt' and len(f) > 240 else f
         try:
-            k = (f, os.path.getmtime(f))
+            k = (f, os.path.getmtime(lungo))
         except OSError:
             continue
         righe = _INVIATE.get(k)
         if righe is None:
             righe = []
             try:
-                for cmd in ET.parse(f).getroot().iter('COMMAND'):
+                for cmd in ET.parse(lungo).getroot().iter('COMMAND'):
                     campi = {x.get('FldRef'): x.get('FldValue') for x in cmd.iter('FIELD')}
                     try:
                         q = float(str(campi.get('Quantity') or '0').replace(',', '.'))
@@ -365,9 +367,11 @@ def quantita_cambiate(order_id: str, righe_q: list, inviate: dict, lantek_ordine
     righe_q: righe come lantek.righe_quantita (codice, quantita' adesso);
     inviate: quantita_inviate(); lantek_ordine: lantek.pezzi_dell_ordine()
     (aperti + fatti) se Lantek risponde: e' lui a dire cosa c'e' davvero.
+    Solo i codici che FerroTrack ha MANDATO (nei file dell'XML Importer): un
+    ordine messo in Lantek a mano non si giudica da qui.
     [{codice, tipo: 'quantita', stato: 'da_correggere', cosa, quantita_lantek,
       quantita_voluta, fonte}]"""
-    if not righe_q or not (inviate or lantek_ordine):
+    if not righe_q or not inviate:
         return []
     fatte = corrette_a_mano(order_id)
 
@@ -386,10 +390,13 @@ def quantita_cambiate(order_id: str, righe_q: list, inviate: dict, lantek_ordine
         if not cod:
             continue
         voluta = float(r.get('quantita') or 0)
+        mandato = trova(inviate, cod)
+        if not mandato:
+            continue                     # mai mandato da FerroTrack
         if lantek_ordine is not None:
             in_lt, fonte = trova(lantek_ordine, cod), 'lantek'
         else:
-            in_lt, fonte = trova(inviate, cod), 'invio'
+            in_lt, fonte = mandato, 'invio'
         if not in_lt or abs(float(in_lt) - voluta) < 0.001:
             continue
         if voluta in fatte.get(cod, set()):

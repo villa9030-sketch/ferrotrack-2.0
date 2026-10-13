@@ -51,6 +51,13 @@
                  s: `${esc(elenco(corretti))} ${corretti.length === 1 ? 'è stato corretto' : 'sono stati corretti'} in Lantek: ora si può mandare.`,
                  bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
       }
+      // quantita' cambiate dopo l'invio (pezzi per assieme, assiemi)
+      const qta = ((info || {}).correzioni || []).filter(c => c.tipo === 'quantita' && c.stato === 'da_correggere');
+      if (qta.length) {
+        return { tono: 'err', ico: 'pencil-ruler', t: `${LZ.plur(qta.length, 'quantità', 'quantità')} da correggere in Lantek`,
+                 s: 'Le quantità sono cambiate dopo l\'invio: correggi l\'ordine di produzione in Lantek come scritto sotto, poi segnalo.',
+                 bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
+      }
       return { tono: '', ico: 'scissors', t: 'In Lantek: da tagliare', s: 'Quando hai tagliato tutto, segnalo qui.',
                bottoni: [{ t: 'Taglio fatto', az: 'taglio', pri: true, tasto: 'Invio' }] };
     }
@@ -88,6 +95,13 @@
                s: prop ? 'Guarda lo spessore proposto sul disegno e confermalo con Invio, oppure sceglilo tu.'
                  : 'Finché non li sistemi, l\'ordine non parte. Quando hai fatto, premi Ricontrolla.',
                bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: !prop, tasto: prop ? null : 'Invio' }] };
+    }
+    const soloQta = (info.correzioni || []).filter(c => c.stato === 'da_correggere').every(c => c.tipo === 'quantita');
+    if (info.n_correggere && !info.pronto && soloQta) {
+      // quantita' cambiate dopo l'invio: si corregge l'ordine di produzione
+      return { tono: 'err', ico: 'pencil-ruler', t: `${LZ.plur(info.n_correggere, 'codice', 'codici')} da correggere in Lantek`,
+               s: 'Le quantità sono cambiate dopo l\'invio: correggi l\'ordine di produzione in Lantek come scritto sotto, poi segnalo con «Corretto in Lantek».',
+               bottoni: [{ t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
     }
     if (info.n_correggere && !info.pronto) {
       return { tono: 'err', ico: 'pencil-ruler', t: `${LZ.plur(info.n_correggere, 'codice', 'codici')} da correggere in Lantek`,
@@ -275,6 +289,15 @@
     const valLt = c => [c.spessore_voluto != null && c.spessore_lantek != null ? LZ.mm(c.spessore_lantek) : '',
       c.materiale_voluto && c.materiale_lantek ? c.materiale_lantek : ''].filter(Boolean).join(' · ');
     return `<ul class="lz-blocchi lz-correggi${da.length ? '' : ' pronti'}" aria-label="Da correggere in Lantek">${cc.map(c => {
+      if (c.tipo === 'quantita') {
+        // quantita' cambiata dopo l'invio: si corregge l'ordine di produzione
+        return `<li data-correzione="${esc(c.codice)}"><span class="mono">${esc(c.codice)}</span>
+          <span class="mot">${esc(c.testo || c.cosa || '')}
+            <small>${c.fonte === 'lantek' ? 'Letto adesso negli ordini di produzione di Lantek.' : 'Dal file mandato a Lantek.'} Quando l'hai corretto, segnalo qui.</small>
+            <span class="lz-dati"><button class="lz-btn piccolo" type="button" data-az="qta-corretta" data-codice="${esc(c.codice)}"
+              data-q="${esc(String(c.quantita_voluta))}" data-ql="${esc(String(c.quantita_lantek))}" data-fuoco="qta-corretta-${esc(c.codice)}"
+              title="Ho corretto la quantità in Lantek">Corretto in Lantek (${esc(FT.numero(c.quantita_voluta))})</button></span></span></li>`;
+      }
       const ok = c.stato === 'corretto';
       const chi = [c.creato_da, c.creato_il ? FT.fmtRelativo(c.creato_il) : ''].filter(Boolean).join(', ');
       return `<li class="${ok ? 'ok' : ''}" data-correzione="${esc(c.codice)}"><span class="mono">${esc(c.codice)}</span>
@@ -292,6 +315,14 @@
     if (!b.campo || !b.articolo_id) return '';
     const aid = esc(b.articolo_id), cod = esc(b.codice);
     const vedi = b.disegno ? `<button class="lz-btn piccolo ghost" type="button" data-vedi="${aid}" title="Apri il disegno grande">${LZ.ico('maximize-2')}Guarda il disegno</button>` : '';
+    if (b.campo === 'pz_assieme') {
+      // quanti per assieme: l'ordine non lo dice, lo scrive il laser (Invio salva)
+      return `<span class="lz-dati" data-dati="${aid}" data-codice="${cod}" data-campo="pz_assieme" data-qass="${esc(String(b.qta_assieme || ''))}">
+        <label class="lz-sp">pezzi per assieme <input type="text" inputmode="numeric" maxlength="5" placeholder="?" data-fuoco="pza-blocco-${aid}"
+          aria-label="Pezzi per assieme di ${cod}"></label>
+        <span class="lz-pza-tot">${b.qta_assieme ? `× ${esc(FT.numero(b.qta_assieme))} ${b.qta_assieme === 1 ? 'assieme' : 'assiemi'}` : ''}</span>
+        <button class="lz-btn piccolo pri" type="button" data-salva-dati data-fuoco="salva-dati-${aid}">Salva</button>${vedi}</span>`;
+    }
     if (b.campo === 'spessore') {
       // la lettura migliore del motore (vista di fianco, cartiglio, peso/area…)
       // e' gia' scelta: il laser guarda il disegno e conferma con Invio
@@ -312,6 +343,13 @@
   }
   O.salvaDati = (id, box) => LZ.azione(async () => {
     const aid = box.dataset.dati, cod = box.dataset.codice;
+    if (box.dataset.campo === 'pz_assieme') {
+      const inp = box.querySelector('input');
+      const n = Number(String((inp && inp.value) || '').trim());
+      if (!(Number.isInteger(n) && n >= 1)) { FT.toast('Scrivi quanti pezzi servono per ogni assieme', 'warn'); if (inp) inp.focus(); return; }
+      await O._perAssieme(id, aid, n, cod);
+      return;
+    }
     const sel = box.querySelector('select');
     const inp = box.querySelector('input');
     const chip = box.querySelector('.lz-chip.on');
@@ -382,8 +420,78 @@
     return '<span class="lz-st">—</span>';
   }
 
+  // Assiemi chiusi nella scheda Pezzi (finche' la pagina resta aperta)
+  const assChiusi = new Set();
+
+  /** La voce "Da procurare" di un pezzo (tasto N), se c'e'. */
+  const vocePezzo = (d, p) => p.articolo_id ? (d.procura_voci || []).find(v => v.articolo_id === p.articolo_id) : null;
+  function statoVoce(v) {
+    if (v.stato === 'arrivato') return `<span class="lz-st ok">${LZ.ico('check')}arrivato</span>`;
+    if (v.stato === 'ordinato') return `<span class="lz-st${v.scaduta ? ' err' : ''}">${LZ.ico(v.scaduta ? 'clock-alert' : 'truck')}${esc(v.fornitore || 'ordinato')}</span>`;
+    return `<span class="lz-st att">${LZ.ico('circle-dot')}da procurare</span>`;
+  }
+
+  /** Una riga dei pezzi. i = posizione in d.pezzi (menu ⋯). Nei pezzi di un
+      assieme la quantita' e' pezzi per assieme x assiemi: i pezzi per
+      assieme si scrivono li' (Invio salva). Un pezzo "non da laser" mostra
+      cosa si procura (profilo, lunghezza) e non lo spessore della lamiera. */
+  function rigaPezzo(o, d, p, i, ass) {
+    const apribile = p.disegno && p.articolo_id && /\.dxf$/i.test(p.disegno);
+    // pezzo di un foglio con piu' pezzi: si apre il foglio
+    const vedi = apribile ? p.articolo_id : (p.foglio && p.foglio.articolo_id && p.foglio.disegno ? p.foglio.articolo_id : null);
+    const v = vocePezzo(d, p);
+    let q = `<td class="r q">${p.quantita != null ? FT.numero(p.quantita) : '—'}</td>`;
+    if (ass && p.articolo_id) {
+      const aid = esc(p.articolo_id);
+      const da = p.qta_da_confermare;
+      q = `<td class="r q"><span class="lz-pza-q">${da ? '?' : FT.numero(p.quantita)}</span>
+        <small class="lz-pza${da ? ' da' : ''}"><input type="text" inputmode="numeric" maxlength="5" data-pza="${aid}" data-codice="${esc(p.codice)}"
+          data-v="${da ? '' : esc(String(p.qta_per || ''))}" value="${da ? '' : esc(String(p.qta_per || ''))}" placeholder="?"
+          data-fuoco="pza-${aid}" aria-label="Pezzi per assieme di ${esc(p.codice)}" title="Pezzi per ogni assieme (Invio salva)">/ass.</small></td>`;
+    }
+    let lamiera = esc(LZ.lamiera(p.materiale, p.spessore));
+    if (v) {
+      // da procurare: conta il profilo, non lo spessore letto come lamiera
+      const pl = [v.profilo, v.lunghezza_mm ? `L ${FT.numero(v.lunghezza_mm)} mm` : ''].filter(Boolean).join(' · ');
+      lamiera = `<span class="lz-pc-tipo t-${esc(v.tipo)}">${esc(v.tipo_testo)}</span> ${pl ? esc(pl) : ''}`
+        + (v.da_completare ? ` <span class="lz-st att">${LZ.ico('pencil')}${esc(v.da_completare)}</span>` : '');
+    }
+    return `<tr class="${vedi ? 'cl' : ''}${p.escluso || p.assieme_senza_disegno ? ' fuori' : ''}${ass ? ' comp' : ''}" ${vedi ? `data-vedi="${esc(vedi)}"` : ''} data-fuoco="pz-${i}">
+      <td class="cod">${esc(p.codice)}${p.codice_lantek ? `<small>in Lantek ${esc(p.codice_lantek)}</small>` : ''}${p.foglio ? `<small>pezzo ${esc(String(p.foglio.n))} del foglio ${esc(p.foglio.codice || '')}${p.foglio.qta_per_foglio > 1 ? ` (×${esc(String(p.foglio.qta_per_foglio))} nel foglio)` : ''}</small>` : ''}</td>
+      ${q}
+      <td>${lamiera}</td>
+      <td class="lav">${esc((p.lavorazioni || []).join(', ')) || '—'}</td>
+      <td>${cellaLantek(p)}</td>
+      <td>${v ? statoVoce(v) : cellaDisegno(p)}</td>
+      <td class="men">${p.articolo_id || p.foglio ? `<button class="lz-btn ghost lz-icona piccolo" type="button" data-pezzo-menu="${i}" aria-label="Azioni su ${esc(p.codice)}" title="Azioni sul pezzo">${LZ.ico('ellipsis')}</button>` : ''}</td></tr>`;
+  }
+
+  /** La testata di un assieme: codice, riga dell'ordine, quanti (si cambia: Invio). */
+  function rigaAssieme(o, d, a, comp, tubi) {
+    const chiuso = assChiusi.has(a.codice);
+    const c = esc(a.codice);
+    const nonLaser = comp.filter(p => p.escluso).length + tubi.length;
+    const info = [LZ.plur(comp.length - comp.filter(p => p.escluso).length, 'pezzo al laser', 'pezzi al laser'),
+      nonLaser ? `${nonLaser} da procurare` : ''].filter(Boolean).join(' · ');
+    return `<tr class="lz-ass${chiuso ? ' chiuso' : ''}" data-fuoco="ass-${c}"><td colspan="7">
+      <span class="lz-ass-riga">
+        <button class="lz-btn ghost lz-icona piccolo" type="button" data-ass-apri="${c}" aria-expanded="${!chiuso}"
+          title="${chiuso ? 'Mostra' : 'Nascondi'} i pezzi dell'assieme" aria-label="${chiuso ? 'Mostra' : 'Nascondi'} i pezzi di ${c}">${LZ.ico(chiuso ? 'chevron-right' : 'chevron-down')}</button>
+        <span class="t">Assieme</span><b class="mono">${c}</b>
+        ${a.descrizione ? `<span class="desc" title="${esc(a.descrizione)}">${esc(a.descrizione)}</span>` : ''}
+        <label class="lz-assq" title="Quanti assiemi ordina il cliente (Invio salva)">×<input type="text" inputmode="numeric" maxlength="5"
+          data-assq="${c}" data-v="${esc(String(a.quantita))}" value="${esc(String(a.quantita))}" data-fuoco="assq-${c}"
+          aria-label="Quanti assiemi ${c}"></label>
+        <span class="sp"></span>
+        <span class="n">${esc(info)}</span>
+        ${a.n_da_confermare ? `<span class="lz-st err">${LZ.ico('octagon-alert')}${LZ.plur(a.n_da_confermare, 'pezzo', 'pezzi')} per assieme da confermare</span>` : ''}
+      </span></td></tr>`;
+  }
+
   function schedaPezzi(o, d) {
     const pezzi = d.pezzi || [];
+    const assiemi = d.assiemi || [];
+    const codAss = new Set(assiemi.map(a => a.codice));
     let h = '';
     if (d.pdf && (d.pdf.da_abbinare || []).length && LZ.abbina) h += LZ.abbina.html(o, d);
     if (!pezzi.length) {
@@ -391,24 +499,23 @@
         ? 'Quest\'ordine non ha l\'elenco dei pezzi: le quantità sono sul <b>PDF ordine</b>.'
         : 'Nessun pezzo di lamiera da tagliare in quest\'ordine.'}</div>`;
     } else {
+      const sciolti = pezzi.map((p, i) => [p, i]).filter(([p]) => !codAss.has(p.assieme));
+      let corpo = sciolti.map(([p, i]) => rigaPezzo(o, d, p, i, null)).join('');
+      for (const a of assiemi) {
+        const comp = pezzi.map((p, i) => [p, i]).filter(([p]) => p.assieme === a.codice);
+        const tubi = (d.altri || []).filter(x => x.tipo === 'tubolare' && x.assieme === a.codice);
+        corpo += rigaAssieme(o, d, a, comp.map(([p]) => p), tubi);
+        if (assChiusi.has(a.codice)) continue;
+        corpo += comp.map(([p, i]) => rigaPezzo(o, d, p, i, a)).join('');
+        corpo += tubi.map(t => `<tr class="fuori comp"><td class="cod">${esc(t.codice || '—')}</td><td class="r q">${FT.numero(t.quantita)}</td>
+          <td colspan="3"><span class="lz-pc-tipo t-tubo">Tubolare</span> ${esc(t.descrizione || '')}</td><td><span class="lz-st">in «Da procurare»</span></td><td></td></tr>`).join('');
+      }
       h += `<table class="lz-tab"><thead><tr><th>Codice</th><th class="r">Q.tà</th><th>Lamiera</th><th>Lavorazioni</th><th>Lantek</th><th>Disegno</th><th class="men"><span class="sr" style="position:absolute;left:-9999px">Azioni</span></th></tr></thead><tbody>
-        ${pezzi.map((p, i) => {
-          const apribile = p.disegno && p.articolo_id && /\.dxf$/i.test(p.disegno);
-          // pezzo di un foglio con piu' pezzi: si apre il foglio
-          const vedi = apribile ? p.articolo_id : (p.foglio && p.foglio.articolo_id && p.foglio.disegno ? p.foglio.articolo_id : null);
-          return `<tr class="${vedi ? 'cl' : ''}${p.escluso || p.assieme_senza_disegno ? ' fuori' : ''}" ${vedi ? `data-vedi="${esc(vedi)}"` : ''} data-fuoco="pz-${i}">
-            <td class="cod">${esc(p.codice)}${p.codice_lantek ? `<small>in Lantek ${esc(p.codice_lantek)}</small>` : ''}${p.foglio ? `<small>pezzo ${esc(String(p.foglio.n))} del foglio ${esc(p.foglio.codice || '')}${p.foglio.qta_per_foglio > 1 ? ` (×${esc(String(p.foglio.qta_per_foglio))} nel foglio)` : ''}</small>` : ''}</td>
-            <td class="r q">${p.quantita != null ? FT.numero(p.quantita) : '—'}</td>
-            <td>${esc(LZ.lamiera(p.materiale, p.spessore))}</td>
-            <td class="lav">${esc((p.lavorazioni || []).join(', ')) || '—'}</td>
-            <td>${cellaLantek(p)}</td>
-            <td>${cellaDisegno(p)}</td>
-            <td class="men">${p.articolo_id || p.foglio ? `<button class="lz-btn ghost lz-icona piccolo" type="button" data-pezzo-menu="${i}" aria-label="Azioni su ${esc(p.codice)}" title="Azioni sul pezzo">${LZ.ico('ellipsis')}</button>` : ''}</td></tr>`;
-        }).join('')}</tbody></table>`;
+        ${corpo}</tbody></table>`;
     }
-    const ass = (d.altri || []).filter(x => x.tipo === 'assieme').map(x => x.codice)
+    const ass = (d.altri || []).filter(x => x.tipo === 'assieme' && !codAss.has(x.codice)).map(x => x.codice)
       .concat(pezzi.filter(p => p.assieme_senza_disegno).map(p => p.codice));
-    const tub = (d.altri || []).filter(x => x.tipo === 'tubolare');
+    const tub = (d.altri || []).filter(x => x.tipo === 'tubolare' && !codAss.has(x.assieme));
     const note = [];
     if (ass.length) note.push(`${LZ.plur(ass.length, 'assieme', 'assiemi')} (<span class="mono">${ass.slice(0, 6).map(esc).join(', ')}${ass.length > 6 ? '…' : ''}</span>): non vanno al laser, i loro pezzi sono nelle righe sopra.`);
     if (tub.length) note.push(`${LZ.plur(tub.length, 'tubolare', 'tubolari')}: non vanno al laser, sono in «Da procurare» qui sotto.`);
@@ -469,6 +576,15 @@
     if (!dett || !dett.contains(e.target)) return;
     const o = LZ.trova(S.aperto);
     if (!o) return;
+    // pezzi per assieme / quanti assiemi: si scrive nel campo, non si apre il disegno
+    if (e.target.closest('input[data-pza], input[data-assq], .lz-pza, .lz-assq')) return;
+    const ap = e.target.closest('[data-ass-apri]');
+    if (ap) {
+      const k = ap.dataset.assApri;
+      if (assChiusi.has(k)) assChiusi.delete(k); else assChiusi.add(k);
+      O.disegna();
+      return;
+    }
     const chip = e.target.closest('.lz-dati .lz-chip');
     if (chip) {
       const box = chip.closest('.lz-dati');
@@ -487,6 +603,15 @@
     const v = e.target.closest('[data-vedi]');
     if (v && !e.target.closest('.lz-abb')) LZ.controllo.vedi(o.id, v.dataset.vedi);
   });
+  // Invio nei campi dei pezzi per assieme e degli assiemi: si salva; Esc rimette com'era
+  document.addEventListener('keydown', e => {
+    const t = e.target;
+    if (!t || !t.matches || !t.matches('#lz-dett input[data-pza], #lz-dett input[data-assq]')) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); t.value = t.dataset.v || ''; t.blur(); return; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault(); e.stopPropagation();
+    salvaCampoQta(t);
+  }, true);
   document.addEventListener('keydown', e => {
     const box = e.target.closest && e.target.closest('.lz-dati');
     if (!box || e.key !== 'Enter') return;
@@ -497,8 +622,29 @@
   document.addEventListener('input', e => {
     const box = e.target.closest && e.target.closest('.lz-dati');
     if (box && e.target.matches('input')) box.querySelectorAll('.lz-chip.on').forEach(c => c.classList.remove('on'));
+    if (box && box.dataset.campo === 'pz_assieme') {
+      // il totale si vede mentre si scrive: 2 per assieme x 3 assiemi = 6 pz
+      const n = Number(e.target.value), qa = Number(box.dataset.qass) || 0;
+      const tot = box.querySelector('.lz-pza-tot');
+      if (tot && qa) tot.textContent = `× ${FT.numero(qa)} ${qa === 1 ? 'assieme' : 'assiemi'}` + (Number.isInteger(n) && n > 0 ? ` = ${FT.numero(n * qa)} pz` : '');
+    }
   });
+  /** Un campo "pezzi per assieme" o "quanti assiemi" della scheda Pezzi. */
+  function salvaCampoQta(t) {
+    const o = LZ.trova(S.aperto);
+    if (!o) return;
+    const v = String(t.value || '').trim();
+    if (v === (t.dataset.v || '')) { t.blur(); return; }
+    const n = Number(v);
+    if (!(Number.isInteger(n) && n >= 1)) { FT.toast('Scrivi un numero intero da 1 in su', 'warn'); return; }
+    const prima = t.dataset.v;
+    t.dataset.v = v;                 // Invio poi l'uscita dal campo: si salva una volta sola
+    if (t.dataset.pza) O.perAssieme(o.id, t.dataset.pza, n, t.dataset.codice);
+    else O.qtaAssieme(o.id, t.dataset.assq, n, Number(prima) || null);
+  }
   document.addEventListener('change', e => {
+    const q = e.target.closest && e.target.closest('#lz-dett input[data-pza], #lz-dett input[data-assq]');
+    if (q && document.activeElement !== q) { salvaCampoQta(q); return; }
     const inp = e.target.closest('input[data-durata]');
     if (inp) O.durataAMano(inp.dataset.durata, inp.value);
     const es = e.target.closest('input[data-esterna]');
@@ -535,6 +681,7 @@
       case 'menu': return menuOrdine(o, ancora);
       case 'procura': return LZ.procura.apri({ ordine: id, stato: 'tutti' });
       case 'usa-lantek': return ancora && O.usaLantek(id, ancora.dataset.codice);
+      case 'qta-corretta': return ancora && O.qtaCorretta(id, ancora.dataset.codice, Number(ancora.dataset.q), Number(ancora.dataset.ql));
       case 'pdf-stampa': {
         const f = document.getElementById('lz-pdf');
         try { f.contentWindow.focus(); f.contentWindow.print(); } catch (_) { window.open(`/api/orders/${id}/pdf`, '_blank', 'noopener'); }
@@ -747,6 +894,39 @@
       const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-correzioni`, { codice, azione: 'usa_lantek' });
       if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
       FT.toast(`${codice}: va bene Lantek, pronto da mandare`, 'ok');
+      await O.dopo(id);
+    });
+  };
+  /** Pezzi per assieme (o del pezzo sciolto) scritti dal laser: la
+      quantita' diventa questo x assiemi, per Lantek e "Da procurare". */
+  O._perAssieme = async function (id, aid, n, codice) {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/pezzi/${encodeURIComponent(aid)}/per-assieme`, { pezzi: n });
+    if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
+    FT.toast(`${codice || 'Pezzo'}: ${FT.numero(n)} per assieme, ${FT.numero(r.d.quantita)} in tutto`, 'ok',
+      r.d.prima && r.d.prima !== n ? { testo: 'Annulla', fn: () => O.perAssieme(id, aid, r.d.prima, codice) } : null);
+    await O.dopo(id);
+  };
+  O.perAssieme = (id, aid, n, codice) => LZ.azione(() => O._perAssieme(id, aid, n, codice));
+  /** Quanti assiemi (la riga dell'ordine): tutti i loro pezzi si ricalcolano. */
+  O.qtaAssieme = (id, codice, n, prima) => LZ.azione(async () => {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/assiemi/${encodeURIComponent(codice)}/quantita`, { quantita: n });
+    if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); await O.dopo(id); return; }
+    FT.toast(`Assieme ${codice}: ×${FT.numero(n)} (era ×${FT.numero(r.d.prima)}), pezzi ricalcolati`, 'ok',
+      { testo: 'Annulla', fn: () => O.qtaAssieme(id, codice, r.d.prima, n) });
+    await O.dopo(id);
+  });
+  /** Quantita' cambiata dopo l'invio: l'ho corretta a mano in Lantek. */
+  O.qtaCorretta = async function (id, codice, q, ql) {
+    const ok = await FT.conferma({ titolo: `${codice}: corretto in Lantek?`, ok: 'Sì, corretto',
+      testo: `Nell'ordine di produzione di Lantek ora ci sono ${FT.numero(q)} pezzi (prima ${FT.numero(ql)}).` });
+    if (!ok) return;
+    await LZ.azione(async () => {
+      const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-correzioni`,
+        { codice, azione: 'quantita_corretta', quantita: q, quantita_lantek: ql });
+      if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
+      FT.toast(`${codice}: quantità corretta in Lantek`, 'ok');
       await O.dopo(id);
     });
   };
