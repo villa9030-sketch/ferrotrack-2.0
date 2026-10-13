@@ -16062,7 +16062,7 @@ fetch(`${API_URL}/api/preventivi/config`).then(r => r.json()).then(d => {
   if (d && d.success) { _wbLaserCfg = d.laser_config || null; try { wbSync(); } catch (_) {} }
 }).catch(() => {});
 </script>
-<script src="https://unpkg.com/lucide@latest"></script>
+<script src="/vendor/lucide.min.js"></script>
 <script>if (window.lucide) lucide.createIcons();
 </script>
 </body>
