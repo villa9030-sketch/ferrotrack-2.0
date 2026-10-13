@@ -5822,9 +5822,10 @@ class PreventivoManager:
 
         try:
             AuditManager.log(
+                # Sull'ORDINE (come gli altri ingressi): il preventivo e' nel testo.
                 user_id=user_id, action='ACCEPT_PREVENTIVO_CREATE_ORDER',
-                entity_type='preventivi', entity_id=preventivo_id,
-                detail='Order ' + order.id + ' (' + numero + ') creato da preventivo'
+                entity_type='order', entity_id=order.id,
+                detail='Ordine ' + numero + ' creato dal preventivo ' + str(preventivo_id)
                        + (' [recupero]' if recupero else ''),
             )
         except Exception:

@@ -523,6 +523,12 @@ def create_order():
         except Exception as exc:
             logger.warning('notifica nuovo ordine ai capi fallita: %s', exc)
 
+        # Storico: chi ha creato l'ordine (dal PDF o a mano). Gli altri
+        # ingressi (pacchetto, preventivo accettato) lo scrivono gia'.
+        _audit('CREATE_ORDER', 'order', order.id,
+               f'Ordine {numero_ordine} ({cliente}) creato dall\'ufficio'
+               + (f', PDF {os.path.basename(data.get("pdf_filename"))}' if data.get('pdf_filename') else ''))
+
         return jsonify({
             'success': True,
             'order_id': order.id,
@@ -5079,7 +5085,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
         try:
             AuditManager.log(
                 user_id=user_id, action='CREATE_ORDER_FROM_PACKAGE',
-                entity_type='orders', entity_id=order.id,
+                entity_type='order', entity_id=order.id,
                 detail=f'Ordine {numero} ({cliente}) dal pacchetto {pacchetto_id}: '
                        f'{len(nuovi)} pezzi, {len(attesi) - mancanti} disegni'
                        + (f', {mancanti} file non trasferiti' if mancanti else ''))
