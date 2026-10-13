@@ -3567,13 +3567,29 @@ class KPIManager:
                 1 for o in all_orders
                 if o.data_ricezione and o.data_ricezione >= today_start
             )
+            # Lavoro finito oggi, e puntualita': su quelli finiti, quanti entro
+            # la data di consegna (giorno intero compreso).
+            finiti = [o for o in all_orders if o.data_completamento_operativo]
+            completati_oggi = sum(1 for o in finiti
+                                  if o.data_completamento_operativo >= today_start)
+            con_consegna = [o for o in finiti if o.data_consegna]
+            puntuali = sum(1 for o in con_consegna
+                           if o.data_completamento_operativo.date() <= o.data_consegna.date())
+            efficienza = round(puntuali / len(con_consegna) * 100, 1) if con_consegna else 0
             return {
+                # Senza 'success' la rotta rispondeva 500 anche coi dati giusti.
+                'success': True,
                 'totale_ordini': tot,
                 'ordini_aperti': aperti,
                 'ordini_chiusi': chiusi,
                 'in_ritardo': in_ritardo,
                 'ricevuti_oggi': ricevuti_oggi,
                 'operai': [],  # backward compat: chi consuma il vecchio shape non rompe
+                # Letto da /api/admin/kpi (pannello admin).
+                'riepilogo': {
+                    'completati_oggi': completati_oggi,
+                    'efficienza_puntualita': efficienza,
+                },
             }
         finally:
             session.close()
