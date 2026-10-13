@@ -4107,7 +4107,7 @@ def api_preventivi_import_dxf(preventivo_id):
         # della cartella di un ALTRO preventivo).
         # Config rilevamento da app_config.json (sezione dxf_detection) — valori calibrati
         # sul config Preventivatore desktop (ratio_min=1.8, filtra_zona=True, ecc.)
-        from .preventivi.dxf_batch_worker import process_single_dxf
+        from .preventivi.analisi_isolata import analizza as _analizza_dxf
         app_cfg = ConfigManager.load_config()
         dxf_cfg = app_cfg.get('dxf_detection') or {
             'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
@@ -4116,7 +4116,8 @@ def api_preventivi_import_dxf(preventivo_id):
             'dxf_semicerchio_angolo_min': 150.0, 'dxf_semicerchio_angolo_max': 320.0,
             'dxf_filtra_zona_sviluppata': True,
         }
-        payload = process_single_dxf(tmp_path, saved_filename, dxf_cfg)
+        # fuori dal server e con un tempo massimo (analisi_isolata)
+        payload = _analizza_dxf(tmp_path, saved_filename, dxf_cfg)
         # Materiale del cartiglio che corrisponde a un materiale aggiunto (C75...)
         from .preventivi.materiali_personali import applica_a_risultato as _mat_pers
         payload = _mat_pers(payload, ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali'))
@@ -4270,9 +4271,6 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     Ritorna {preventivo_id, articoli_db, saved_tasks, n_step, dxf_results},
     oppure None se il preventivo non si e' potuto creare.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from .preventivi.dxf_batch_worker import process_single_dxf
-
     # 2. Crea preventivo BOZZA
     data_consegna_dt = None
     if result.data_consegna:
@@ -4376,19 +4374,15 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_rfq, trova as _trova_mat
     _mats_rfq = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
     if saved_tasks:
-        max_workers = min(8, max(1, len(saved_tasks)))
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {
-                pool.submit(process_single_dxf, path, fname, dxf_cfg): fname
-                for path, fname in saved_tasks
-            }
-            for fut in as_completed(futures):
-                fname = futures[fut]
-                try:
-                    dxf_results[fname] = _mat_pers_rfq(fut.result(), _mats_rfq)
-                except Exception as e:
-                    logger.exception('rfq worker fail per %s', fname)
-                    dxf_results[fname] = {'success': False, 'error': str(e)}
+        # Fuori dal server e con un tempo massimo per disegno: un DXF enorme
+        # torna "da guardare" invece di bloccare l'analisi (analisi_isolata).
+        from .preventivi import analisi_isolata
+        for fname, r in analisi_isolata.analizza_tutti(saved_tasks, dxf_cfg).items():
+            try:
+                dxf_results[fname] = _mat_pers_rfq(r, _mats_rfq)
+            except Exception as e:
+                logger.exception('rfq worker fail per %s', fname)
+                dxf_results[fname] = {'success': False, 'error': str(e)}
 
     # 5. Costruisci articoli DB combinando dati PDF + DXF
     # L'assieme NON è un pezzo tagliabile: il suo disegno 2D (master) non va
@@ -4852,8 +4846,10 @@ def api_ordine_pacchetto_analizza():
                 'area_dm2': it.get('area_dm2') or None,
                 'confidenza': round(float(conf), 3) if isinstance(conf, (int, float)) else None,
                 'disegno': dxf,
+                # disegno non letto (troppo complesso...): niente anteprima,
+                # che lo rileggerebbe nel server
                 'url_svg': (f'/api/preventivi/{pid}/dxf/{quote(dxf)}/svg'
-                            if dxf and dxf.lower().endswith('.dxf') else None),
+                            if dxf and dxf.lower().endswith('.dxf') and not it.get('_errore_dxf') else None),
                 'avvisi': _avvisi_riga_pacchetto(it, fonte),
                 # disegno/contorno/materiale/spessore: li controlla il laser
                 'avvisi_tecnici': _avvisi_tecnici_pacchetto(it) if dxf else [],
@@ -5147,7 +5143,6 @@ def api_preventivi_import_dxf_batch(preventivo_id):
     Response: {success: bool, results: [{filename, ...payload o {error}}]}
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from .preventivi.dxf_batch_worker import process_single_dxf
     try:
         admin_id = _chi()
         files = request.files.getlist('files')
@@ -5215,9 +5210,11 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         max_workers = min(8, max(1, len(saved_tasks)))
         from .preventivi.materiali_personali import applica_a_risultato as _mat_pers_b
         _mats_b = ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # Fuori dal server e con un tempo massimo per disegno (analisi_isolata)
+        from .preventivi import analisi_isolata
+        with ThreadPoolExecutor(max_workers=min(max_workers, analisi_isolata.PROCESSI_MAX)) as pool:
             futures = {
-                pool.submit(process_single_dxf, path, fname, dxf_cfg): (fname, originale)
+                pool.submit(analisi_isolata.analizza, path, fname, dxf_cfg): (fname, originale)
                 for path, fname, originale in saved_tasks
             }
             for fut in as_completed(futures):
