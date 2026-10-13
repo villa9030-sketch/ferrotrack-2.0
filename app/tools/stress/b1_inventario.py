@@ -220,8 +220,10 @@ def prova_pagine(ctx):
                         page.wait_for_load_state('networkidle', timeout=25000)
                     except Exception:
                         pass
-                    page.wait_for_timeout(1500)
+                    # tempo di caricamento misurato PRIMA dell'attesa fissa
+                    # (quella serve solo a raccogliere gli errori JS tardivi)
                     ms = (time.perf_counter() - t0) * 1000
+                    page.wait_for_timeout(1500)
                     reg.misura('PAGINA %s' % pagina, ms, risp.status if risp else 0)
                     propria = (st == (PROPRIA.get(pagina) or 'nessuna'))
                     stato = risp.status if risp else 0
