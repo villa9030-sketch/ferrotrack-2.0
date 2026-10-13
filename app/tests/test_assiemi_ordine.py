@@ -241,7 +241,7 @@ def main():
     # distinta del PDF dell'assieme (se c'e'): i pezzi per assieme si leggono li'
     import backend.preventivi.distinte_pdf as DP
     prima_dist = DP.distinte_per_codici
-    DP.distinte_per_codici = lambda cart, cod: {'26T30SA0233': {'righe': [{'codice': '191700045-00', 'qta': 2},
+    DP.distinte_per_codici = lambda cart, cod, **kw: {'26T30SA0233': {'righe': [{'codice': '191700045-00', 'qta': 2},
                                                                           {'codice': '191700045', 'qta': 1}]}}
     try:
         res2 = rfq_importer.process_rfq_package(pacchetto(), tollerante=True)

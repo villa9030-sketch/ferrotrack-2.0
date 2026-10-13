@@ -433,12 +433,15 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
                 return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': lung,
                         'fonte': fonte, 'testo': p['testo'],
                         'alternativa': 'laser_tubo' if p['famiglia'] in ('SHS', 'RHS', 'CHS') else None}
+    # la lunghezza scritta a parole nella riga ("... MTR - Lg 581 - AISI304",
+    # anche la riga della distinta dell'assieme) vale piu' delle misure
+    lung_txt = next((_lunghezza(_norm(t)) for t in testi_riga or [] if _lunghezza(_norm(t))), None)
     # La distinta scritta nel disegno stesso (DECA 26CCSA0038: "T.Quadro
     # Aisi304 50x 50x 3 L. 581" nella tabella dei componenti)
     for t in testi_profilo_dxf(percorso):
         p = leggi_profilo(t)
         if p:
-            return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': p.get('lunghezza_mm'),
+            return {**vuota, 'tipo': 'tubo', 'profilo': p['nome'], 'lunghezza_mm': p.get('lunghezza_mm') or lung_txt,
                     'fonte': 'disegno', 'testo': p['testo'],
                     'alternativa': 'laser_tubo' if p['famiglia'] in ('SHS', 'RHS', 'CHS') else None}
     lung_dis = None
@@ -447,6 +450,8 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
             lung_dis = round(max(float(misure[0]), float(misure[1])))
     except (TypeError, ValueError):
         lung_dis = None
+    if lung_txt:
+        lung_dis = lung_txt
     sez = sezione_tubo(percorso)
     if sez:
         return {**vuota, 'tipo': 'tubo', 'profilo': sez['nome'], 'lunghezza_mm': lung_dis,
@@ -466,7 +471,7 @@ def proposta(testi_riga: list, testo_cartiglio: str | None, percorso: str | None
     # dal disegno, il profilo lo sceglie chi guarda (lato 50 x ?).
     lato = misure_tubo(misure)
     if lato:
-        return {**vuota, 'tipo': 'tubo', 'profilo': None, 'lunghezza_mm': lato['lunghezza_mm'],
+        return {**vuota, 'tipo': 'tubo', 'profilo': None, 'lunghezza_mm': lung_txt or lato['lunghezza_mm'],
                 'fonte': 'misure del disegno', 'lato_mm': lato['lato_mm'],
                 'testo': f"disegno {_g(lato['lunghezza_mm'])} x {_g(lato['lato_mm'])} mm: tubo o profilo "
                          f"lato {_g(lato['lato_mm'])} x ?, L = {_g(lato['lunghezza_mm'])} mm",

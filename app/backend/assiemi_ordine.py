@@ -46,42 +46,133 @@ def _chiave(c) -> str:
 # ---------------------------------------------------------------------------
 # Caricamento del pacchetto
 # ---------------------------------------------------------------------------
-def quantita_da_distinte(prev_dir: str, result) -> int:
-    """I componenti 'per_assieme' (senza riga nell'ordine) prendono i pezzi
-    per assieme dalla distinta del PDF dell'assieme, se nel pacchetto c'e'
-    e cita il loro codice (qta_fonte 'distinta'). Gli altri restano
-    'per_assieme': da confermare. Ritorna quanti ne ha trovati."""
-    comp = [a for a in getattr(result, 'articoli', None) or []
-            if getattr(a, 'qta_fonte', None) == 'per_assieme' and getattr(a, 'codice_assieme', None)]
-    if not comp:
-        return 0
+def distinta_assieme(prev_dir: str, result, cod_ass: str) -> dict:
+    """La distinta di un assieme: {chiave codice: {qta, testo, dubbio}}.
+
+    Dalla tabella dei componenti del PDF d'insieme (salvato nella cartella
+    del preventivo) e da quella scritta nel DXF d'insieme del pacchetto
+    (SolidWorks la mette in un blocco di testi). Le due di solito
+    coincidono; il PDF a volte taglia i codici, il DXF e' esatto: si unisce,
+    e se dicono quantita' diverse lo stesso codice e' "dubbio" (lo conferma
+    il laser). Codici della tabella senza revisione (191700045 = il disegno
+    191700045-00)."""
+    from .preventivi.distinte_pdf import distinte_per_codici, leggi_distinta_dxf
+    k_ass = _chiave(cod_ass)
+    fonti = []
     try:
-        from .preventivi.distinte_pdf import distinte_per_codici
-        dist = distinte_per_codici(prev_dir, sorted({a.codice_assieme for a in comp}))
+        d = distinte_per_codici(prev_dir, [cod_ass], profondita=0).get(k_ass) if prev_dir else None
+        if d:
+            fonti.append(d)
     except Exception:
-        logger.warning('distinte degli assiemi non lette', exc_info=True)
+        logger.warning("distinta PDF dell'assieme %s non letta", cod_ass, exc_info=True)
+    dxf_map = getattr(result, 'dxf_map', None) or {}
+    masters = getattr(result, 'master_dxf', None) or {}
+    for base, dati in dxf_map.items():
+        if masters.get(base) == cod_ass or _chiave(base) == k_ass:
+            try:
+                d = leggi_distinta_dxf(dati)
+            except Exception:
+                d = None
+                logger.warning("distinta DXF dell'assieme %s non letta", cod_ass, exc_info=True)
+            if d:
+                fonti.append(d)
+            break
+    out = {}
+    for d in fonti:
+        # nella stessa tabella lo stesso codice su piu' righe si somma
+        questa = {}
+        for r in d.get('righe') or []:
+            k = _chiave(r.get('codice'))
+            try:
+                q = int(round(float(r.get('qta') or 0)))
+            except (TypeError, ValueError):
+                q = 0
+            if not k or q <= 0 or k == k_ass:
+                continue
+            testo = ' - '.join(x for x in (r.get('descrizione'), r.get('descrizione_agg')) if x)
+            y = questa.setdefault(k, {'qta': 0, 'testo': testo[:200]})
+            y['qta'] += q
+        # fra PDF e DXF: se dicono quantita' diverse il codice e' dubbio
+        for k, y in questa.items():
+            x = out.get(k)
+            if x is None:
+                out[k] = {'qta': y['qta'], 'testo': y['testo'], 'dubbio': False}
+                continue
+            if x['qta'] != y['qta']:
+                x['dubbio'] = True
+            if not x['testo'] and y['testo']:
+                x['testo'] = y['testo']
+    return out
+
+
+def quantita_da_distinte(prev_dir: str, result) -> int:
+    """I pezzi per assieme letti nella distinta del disegno d'insieme (PDF o
+    DXF del pacchetto) invece di 1 messo in silenzio.
+
+      - componente 'per_assieme' (nella cartella dell'assieme, senza riga
+        nell'ordine): prende la quantita' della distinta (qta_fonte
+        'distinta');
+      - disegno che l'ordine non cita ('non_trovato', o rimasto senza
+        articolo nel pacchetto) ma che sta nella distinta di un assieme
+        dell'ordine: diventa un componente di quell'assieme (DECA A 001221
+        BIS: i componenti erano fuori dalla cartella dell'assieme);
+      - un pezzo con la sua riga nell'ordine resta com'e' (ordinato a parte).
+    Se le due distinte non concordano il pezzo resta "da confermare".
+    Ritorna quanti pezzi hanno preso la quantita' dalla distinta."""
+    from .preventivi.rfq_importer import ArticoloRFQ
+    assiemi = list(getattr(result, 'assiemi', None) or [])
+    if not assiemi:
+        return 0
+    articoli = getattr(result, 'articoli', None)
+    if articoli is None:
         return 0
     trovati = 0
-    for a in comp:
-        d = dist.get(_chiave(a.codice_assieme))
-        if not d:
-            continue
-        q = 0
-        for r in d.get('righe') or []:
-            if _chiave(r.get('codice')) == _chiave(a.codice):
+    per_chiave = {}
+    for a in articoli:
+        if not getattr(a, 'e_master', False):
+            per_chiave.setdefault(_chiave(a.codice), a)
+    liberi = {_chiave(d): d for d in (getattr(result, 'dxf_no_match', None) or [])}
+    for cod_ass in assiemi:
+        dist = distinta_assieme(prev_dir, result, cod_ass)
+        for k, riga in dist.items():
+            a = per_chiave.get(k)
+            if a is None and k in liberi:
+                # disegno del pacchetto che l'ordine non cita: e' di quest'assieme
+                base = liberi.pop(k)
+                a = ArticoloRFQ(codice=os.path.splitext(base)[0], quantita=1, matched_dxf=base,
+                                codice_assieme=cod_ass, descrizione='componente assieme (dalla distinta)',
+                                qta_fonte='per_assieme', abbinamento='esatto')
+                articoli.append(a)
+                per_chiave[k] = a
                 try:
-                    q += int(round(float(r.get('qta') or 0)))
-                except (TypeError, ValueError):
+                    result.dxf_no_match.remove(base)
+                except (AttributeError, ValueError):
                     pass
-        if q > 0:
-            a.quantita = q
+            if a is None:
+                continue
+            fonte = getattr(a, 'qta_fonte', 'pdf')
+            if a.codice_assieme not in (None, cod_ass) or fonte not in ('per_assieme', 'non_trovato'):
+                continue                  # ha la sua riga nell'ordine, o e' di un altro assieme
+            a.codice_assieme = cod_ass
+            try:
+                result.dxf_no_match.remove(a.matched_dxf)     # non e' piu' "fuori ordine"
+            except (AttributeError, ValueError):
+                pass
+            if riga['testo'] and (not a.descrizione or a.descrizione.startswith('componente assieme')):
+                a.descrizione = riga['testo']
+            if riga['dubbio']:
+                a.qta_fonte = 'per_assieme'
+                continue
+            a.quantita = riga['qta']
             a.qta_fonte = 'distinta'
             trovati += 1
-    n_da = len(comp) - trovati
-    if n_da and hasattr(result, 'warnings'):
+    comp = [a for a in articoli if getattr(a, 'qta_fonte', None) == 'per_assieme']
+    if comp and hasattr(result, 'warnings'):
         result.warnings.append(
-            f"{n_da} pezzi d'assieme senza riga nell'ordine: quanti per assieme lo conferma il laser "
-            "(fino ad allora non vanno a Lantek)")
+            f"{len(comp)} pezzi d'assieme senza quantita' (ne' nell'ordine ne' nella distinta): "
+            "quanti per assieme lo conferma il laser (fino ad allora non vanno a Lantek)")
+    if trovati and hasattr(result, 'warnings'):
+        result.warnings.append(f"{trovati} pezzi d'assieme con la quantita' letta nella distinta del disegno d'insieme")
     return trovati
 
 

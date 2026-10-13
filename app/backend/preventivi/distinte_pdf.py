@@ -87,43 +87,59 @@ def profilo_da_descrizione(desc: str) -> dict | None:
     return None
 
 
-def _righe_tabella(pdf) -> list:
-    righe = []
-    for pg in pdf.pages:
-        for tb in pg.extract_tables() or []:
-            for r in tb:
-                celle = [' '.join(str(c).split()) if c is not None else '' for c in (r or [])]
-                pos_i = next((i for i, c in enumerate(celle[:4]) if _POS.match(c)), None)
-                if pos_i is None:
-                    continue
-                resto = celle[pos_i + 1:]
-                codice = next((c for c in resto if c), '')
-                # codice vero: lettere e cifre (46SA00578, 80105L0EB0067) o solo
-                # cifre ma lungo (250200046). Scarta le tabelle fori ("827,50")
-                # e la riga di revisione ("00 EMISSIONE").
-                if not codice or ' ' in codice or ',' in codice or len(codice) < 5:
-                    continue
-                if not ((re.search(r'\d', codice) and re.search(r'[A-Za-z]', codice))
-                        or re.fullmatch(r'\d{7,}', codice)):
-                    continue
-                dopo = resto[resto.index(codice) + 1:]
-                testi = [c for c in dopo if c and re.search(r'[A-Za-z]', c)]
-                descr = testi[0] if testi else ''
-                # descrizione aggiuntiva: il testo successivo se non e' il materiale
-                agg = testi[1] if len(testi) > 1 and not re.search(r'S235|S275|S355|1\.0\d{3}|INOX|AISI|ALU', testi[1], re.I) else ''
-                mat = next((c for c in testi if re.search(r'S235|S275|S355|1\.0\d{3}|INOX|AISI|ALU|C\d{2}', c, re.I)), '')
-                numeri = [c for c in dopo if _NUM.match(c)]
-                angoli = [c for c in dopo if c and _ANG.match(c) and not _NUM.match(c)]
-                qta = int(_f(numeri[-1])) if numeri and float(_f(numeri[-1])).is_integer() else 1
-                lung = _f(numeri[0]) if len(numeri) >= 2 else None
-                if not lung:
-                    lung = None                         # "00" della revisione non e' una lunghezza
-                righe.append({
-                    'pos': celle[pos_i], 'codice': codice, 'descrizione': descr, 'descrizione_agg': agg,
-                    'materiale': mat, 'lunghezza_mm': lung, 'qta': qta,
-                    'angolo_1': _f(_ANG.match(angoli[0]).group(1)) if len(angoli) >= 1 else None,
-                    'angolo_2': _f(_ANG.match(angoli[1]).group(1)) if len(angoli) >= 2 else None,
-                })
+_RX_MAT = re.compile(r'S235|S275|S355|1\.0\d{3}|INOX|AISI|ALU', re.I)
+
+
+def _riga_da_celle(celle: list) -> dict | None:
+    """Una riga della tabella dei componenti (celle da sinistra a destra) o
+    None se non e' una riga di componente. Tabella DECA: "Num. art. | Codice |
+    REV | Descrizione | Descrizione Aggiuntiva | Materiale | Trattamento |
+    Qta" (anche con Lunghezza e angoli per i tubi); il codice e' senza la
+    revisione (191700045 con REV 00 = il disegno 191700045-00)."""
+    celle = [' '.join(str(c).split()) if c is not None else '' for c in (celle or [])]
+    pos_i = next((i for i, c in enumerate(celle[:4]) if _POS.match(c)), None)
+    if pos_i is None:
+        return None
+    resto = celle[pos_i + 1:]
+    codice = next((c for c in resto if c), '')
+    # codice vero: lettere e cifre (46SA00578, 80105L0EB0067) o solo
+    # cifre ma lungo (250200046). Scarta le tabelle fori ("827,50")
+    # e la riga di revisione ("00 EMISSIONE").
+    if not codice or ' ' in codice or ',' in codice or len(codice) < 5:
+        return None
+    if not ((re.search(r'\d', codice) and re.search(r'[A-Za-z]', codice))
+            or re.fullmatch(r'\d{7,}', codice)):
+        return None
+    dopo = resto[resto.index(codice) + 1:]
+    # la colonna REV subito dopo il codice ("00", "01"): non e' una lunghezza
+    piene = [c for c in dopo if c]
+    rev = None
+    if piene and re.fullmatch(r'\d{2}', piene[0]):
+        rev = piene[0]
+        dopo = dopo[dopo.index(rev) + 1:]
+    testi = [c for c in dopo if c and re.search(r'[A-Za-z]', c)]
+    # materiale: la cella corta col nome del materiale ("Aisi304", "AISI 304");
+    # "inferiore MTR - Lg 581 - AISI304" e' la descrizione aggiuntiva
+    corti = [c for c in testi if _RX_MAT.search(c) and len(c) <= 14]
+    mat = corti[-1] if corti else next((c for c in testi if _RX_MAT.search(c)), '')
+    altri = [c for c in testi if c != mat]
+    descr = altri[0] if altri else ''
+    agg = altri[1] if len(altri) > 1 else ''
+    numeri = [c for c in dopo if _NUM.match(c)]
+    angoli = [c for c in dopo if c and _ANG.match(c) and not _NUM.match(c)]
+    qta = int(_f(numeri[-1])) if numeri and float(_f(numeri[-1])).is_integer() else 1
+    lung = _f(numeri[0]) if len(numeri) >= 2 else None
+    if not lung:
+        lung = None                         # "00" della revisione non e' una lunghezza
+    return {
+        'pos': celle[pos_i], 'codice': codice, 'rev': rev, 'descrizione': descr, 'descrizione_agg': agg,
+        'materiale': mat, 'lunghezza_mm': lung, 'qta': qta,
+        'angolo_1': _f(_ANG.match(angoli[0]).group(1)) if len(angoli) >= 1 else None,
+        'angolo_2': _f(_ANG.match(angoli[1]).group(1)) if len(angoli) >= 2 else None,
+    }
+
+
+def _una_per_posizione(righe: list) -> list:
     # la stessa tabella puo' uscire due volte: una riga per posizione
     visti, out = set(), []
     for r in righe:
@@ -132,6 +148,90 @@ def _righe_tabella(pdf) -> list:
         visti.add(r['pos'])
         out.append(r)
     return out
+
+
+def _righe_tabella(pdf) -> list:
+    righe = []
+    for pg in pdf.pages:
+        for tb in pg.extract_tables() or []:
+            for r in tb:
+                x = _riga_da_celle(r)
+                if x:
+                    righe.append(x)
+    return _una_per_posizione(righe)
+
+
+def leggi_distinta_dxf(sorgente) -> dict | None:
+    """La tabella dei componenti scritta nel DXF dell'assieme (percorso o
+    bytes): le scritte (anche dentro i blocchi, es. SW_TABLEANNOTATION di
+    SolidWorks) si mettono in righe per altezza e in celle da sinistra a
+    destra, poi come la tabella del PDF. None se non c'e'."""
+    try:
+        import ezdxf
+        if isinstance(sorgente, (bytes, bytearray)):
+            # dal pacchetto, in memoria: ezdxf legge la codifica giusta solo da file
+            import tempfile
+            fd, tmp = tempfile.mkstemp(suffix='.dxf')
+            try:
+                with os.fdopen(fd, 'wb') as fh:
+                    fh.write(bytes(sorgente))
+                doc = ezdxf.readfile(tmp)
+            finally:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+        else:
+            doc = ezdxf.readfile(sorgente)
+    except Exception:
+        return None
+
+    def scritte(entita):
+        out = []
+        for e in entita:
+            t = e.dxftype()
+            if t not in ('TEXT', 'MTEXT', 'ATTRIB'):
+                continue
+            try:
+                testo = e.plain_text() if t == 'MTEXT' else e.dxf.text
+                h = float(e.dxf.char_height if t == 'MTEXT' else e.dxf.height) or 1.0
+                out.append((float(e.dxf.insert.y), float(e.dxf.insert.x), h, ' '.join(str(testo).split())))
+            except Exception:
+                continue
+        return out
+
+    gruppi = []
+    msp = doc.modelspace()
+    gruppi.append(scritte(msp))
+    for ins in msp.query('INSERT'):
+        try:
+            gruppi.append(scritte(ins.virtual_entities()) + scritte(ins.attribs))
+        except Exception:
+            continue
+    righe = []
+    for sc in gruppi:
+        sc = [x for x in sc if x[3]]
+        sc.sort(key=lambda x: -x[0])
+        riga, y0 = [], None
+        for x in sc + [None]:
+            if x is not None and (y0 is None or abs(x[0] - y0) <= 0.5 * x[2]):
+                riga.append(x)
+                y0 = x[0] if y0 is None else y0
+                continue
+            if riga:
+                r = _riga_da_celle([c[3] for c in sorted(riga, key=lambda c: c[1])])
+                if r:
+                    righe.append(r)
+            riga, y0 = ([x], x[0]) if x is not None else ([], None)
+    righe = _una_per_posizione(righe)
+    if not righe:
+        return None
+    for r in righe:
+        prof = profilo_da_descrizione(r['descrizione'])
+        if prof and r.get('lunghezza_mm'):
+            r['profilo'] = prof
+    nome = os.path.basename(sorgente) if isinstance(sorgente, str) else None
+    return {'file': nome, 'peso_kg': None, 'righe': righe, 'da': 'dxf'}
 
 
 def _peso_cartiglio(testo: str) -> float | None:

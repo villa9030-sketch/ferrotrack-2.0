@@ -5007,6 +5007,8 @@ class PreventivoManager:
             for k in ('fonte', 'qta_da', 'qta_il'):
                 if od.get(k):
                     out['ordine'][k] = str(od[k])[:60]
+            if od.get('descrizione'):
+                out['ordine']['descrizione'] = str(od['descrizione'])[:200]
             # righe dell'ordine una per una (commessa, quantita'): per DECA il
             # PDF del preventivo le riporta uguali
             righe = []
