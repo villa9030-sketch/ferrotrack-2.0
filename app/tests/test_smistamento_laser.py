@@ -152,9 +152,14 @@ with sync_playwright() as p:
     # --- "va tagliato": entra nella coda (senza conferma, Invio) ---
     resto = da_smistare()
     pg.click(f'.lz-r[data-id="{resto[0]}"]')
-    pg.wait_for_timeout(1500)
+    # si aspetta l'ordine aperto e il suo passo, non un tempo fisso: col PC
+    # carico (prova notturna) 1,5 s non bastavano e Invio andava a vuoto
+    pg.wait_for_function('id => LZ.s.aperto === id && !!document.querySelector("[data-az=smista-si]")', arg=resto[0], timeout=30000)
     pg.keyboard.press('Enter')
-    pg.wait_for_timeout(3000)
+    try:
+        pg.wait_for_function('id => !document.querySelector(`.lz-r[data-id="${id}"]`).innerText.includes("Da smistare")', arg=resto[0], timeout=30000)
+    except Exception:
+        pass
     accettati = [o for o in ordini()
                  if o.get('taglio_richiesto') is True and not o.get('taglio_completato')]
     check('l\'altro entra nella coda di taglio', len(accettati) >= 1, len(accettati))
