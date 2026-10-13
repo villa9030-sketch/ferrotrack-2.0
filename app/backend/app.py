@@ -3531,6 +3531,99 @@ def api_ordini_viste():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/ordini/forse-finiti', methods=['GET'])
+@richiede('ufficio')
+def api_ordini_forse_finiti():
+    """Ordini che forse sono finiti: tagliati al laser e senza altro in
+    sospeso (ordini_service.motivo_non_forse_finito). Sono PROPOSTE: l'ufficio
+    conferma ("Finito -> DDT da fare", la stessa /completamento) o rimanda
+    ("Non ancora"). Per ognuno cosa resta dopo il laser, letto dalla distinta,
+    da chiedere all'officina."""
+    try:
+        from .ordini_service import motivo_non_forse_finito, STATI_ARCHIVIO
+        from . import taglia_entro as _te
+        from .models import AuditLog, ProcessingStep
+        s = get_session()
+        try:
+            ordini = s.query(Order).filter(
+                Order.is_deleted == False,  # noqa: E712
+                Order.taglio_completato == True,  # noqa: E712
+                Order.data_completamento_operativo.is_(None),
+                (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO))).all()
+            ids = [o.id for o in ordini]
+            rimandi = {}
+            if ids:
+                for a in s.query(AuditLog).filter(AuditLog.action == 'FORSE_FINITO_NON_ANCORA',
+                                                  AuditLog.entity_id.in_(ids)).all():
+                    if a.entity_id not in rimandi or a.timestamp > rimandi[a.entity_id]:
+                        rimandi[a.entity_id] = a.timestamp
+            fasi_aperte = {}
+            if ids:
+                for st in s.query(ProcessingStep).filter(ProcessingStep.order_id.in_(ids),
+                                                         ProcessingStep.timestamp_inizio.isnot(None),
+                                                         ProcessingStep.timestamp_fine.is_(None)).all():
+                    fasi_aperte[st.order_id] = fasi_aperte.get(st.order_id, 0) + 1
+        finally:
+            s.close()
+        try:
+            from . import procura as _pc
+            proc = _pc.riassunto_per_ordini(ids) if ids else {}
+        except Exception:
+            logger.warning('da procurare non letto per i forse finiti', exc_info=True)
+            proc = {}
+        cal = _cal_config()
+        out = []
+        for o in ordini:
+            if motivo_non_forse_finito(o, (proc.get(o.id) or {}).get('n', 0), fasi_aperte.get(o.id, 0),
+                                       rimandi.get(o.id)) is not None:
+                continue
+            try:
+                righe, origine, prev = _distinta_ordine(o)
+                dopo = _te.anticipo(righe, origine, o.note or '', cal).get('voci') or []
+            except Exception:
+                prev, dopo = None, []
+            dopo = [v for v in dopo if v not in ('taglio',)]
+            out.append({'id': o.id, 'numero_ordine': o.numero_ordine,
+                        'numero_ordine_cliente': ((prev or {}).get('numero_ordine_cliente') or '').strip() or None,
+                        'cliente': o.cliente or '', 'data_consegna': iso_data(o.data_consegna),
+                        'tagliato_il': iso_utc(o.data_taglio_completato),
+                        # cosa dice la distinta dopo il laser: da chiedere all'officina
+                        'dopo_il_laser': dopo})
+        out.sort(key=lambda x: (x['data_consegna'] or '9999', x['tagliato_il'] or ''))
+        return jsonify({'success': True, 'ordini': out, 'n': len(out)}), 200
+    except Exception as e:
+        logger.exception('forse finiti falliti')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ordini/<order_id>/forse-finito/non-ancora', methods=['POST'])
+@richiede('ufficio')
+def api_ordine_forse_finito_non_ancora(order_id):
+    """"Non ancora": l'ordine esce dai forse finiti per qualche giorno
+    (ordini_service.GIORNI_NON_ANCORA), poi torna a chiederlo. Scritto nello
+    storico, che e' anche dove si legge."""
+    from .ordini_service import GIORNI_NON_ANCORA
+    order = _ordine_esistente(order_id)
+    if not order:
+        return _non_trovato_ordine()
+    _audit('FORSE_FINITO_NON_ANCORA', 'orders', order_id,
+           f'Ufficio: non ancora finito (richiede di nuovo fra {GIORNI_NON_ANCORA} giorni)')
+    return jsonify({'success': True, 'giorni': GIORNI_NON_ANCORA}), 200
+
+
+def _al_laser_proposto(order_id: str, data: dict) -> dict | None:
+    """L'ufficio, creando l'ordine, ha confermato la proposta "va al laser"
+    (corpo: "al_laser": true): l'ordine nasce gia' fra quelli da tagliare
+    invece che "da smistare". Il laser puo' sempre cambiarlo. Senza la
+    spunta l'ordine resta da smistare, come prima."""
+    if not data.get('al_laser'):
+        return None
+    r = OrderManager.smista(order_id, True, user_id=_chi())
+    if r.get('success'):
+        _audit('AL_LASER_DA_UFFICIO', 'orders', order_id, "Va al laser: proposta confermata dall'ufficio alla creazione dell'ordine")
+    return r
+
+
 def _transizione(funzione, order_id, **extra):
     # Chi puo' lo dice la regola della rotta (solo l'Ufficio); qui si scrive
     # nello storico la persona entrata col PIN.
@@ -5161,6 +5254,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
         else:
             _cleanup_preventivo_files(pacchetto_id)
 
+        smistato = _al_laser_proposto(order.id, data)
         _avvisa_capi_nuovo_ordine(order)
         try:
             OrderEventBus.publish('order.created', {
@@ -5173,7 +5267,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
                 user_id=user_id, action='CREATE_ORDER_FROM_PACKAGE',
                 entity_type='order', entity_id=order.id,
                 detail=f'Ordine {numero} ({cliente}) dal pacchetto {pacchetto_id}: '
-                       f'{len(nuovi)} pezzi, {len(attesi) - mancanti} disegni'
+                       f'{len(nuovi)} codici, {len(attesi) - mancanti} disegni'
                        + (f', {mancanti} file non trasferiti' if mancanti else ''))
         except Exception:
             pass
@@ -5185,6 +5279,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
             'numero_ordine': numero,
             'ordine': riga_ordine(order.id),
             'n_pezzi': len(nuovi),
+            'al_laser': bool(smistato and smistato.get('success')),
             'dxf_transfer': dxf_stats,
             'pdf_transfer': pdf_stats,
             'export_disegni': export,
@@ -9156,6 +9251,8 @@ def api_preventivi_accetta(preventivo_id):
             # Allega il PDF ordine (disegni/lavorazioni) così Mirko vede cosa fare.
             pdf_stats = _copy_order_pdf_to_order(preventivo_id, order_id)
             result['pdf_transfer'] = pdf_stats
+            sm = _al_laser_proposto(order_id, data)
+            result['al_laser'] = bool(sm and sm.get('success'))
             # Audit log dedicato
             try:
                 AuditManager.log(user_id=user_id, action='TRANSFER_DXF_TO_ORDER',

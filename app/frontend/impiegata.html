@@ -1381,6 +1381,9 @@ async function avviaPacchetto(files) {
     righe: (d.righe || []).map(r => ({ ...r, q: r.quantita, mat: r.materiale || '', sp: r.spessore_mm != null ? String(r.spessore_mm).replace('.', ',') : '' })),
     testa: { numero: d.numero_ordine || '', cliente: d.cliente || '', data: d.data_consegna || '', note: d.note || '' },
   };
+  // Proposta: con disegni da tagliare l'ordine va al laser (spuntato); senza,
+  // resta "da smistare" come prima. Si vede e si toglie prima di creare.
+  PKG.alLaser = PKG.righe.some(r => r.disegno && !r.fuori_ordine && pkgNum(r.q) > 0);
   pkgRender();
 }
 
@@ -1396,6 +1399,11 @@ function pkgDaControllare(r) {
 }
 function pkgAlLaser(r) { return (r.avvisi_tecnici || []).length > 0 || (r.disegno && (!r.mat || !r.sp)); }
 function pkgGruppo(r) { return r.fuori_ordine ? 'fuori' : (r.disegno ? 'disegno' : 'senza'); }
+/* Pezzo d'assieme: la quantita' scritta e' PER ASSIEME (letta nella distinta
+   del disegno d'insieme); nell'ordine diventa x assiemi (es. 2 per assieme x 3
+   assiemi = 6). Prima la revisione mostrava 2 "dal PDF" e contava 2. */
+function pkgAssieme(r) { return r.assieme ? ((PKG.dati.assiemi || []).find(a => a.codice === r.assieme) || { codice: r.assieme, quantita: 1 }) : null; }
+function pkgMolt(r) { const a = pkgAssieme(r); return a ? (Number(a.quantita) || 1) : 1; }
 
 /** Cosa manca per poter creare l'ordine (testo per l'utente), in ordine d'importanza. */
 function pkgMancanze() {
@@ -1413,12 +1421,12 @@ function pkgMancanze() {
 
 function pkgRiepilogo() {
   const dentro = PKG.righe.filter(r => pkgQtaValida(r) && pkgNum(r.q) > 0);
-  const pezzi = dentro.reduce((a, r) => a + pkgNum(r.q), 0);
+  const pezzi = dentro.reduce((a, r) => a + pkgNum(r.q) * pkgMolt(r), 0);
   const lamiere = {};
   dentro.filter(r => r.disegno).forEach(r => {
     const sp = pkgNum(r.sp);
     const k = `${(r.mat || 'Materiale ?').replace('_', ' ')}${sp ? ' ' + FT.numero(sp, sp % 1 ? 1 : 0) + ' mm' : ''}`;
-    lamiere[k] = (lamiere[k] || 0) + pkgNum(r.q);
+    lamiere[k] = (lamiere[k] || 0) + pkgNum(r.q) * pkgMolt(r);
   });
   // "da controllare" conta i pezzi col disegno: e' quello che filtra il pulsante
   const nCtrl = PKG.righe.filter(r => pkgGruppo(r) === 'disegno' && pkgDaControllare(r)).length;
@@ -1479,6 +1487,9 @@ function pkgRender() {
       <div class="imp-col">
         <h2 class="imp-step-title"><span class="imp-step-n">2</span> Cosa c’è nell’ordine</h2>
         <div class="imp-pk-sum" id="pkg-sum"></div>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;cursor:pointer" title="Proposta: l’ordine ha disegni da tagliare. Togli la spunta se non passa dal laser; il laser può sempre cambiarlo.">
+          <input type="checkbox" id="pkg-al-laser" ${PKG.alLaser ? 'checked' : ''} onchange="PKG.alLaser = this.checked; pkgAggiorna()" style="margin-top:3px">
+          <span><b>Va al laser</b> <small class="ft-muted" id="pkg-al-laser-sub"></small></span></label>
       </div>
     </div>
     ${sezioni.map(([g, tit, sub]) => {
@@ -1521,7 +1532,9 @@ function pkgRigaHtml(i) {
   const thumb = r.url_svg
     ? `<button type="button" class="imp-pk-thumb" onclick="pkgDisegno(${i})" title="Guarda il disegno ${esc(r.disegno)}"><img loading="lazy" src="${esc(r.url_svg)}" alt="" onerror="this.replaceWith(document.createTextNode('—'))"></button>`
     : `<span class="imp-pk-thumb vuoto" title="${r.disegno ? 'Anteprima non disponibile' : 'Nessun disegno'}"><i data-lucide="${r.disegno ? 'file' : 'file-x'}"></i></span>`;
+  const ass = pkgAssieme(r);
   const fonte = r.fuori_ordine ? { t: 'non nell’ordine', c: '' }
+    : ass && r.quantita_fonte === 'pdf' ? { t: `per assieme × ${ass.quantita} = ${pkgQtaValida(r) ? pkgNum(r.q) * pkgMolt(r) : '?'}`, c: '', ass: true }
     : r.quantita_fonte === 'pdf' ? { t: 'dal PDF', c: '' }
     : r.quantita_fonte === 'dubbio' ? { t: 'incerta', c: 'warn' } : { t: 'da controllare', c: 'warn' };
   // la lettura del disegno non e' affare dell'ufficio: se c'e' un dubbio lo
@@ -1538,7 +1551,7 @@ function pkgRigaHtml(i) {
     <td class="imp-pk-cod"><b>${esc(r.codice || '—')}</b>${sotto ? `<code title="${esc(sotto)}">${esc(sotto)}</code>` : ''}
       ${avvisi.length ? `<ul class="imp-pk-avv">${avvisi.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}</td>
     <td class="imp-pk-qc"><input class="ft-input imp-pk-q ${fonte.c}" type="number" min="0" step="1" inputmode="numeric" value="${esc(r.q)}"
-        aria-label="Quantità di ${esc(r.codice)}" oninput="pkgCampo(${i}, 'q', this)"><small class="${fonte.c}">${fonte.t}</small></td>
+        aria-label="Quantità di ${esc(r.codice)}${ass ? ' per assieme' : ''}" oninput="pkgCampo(${i}, 'q', this)"><small class="${fonte.c}"${ass ? ` title="Pezzi per un assieme ${esc(ass.codice)} (dalla distinta del disegno d’insieme). L’ordine ha ${esc(ass.quantita)} assiemi."` : ''}>${fonte.t}</small></td>
     <td><input class="ft-input imp-pk-mat" list="pkg-materiali" value="${esc(r.mat)}" placeholder="Es. S235"
         aria-label="Materiale di ${esc(r.codice)}" oninput="pkgCampo(${i}, 'mat', this)"></td>
     <td><input class="ft-input imp-pk-sp" inputmode="decimal" value="${esc(r.sp)}" placeholder="mm"
@@ -1568,7 +1581,10 @@ function pkgCampo(i, campo, input) {
     if (!r.fuori_ordine && r.quantita_fonte !== 'pdf') {
       // controllata a mano: non e' piu' "da controllare"
       input.classList.remove('warn');
-      const s = input.parentElement.querySelector('small'); if (s) { s.textContent = 'scritta da te'; s.className = ''; }
+      const s = input.parentElement.querySelector('small'); if (s) { s.textContent = r.assieme ? `scritta da te, per assieme × ${pkgMolt(r)}` : 'scritta da te'; s.className = ''; }
+    } else if (r.assieme) {
+      const s = input.parentElement.querySelector('small');
+      if (s) s.textContent = `per assieme × ${pkgMolt(r)} = ${pkgQtaValida(r) ? pkgNum(r.q) * pkgMolt(r) : '?'}`;
     }
   } else if (campo === 'sp') {
     input.classList.toggle('invalid', !pkgSpValido(r));
@@ -1611,6 +1627,11 @@ function pkgAggiorna() {
   const s = PKG.testa.data ? FT.scadenza(PKG.testa.data) : null;
   const hd = $('pkg-hint-data');
   if (hd) { hd.textContent = s && s.testo ? (s.classe === 'late' ? 'Attenzione: ' + s.testo : 'Consegna ' + s.testo) : ''; hd.style.color = s && s.classe === 'late' ? 'var(--ft-err)' : ''; }
+  const nTagliare = R.dentro.filter(r => r.disegno).length;
+  const subL = $('pkg-al-laser-sub');
+  if (subL) subL.textContent = PKG.alLaser
+    ? `proposta: ${nTagliare === 1 ? '1 disegno' : nTagliare + ' disegni'} da tagliare. Nasce fra gli ordini «${FTStati.laser.da_importare}».`
+    : `nasce «${FTStati.laser.da_smistare}»: lo decide il laser.`;
   const manca = pkgMancanze();
   const btn = $('pkg-crea'), hint = $('pkg-hint');
   btn.disabled = manca.length > 0;
@@ -1688,19 +1709,20 @@ async function pkgCrea(forza) {
     forza = true;
   }
   const t = PKG.testa, btn = $('pkg-crea');
+  const nPezzi = pkgRiepilogo().pezzi;
   $('pkg-msg').hidden = true;
   btn.disabled = true;
   btn.innerHTML = '<i data-lucide="loader-circle"></i> Creo l’ordine…'; FT.icone();
   const corpo = {
     numero_ordine: t.numero.trim(), cliente: t.cliente.trim(), data_consegna: t.data, note: t.note.trim(),
-    forza: !!forza,
+    forza: !!forza, al_laser: !!PKG.alLaser,
     righe: PKG.righe.map(r => ({ id: r.id, quantita: pkgNum(r.q), materiale: r.mat.trim(), spessore_mm: pkgNum(r.sp) })),
   };
   const res = await inviaJson(`/api/orders/da-pacchetto/${encodeURIComponent(PKG.id)}/conferma`, corpo);
   btn.innerHTML = '<i data-lucide="check"></i> Crea ordine';
   const r = res.data || {};
   if (riuscita(res) && r.order_id) {
-    FT.toast(`Ordine ${t.numero.trim()} creato con ${r.n_pezzi === 1 ? '1 pezzo' : (r.n_pezzi || 0) + ' pezzi'}: per l\u2019officina usa \u201cStampa ordine\u201d`, 'ok');
+    FT.toast(`Ordine ${t.numero.trim()} creato con ${nPezzi === 1 ? '1 pezzo' : FT.numero(nPezzi) + ' pezzi'}${r.al_laser ? ', mandato al laser' : ''}: per l\u2019officina usa \u201cStampa ordine\u201d`, 'ok');
     if (r.avviso) FT.toast(r.avviso, 'warn', null, 8000);
     pkgChiudi();
     resetCaricaForm();
@@ -2108,11 +2130,46 @@ function ddtCellHtml(o) {
 // cosa rischia di arrivarci, e quanto e' carico il laser nei prossimi giorni.
 let CL_PRONTO = false;
 let _oggiCaricato = 0;
+// "Forse finiti": tagliati al laser, senza altro in sospeso. Il ritorno dal
+// laser all'ufficio: proposte da confermare, niente passa da solo.
+let FORSE_FINITI = [];
+async function caricaForseFiniti() {
+  const res = await api('/api/ordini/forse-finiti');
+  if (res.ok && res.data && res.data.success) FORSE_FINITI = res.data.ordini || [];
+}
 async function caricaOggi(forza) {
   if (forza || Date.now() - _oggiCaricato > 9000) {
     _oggiCaricato = Date.now();
-    await Promise.all([caricaViste(true), CaricoLaser.carica(!!forza).then(ok => { CL_PRONTO = ok; }), aggiornaBadgeConferme()]);
+    await Promise.all([caricaViste(true), CaricoLaser.carica(!!forza).then(ok => { CL_PRONTO = ok; }), aggiornaBadgeConferme(),
+                       caricaForseFiniti()]);
   }
+  renderOggi();
+}
+const DOPO_LASER = { piega: 'piega', saldatura: 'saldatura', montaggio: 'montaggio', filettatura: 'filettature', esterna: 'lavorazione esterna' };
+function rigaForseFinito(f) {
+  const id = esc(f.id);
+  const dopo = (f.dopo_il_laser || []).map(v => DOPO_LASER[v] || v);
+  const stato = `${esc(FTStati.laser.tagliato)} ${f.tagliato_il ? FT.fmtRelativo(f.tagliato_il) : ''}<small>${dopo.length
+    ? 'dopo il laser: ' + esc(dopo.join(', ')) + ' — chiedi all’officina se è fatto' : 'dopo il laser non risulta altro'}</small>`;
+  const az = btn('Non ancora', `forseFinitoNonAncora('${id}')`, 'ghost', '', 'Lo richiede fra due giorni')
+    + ' ' + btn('Finito → ' + FTStati.passo.attesa_ddt, `forseFinitoSi('${id}')`, 'primary', 'check',
+      'L’officina ha finito: l’ordine passa fra i pronti per il DDT');
+  return rigaOggi({ id: f.id, cliente: f.cliente, numero_ordine: f.numero_ordine, numero_ordine_cliente: f.numero_ordine_cliente,
+                    data_consegna: f.data_consegna }, stato, az);
+}
+async function forseFinitoSi(id) {
+  const f = FORSE_FINITI.find(x => x.id === id) || {};
+  const r = await chiamaAzione(`/api/ordini/${id}/completamento`, 'POST', {},
+    `${f.numero_ordine_cliente || f.numero_ordine || 'Ordine'}: ${FTStati.passo.attesa_ddt}`, { testo: 'Annulla', fn: () => annullaCompletamento(id) });
+  if (!r.ok) { FT.toast(r.errore, 'err'); return; }
+  FORSE_FINITI = FORSE_FINITI.filter(x => x.id !== id);
+  caricaOggi(true);
+}
+async function forseFinitoNonAncora(id) {
+  const res = await inviaJson(`/api/ordini/${id}/forse-finito/non-ancora`, {});
+  if (!riuscita(res)) { FT.toast('Non riuscito: ' + msgErrore(res), 'err'); return; }
+  FORSE_FINITI = FORSE_FINITI.filter(x => x.id !== id);
+  FT.toast('Va bene: lo richiedo fra due giorni', 'ok');
   renderOggi();
 }
 /** Ordini che pesano sul laser (le pratiche chiuse no). */
@@ -2201,13 +2258,16 @@ function renderOggi() {
     `<button type="button" class="og-k ${c}${n ? '' : ' zero'}" onclick="${fn}"><span class="t">${t}</span><b>${n}</b><small>${sub}</small></button>`).join('')
     .replace('<small>da preparare</small>', `<small>${nConf ? `+ ${nConf} preventiv${nConf === 1 ? 'o' : 'i'} da confermare` : 'da preparare'}</small>`);
   $('og-kpi').querySelectorAll('.og-k b').forEach((b, i) => FT.contaDa('og-k-' + i, b, kpi[i][2]));
-  setCount('oggi-badge', ritardo.length + prossime.length || '');
+  setCount('oggi-badge', ritardo.length + prossime.length + FORSE_FINITI.length || '');
 
   // ── Da fare ──
   const sez = (id, cls, ico, titolo, lista, stato, az) => !lista.length ? '' :
     `<div class="og-sez ${cls}" id="${id}"><i data-lucide="${ico}"></i>${titolo}<em>${lista.length}</em></div>`
     + lista.map(o => rigaOggi(o, stato(o), az(o))).join('');
+  const forse = FORSE_FINITI.filter(f => !visti.has(f.id));
   let html = [
+    forse.length ? `<div class="og-sez ok" id="og-s-forse"><i data-lucide="circle-check-big"></i>Forse finiti<em>${forse.length}</em></div>`
+      + forse.map(rigaForseFinito).join('') : '',
     sez('og-s-ritardo', 'err', 'triangle-alert', 'In ritardo', ritardo, statoOggi, azioneDi),
     sez('og-s-prossime', 'warn', 'alarm-clock', 'Consegna oggi e domani', prossime, statoOggi, azioneDi),
     sez('og-s-ddt', 'info', 'file-text', 'DDT da fare', ddt, statoOggi, azioneDi),
@@ -2219,7 +2279,7 @@ function renderOggi() {
     + (html ? '<div class="og-sp"></div>' + html : '');
   $('og-dafare').innerHTML = html || `<div class="og-vuoto"><b>Tutto in ordine</b>Niente in ritardo, niente da registrare.</div>`;
   if (!renderOggi.visto) { renderOggi.visto = true; FT.sequenza($('og-kpi')); FT.sequenza($('og-dafare')); }
-  const nFare = ritardo.length + prossime.length + ddt.length + daCons.length + daFatt.length;
+  const nFare = ritardo.length + prossime.length + ddt.length + daCons.length + daFatt.length + forse.length;
   $('og-dafare-n').textContent = nFare ? `${nFare} ${nFare === 1 ? 'ordine' : 'ordini'}` : '';
 
   // ── Laser ──

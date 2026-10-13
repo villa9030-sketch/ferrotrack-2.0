@@ -175,6 +175,43 @@ def filtro_consegnati(query):
     )
 
 
+# "Forse finiti": il ritorno dal laser all'ufficio. Quando il laser preme
+# "Taglio fatto" l'ufficio non sapeva niente; ora l'ordine tagliato, senza
+# altro in sospeso, compare come PROPOSTA nell'ufficio ("Finito -> DDT da
+# fare" / "Non ancora"). Decide sempre una persona: niente passa da solo.
+GIORNI_NON_ANCORA = 2
+
+
+def motivo_non_forse_finito(order, n_procura_aperti: int = 0, n_fasi_aperte: int = 0,
+                            rimandato_il=None, adesso=None):
+    """None se l'ordine e' "forse finito", altrimenti perche' no (per i test
+    e per chi legge il codice).
+
+    Forse finito = in lavorazione (vista 'aperto'), taglio laser fatto, niente
+    da procurare ancora da arrivare, nessuna fase di officina aperta, niente
+    lavorazione esterna dichiarata, e non rimandato con "Non ancora" negli
+    ultimi GIORNI_NON_ANCORA giorni (dopo il taglio)."""
+    from datetime import timedelta as _td
+    if getattr(order, 'is_deleted', False):
+        return 'eliminato'
+    if fase(order) != 'aperto':
+        return 'non in lavorazione'
+    if not getattr(order, 'taglio_completato', False):
+        return 'taglio non fatto'
+    if n_procura_aperti:
+        return 'da procurare non arrivato'
+    if n_fasi_aperte:
+        return "fase d'officina aperta"
+    if getattr(order, 'lavorazione_esterna', None) is True:
+        return 'lavorazione esterna'
+    if rimandato_il is not None:
+        adesso = adesso or datetime.utcnow()
+        tagliato = getattr(order, 'data_taglio_completato', None)
+        if (tagliato is None or rimandato_il >= tagliato) and adesso - rimandato_il < _td(days=GIORNI_NON_ANCORA):
+            return 'rimandato'
+    return None
+
+
 def fase_laser(order) -> str:
     """Fase al laser, come i riquadri della pagina laser:
     da_smistare | da_importare | in_lantek | tagliato | non_serve."""
