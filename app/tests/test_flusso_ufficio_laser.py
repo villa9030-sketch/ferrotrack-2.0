@@ -281,11 +281,22 @@ def doppioni_bis():
     check('un altro cliente no', A._ordine_gia_caricato('A 009221', 'Poliform') is None)
 
 
+def postazione_sbagliata():
+    print('\n5) "Questa postazione non puo\' farlo": e dove si fa')
+    r = LAS.get('/api/ordini/viste')
+    d = r.get_json() or {}
+    check('dice quale postazione e dove si fa', r.status_code == 403 and d.get('codice') == 'stazione_non_ammessa'
+          and '(Laser)' in d.get('error', '') and 'postazione Ufficio' in d.get('error', ''), d)
+    t = open(os.path.join(_APP, 'frontend', 'ft-accesso.js'), encoding='utf-8').read()
+    check('la pagina mostra la frase del server', "avviso((d && d.error) || 'Questa postazione non può farlo.')" in t)
+
+
 def main():
     forse_finiti()
     preventivo_accettato()
     notifiche()
     doppioni_bis()
+    postazione_sbagliata()
     print(f'\n{OK} ok, {len(KO)} ko')
     if KO:
         print('FALLITI:', *KO, sep='\n  ')
