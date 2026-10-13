@@ -732,6 +732,7 @@ body.ft [hidden] { display: none !important; }
       <span class="imp-kpi-hint" id="vista-hint"></span>
       <span class="ft-toolbar-meta" id="vista-count">—</span>
       <button class="ft-btn sm" onclick="esportaVista()" title="Scarica l'elenco di questa vista per Excel (es. da confrontare col gestionale a fine mese)"><i data-lucide="file-spreadsheet"></i> Esporta per Excel</button>
+      <button class="ft-btn sm ghost" onclick="apriEliminati()" title="Ordini eliminati qui o dal laser: si possono ripristinare"><i data-lucide="trash-2"></i> Eliminati</button>
       <button class="ft-icon-btn" onclick="caricaViste()" title="Aggiorna"><i data-lucide="refresh-cw"></i></button>
     </div>
     <div class="ft-table-wrap">
@@ -853,6 +854,17 @@ body.ft [hidden] { display: none !important; }
 
 <!-- ═══════════════ FINESTRE ═══════════════ -->
 <!-- DDT -->
+<!-- Ordini eliminati (anche dal laser): si ripristinano da qui -->
+<div class="ft-modal-bg" id="modal-eliminati" onclick="if(event.target===this)FT.chiudi('modal-eliminati')">
+  <div class="ft-modal" role="dialog" aria-modal="true" aria-labelledby="el-t" style="max-width:720px">
+    <div class="ft-modal-head"><div>
+      <h3 class="ft-modal-title" id="el-t">Ordini eliminati</h3>
+      <p class="ft-modal-sub">Ultimi 90 giorni, eliminati qui o dal laser. Ripristinato, l’ordine torna dov’era.</p>
+    </div><button class="ft-icon-btn ft-modal-x" onclick="FT.chiudi('modal-eliminati')" aria-label="Chiudi"><i data-lucide="x"></i></button></div>
+    <div class="ft-modal-body" id="el-lista"></div>
+  </div>
+</div>
+
 <!-- Conferma di un preventivo: l'ordine del cliente (PDF) e "va al laser" -->
 <div class="ft-modal-bg" id="modal-accetta" onclick="if(event.target===this)chiudiAccetta()">
   <div class="ft-modal" role="dialog" aria-modal="true" aria-labelledby="acc-t">
@@ -3090,10 +3102,30 @@ async function chiediEliminaOrdine(orderId) {
   });
   if (ok) eliminaOrdine(orderId);
 }
+async function apriEliminati() {
+  $('el-lista').innerHTML = '<div class="ft-skel" style="height:40px"></div>';
+  FT.apri('modal-eliminati');
+  const res = await api('/api/ordini/eliminati');
+  const l = (res.ok && res.data && res.data.ordini) || [];
+  $('el-lista').innerHTML = !l.length ? vuoto('trash-2', 'Nessun ordine eliminato', 'Negli ultimi 90 giorni non è stato eliminato niente.')
+    : `<table class="ft-table imp-table"><thead><tr><th>Ordine</th><th>Consegna</th><th>Eliminato</th><th></th></tr></thead><tbody>${l.map(o => `<tr>
+        <td><div class="ft-cell-main"><b>${esc(o.cliente || '—')}</b><code>${esc(o.numero_ordine || '')}</code></div></td>
+        <td>${fmtGiorno(o.data_consegna)}</td>
+        <td class="ft-muted">${o.eliminato_il ? FT.fmtRelativo(o.eliminato_il) : '—'}${o.eliminato_da ? ' · ' + esc(o.eliminato_da) : ''}${o.in_lantek ? '<br><small>era già in Lantek</small>' : ''}</td>
+        <td class="act">${btn('Ripristina', `ripristinaOrdine('${esc(o.id)}')`, '', 'rotate-ccw')}</td></tr>`).join('')}</tbody></table>`;
+  FT.icone();
+}
+async function ripristinaOrdine(id) {
+  const res = await inviaJson(`/api/orders/${id}/ripristina`, {});
+  if (!riuscita(res)) { FT.toast('Non ripristinato: ' + msgErrore(res), 'err'); return; }
+  FT.toast('Ordine ripristinato', 'ok');
+  caricaViste(true); loadCalendar(); updateFattBadge();
+  if ($('modal-eliminati').classList.contains('open')) apriEliminati();
+}
 async function eliminaOrdine(orderId) {
   const res = await api(`/api/orders/${orderId}`, { method: 'DELETE' });
   if (riuscita(res) && res.data && res.data.success) {
-    FT.toast('Ordine eliminato', 'ok');
+    FT.toast('Ordine eliminato: lo ritrovi in «Eliminati»', 'ok', { testo: 'Annulla', fn: () => ripristinaOrdine(orderId) }, 10000);
     chiudiOrdine();
     caricaViste(true); loadCalendar(); updateFattBadge();
   } else FT.toast('Non eliminato: ' + msgErrore(res), 'err');

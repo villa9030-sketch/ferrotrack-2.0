@@ -641,6 +641,42 @@ def delete_order(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/ordini/eliminati', methods=['GET'])
+@richiede('ufficio', 'laser')
+def api_ordini_eliminati():
+    """Gli ordini eliminati (ultimi 90 giorni), per ripristinarli. Il laser,
+    eliminando, dice "piu' tardi lo recupera l'ufficio": prima l'ufficio non
+    aveva nessun posto dove vederli."""
+    try:
+        from .models import AuditLog
+        s = get_session()
+        try:
+            limite = datetime.utcnow() - timedelta(days=90)
+            elim = {}
+            for a in s.query(AuditLog).filter(AuditLog.action == 'ORDINE_ELIMINATO',
+                                              AuditLog.timestamp >= limite).all():
+                if a.entity_id not in elim or a.timestamp > elim[a.entity_id].timestamp:
+                    elim[a.entity_id] = a
+            ordini = s.query(Order).filter(Order.is_deleted == True).all()  # noqa: E712
+            out = []
+            for o in ordini:
+                a = elim.get(o.id)
+                if a is None and (o.data_ricezione or datetime.min) < limite:
+                    continue
+                out.append({'id': o.id, 'numero_ordine': o.numero_ordine, 'cliente': o.cliente or '',
+                            'data_consegna': iso_data(o.data_consegna),
+                            'eliminato_il': iso_utc(a.timestamp) if a else None,
+                            'eliminato_da': (a.user_name if a else None) or None,
+                            'in_lantek': bool(o.importato_lantek_il)})
+        finally:
+            s.close()
+        out.sort(key=lambda x: x['eliminato_il'] or '', reverse=True)
+        return jsonify({'success': True, 'ordini': out[:200]}), 200
+    except Exception as e:
+        logger.exception('ordini eliminati')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/ripristina', methods=['POST'])
 @richiede('ufficio', 'laser')
 def ripristina_ordine(order_id):

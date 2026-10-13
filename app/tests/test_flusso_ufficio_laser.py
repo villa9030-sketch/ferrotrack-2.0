@@ -291,12 +291,31 @@ def postazione_sbagliata():
     check('la pagina mostra la frase del server', "avviso((d && d.error) || 'Questa postazione non può farlo.')" in t)
 
 
+def eliminati():
+    print('\n6) Eliminato dal laser, ripristinato dall\'ufficio')
+    oid = nuovo_ordine(taglio_richiesto=True)
+    r = LAS.delete(f'/api/orders/{oid}')
+    check('il laser elimina', r.status_code == 200, r.get_json())
+    r = UFF.get('/api/ordini/eliminati')
+    riga = next((x for x in (r.get_json() or {}).get('ordini', []) if x['id'] == oid), None)
+    check("l'ufficio lo vede fra gli eliminati, con quando", r.status_code == 200 and riga and riga['eliminato_il'], riga)
+    r = UFF.post(f'/api/orders/{oid}/ripristina', json={})
+    check("l'ufficio lo ripristina", r.status_code == 200, r.get_json())
+    ids = [x['id'] for x in UFF.get('/api/ordini/eliminati').get_json()['ordini']]
+    v = {o['id'] for o in UFF.get('/api/ordini/viste').get_json()['ordini']}
+    check('torna fra gli ordini e non e\' piu\' fra gli eliminati', oid not in ids and oid in v)
+    t = open(os.path.join(_APP, 'frontend', 'impiegata.html'), encoding='utf-8').read()
+    check('la pagina dell\'ufficio ha "Eliminati" e "Annulla" dopo Elimina',
+          'onclick="apriEliminati()"' in t and "fn: () => ripristinaOrdine(orderId)" in t)
+
+
 def main():
     forse_finiti()
     preventivo_accettato()
     notifiche()
     doppioni_bis()
     postazione_sbagliata()
+    eliminati()
     print(f'\n{OK} ok, {len(KO)} ko')
     if KO:
         print('FALLITI:', *KO, sep='\n  ')

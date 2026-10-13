@@ -148,6 +148,15 @@ with sync_playwright() as p:
         u.wait_for_timeout(500)
         check('Annulla: niente accettato, la finestra si chiude', u.evaluate('ACC') is None)
 
+    print('\n4b) Ordini eliminati: l\'ufficio li vede e li ripristina')
+    u.evaluate("switchTab('ordini', 'aperto')")
+    u.wait_for_timeout(800)
+    u.click('button:has-text("Eliminati")')
+    u.wait_for_selector('#modal-eliminati.open', timeout=10000)
+    u.wait_for_function("!document.querySelector('#el-lista .ft-skel')", timeout=15000)
+    check('si apre la lista degli eliminati', 'Ordini eliminati' in u.inner_text('#modal-eliminati'))
+    u.keyboard.press('Escape')
+
     print('\n5) Le parole')
     vecchie = ['Pronto per Lantek', 'Da importare', 'Questa settimana']
     check('il laser non dice piu\' le parole vecchie', not [v for v in vecchie if v in l.inner_text('body')])
