@@ -1244,7 +1244,12 @@ def _testi_riga(order, art) -> list:
     """Le descrizioni della riga dell'ordine del cliente del pezzo."""
     try:
         riga = riga_ordine_di(order, art)
-        return [str(r['descrizione']) for r in (riga or {}).get('righe') or [] if r.get('descrizione')]
+        testi = [str(r['descrizione']) for r in (riga or {}).get('righe') or [] if r.get('descrizione')]
+        od = (art or {}).get('ordine') if isinstance((art or {}).get('ordine'), dict) else {}
+        if not testi and od.get('descrizione'):
+            # pezzo d'assieme senza riga: la sua riga nella distinta dell'assieme
+            testi = [str(od['descrizione'])]
+        return testi
     except Exception:
         logger.warning("riga dell'ordine non letta per %s", (art or {}).get('codice'), exc_info=True)
         return []

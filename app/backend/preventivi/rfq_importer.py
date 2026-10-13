@@ -78,6 +78,10 @@ class RFQParseResult:
     # Un assieme senza riga nell'ordine non c'e' qui (quantita' da controllare).
     qta_assiemi: dict = field(default_factory=dict)
     desc_assiemi: dict = field(default_factory=dict)
+    # Disegno d'insieme di ogni assieme (il DXF che porta il nome della sua
+    # cartella): {basename: codice assieme}. Non e' un pezzo: c'e' la sua
+    # distinta (assiemi_ordine.quantita_da_distinte).
+    master_dxf: dict = field(default_factory=dict)
     dxf_map: dict = field(default_factory=dict)            # {basename: bytes} per scrittura su disco
     step_map: dict = field(default_factory=dict)           # {basename: bytes} STEP assiemi 3D
     pdf_bytes: bytes | None = None                         # PDF ordine originale (disegni/lavorazioni per Mirko)
@@ -348,6 +352,8 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
         (pdf_bytes, pdf_filename, dxf_map, assieme_of)
         - dxf_map: {basename: bytes}
         - assieme_of: {basename: codice_assieme | None}
+        - step_map: {basename: bytes} degli STEP
+        - masters: {basename: codice assieme} dei disegni d'insieme
           codice_assieme = nome sottocartella per i COMPONENTI; None per i DXF
           alla radice o per il master dell'assieme.
     """
@@ -356,6 +362,7 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
     dxf_map: dict[str, bytes] = {}
     assieme_of: dict[str, str | None] = {}
     step_map: dict[str, bytes] = {}
+    masters: dict[str, str] = {}
 
     try:
         with zipfile.ZipFile(BytesIO(zip_bytes), 'r') as zf:
@@ -382,6 +389,14 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
 
             # Mappa assiemi dai percorsi DXF (radice comune calcolata sui DXF)
             assieme_by_base = assiemi_from_paths([n for _, n, _ in dxf_entries])
+            # Disegni d'insieme: il DXF nella cartella di primo livello che
+            # porta il suo nome (anche quando i componenti stanno fuori dalla
+            # cartella, come nel pacchetto DECA A 001221 BIS)
+            _tutti, _clen = _radice_comune_dxf([n for _, n, _ in dxf_entries])
+            for _, n, b in dxf_entries:
+                _dirs = _dirparts(n)[_clen:]
+                if _dirs and _e_disegno_cartella(os.path.splitext(b)[0], _dirs[0]):
+                    masters[b] = _dirs[0]
 
             # Selezione PDF ORDINE: preferisci un PDF il cui nome NON corrisponde a
             # un DXF (i PDF-disegno dei componenti si chiamano come il loro DXF).
@@ -411,7 +426,7 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
     except Exception as e:
         raise ValueError(f'Errore estrazione ZIP: {e}')
 
-    return pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map
+    return pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters
 
 
 # ─── Pipeline completo ────────────────────────────────────────────────────
@@ -432,12 +447,13 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
 
     # 1. Estrai ZIP (con riconoscimento assiemi dalle sottocartelle)
     try:
-        pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map = extract_zip_package(zip_bytes)
+        pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters = extract_zip_package(zip_bytes)
     except ValueError as e:
         result.error = str(e)
         return result
     result.dxf_map = dxf_map
     result.step_map = step_map
+    result.master_dxf = dict(masters or {})
     # Conserva il PDF ordine: è il documento con i disegni/lavorazioni che Mirko
     # deve vedere in produzione. Va salvato e allegato all'ordine all'accettazione.
     result.pdf_bytes = pdf_bytes
@@ -527,8 +543,11 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
     # i componenti aggiunti non sono più "orfani"
     dxf_no_match = [d for d in dxf_no_match if d not in {c.matched_dxf for c in componenti_aggiunti}]
 
-    # assiemi distinti rilevati
-    result.assiemi = sorted({v for v in assieme_of.values() if v})
+    # assiemi distinti rilevati: dalle cartelle dei componenti e dai disegni
+    # d'insieme (una cartella col solo disegno dell'assieme e' un assieme)
+    result.assiemi = sorted({v for v in assieme_of.values() if v} | set(result.master_dxf.values()))
+    # il disegno d'insieme non e' un pezzo da tagliare ne' "fuori ordine"
+    dxf_no_match = [d for d in dxf_no_match if d not in result.master_dxf]
 
     # Master dell'assieme: un articolo PDF il cui codice coincide col nome
     # dell'assieme (es. "13SA0070-00") È l'assieme stesso, non un pezzo standalone.

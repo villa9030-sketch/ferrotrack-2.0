@@ -4466,6 +4466,9 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
                               'file': os.path.basename(rfq_pdf_filename)}
             if item['_qta_fonte'] == 'distinta':
                 item['ordine']['fonte'] = 'distinta'
+            if item['_qta_fonte'] in ('distinta', 'per_assieme') and item['_descrizione']:
+                # la riga della distinta dell'assieme ("... Lg 581 - AISI304")
+                item['ordine']['descrizione'] = item['_descrizione'][:200]
             if len(getattr(a, 'righe_ordine', None) or []) > 1:
                 # codice ripetuto su piu' righe del PDF: quantita' sommate
                 item['ordine']['righe'] = a.righe_ordine

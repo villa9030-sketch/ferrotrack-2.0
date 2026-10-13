@@ -52,10 +52,13 @@
                  bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
       }
       // quantita' cambiate dopo l'invio (pezzi per assieme, assiemi)
-      const qta = ((info || {}).correzioni || []).filter(c => c.tipo === 'quantita' && c.stato === 'da_correggere');
-      if (qta.length) {
-        return { tono: 'err', ico: 'pencil-ruler', t: `${LZ.plur(qta.length, 'quantità', 'quantità')} da correggere in Lantek`,
-                 s: 'Le quantità sono cambiate dopo l\'invio: correggi l\'ordine di produzione in Lantek come scritto sotto, poi segnalo.',
+      // (e gli spessori/materiali tenuti fuori all'invio): si vedono anche qui
+      const daCorr = ((info || {}).correzioni || []).filter(c => c.stato === 'da_correggere');
+      if (daCorr.length) {
+        const soloQ = daCorr.every(c => c.tipo === 'quantita');
+        return { tono: 'err', ico: 'pencil-ruler', t: `${LZ.plur(daCorr.length, 'codice', 'codici')} da correggere in Lantek`,
+                 s: soloQ ? 'Le quantità sono cambiate dopo l\'invio: correggi l\'ordine di produzione in Lantek come scritto sotto, poi segnalo.'
+                   : 'Correggili in Lantek come scritto sotto: FerroTrack lo rilegge da solo e ti avvisa quando si possono mandare.',
                  bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
       }
       return { tono: '', ico: 'scissors', t: 'In Lantek: da tagliare', s: 'Quando hai tagliato tutto, segnalo qui.',
