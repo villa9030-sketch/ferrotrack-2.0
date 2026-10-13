@@ -409,6 +409,10 @@ class LantekCorrezione(Base):
     chiuso_il = Column(DateTime, nullable=True)
     chiuso_da = Column(String, nullable=True)
     esito = Column(String, nullable=True)
+    # Quantita' cambiata dopo l'invio (13/10/2026): chi dice "corretto in
+    # Lantek" la segna qui (esito 'quantita_corretta'); vale per quel numero.
+    quantita_voluta = Column(Float, nullable=True)
+    quantita_lantek = Column(Float, nullable=True)
 
 
 class DaProcurare(Base):

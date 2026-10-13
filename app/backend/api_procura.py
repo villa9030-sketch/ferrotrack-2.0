@@ -6,7 +6,9 @@
   POST /api/procura/stato               segna ordinato / arrivato / da ordinare
   POST /api/procura/annulla             annulla l'ultimo cambio di stato
   POST /api/procura/richiesta-offerta   ZIP: PDF della richiesta + disegni
-  POST /api/procura/<id>                corregge profilo, lunghezza, quantita', nota
+  POST /api/procura/<id>                corregge profilo, lunghezza, materiale, quantita'
+                                        (pezzi per assieme), tipo, nota
+  GET  /api/procura/profili             i profili del catalogo (scelta scrivendo)
   GET  /api/orders/<id>/procura         le voci di un ordine
 
 Le voci le vedono e le cambiano il laser, l'Ufficio (amministrazione: e'
@@ -211,13 +213,21 @@ def api_procura_annulla():
 @bp_procura.route('/api/procura/<voce_id>', methods=['POST'])
 @richiede('laser', 'ufficio', ADMIN)
 def api_procura_modifica(voce_id):
-    """Corpo: {profilo?, lunghezza_mm?, quantita?, nota?, tipo?}."""
+    """Corregge una voce dopo che e' nata: {profilo?, lunghezza_mm?,
+    materiale?, descrizione?, quantita?, per_assieme?, nota?, tipo?}, con lo
+    storico. La quantita' di un pezzo dell'ordine segue la distinta: per un
+    pezzo d'assieme si scrivono i pezzi PER ASSIEME (per_assieme, sul pezzo:
+    quantita' = per assieme x assiemi, come per Lantek); le righe tubolari
+    della distinta non si cambiano qui."""
     from . import procura as pc
+    from . import assiemi_ordine as ao
     A = _app()
     try:
         corpo = request.get_json(silent=True) or {}
-        campi = {k: corpo[k] for k in ('profilo', 'lunghezza_mm', 'quantita', 'nota', 'tipo') if k in corpo}
-        if not campi:
+        campi = {k: corpo[k] for k in ('profilo', 'lunghezza_mm', 'quantita', 'nota', 'tipo', 'materiale',
+                                        'descrizione') if k in corpo}
+        per = corpo.get('per_assieme')
+        if not campi and per in (None, ''):
             return jsonify({'success': False, 'error': 'Niente da cambiare'}), 400
         if 'lunghezza_mm' in campi and campi['lunghezza_mm'] not in (None, ''):
             try:
@@ -235,17 +245,54 @@ def api_procura_modifica(voce_id):
                 return jsonify({'success': False, 'error': 'Quantità fuori misura'}), 400
         if 'tipo' in campi and campi['tipo'] not in pc.TIPI:
             return jsonify({'success': False, 'error': 'Tipo non valido'}), 400
-        r = pc.modifica(voce_id, campi, A._chi_nome())
-        if not r:
+        voce = next(iter(pc.elenco('tutti', ids=[voce_id])), None)
+        if not voce:
             return jsonify({'success': False, 'codice': 'non_trovato', 'error': 'Voce non trovata'}), 404
-        p, d = r['prima'], r['dopo']
-        diff = ', '.join(f"{k}: {p.get(k)} -> {d.get(k)}" for k in campi if p.get(k) != d.get(k))
-        A._audit('PROCURA_MODIFICA', 'orders', d['order_id'], f"Da procurare {_descr_voce(d)}: {diff or 'nessun cambio'}")
+        tipo_dopo = campi.get('tipo') or voce['tipo']
+        if tipo_dopo in ('tubo', 'laser_tubo') and 'profilo' in campi and not str(campi['profilo'] or '').strip():
+            return jsonify({'success': False, 'error': 'Il profilo del tubo non si può togliere'}), 400
+        order = A._ordine_esistente(voce['order_id'])
+        # la quantita' di un pezzo dell'ordine si scrive sul pezzo (distinta)
+        if 'quantita' in campi and voce.get('origine') == 'tubolare':
+            return jsonify({'success': False, 'codice': 'dalla_distinta',
+                            'error': 'Quantità dalla distinta (riga tubolare): si cambia nel preventivo'}), 400
+        if 'quantita' in campi and voce.get('assieme'):
+            return jsonify({'success': False, 'codice': 'per_assieme',
+                            'error': "Pezzo dell'assieme: scrivi i pezzi per assieme, la quantità si calcola"}), 400
+        if 'quantita' in campi and voce.get('articolo_id') and order:
+            per, campi = campi.pop('quantita'), campi    # pezzo sciolto: quantita' del pezzo
+        pa = None
+        if per not in (None, ''):
+            if not (voce.get('articolo_id') and order):
+                return jsonify({'success': False, 'error': "Questa voce non è un pezzo dell'ordine"}), 400
+            pa = ao.imposta_per_assieme(order, voce['articolo_id'], per, A._chi_nome())
+            if not pa.get('success'):
+                return jsonify({'success': False, 'error': pa.get('error')}), 400
+            from .api_laser import _audit_per_assieme
+            _audit_per_assieme(A, voce['order_id'], pa)
+            ao.dopo_cambio(order)
+        d = voce
+        if campi:
+            r = pc.modifica(voce_id, campi, A._chi_nome())
+            if not r:
+                return jsonify({'success': False, 'codice': 'non_trovato', 'error': 'Voce non trovata'}), 404
+            p, d = r['prima'], r['dopo']
+            diff = ', '.join(f"{k}: {p.get(k)} -> {d.get(k)}" for k in campi if p.get(k) != d.get(k))
+            A._audit('PROCURA_MODIFICA', 'orders', d['order_id'], f"Da procurare {_descr_voce(d)}: {diff or 'nessun cambio'}")
+        d = next(iter(pc.elenco('tutti', ids=[voce_id])), d)
         _invalida([d['order_id']])
         return jsonify({'success': True, 'voce': d}), 200
     except Exception as e:
         logger.exception('voce da procurare non modificata')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
+@bp_procura.route('/api/procura/profili', methods=['GET'])
+@richiede('laser', 'ufficio', ADMIN)
+def api_procura_profili():
+    """I profili del catalogo, per scegliere scrivendo."""
+    from . import procura as pc
+    return jsonify({'success': True, 'profili': pc.nomi_profili()}), 200
 
 
 @bp_procura.route('/api/procura/richiesta-offerta', methods=['POST'])

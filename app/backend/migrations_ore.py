@@ -75,6 +75,10 @@ _NUOVE_TABELLE_COLS = {
                # deduce dalle parole di note e lavorazioni).
                'lavorazione_esterna': 'BOOLEAN',
                'lavorazione_esterna_nota': 'VARCHAR'},
+    # Codici da correggere in Lantek: anche la quantita' cambiata dopo
+    # l'invio ("corretto in Lantek" a mano, per quel numero).
+    'lantek_correzioni': {'quantita_voluta': 'FLOAT',
+                          'quantita_lantek': 'FLOAT'},
 }
 
 # Con che valore nasce una colonna nuova sulle righe che c'erano gia'.
