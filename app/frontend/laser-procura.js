@@ -14,6 +14,12 @@
    N nel controllo dei disegni, righe tubolari della distinta): qui niente
    si sposta da solo, si rilegge dopo un'azione. Server: backend/procura.py.
 
+   Ogni voce si corregge anche dopo (matita: tipo, profilo, lunghezza,
+   materiale, descrizione, pezzi per assieme, nota; Invio salva, Esc
+   annulla; tutto nello storico). La quantita' di un pezzo d'assieme e'
+   pezzi per assieme x assiemi, come la distinta e Lantek: si scrivono i
+   pezzi per assieme. Tubi senza profilo: "da completare", fuori dalle barre.
+
    Lo STESSO modulo serve due pagine (cosi' non divergono mai):
      - laser.html: usa la base del laser (laser-base.js, LZ.s, i tasti di
        laser-avvio.js), il chip sull'ordine, l'ordine aperto si rilegge;
@@ -104,7 +110,8 @@
     if (st || (SUL_LASER && (LZ.controllo.aperto() || LZ.lantek.aperto()))) return;
     if (LZ.chiudiMenu) LZ.chiudiMenu();
     st = { foto: H.fotografa(), filtri: { stato: 'da_ordinare', tipo: '', ordine: '', ...(filtri || {}) },
-           dati: null, carica: true, errore: null, sel: new Set(), aperti: new Set(), modulo: null, lavoro: false };
+           dati: null, carica: true, errore: null, sel: new Set(), aperti: new Set(), modulo: null, lavoro: false,
+           mod: null };                    // voce in correzione: {id, campi}
     const el = document.createElement('div');
     el.className = 'lz-ctl lz-pc';
     el.id = 'lz-pc';
@@ -116,9 +123,17 @@
     (document.getElementById('lz-sopra') || document.body).appendChild(el);
     el.addEventListener('click', clic);
     el.addEventListener('change', cambio);
+    el.addEventListener('input', e => { if (st && st.mod && e.target.dataset && e.target.dataset.pcm) st.mod.campi[e.target.dataset.pcm] = e.target.value; });
     disegna();
     carica();
+    profili();
   };
+  let PROFILI = null;
+  async function profili() {
+    if (PROFILI) return;
+    const r = await H.get('/api/procura/profili');
+    if (r.ok) PROFILI = r.d.profili || [];
+  }
   P.chiudi = function () {
     if (!st) return;
     const foto = st.foto;
@@ -166,6 +181,11 @@
     return `<span class="lz-st att">${H.ico('circle-dot')}da ordinare</span>`;
   }
   const ordineHtml = o => `<span class="lz-pc-ord" title="${esc(o.etichetta)}"><b>${esc(o.cliente || '')}</b> <span class="mono">${esc(o.numero || '')}</span></span>`;
+  /** Quantita': in tutto, e per un pezzo d'assieme "2 x 3 ass." (o "? per assieme"). */
+  const qtaHtml = v => v.assieme
+    ? `${v.qta_da_confermare ? '<span class="lz-st err">?</span>' : FT.numero(v.quantita)}<small class="lz-pc-per">${v.qta_da_confermare ? 'per assieme: da scrivere' : `${FT.numero(v.per_assieme)} × ${FT.numero(v.qta_assieme)} ass.`}</small>`
+    : FT.numero(v.quantita);
+  const matita = v => `<button class="lz-btn ghost lz-icona piccolo" type="button" data-pc-mod="${esc(v.id)}" title="Correggi la voce" aria-label="Correggi ${esc(v.codice || v.profilo || '')}">${H.ico('pencil')}</button>`;
   const casella = (id, nome) => `<input type="checkbox" data-pc-sel="${esc(id)}" ${st.sel.has(id) ? 'checked' : ''} aria-label="Seleziona ${esc(nome)}">`;
 
   function barra() {
@@ -198,7 +218,7 @@
       h = `<div class="lz-vuoto"><div><div class="ico">${H.ico('package-check')}</div><b>${f.stato === 'da_ordinare' && !f.tipo && !f.ordine ? 'Niente da ordinare' : 'Nessuna voce con questi filtri'}</b>
         <p>Le voci arrivano da sole: tasto N nel controllo dei disegni («non è da laser»), e righe dei tubolari della distinta.</p></div></div>`;
     } else {
-      h = tubiHtml() + altriHtml();
+      h = modificaHtml() + daCompletareHtml() + tubiHtml() + altriHtml();
     }
     H.metti(corpo, `<div class="lz-pc-dentro">${h}</div>`, corpo);
     azioni();
@@ -239,10 +259,10 @@
   /** Da quali ordini e pezzi vengono i tagli del gruppo. */
   function daDoveHtml(g, ids) {
     const vv = g.voci.map(id => ids.get(id)).filter(Boolean);
-    return `<table class="lz-pc-dove"><thead><tr><th class="ck"></th><th>Da dove</th><th>Codice</th><th class="r">Pezzi</th><th class="r">Lunghezza</th><th>Stato</th></tr></thead><tbody>
+    return `<table class="lz-pc-dove"><thead><tr><th class="ck"></th><th>Da dove</th><th>Codice</th><th class="r">Pezzi</th><th class="r">Lunghezza</th><th>Stato</th><th class="men"></th></tr></thead><tbody>
       ${vv.map(v => `<tr><td class="ck">${casella(v.id, v.codice || v.profilo || '')}</td><td>${ordineHtml(v.ordine)}</td>
         <td class="mono">${esc(v.codice || '—')}${v.origine === 'tubolare' ? '<small>riga tubolare della distinta</small>' : ''}</td>
-        <td class="r">${FT.numero(v.quantita)}</td><td class="r">${esc(mm(v.lunghezza_mm) || '—')}</td><td>${statoHtml(v)}</td></tr>`).join('')}</tbody></table>`;
+        <td class="r">${qtaHtml(v)}</td><td class="r">${esc(mm(v.lunghezza_mm) || '—')}</td><td>${statoHtml(v)}</td><td class="men">${matita(v)}</td></tr>`).join('')}</tbody></table>`;
   }
 
   function altriHtml() {
@@ -250,16 +270,103 @@
     if (!vv.length) return '';
     return `<section class="lz-pc-sez" aria-label="Altri pezzi da procurare">
       <h2>Laser tubo, meccanica, commerciali, altro</h2>
-      <table class="lz-tab lz-pc-tab"><thead><tr><th class="ck"></th><th>Tipo</th><th>Codice</th><th>Descrizione</th><th class="r">Q.tà</th><th>Ordine</th><th>Disegno</th><th>Stato</th></tr></thead>
+      <table class="lz-tab lz-pc-tab"><thead><tr><th class="ck"></th><th>Tipo</th><th>Codice</th><th>Descrizione</th><th class="r">Q.tà</th><th>Ordine</th><th>Disegno</th><th>Stato</th><th class="men"></th></tr></thead>
       <tbody>${vv.map(v => `<tr data-fuoco="pc-v-${esc(v.id)}">
         <td class="ck">${casella(v.id, v.codice || v.descrizione || '')}</td>
         <td><span class="lz-pc-tipo t-${esc(v.tipo)}">${esc(v.tipo_testo)}</span></td>
         <td class="cod">${esc(v.codice || '—')}</td>
-        <td class="lav">${esc([v.descrizione, v.profilo, v.lunghezza_mm ? mm(v.lunghezza_mm) : ''].filter(Boolean).join(' · ') || '—')}${v.nota ? `<small>${esc(v.nota)}</small>` : ''}</td>
-        <td class="r q">${FT.numero(v.quantita)}</td>
+        <td class="lav">${esc([v.descrizione, v.profilo, v.lunghezza_mm ? mm(v.lunghezza_mm) : ''].filter(Boolean).join(' · ') || '—')}${v.nota ? `<small>${esc(v.nota)}</small>` : ''}${v.da_completare ? `<small class="lz-st att">${H.ico('pencil')}da completare: ${esc(v.da_completare)}</small>` : ''}</td>
+        <td class="r q">${qtaHtml(v)}</td>
         <td>${ordineHtml(v.ordine)}</td>
         <td>${v.n_disegni ? `<span class="lz-st ok">${H.ico('file-check')}sì (${v.n_disegni})</span>` : '<span class="lz-st">no</span>'}</td>
-        <td>${statoHtml(v)}</td></tr>`).join('')}</tbody></table></section>`;
+        <td>${statoHtml(v)}</td><td class="men">${matita(v)}</td></tr>`).join('')}</tbody></table></section>`;
+  }
+
+  /** Tubi senza profilo: non si possono ordinare ne' mettere in barra. */
+  function daCompletareHtml() {
+    const vv = voci().filter(v => v.tipo === 'tubo' && v.da_completare && !v.profilo);
+    if (!vv.length) return '';
+    return `<section class="lz-pc-sez lz-pc-dacomp" aria-label="Tubi da completare">
+      <h2>Tubi da completare <small>${H.plur(vv.length, 'voce senza profilo', 'voci senza profilo')}: fuori dal calcolo delle barre finché non scrivi quale tubo</small></h2>
+      <table class="lz-tab lz-pc-tab"><tbody>${vv.map(v => `<tr data-fuoco="pc-dc-${esc(v.id)}"><td class="ck">${casella(v.id, v.codice || '')}</td>
+        <td class="cod">${esc(v.codice || '—')}</td><td class="lav">${esc(v.descrizione || '')}<small class="lz-st att">${esc(v.da_completare)}</small></td>
+        <td class="r q">${qtaHtml(v)}</td><td>${ordineHtml(v.ordine)}</td><td>${statoHtml(v)}</td><td class="men">${matita(v)}</td></tr>`).join('')}</tbody></table></section>`;
+  }
+
+  /** Correzione di una voce: in alto, coi campi gia' scritti. */
+  const TIPI_V = [['tubo', 'Tubo/profilo'], ['laser_tubo', 'Laser tubo'], ['meccanica', 'Meccanica'], ['commerciale', 'Commerciale'], ['altro', 'Altro']];
+  function modificaHtml() {
+    if (!st.mod) return '';
+    const v = perId().get(st.mod.id);
+    if (!v) return '';
+    const c = st.mod.campi;
+    const tubo = c.tipo === 'tubo' || c.tipo === 'laser_tubo';
+    const dallaDistinta = v.origine === 'tubolare';
+    const campoQ = v.assieme
+      ? `<label${v.qta_da_confermare && !c.per_assieme ? ' class="manca"' : ''}>Pezzi per assieme <span class="mm"><input type="text" inputmode="numeric" maxlength="5" data-pcm="per_assieme" data-fuoco="pcm-per" value="${esc(c.per_assieme || '')}" placeholder="?">
+          × ${esc(FT.numero(v.qta_assieme))} ass.</span></label>`
+      : `<label>Quantità <span class="mm"><input type="text" inputmode="numeric" maxlength="6" data-pcm="quantita" data-fuoco="pcm-q" value="${esc(c.quantita || '')}" ${dallaDistinta ? 'disabled title="Dalla distinta (riga tubolare)"' : ''}> pz</span></label>`;
+    return `<section class="lz-pc-mod" aria-label="Correggi la voce">
+      <h2>Correggi <span class="mono">${esc(v.codice || v.profilo || '')}</span> <small>${esc((v.ordine || {}).etichetta || '')}</small></h2>
+      ${PROFILI ? `<datalist id="lz-pc-profili">${PROFILI.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist>` : ''}
+      <div class="lz-pr-campi">
+        <label>Tipo <select data-pcm="tipo" data-fuoco="pcm-tipo">${TIPI_V.map(([k, t]) => `<option value="${k}"${c.tipo === k ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+        ${campoQ}
+        <label class="lungo${tubo && !String(c.profilo || '').trim() ? ' manca' : ''}"><span>Profilo${tubo ? ' <em>(obbligatorio per i tubi)</em>' : ''}</span> <input type="text" maxlength="80" data-pcm="profilo" data-fuoco="pcm-profilo" list="lz-pc-profili" autocomplete="off" spellcheck="false" value="${esc(c.profilo || '')}" placeholder="es. Tubo quadro 50x50 sp.2mm"></label>
+        <label>Lunghezza <span class="mm"><input type="text" inputmode="decimal" maxlength="8" data-pcm="lunghezza_mm" data-fuoco="pcm-lung" value="${esc(c.lunghezza_mm || '')}" placeholder="—"> mm</span></label>
+        <label>Materiale <input type="text" maxlength="40" data-pcm="materiale" data-fuoco="pcm-mat" value="${esc(c.materiale || '')}" placeholder="es. INOX 304"></label>
+        <label class="lungo">Descrizione <input type="text" maxlength="200" data-pcm="descrizione" data-fuoco="pcm-desc" value="${esc(c.descrizione || '')}"></label>
+        <label class="lungo">Nota <input type="text" maxlength="200" data-pcm="nota" data-fuoco="pcm-nota" value="${esc(c.nota || '')}"></label>
+      </div>
+      <div class="lz-pc-mod-az"><span class="sp"></span>
+        <button class="lz-btn" type="button" data-pc="mod-via">Annulla${H.tasto('Esc')}</button>
+        <button class="lz-btn pri" type="button" data-pc="mod-ok" ${st.lavoro ? 'disabled' : ''}>Salva${H.tasto('Invio')}</button></div></section>`;
+  }
+  function apriModifica(id) {
+    const v = perId().get(id);
+    if (!v) return;
+    st.mod = { id, campi: { tipo: v.tipo, profilo: v.profilo || '', lunghezza_mm: v.lunghezza_mm ? String(v.lunghezza_mm) : '',
+      materiale: String(v.materiale || '').replace(/_/g, ' '), descrizione: v.descrizione || '', nota: v.nota || '',
+      quantita: String(v.quantita || ''), per_assieme: v.qta_da_confermare ? '' : String(v.per_assieme || '') } };
+    disegna();
+    const corpo = document.getElementById('lz-pc-corpo');
+    if (corpo) corpo.scrollTop = 0;
+    const f = document.querySelector(`#lz-pc [data-pcm="${v.tipo === 'tubo' || v.tipo === 'laser_tubo' ? 'profilo' : 'descrizione'}"]`);
+    if (f) f.focus();
+  }
+  async function salvaModifica() {
+    if (!st || !st.mod || st.lavoro) return;
+    const v = perId().get(st.mod.id);
+    if (!v) { st.mod = null; disegna(); return; }
+    const c = st.mod.campi;
+    const corpo = {};
+    const testo = (k, prima) => { const x = String(c[k] || '').trim(); if (x !== String(prima || '').trim()) corpo[k] = x || null; };
+    if (c.tipo !== v.tipo) corpo.tipo = c.tipo;
+    testo('profilo', v.profilo); testo('descrizione', v.descrizione); testo('nota', v.nota);
+    testo('materiale', String(v.materiale || '').replace(/_/g, ' '));
+    const l = String(c.lunghezza_mm || '').trim().replace(',', '.');
+    if (l !== String(v.lunghezza_mm || '')) corpo.lunghezza_mm = l || null;
+    if ((c.tipo === 'tubo' || c.tipo === 'laser_tubo') && !String(c.profilo || '').trim()) {
+      FT.toast('Quale tubo? Scrivi il profilo', 'warn');
+      const f = document.querySelector('#lz-pc [data-pcm="profilo"]'); if (f) f.focus();
+      return;
+    }
+    if (v.assieme) {
+      const n = String(c.per_assieme || '').trim();
+      if (n && n !== String(v.qta_da_confermare ? '' : v.per_assieme)) corpo.per_assieme = Number(n);
+    } else if (v.origine !== 'tubolare') {
+      const n = String(c.quantita || '').trim();
+      if (n && n !== String(v.quantita)) corpo.quantita = Number(n);
+    }
+    if (!Object.keys(corpo).length) { st.mod = null; disegna(); return; }
+    st.lavoro = true;
+    const r = await H.azione(() => H.post(`/api/procura/${encodeURIComponent(v.id)}`, corpo));
+    if (!st) return;
+    st.lavoro = false;
+    if (!r.ok) { disegna(); FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
+    st.mod = null;
+    FT.toast(`${v.codice || v.profilo || 'Voce'}: corretta`, 'ok');
+    await dopo();
   }
 
   /** In fondo: le azioni sulle voci spuntate (anche di ordini diversi). */
@@ -297,10 +404,14 @@
     const b = e.target.closest('[data-pc]');
     const sf = e.target.closest('[data-pc-stato]');
     const ap = e.target.closest('[data-pc-apri]');
+    const md = e.target.closest('[data-pc-mod]');
+    if (md) { apriModifica(md.dataset.pcMod); return; }
     if (sf) { st.filtri.stato = sf.dataset.pcStato; carica(); return; }
     if (ap) { const k = ap.dataset.pcApri; if (st.aperti.has(k)) st.aperti.delete(k); else st.aperti.add(k); disegna(); return; }
     if (!b) return;
     const a = b.dataset.pc;
+    if (a === 'mod-ok') { salvaModifica(); return; }
+    if (a === 'mod-via') { st.mod = null; disegna(); return; }
     if (a === 'chiudi') P.chiudi();
     else if (a === 'riprova') carica();
     else if (a === 'sel-via') { st.sel.clear(); disegna(); }
@@ -320,6 +431,7 @@
       return;
     }
     if (t.matches('[data-pc-f]')) { st.filtri[t.dataset.pcF] = t.value; carica(); return; }
+    if (t.matches('[data-pcm]') && st.mod) { st.mod.campi[t.dataset.pcm] = t.value; if (t.tagName === 'SELECT') disegna(); return; }
     if (t.matches('[data-pc-forn]')) st.forn = t.value;
     if (t.matches('[data-pc-data]')) st.data = t.value;
   }
@@ -336,6 +448,12 @@
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const t = e.target;
     const inCampo = t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || '') && !/^(checkbox|radio)$/.test(t.type || '');
+    if (st.mod) {
+      // correzione di una voce: Invio salva, Esc annulla (anche dentro un campo)
+      if (k === 'Escape') { st.mod = null; disegna(); return true; }
+      if (k === 'Enter' && !(t && t.tagName === 'SELECT')) { salvaModifica(); return true; }
+      return false;
+    }
     if (st.modulo === 'ordinato') {
       if (k === 'Escape') { st.modulo = null; azioni(); return true; }
       if (k === 'Enter') { segnaOrdinato(); return true; }

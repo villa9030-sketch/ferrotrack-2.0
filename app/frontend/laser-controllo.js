@@ -614,7 +614,12 @@
   }
 
   // ── Non e' da laser: cosa procurare (N, poi T/L/M/C/A) ──────────────
+  // Tubo (T) e laser tubo (L): QUALE tubo e' obbligatorio (profilo e
+  // lunghezza: senza non si ordina e non si fanno le barre). Lo spessore
+  // letto come lamiera non conta: conta il profilo. Pezzo di un assieme:
+  // quanti per assieme (obbligatorio se l'ordine non lo dice).
   const urlPr = v => `/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}/procura-proposta`;
+  const TUBI = ['tubo', 'laser_tubo'];
 
   async function entraProcura() {
     if (!st || st.attesa || st.modo === 'procura') return;
@@ -622,7 +627,7 @@
     if (st.modo === 'pezzi') esciPezzi();
     const v = voce(), k = chiave(v);
     st.modo = 'procura';
-    st.pr = { carica: true, tipo: null, profilo: '', lunghezza: '', nota: '' };
+    st.pr = { carica: true, tipo: null, profilo: '', lunghezza: '', nota: '', materiale: '', descrizione: '', per: '' };
     lato();
     const r = await LZ.get(urlPr(v));
     if (!st || chiave(voce()) !== k || st.modo !== 'procura') return;
@@ -632,17 +637,27 @@
       pr.proposta = r.d.proposta || {};
       pr.attuale = r.d.attuale || null;
       pr.quantita = r.d.quantita;
+      pr.assieme = r.d.assieme || null;
+      pr.qtaAssieme = r.d.qta_assieme || null;
+      pr.daConf = !!r.d.qta_da_confermare;
+      pr.profili = r.d.profili || [];
       // gia' classificato: si riparte da li'; se no dalla proposta del motore
       const a = pr.attuale, pp = pr.proposta;
       pr.tipo = (a && a.tipo) || pp.tipo || null;
       // i campi gia' scritti a mano nel frattempo non si toccano
-      if (!pr.profilo) pr.profilo = (a ? a.profilo : pp.profilo) || '';
-      if (!pr.lunghezza) pr.lunghezza = String((a ? a.lunghezza_mm : pp.lunghezza_mm) || '');
+      // (una voce gia' salvata senza profilo o lunghezza riprende la proposta)
+      if (!pr.profilo) pr.profilo = (a && a.profilo) || pp.profilo || '';
+      if (!pr.lunghezza) pr.lunghezza = String((a && a.lunghezza_mm) || pp.lunghezza_mm || '');
       if (!pr.nota) pr.nota = (a && a.nota) || '';
+      if (!pr.materiale) pr.materiale = String((a && a.materiale) || r.d.materiale || '').replace(/_/g, ' ');
+      if (!pr.descrizione) pr.descrizione = (a && a.descrizione) || r.d.descrizione || '';
+      if (!pr.per) pr.per = pr.daConf ? '' : String(r.d.per_assieme || '');
     } else {
       pr.errore = r.d.error || 'Proposta non letta';
     }
     lato();
+    const f = document.querySelector('#lz-ctl-lato [data-pr="profilo"]');
+    if (f && TUBI.includes(pr.tipo) && !pr.profilo) f.focus();
   }
   function esciProcura() {
     if (!st) return;
@@ -662,13 +677,29 @@
       const l = pp.lunghezza_mm ? `, ${FT.numero(pp.lunghezza_mm)} mm` : '';
       testa = `<div class="lz-risposta lz-pr-prop">Il motore pensa: <b>${esc(nomeTipo(pp.tipo))}</b>${pp.profilo ? ` — ${esc(pp.profilo)}${esc(l)}` : ''}
         <small>${esc(pp.sezione ? 'C\'è una sezione di tubo nel disegno: tubo (T) o laser tubo (L)?'
-          : `letto ${pp.fonte === 'cartiglio' ? 'nel cartiglio' : `nella ${pp.fonte || 'descrizione'}`}${pp.testo ? ': «' + pp.testo + '»' : ''}`)}</small>
-        ${pp.solo_parola ? '<small>Senza misure: scrivi tu il profilo.</small>' : ''}
-        ${(pp.sezione || pp.solo_parola) && pp.lunghezza_mm ? '<small>Lunghezza presa dal disegno: controllala.</small>' : ''}
+          : pp.lato_mm ? `Disegno lungo e stretto: ${pp.testo}`
+          : `letto ${pp.fonte === 'cartiglio' ? 'nel cartiglio' : pp.fonte === 'disegno' ? 'nel disegno' : `nella ${pp.fonte || 'descrizione'}`}${pp.testo ? ': «' + pp.testo + '»' : ''}`)}</small>
+        ${pp.solo_parola || pp.lato_mm ? '<small>Senza il profilo: scrivilo tu (scrivendo ti propone quelli del catalogo).</small>' : ''}
+        ${(pp.sezione || pp.solo_parola || pp.lato_mm) && pp.lunghezza_mm ? '<small>Lunghezza presa dal disegno: controllala.</small>' : ''}
         <small>Decidi tu col tasto.</small></div>`;
     } else testa = '<div class="lz-risposta">Il motore non ha letto un profilo: scegli tu.</div>';
-    const q = pr.quantita != null ? pr.quantita : p.quantita;
     const sugg = new Set([pp.tipo, pp.alternativa].filter(Boolean));
+    const tubo = TUBI.includes(pr.tipo);
+    // quanti: per assieme (pezzo d'assieme) o del pezzo; il totale si vede
+    const perN = Number(pr.per);
+    const tot = pr.assieme && pr.qtaAssieme && Number.isInteger(perN) && perN > 0 ? perN * pr.qtaAssieme : null;
+    const q = tot != null ? tot : (pr.quantita != null ? pr.quantita : p.quantita);
+    const campoPer = pr.assieme
+      ? `<label class="${pr.daConf && !pr.per ? 'manca' : ''}">Pezzi per assieme <span class="mm"><input type="text" inputmode="numeric" maxlength="5" data-pr="per" data-fuoco="pr-per"
+          value="${esc(pr.per || '')}" placeholder="?"> × ${esc(FT.numero(pr.qtaAssieme || 1))} ${pr.qtaAssieme === 1 ? 'assieme' : 'assiemi'}${tot != null ? ` = <b>${esc(FT.numero(tot))}</b> pz` : ''}</span>
+          ${pr.daConf ? '<small>L\'ordine non lo dice: scrivilo</small>' : ''}</label>`
+      : `<label>Quantità <span class="mm"><input type="text" inputmode="numeric" maxlength="5" data-pr="per" data-fuoco="pr-per" value="${esc(pr.per || '')}" placeholder="—"> pz</span></label>`;
+    const lista = pr.profili && pr.profili.length
+      ? `<datalist id="lz-profili">${pr.profili.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist>` : '';
+    const campiTubo = `
+        <label class="lungo${tubo && !String(pr.profilo || '').trim() ? ' manca' : ''}"><span>Profilo${tubo ? ' <em>(obbligatorio)</em>' : ''}</span> <input type="text" maxlength="80" data-pr="profilo" data-fuoco="pr-profilo" value="${esc(pr.profilo || '')}"
+          list="lz-profili" placeholder="${esc(pp.lato_mm ? `es. Tubo quadro ${FT.numero(pp.lato_mm)}x${FT.numero(pp.lato_mm)} sp.2mm` : 'es. Tubo quadro 40x40 sp.2mm')}" spellcheck="false" autocomplete="off"></label>
+        <label class="${tubo && !String(pr.lunghezza || '').trim() ? 'manca' : ''}">Lunghezza <span class="mm"><input type="text" inputmode="decimal" maxlength="8" data-pr="lunghezza" data-fuoco="pr-lunghezza" value="${esc(pr.lunghezza || '')}" placeholder="—"> mm</span></label>`;
     return `<div class="lz-scegli-guida"><b>Non è da laser: cosa serve?</b>Resta fuori da Lantek e va in «Da procurare»${q ? ` (${FT.numero(q)} pz)` : ''}, così qualcuno lo procura.</div>
       ${testa}
       <div class="lz-decidi lz-pr-tasti">
@@ -676,36 +707,44 @@
           <span>${LZ.ico(x.ico)}<span class="tt">${esc(x.t)}<small>${esc(x.s)}</small></span></span>${LZ.tasto(x.k.toUpperCase())}</button>`).join('')}
         <button class="lz-btn" type="button" data-c="pr-esci"><span>${LZ.ico('arrow-left')}Torna al disegno</span>${LZ.tasto('Esc')}</button>
       </div>
-      <div class="lz-pr-campi">
-        <label class="lungo">Profilo <input type="text" maxlength="80" data-pr="profilo" data-fuoco="pr-profilo" value="${esc(pr.profilo || '')}" placeholder="es. Tubo quadro 40x40 sp.2mm" spellcheck="false"></label>
-        <label>Lunghezza <span class="mm"><input type="text" inputmode="decimal" maxlength="8" data-pr="lunghezza" data-fuoco="pr-lunghezza" value="${esc(pr.lunghezza || '')}" placeholder="—"> mm</span></label>
+      <div class="lz-pr-campi">${lista}
+        ${tubo || !pr.tipo ? campiTubo : `<label class="lungo">Descrizione <input type="text" maxlength="200" data-pr="descrizione" data-fuoco="pr-descrizione" value="${esc(pr.descrizione || '')}" placeholder="cos'è (per la richiesta d'offerta)"></label>`}
+        ${campoPer}
+        <label>Materiale <input type="text" maxlength="40" data-pr="materiale" data-fuoco="pr-materiale" value="${esc(pr.materiale || '')}" placeholder="es. INOX 304"></label>
         <label class="lungo">Nota <input type="text" maxlength="200" data-pr="nota" data-fuoco="pr-nota" value="${esc(pr.nota || '')}" placeholder="${pr.tipo === 'altro' ? 'serve per «Altro»: cos\'è?' : 'facoltativa'}"></label>
       </div>
       ${pr.tipo && !pr.carica ? `<div class="lz-pr-invio">${LZ.tasto('Invio')} conferma <b>${esc(nomeTipo(pr.tipo))}</b></div>` : ''}`;
   }
 
-  /** Un tasto T/L/M/C/A (o Invio sul tipo gia' scelto): si salva e si va avanti. */
+  /** Un tasto T/L/M/C/A (o Invio sul tipo gia' scelto): si salva e si va
+      avanti. Se manca qualcosa di obbligatorio si sceglie il tipo e si va
+      sul campo da scrivere (niente si salva a meta'). */
   function confermaProcura(tipo) {
     if (!st || !st.pr || st.pr.carica || st.attesa) return;
     const pr = st.pr;
     if (!tipo) { FT.toast('Scegli cosa serve: T, L, M, C o A', 'warn'); return; }
-    if (tipo === 'altro' && !String(pr.nota || '').trim()) {
-      pr.tipo = 'altro';
+    const vai = (campo, msg) => {
+      pr.tipo = tipo;
       lato();
-      const n = document.querySelector('#lz-ctl-lato [data-pr="nota"]');
+      const n = document.querySelector(`#lz-ctl-lato [data-pr="${campo}"]`);
       if (n) n.focus();
-      FT.toast('Altro: scrivi una nota corta, poi Invio', '');
-      return;
-    }
+      FT.toast(msg, 'warn');
+    };
+    if (tipo === 'altro' && !String(pr.nota || '').trim()) return vai('nota', 'Altro: scrivi una nota corta, poi Invio');
     const l = String(pr.lunghezza || '').trim().replace(',', '.');
-    if (l && !(Number(l) >= 1 && Number(l) <= 24000)) {
-      FT.toast('Lunghezza non valida: scrivi i mm (1-24000)', 'warn');
-      const n = document.querySelector('#lz-ctl-lato [data-pr="lunghezza"]');
-      if (n) n.focus();
-      return;
+    if (TUBI.includes(tipo)) {
+      if (!String(pr.profilo || '').trim()) return vai('profilo', 'Quale tubo? Scrivi il profilo, poi Invio');
+      if (!l) return vai('lunghezza', 'Scrivi la lunghezza del pezzo di tubo (mm), poi Invio');
     }
-    const dati = { tipo, profilo: String(pr.profilo || '').trim() || null, lunghezza_mm: l ? Number(l) : null,
-                   nota: String(pr.nota || '').trim() || null };
+    if (l && !(Number(l) >= 1 && Number(l) <= 24000)) return vai('lunghezza', 'Lunghezza non valida: scrivi i mm (1-24000)');
+    const per = String(pr.per || '').trim();
+    if (per && !(Number.isInteger(Number(per)) && Number(per) >= 1)) return vai('per', 'Pezzi non validi: un numero intero da 1 in su');
+    if (pr.daConf && !per) return vai('per', 'Quanti ne servono per ogni assieme? L\'ordine non lo dice');
+    const dati = { tipo, profilo: TUBI.includes(tipo) || !pr.tipo ? (String(pr.profilo || '').trim() || null) : null,
+                   lunghezza_mm: l ? Number(l) : null, nota: String(pr.nota || '').trim() || null,
+                   materiale: String(pr.materiale || '').trim() || null,
+                   descrizione: TUBI.includes(tipo) ? null : (String(pr.descrizione || '').trim() || null),
+                   per_assieme: per ? Number(per) : null };
     st.procurati[chiave(voce())] = nomeTipo(tipo);
     st.modo = 'vedi'; st.pr = null;
     rispondi('non_laser', dati);

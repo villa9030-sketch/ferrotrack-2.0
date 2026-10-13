@@ -15,6 +15,9 @@ stessa cosa:
   POST /api/orders/<id>/pezzi/<pz>/decisione  va sviluppato / piu' pezzi / non da laser
                                               (con N: cosa procurare, backend/procura.py)
   GET  /api/orders/<id>/pezzi/<pz>/procura-proposta  cosa proporre col tasto N
+  POST /api/orders/<id>/pezzi/<pz>/per-assieme  pezzi per assieme scritti a mano
+  POST /api/orders/<id>/assiemi/<codice>/quantita  quanti assiemi (con lo storico)
+                                              (backend/assiemi_ordine.py)
 
 Lantek si legge e basta (lantek.py, sola lettura): niente qui manda niente a
 Lantek, lo fa solo /lantek-invia dopo la conferma.
@@ -148,10 +151,11 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
     from . import lantek as _lt
     stato = stato_laser(order)
     righe_dist, righe_pdf, esclusi = A._distinta_lantek_con_esclusi(order)
-    # le righe tubolari della distinta finiscono da sole in "Da procurare"
+    # le righe tubolari della distinta finiscono da sole in "Da procurare";
+    # le voci dei pezzi "non da laser" (esclusi) seguono le loro quantita'
     if righe_dist and not righe_pdf:
         from . import procura as _pc
-        _pc.sincronizza_righe(order.id, righe_dist)
+        _pc.sincronizza_righe(order.id, righe_dist + [x['_riga'] for x in esclusi if x.get('_riga')])
     lam = [r for r in righe_dist if r.get('tipo') == 'lamiera' and r.get('codice')]
     tutte_lam = lam + [x['_riga'] for x in esclusi if x.get('_riga')]
     altri = [r for r in righe_dist if r.get('tipo') != 'lamiera']
@@ -222,7 +226,17 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         # scrivono sul foglio, e il disegno da guardare e' il foglio
         aid_dati = r.get('articolo_id') or (r.get('foglio') or {}).get('articolo_id')
         blocco = None
-        if lt_stato == 'nuovo' and not escluso and not assieme and cod.lower() not in da_abbinare                 and not da_controllare and stato in ('smistare', 'coda'):
+        if r.get('qta_da_confermare') and not escluso and stato in ('smistare', 'coda'):
+            # componente d'assieme senza riga nell'ordine: quanti per assieme
+            # non lo dice nessuno, non si manda a Lantek un numero inventato
+            blocco = {'motivo': 'pezzi per assieme da confermare',
+                      'cosa': f"L'ordine non dice quanti {cod} servono per ogni assieme "
+                              f"{r.get('assieme') or ''}: scrivilo qui (Invio salva).",
+                      'campo': 'pz_assieme', 'articolo_id': r.get('articolo_id'),
+                      'assieme': r.get('assieme'), 'disegno': bool(r.get('disegno')),
+                      'qta_assieme': (int(r.get('quantita') or 0) // max(1, int(r.get('qta_per') or 1)))
+                      if r.get('qta_per') else None}
+        elif lt_stato == 'nuovo' and not escluso and not assieme and cod.lower() not in da_abbinare                 and not da_controllare and stato in ('smistare', 'coda'):
             if not procesos and lt.get('disponibile'):
                 blocco = {'motivo': 'su questo PC non posso creare pezzi nuovi in Lantek',
                           'cosa': _cosa_fare('questo pc', cod)}
@@ -267,6 +281,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                 'materiale_ordine': r.get('materiale'), 'spessore_ordine': r.get('spessore_mm'),
                 'lavorazioni': [lv for lv in (r.get('lavorazioni') or []) if not re.match(r'^taglio( laser)?$', str(lv), re.I)],
                 'assieme': r.get('assieme'), 'disegno': r.get('disegno'),
+                'qta_per': r.get('qta_per'), 'qta_da_confermare': bool(r.get('qta_da_confermare')),
                 'misure': [r.get('bbox_w_mm'), r.get('bbox_h_mm')] if r.get('bbox_w_mm') else None,
                 'lantek': lt_stato, 'in_produzione': (x or {}).get('in_produzione') or 0,
                 'gia_fatti': (x or {}).get('gia_fatti') or 0,
@@ -290,6 +305,23 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
     except Exception:
         logger.warning('correzioni Lantek non lette per %s', order.id, exc_info=True)
         corr = {'correzioni': [], 'n_correggere': 0, 'n_corretti': 0}
+    # quantita' cambiate dopo l'invio (pezzi per assieme, assiemi): Lantek ha
+    # ancora il numero vecchio, va corretto l'ordine di produzione
+    try:
+        commessa = (q or {}).get('commessa') or _lt.commessa_lantek(
+            A._numero_per_cartelle(order) or getattr(order, 'numero_ordine', '') or '')
+        inviate = _lc.quantita_inviate(commessa, os.path.join(A.UPLOAD_FOLDER, 'lantek_import'))
+        lt_ord = _lt.pezzi_dell_ordine(commessa) if inviate and lt.get('disponibile') else None
+        sospesi = {str(r.get('codice') or '').strip().upper() for r in lam if r.get('qta_da_confermare')}
+        ora_q = [x for x in ((q or {}).get('righe') or _lt.righe_quantita(lam, None))
+                 if str(x.get('codice_ft') or x.get('codice') or '').strip().upper() not in sospesi]
+        cambiate = _lc.quantita_cambiate(order.id, ora_q, inviate, lt_ord) if inviate else []
+    except Exception:
+        logger.warning("quantita' mandate a Lantek non lette per %s", order.id, exc_info=True)
+        cambiate = []
+    if cambiate:
+        corr = {**corr, 'correzioni': list(corr['correzioni']) + cambiate,
+                'n_correggere': corr['n_correggere'] + len(cambiate)}
     fermi = {c['codice'].strip().upper() for c in corr['correzioni'] if c['stato'] == 'da_correggere'}
     da_abbinare_n = len((pdf or {}).get('da_abbinare') or [])
     n_codici = len({str(r['codice']).strip().lower() for r in tutte_lam})
@@ -309,6 +341,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         'n_invio': len([c for c in invio_codici if str(c).strip().upper() not in fermi]) + len(nuovi_si),
         'n_in_produzione': sum(1 for r in (q or {}).get('righe') or [] if r.get('in_produzione')),
         'dopo_laser': dopo,
+        'n_qta_da_confermare': len({str(r.get('codice')).lower() for r in lam if r.get('qta_da_confermare')}),
         'correzioni': corr['correzioni'],
         'n_correggere': corr['n_correggere'], 'n_corretti': corr['n_corretti'],
     }
@@ -321,10 +354,13 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                                   and not corr['n_correggere'])
     if completa:
         righe_q = {r['codice']: r for r in (q or {}).get('righe') or []}
+        from .assiemi_ordine import assiemi_ordine
         out.update({
             'pezzi': pezzi,
+            # gli assiemi (riga dell'ordine, quanti) coi loro pezzi sotto
+            'assiemi': assiemi_ordine(order, righe_dist + [x['_riga'] for x in esclusi if x.get('_riga')]),
             'altri': [{'codice': r.get('codice'), 'tipo': r.get('tipo'), 'quantita': r.get('quantita'),
-                       'descrizione': r.get('descrizione')} for r in altri],
+                       'descrizione': r.get('descrizione'), 'assieme': r.get('assieme')} for r in altri],
             'esclusi': [{k: v for k, v in e.items() if k != '_riga'} for e in esclusi],
             'commessa': (q or {}).get('commessa'), 'cliente_lantek': (q or {}).get('cliente_lantek'),
             'consegna_lantek': (q or {}).get('consegna'),
@@ -533,6 +569,18 @@ def api_lantek_correzione(order_id):
             return A._non_trovato_ordine()
         corpo = request.get_json(silent=True) or {}
         codice = str(corpo.get('codice') or '').strip()
+        if corpo.get('azione') == 'quantita_corretta' and codice:
+            # quantita' cambiata dopo l'invio: corretta a mano in Lantek
+            try:
+                qv = float(corpo.get('quantita'))
+                ql = float(corpo['quantita_lantek']) if corpo.get('quantita_lantek') is not None else None
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'error': "Quantità non valida"}), 400
+            rec = _lc.segna_quantita_corretta(order_id, codice, qv, ql, A._chi_nome())
+            A._audit('LANTEK_QUANTITA_CORRETTA', 'orders', order_id,
+                     f"{codice}: quantità corretta a mano in Lantek ({'%g' % ql if ql is not None else '?'} -> {qv:g})")
+            invalida(order_id)
+            return jsonify({'success': True, 'codice': rec['codice']}), 200
         if corpo.get('azione') != 'usa_lantek' or not codice:
             return jsonify({'success': False, 'error': 'Serve il codice e azione "usa_lantek"'}), 400
         chiuse = _lc.chiudi(order_id, [codice], 'usa_lantek', A._chi_nome())
@@ -1158,8 +1206,27 @@ def _procura_dal_corpo(corpo: dict):
     nota = str(pr.get('nota') or '').strip()[:200]
     if pr['tipo'] == 'altro' and not nota:
         return None, "Per \"Altro\" scrivi una nota corta: cos'è"
-    return {'tipo': pr['tipo'], 'profilo': str(pr.get('profilo') or '').strip()[:80] or None,
-            'lunghezza_mm': lung, 'nota': nota or None}, None
+    profilo = str(pr.get('profilo') or '').strip()[:80] or None
+    if pr['tipo'] in ('tubo', 'laser_tubo') and not profilo:
+        # quale tubo: senza profilo non si puo' ordinare (ne' fare le barre)
+        return None, 'Quale tubo? Scrivi il profilo (es. Tubo quadro 50x50 sp.2mm)'
+    if pr['tipo'] in ('tubo', 'laser_tubo') and lung is None:
+        return None, 'Scrivi la lunghezza del pezzo di tubo (mm)'
+    per = pr.get('per_assieme')
+    if per not in (None, ''):
+        try:
+            per = float(str(per).replace(',', '.'))
+            if per != int(per) or not 1 <= per <= 10000:
+                raise ValueError
+            per = int(per)
+        except (TypeError, ValueError):
+            return None, 'Pezzi non validi: serve un numero intero da 1 in su'
+    else:
+        per = None
+    return {'tipo': pr['tipo'], 'profilo': profilo, 'lunghezza_mm': lung, 'nota': nota or None,
+            'materiale': str(pr.get('materiale') or '').strip()[:40] or None,
+            'descrizione': str(pr.get('descrizione') or '').strip()[:200] or None,
+            'per_assieme': per}, None
 
 
 def _quantita_distinta(order, articolo_id) -> int:
@@ -1211,11 +1278,26 @@ def api_pezzo_procura_proposta(order_id, articolo_id):
         art, percorso = A._articolo_ordine(order, articolo_id)
         if not art:
             return jsonify({'success': False, 'error': "Pezzo non trovato in quest'ordine"}), 404
-        prop = _pc.proposta(_testi_riga(order, art), _profilo_cartiglio(percorso), percorso,
-                            [art.get('bbox_w_mm'), art.get('bbox_h_mm')])
+        testi = _testi_riga(order, art)
+        cart = _profilo_cartiglio(percorso)
+        prop = _pc.proposta(testi, cart, percorso, [art.get('bbox_w_mm'), art.get('bbox_h_mm')])
         attuale = next((v for v in _pc.elenco('tutti', ordine=order.id) if v['chiave'] == f'art:{articolo_id}'), None)
+        from .assiemi_ordine import da_confermare
+        cod_ass = art.get('codice_assieme') or None
+        qta_ass = None
+        if cod_ass:
+            prev = A.PreventivoManager.get(order.preventivo_id_origine, include_children=True) or {}
+            qta_ass = next((int(x.get('qty') or 1) for x in prev.get('assiemi') or []
+                            if x.get('codice_assieme') == cod_ass), 1)
         return jsonify({'success': True, 'proposta': prop, 'attuale': attuale,
-                        'quantita': _quantita_distinta(order, articolo_id)}), 200
+                        'quantita': _quantita_distinta(order, articolo_id),
+                        # pezzi per assieme (o del pezzo sciolto) e da dove
+                        'assieme': cod_ass, 'qta_assieme': qta_ass,
+                        'per_assieme': int(art.get('quantita') or 1),
+                        'qta_da_confermare': da_confermare(art),
+                        'materiale': art.get('materiale'),
+                        'descrizione': (testi[0] if testi else None) or cart,
+                        'profili': _pc.nomi_profili()}), 200
     except Exception as e:
         logger.exception('proposta da procurare fallita')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
@@ -1255,6 +1337,16 @@ def api_pezzo_decisione(order_id, articolo_id):
         if _pezzi_foglio_confermati(art):
             return _errore_pezzi_foglio()
         chi = A._chi_nome()
+        from . import assiemi_ordine as _ao
+        if procura and _ao.da_confermare(art) and not procura.get('per_assieme'):
+            return jsonify({'success': False, 'codice': 'qta_da_confermare',
+                            'error': "Quanti ne servono per ogni assieme? L'ordine non lo dice: scrivilo"}), 400
+        if procura and procura.get('per_assieme') and (procura['per_assieme'] != int(art.get('quantita') or 0)
+                                                        or _ao.da_confermare(art)):
+            pa = _ao.imposta_per_assieme(order, articolo_id, procura['per_assieme'], chi)
+            if not pa.get('success'):
+                return jsonify({'success': False, 'error': pa.get('error') or 'non salvato'}), 400
+            _audit_per_assieme(A, order_id, pa)
         esito = A.PreventivoManager.decisione_laser_articolo(order.preventivo_id_origine, articolo_id, scelta, chi)
         if not esito.get('success'):
             return jsonify({'success': False, 'error': esito.get('error') or 'non riuscito'}), 400
@@ -1268,10 +1360,12 @@ def api_pezzo_decisione(order_id, articolo_id):
         if scelta == 'non_laser' and procura:
             testi = _testi_riga(order, art)
             voce = _pc.classifica(order_id, articolo_id, tipo=procura['tipo'], codice=art.get('codice'),
-                                  descrizione=(testi[0] if testi else None) or _profilo_cartiglio(_percorso),
+                                  descrizione=procura.get('descrizione') or (testi[0] if testi else None)
+                                  or _profilo_cartiglio(_percorso),
                                   profilo=procura['profilo'], lunghezza_mm=procura['lunghezza_mm'],
                                   quantita=_quantita_distinta(order, articolo_id),
-                                  materiale=art.get('materiale'), nota=procura['nota'], chi=chi)
+                                  materiale=procura.get('materiale') or art.get('materiale'),
+                                  nota=procura['nota'], chi=chi)
             det = ', '.join(x for x in (procura['profilo'] or '',
                                         f"{procura['lunghezza_mm']:g} mm" if procura['lunghezza_mm'] else '',
                                         procura['nota'] or '') if x)
@@ -1372,4 +1466,63 @@ def api_pezzo_dati(order_id, articolo_id):
         return jsonify({'success': True, 'spessore_mm': sp, 'materiale': mat}), 200
     except Exception as e:
         logger.exception('dati del pezzo non salvati')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
+# ---------------------------------------------------------------------------
+# Assiemi: quanti assiemi e pezzi per assieme (backend/assiemi_ordine.py)
+# ---------------------------------------------------------------------------
+def _audit_per_assieme(A, order_id, pa: dict) -> None:
+    A._audit('PEZZO_PER_ASSIEME', 'orders', order_id,
+             f"{pa.get('codice')}: pezzi " + (f"per assieme {pa.get('assieme')}" if pa.get('assieme') else '')
+             + f" {pa.get('prima')} -> {pa.get('dopo')}" + (' (confermati: l\'ordine non li diceva)'
+                                                         if pa.get('era_da_confermare') else ''))
+
+
+@bp_laser.route('/api/orders/<order_id>/pezzi/<articolo_id>/per-assieme', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_pezzo_per_assieme(order_id, articolo_id):
+    """Quanti pezzi servono per ogni assieme (o del pezzo sciolto), scritti dal
+    laser guardando il disegno: la quantita' del pezzo diventa questo x
+    assiemi, per Lantek e per "Da procurare". Corpo: {"pezzi": 2}.
+    Risposta: {success, prima, dopo, quantita (in tutto)}"""
+    A = _app()
+    from . import assiemi_ordine as _ao
+    try:
+        order = A._ordine_esistente(order_id)
+        if not order:
+            return A._non_trovato_ordine()
+        corpo = request.get_json(silent=True) or {}
+        pa = _ao.imposta_per_assieme(order, articolo_id, corpo.get('pezzi'), A._chi_nome())
+        if not pa.get('success'):
+            return jsonify({'success': False, 'error': pa.get('error')}), 404 if pa.get('codice_errore') == 'non_trovato' else 400
+        _audit_per_assieme(A, order_id, pa)
+        _ao.dopo_cambio(order)
+        return jsonify({'success': True, 'prima': pa['prima'], 'dopo': pa['dopo'],
+                        'quantita': _quantita_distinta(order, articolo_id)}), 200
+    except Exception as e:
+        logger.exception('pezzi per assieme non salvati')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+
+@bp_laser.route('/api/orders/<order_id>/assiemi/<path:codice>/quantita', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_assieme_quantita(order_id, codice):
+    """Quanti assiemi ordina il cliente (la riga dell'ordine). Tutti i suoi
+    pezzi si ricalcolano (pezzi per assieme x assiemi). Corpo: {"quantita": 3}."""
+    A = _app()
+    from . import assiemi_ordine as _ao
+    try:
+        order = A._ordine_esistente(order_id)
+        if not order:
+            return A._non_trovato_ordine()
+        corpo = request.get_json(silent=True) or {}
+        r = _ao.imposta_qta_assieme(order, codice, corpo.get('quantita'))
+        if not r.get('success'):
+            return jsonify({'success': False, 'error': r.get('error')}), 404 if r.get('codice_errore') == 'non_trovato' else 400
+        A._audit('ASSIEME_QUANTITA', 'orders', order_id, f"Assieme {codice}: quantità {r['prima']} -> {r['dopo']}")
+        _ao.dopo_cambio(order)
+        return jsonify({'success': True, 'prima': r['prima'], 'dopo': r['dopo']}), 200
+    except Exception as e:
+        logger.exception("quantità dell'assieme non salvata")
         return jsonify({'success': False, 'error': str(e)[:200]}), 500

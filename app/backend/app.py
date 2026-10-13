@@ -1765,6 +1765,11 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
                       'lavorazioni': lav, 'assieme': cod_ass,
                       'disegno': disegno_di(a.get('dxf_filename')),
                       'articolo_id': a.get('id'),
+                      # pezzi per assieme (quantita' = questo x assiemi) e
+                      # se l'ordine non li dice ancora (blocca Lantek)
+                      'qta_per': _q(a.get('quantita')) if cod_ass else None,
+                      'qta_da_confermare': isinstance(a.get('ordine'), dict)
+                      and a['ordine'].get('stato') == 'qta_da_confermare',
                       'controllo': _controllo_pezzo(a),
                       # pagina laser: cosa dice il motore e cosa ha deciso il laser
                       'motore': _stato_motore(a),
@@ -4187,7 +4192,10 @@ def _zip_dalla_richiesta():
 # Da dove viene la quantita' di un pezzo del pacchetto (rfq_importer.qta_fonte)
 # → stato della riga d'ordine sul pezzo (extra 'ordine', lo stesso del preventivatore).
 _STATO_RIGA_ORDINE = {'pdf': 'ok', 'dubbio': 'dubbio', 'senza_qta': 'senza_qta',
-                      'non_trovato': 'non_trovato'}
+                      'non_trovato': 'non_trovato',
+                      # componente d'assieme senza riga: pezzi per assieme da
+                      # confermare (blocca Lantek); letti nella distinta: ok
+                      'per_assieme': 'qta_da_confermare', 'distinta': 'ok'}
 
 
 def _stima_item_pacchetto(item: dict, app_cfg) -> None:
@@ -4336,6 +4344,10 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
                 pdf_per_chiave.setdefault(_chiave_disegno(base), salvato)
     except Exception:
         logger.exception('salvataggio PDF disegni RFQ fallito')
+    # componenti d'assieme senza riga nell'ordine: pezzi per assieme dalla
+    # distinta del PDF dell'assieme, se c'e' (altrimenti da confermare)
+    from .assiemi_ordine import quantita_da_distinte
+    quantita_da_distinte(prev_dir, result)
 
     dxf_map = getattr(result, 'dxf_map', {}) or {}
     saved_tasks = []  # (dxf_path, nome_salvato, nome_originale)
@@ -4393,7 +4405,7 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     n_master_saltati = 0
     articoli_db = []
     for a in result.articoli:
-        if a.codice in assiemi_set:
+        if a.codice in assiemi_set or getattr(a, 'e_master', False):
             n_master_saltati += 1
             continue  # master assieme: rappresentato dal record assieme, non tagliabile
         dxf_info = dxf_results.get(a.matched_dxf) if a.matched_dxf else None
@@ -4452,6 +4464,8 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             item['ordine'] = {'stato': _STATO_RIGA_ORDINE.get(item['_qta_fonte'], 'ok'),
                               'pos': len(articoli_db), 'qta': a.quantita,
                               'file': os.path.basename(rfq_pdf_filename)}
+            if item['_qta_fonte'] == 'distinta':
+                item['ordine']['fonte'] = 'distinta'
             if len(getattr(a, 'righe_ordine', None) or []) > 1:
                 # codice ripetuto su piu' righe del PDF: quantita' sommate
                 item['ordine']['righe'] = a.righe_ordine
@@ -4517,7 +4531,9 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     if getattr(result, 'assiemi', None):
         assiemi_db = []
         for cod in result.assiemi:
-            assiemi_db.append({'codice_assieme': cod, 'qty': 1,
+            # quanti assiemi: dalla loro riga dell'ordine (1 se non c'e')
+            qta_ass = (getattr(result, 'qta_assiemi', None) or {}).get(cod) or 1
+            assiemi_db.append({'codice_assieme': cod, 'qty': qta_ass,
                                'componenti_qty': {}, 'ore_montaggio': 0, 'costo': 0})
         try:
             PreventivoManager.replace_assiemi(preventivo_id, assiemi_db)
@@ -4672,7 +4688,7 @@ _ORE_PACCHETTO_ABBANDONATO = 24
 # Due clic su "Crea ordine" non devono creare due ordini dallo stesso pacchetto.
 _LOCK_PACCHETTO = threading.Lock()
 _FONTE_QTA_UFFICIO = {'pdf': 'pdf', 'dubbio': 'dubbio', 'senza_qta': 'mancante',
-                      'non_trovato': 'mancante'}
+                      'non_trovato': 'mancante', 'per_assieme': 'mancante', 'distinta': 'pdf'}
 
 
 def _errore_pacchetto(codice, messaggio, stato=400, **extra):
@@ -4746,6 +4762,9 @@ def _avvisi_riga_pacchetto(it, fonte):
         avvisi.append("Quantita' non trovata nell'ordine: messa 1, controllala")
     elif fonte == 'dubbio':
         avvisi.append("Quantita' incerta: sulla stessa riga dell'ordine ci sono piu' codici")
+    elif fonte == 'per_assieme':
+        avvisi.append(f"Pezzo dell'assieme {it.get('codice_assieme') or ''} senza riga nell'ordine: quanti per "
+                      "assieme? Se non lo sai lascialo com'e': lo conferma il laser")
     if not it.get('dxf_filename'):
         avvisi.append('Nessun disegno per questo pezzo')
     return avvisi
@@ -4882,6 +4901,9 @@ def api_ordine_pacchetto_analizza():
                     if getattr(result, 'pdf_bytes', None) and pdf_nome else None),
             'righe': righe,
             'assiemi': [{'codice': cod,
+                         'quantita': (getattr(result, 'qta_assiemi', None) or {}).get(cod) or 1,
+                         'quantita_fonte': 'pdf' if cod in (getattr(result, 'qta_assiemi', None) or {}) else 'mancante',
+                         'descrizione': (getattr(result, 'desc_assiemi', None) or {}).get(cod),
                          'n_pezzi': sum(1 for r in righe if r['assieme'] == cod)}
                         for cod in (getattr(result, 'assiemi', None) or [])],
             'tubolari': [],   # la lettura del pacchetto non ne produce (vengono dagli STEP)
@@ -4955,8 +4977,11 @@ def _leggi_correzioni_pacchetto(prev, righe_in):
         for k in ('materiale', 'spessore_mm'):
             if k in c:
                 a[k] = c[k]
-        if c and od:
-            # controllata dall'ufficio: non e' piu' "da controllare"
+        if c and od and not (od.get('stato') == 'qta_da_confermare'
+                             and q == int(per_id[a['id']].get('quantita') or 0)):
+            # controllata dall'ufficio: non e' piu' "da controllare". I pezzi
+            # per assieme NON scritti dall'ufficio (quantita' lasciata com'era)
+            # restano da confermare: li conferma il laser.
             a['ordine'] = {**od, 'stato': 'controllato'}
         nuovi.append(a)
     return nuovi, None
@@ -7811,6 +7836,14 @@ def api_ordine_lantek_quantita_xlsx(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _codici_qta_da_confermare(order) -> set:
+    """Codici dei pezzi per assieme non ancora confermati (fuori da Lantek)."""
+    try:
+        return {str(r.get('codice')) for r in _distinta_lantek(order)[0] if r.get('qta_da_confermare')}
+    except Exception:
+        return set()
+
+
 @app.route('/api/orders/<order_id>/lantek-ordini.xml', methods=['GET'])
 @richiede('laser', 'ufficio')
 def api_ordine_lantek_ordini_xml(order_id):
@@ -7823,6 +7856,10 @@ def api_ordine_lantek_ordini_xml(order_id):
         order = _ordine_esistente(order_id)
         if not order:
             return _non_trovato_ordine()
+        senza_qta = sorted(_codici_qta_da_confermare(order))
+        if senza_qta:
+            return jsonify({'success': False, 'codice': 'qta_da_confermare', 'codici': senza_qta,
+                            'error': 'Pezzi per assieme da confermare: ' + ', '.join(senza_qta[:5])}), 409
         q = _quantita_lantek(order)
         if not q['righe']:
             return jsonify({'success': False, 'codice': 'nessun_pezzo',
@@ -7991,6 +8028,12 @@ def api_ordine_lantek_invia(order_id):
             return _non_trovato_ordine()
         corpo = request.get_json(silent=True) or {}
         righe_dist = _distinta_lantek(order)[0]
+        # pezzi per assieme non ancora confermati: la quantita' non si sa
+        senza_qta = sorted({str(r.get('codice')) for r in righe_dist if r.get('qta_da_confermare')})
+        if senza_qta:
+            return jsonify({'success': False, 'codice': 'qta_da_confermare', 'codici': senza_qta,
+                            'error': 'Pezzi per assieme da confermare: ' + ', '.join(senza_qta[:5])
+                                     + '. Scrivili nella pagina laser, poi manda'}), 409
         q = _quantita_lantek(order, righe_dist)
         righe = _lt.righe_per_xml(q['righe'])
         nuovi_si = []
