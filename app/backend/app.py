@@ -5479,10 +5479,11 @@ def api_preventivi_disegno_pdf(preventivo_id, filename):
 # per DXF (ezdxf.readfile + Frontend + SVGBackend). Con più thumbnail nella
 # tabella articoli, senza cache l'apertura preventivo diventa lenta.
 # Chiave: (path, mtime). Se il file cambia (nuovo import), il mtime cambia e
-# la cache viene invalidata. Cap a 128 entry (LRU manuale) per non crescere
-# indefinitamente.
-_SVG_CACHE = {}
+# la cache viene invalidata. Tetto: 128 voci E 64 MB (un disegno grande fa
+# un SVG di qualche MB: col solo numero di voci la memoria saliva per ore).
+from .cache_limitata import CacheLimitata
 _SVG_CACHE_MAX = 128
+_SVG_CACHE = CacheLimitata(_SVG_CACHE_MAX, 64 * 1024 * 1024)
 
 
 def _get_dxf_svg_cached(dxf_path: str) -> str:
@@ -5495,11 +5496,7 @@ def _get_dxf_svg_cached(dxf_path: str) -> str:
     if hit is not None:
         return hit
     svg = _dxf_scanner.dxf_to_svg_string(dxf_path)
-    if len(_SVG_CACHE) >= _SVG_CACHE_MAX:
-        # Evict qualsiasi entry (dict Python mantiene insertion order, tolgo la più vecchia)
-        for old_key in list(_SVG_CACHE.keys())[:8]:
-            _SVG_CACHE.pop(old_key, None)
-    _SVG_CACHE[key] = svg
+    _SVG_CACHE.put(key, svg)
     return svg
 
 
@@ -5507,8 +5504,8 @@ def _get_dxf_svg_cached(dxf_path: str) -> str:
 # all'apertura. Parsing ezdxf ~0.1-0.5s per file; con la cache la RIapertura è
 # istantanea e il pre-warm all'apertura preventivo rende snappy anche la prima.
 # Chiave (path, mtime): un nuovo import cambia mtime → invalidazione automatica.
-_GEOMETRY_CACHE = {}
 _GEOMETRY_CACHE_MAX = 128
+_GEOMETRY_CACHE = CacheLimitata(_GEOMETRY_CACHE_MAX, 64 * 1024 * 1024)
 
 
 def _get_dxf_geometry_cached(dxf_path: str, detection_cfg: dict) -> str:
@@ -5526,10 +5523,7 @@ def _get_dxf_geometry_cached(dxf_path: str, detection_cfg: dict) -> str:
         return hit
     geo = geometry_json(dxf_path, detection_cfg or {})
     payload = _json_mod.dumps(geo)
-    if len(_GEOMETRY_CACHE) >= _GEOMETRY_CACHE_MAX:
-        for old_key in list(_GEOMETRY_CACHE.keys())[:8]:
-            _GEOMETRY_CACHE.pop(old_key, None)
-    _GEOMETRY_CACHE[key] = payload
+    _GEOMETRY_CACHE.put(key, payload)
     return payload
 
 
