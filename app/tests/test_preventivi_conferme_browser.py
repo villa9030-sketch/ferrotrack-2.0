@@ -22,6 +22,12 @@ Qui, con pezzi costruiti apposta (niente file di disegno), si prova che:
  9. mentre i controlli in sottofondo girano il pezzo dice "controllo in
     corso" invece di mostrare domande a meta'
 10. il conteggio del preventivo: "Conferme: N da fare in M pezzi"
+11. (15/10) a pagina ferma il pannello resta fermo: prima la verifica in
+    sottofondo si riprogrammava a ogni ridisegno e ridisegnava, ogni secondo,
+    e le domande "riapparivano" (45 ridisegni in 40 s sul preventivo 90619ad6)
+12. (15/10) la conferma a mano nel CAD chiude le domande sul contorno
+    ("risolta da «Confermato a mano nel CAD»") e la correzione automatica col
+    peso non torna piu', neanche dopo un cambio di spessore o la riapertura
 
 Serve un server su una COPIA del database (tools/server_prova.py):
     python app/tests/test_preventivi_conferme_browser.py [url]
@@ -73,6 +79,10 @@ PEZZI = """(V) => {
     // C: materiale e spessore letti dal cartiglio con poca sicurezza
     Object.assign(base('PZ-C'), { spessore_mm: 3, area_dm2: 1.0, dxf_confidence: 0.95, verifica: ver('PZ-C', null),
       _materiale_conf: 0.5, _spessore_conf: 0.5 }),
+    // E: contorno corretto in automatico col peso, da confermare
+    Object.assign(base('PZ-E'), { spessore_mm: 3, area_dm2: 4.0, dxf_confidence: 0.4, verifica: ver('PZ-E', 0.2),
+      contorno_auto: { stato: 'da_confermare', chiave: 'PZ-E.dxf|3|S235', scarto: 0.02,
+                       prima: { area_dm2: 0.8, perimetro_taglio_m: 0.5, n_forature: 0, bbox_w_mm: 100, bbox_h_mm: 80, geometry_source: null, confermato: false } } }),
     // D: avviso della stima
     Object.assign(base('PZ-D'), { spessore_mm: 2, area_dm2: 1.0, dxf_confidence: 0.95, verifica: ver('PZ-D', null),
       avvisi_stima: ['Spessore 2.0 mm fuori tabella: velocità del più vicino'] }),
@@ -212,6 +222,35 @@ def main():
         check('D: controllo in corso: niente domande a meta\'', 'controllo in corso' in testo
               and not [x for x in pan if x['stato'] == 'aperta'], testo[:200])
         pg.evaluate('() => { _wbVerAttesa = false; }')
+
+        # ── 12: conferma a mano nel CAD ──
+        pan = vai('PZ-E')
+        check('E: prima della conferma nel CAD chiede del contorno automatico',
+              any(x['stato'] == 'aperta' and x['k'] == 'contorno_corretto_in_automatico' for x in pan), pan)
+        pg.evaluate("""() => { const a = currentArticoli.find(x => x.codice === 'PZ-E');
+          window.postMessage({ type: 'cad-confirm', payload: { preventivo_id: currentPreventivo.id, articolo_id: a.id || undefined,
+            dxf_filename: a.dxf_filename, area_dm2: 3.5, perimetro_taglio_m: 1.1, n_forature: 1, bbox_width_mm: 300, bbox_height_mm: 200,
+            materiale: 'S235', spessore_mm: 3, geometry_source: 'manual-click' } }, '*'); }""")
+        pg.wait_for_timeout(3000)
+        pan = vai('PZ-E')
+        aperte_e = [x for x in pan if x['stato'] == 'aperta' and x['k'] in
+                    ('contorno_corretto_in_automatico', 'contorno_da_verificare', 'peso_diverso_dal_cartiglio', 'ingombro_senza_riscontro_nelle_quote')]
+        check('E: confermato nel CAD, nessuna domanda sul contorno', not aperte_e, pan)
+        ca = per_k(pan, 'contorno_corretto_in_automatico')
+        check('E: la domanda resta scritta "risolta da «Confermato a mano nel CAD»"', ca and 'CAD' in ca['s'], pan)
+        corregge = pg.evaluate("""() => { const a = currentArticoli.find(x => x.codice === 'PZ-E');
+          a.spessore_mm = 4; const r = _wbDaCorreggereAuto(a); a.spessore_mm = 3; return r; }""")
+        check('E: niente correzione automatica dopo la conferma nel CAD (anche cambiando spessore)', corregge is False)
+
+        # ── 11: pagina ferma, pannello fermo ──
+        vai('PZ-B'); pg.wait_for_timeout(3000)
+        pg.evaluate("""() => { window._idle = { sync: 0, cambi: 0 }; const o = wbPieceSync;
+          wbPieceSync = function () { _idle.sync++; return o.apply(this, arguments); };
+          const box = document.getElementById('wb-pc-alerts');
+          new MutationObserver(() => { _idle.cambi++; }).observe(box, { childList: true, subtree: true }); }""")
+        pg.wait_for_timeout(30000)
+        idle = pg.evaluate('() => _idle')
+        check('pagina ferma 30 s: il pannello non si ridisegna', idle['sync'] <= 1 and idle['cambi'] == 0, idle)
 
         check('nessun errore JavaScript', not errori_js, errori_js[:3])
         # pulizia: il preventivo di prova si toglie

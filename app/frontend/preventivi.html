@@ -7166,6 +7166,12 @@ window.addEventListener('message', async (ev) => {
   a.origine_campi = _orig;
   a.geometria_manuale_confermata = true;
   a.geometry_source = p.geometry_source;
+  // Conferma a mano: chiude ogni domanda sul contorno ("risolta da …") e la
+  // correzione automatica col peso non torna, finche' non cambia il disegno.
+  a.dxf_needs_verify = false;
+  a.contorno_auto = { stato: 'confermato', chiave: 'cad|' + (a.dxf_filename || '') };
+  { const reg = _wbRegistro(a);
+    reg.ultima = { k: 'cad', g: '', l: 'Confermato a mano nel CAD', r: true, t: Date.now() }; }
   a.area_stimata_piega = !!p.area_stimata_piega;
   if (p.canonical_dxf_filename) {
     a.canonical_dxf_filename = p.canonical_dxf_filename;
@@ -13696,7 +13702,8 @@ function _wbProblemiCalcola(a) {
   // del pezzo) dava un prezzo sbagliato senza nessun segnale.
   if (!manuale) {
     const ck = _wbControlliCoerenza(a);
-    if (ck.peso && !ck.peso.ok && !_wbVistoOk(a, 'peso')) {
+    const cadAMano = _wbCadAMano(a);
+    if (ck.peso && !ck.peso.ok && !_wbVistoOk(a, 'peso') && !cadAMano) {
       const q = ck.peso;
       P.push({ l: q.grave && !a.geometria_manuale_confermata ? 'err' : 'warn', g: 'Peso diverso dal cartiglio',
         t: `Peso ${_wbKg(q.app)} kg, nel cartiglio ${_wbKg(q.cartiglio)} kg`,
@@ -13712,7 +13719,7 @@ function _wbProblemiCalcola(a) {
           .concat([{ l: 'Sviluppo guidato', f: () => wbSviluppo(true) },
                    { l: 'Ho verificato', f: i => wbVistoOk(i, 'peso') }]) });
     }
-    if (ck.quote && !ck.quote.ok && !_wbVistoOk(a, 'quote')) {
+    if (ck.quote && !ck.quote.ok && !_wbVistoOk(a, 'quote') && !cadAMano) {
       P.push({ l: 'warn', g: 'Ingombro senza riscontro nelle quote',
         t: `Ingombro ${_wbMm(ck.quote.w)} × ${_wbMm(ck.quote.h)} mm: nessuna quota del disegno corrisponde`,
         s: 'Il cartiglio non ha il peso, quindi si controlla con le quote: di solito lunghezza o larghezza del pezzo sono quotate. Il contorno preso potrebbe essere una vista, un dettaglio o la cornice.',
@@ -13899,9 +13906,20 @@ function _wbInControllo(a) {
   if (_wbInStima.has(a)) return true;
   if (_wbAutoGiro && _wbDaCorreggereAuto(a)) return true;
   if (!(a.dxf_filename || a.codice)) return false;
-  const chiave = `${a.dxf_filename || ''}|${a.codice || ''}`;
-  const fatta = a.verifica && a.verifica.versione === _WB_VERIFICA_VER && a.verifica._chiave === chiave;
-  return !fatta && !!(_wbVerAttesa || _wbVerGiro || _wbImportProf > 0);
+  return _wbDaVerificare(a) && !!(_wbVerAttesa || _wbVerGiro || _wbImportProf > 0);
+}
+/** Il pezzo aspetta ancora la verifica di coerenza: non fatta per questo
+    disegno e non ancora tentata. Un tentativo fallito (server, file mancante)
+    non si ripete a ogni ridisegno: prima la pagina riprogrammava la verifica
+    a ogni ridisegno, il giro finito ridisegnava, e il pezzo passava di
+    continuo da "controllo in corso" alle domande (ogni secondo). */
+const _wbVerTentati = new WeakMap();
+function _wbChiaveVer(a) { return `${a.dxf_filename || ''}|${a.codice || ''}`; }
+function _wbDaVerificare(a) {
+  if (!a || !(a.dxf_filename || a.codice)) return false;
+  const chiave = _wbChiaveVer(a);
+  if (a.verifica && a.verifica.versione === _WB_VERIFICA_VER && a.verifica._chiave === chiave) return false;
+  return _wbVerTentati.get(a) !== chiave;
 }
 /** Domande che non sono conferme ma dati da completare: chiuse, non si elencano. */
 const _WB_SOLO_DATI = new Set(['Costo non calcolato', 'Geometria mancante', 'Spessore mancante', 'Materiale mancante', 'Senza disegno']);
@@ -14109,6 +14127,7 @@ async function wbVerifica(i, forza) {
   if (!forza && a.verifica && a.verifica.versione === _WB_VERIFICA_VER && a.verifica._chiave === chiave) return false;
   if (_wbVerInCorso.has(a)) return false;
   _wbVerInCorso.add(a);
+  _wbVerTentati.set(a, chiave);          // una volta per disegno, anche se non riesce
   try {
     const q = new URLSearchParams({ dxf: a.dxf_filename || '', codice: a.codice || '' });
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/verifica-pezzo?${q}`);
@@ -14123,6 +14142,9 @@ async function wbVerifica(i, forza) {
 /** Verifica in sottofondo i pezzi non ancora verificati (dopo apertura e import). */
 let _wbVerTimer = null, _wbVerGiro = false;
 function _wbVerificaProgramma() {
+  // Niente da verificare (il caso normale a pezzi gia' verificati): nessun
+  // giro, nessun ridisegno. Era il ciclo che faceva "lampeggiare" le domande.
+  if (!currentPreventivo || !currentArticoli.some(_wbDaVerificare)) return;
   clearTimeout(_wbVerTimer);
   _wbVerAttesa = true;                 // i pezzi non ancora verificati sono "in controllo"
   _wbVerTimer = setTimeout(async () => {
@@ -14133,7 +14155,7 @@ function _wbVerificaProgramma() {
     const pid = currentPreventivo.id;
     let cambiati = 0;
     try {
-      const lista = currentArticoli.map((_, i) => i);
+      const lista = currentArticoli.map((_, i) => i).filter(i => _wbDaVerificare(currentArticoli[i]));
       for (let k = 0; k < lista.length; k += 3) {
         const esiti = await Promise.all(lista.slice(k, k + 3).map(i => wbVerifica(i)));
         if (!currentPreventivo || currentPreventivo.id !== pid) return;   // aperto un altro preventivo
@@ -14165,7 +14187,16 @@ function _wbRidisegnaConferme() {
 function _wbChiaveAuto(a) { return `${a.dxf_filename || ''}|${a.spessore_mm || ''}|${a.materiale || ''}`; }
 function _wbAutoDaConfermare(a) {
   return !!(a && a.contorno_auto && a.contorno_auto.stato === 'da_confermare'
-            && a.contorno_auto.chiave === _wbChiaveAuto(a));
+            && a.contorno_auto.chiave === _wbChiaveAuto(a) && !_wbCadAMano(a));
+}
+/** Contorno confermato a mano nel CAD (o scelto a mano sul disegno): e'
+    la parola dell'operatore. Niente piu' domande sul contorno e niente
+    correzione automatica, finche' non cambia il file del disegno. */
+function _wbCadAMano(a) {
+  if (!a || !a.dxf_filename) return false;
+  const ca = a.contorno_auto;
+  if (ca && ca.stato === 'confermato' && ca.chiave === 'cad|' + a.dxf_filename) return true;
+  return !!a.geometria_manuale_confermata && /^manual-/.test(String(a.geometry_source || ''));
 }
 function _wbDaCorreggereAuto(a) {
   // Anche i contorni gia' confermati: sul preventivo DECA 22 pezzi "confermati"
@@ -14174,6 +14205,7 @@ function _wbDaCorreggereAuto(a) {
   if (!a || !a.dxf_filename || a.costo_base_override != null) return false;
   if (a.geometry_source === 'sviluppo' || a.geometry_source === 'step') return false;   // scelte esplicite
   if (a.pezzo_manuale) return false;                                                    // misure scritte a mano
+  if (_wbCadAMano(a)) return false;                                                     // confermato a mano nel CAD
   if (!(a.spessore_mm > 0) || !_densitaMateriale(a.materiale)) return false;
   // Con materiale o spessore incerti il peso non dice nulla sul contorno: si
   // troverebbe il contorno sbagliato che "pesa giusto" con la densita' sbagliata.
