@@ -99,7 +99,9 @@ with sync_playwright() as p:
         if c == 200:
             u.evaluate('caricaOggi(true)')
             try:
-                u.wait_for_selector(f'#og-dafare .og-r[onclick*="{o["id"]}"]', timeout=15000)
+                # la riga dei "Forse finiti" (con "Non ancora"): un ordine in
+                # ritardo resta fra i ritardi e non serve a questa prova
+                u.wait_for_selector(f'#og-dafare .og-r[onclick*="{o["id"]}"]:has(button:has-text("Non ancora"))', timeout=15000)
                 fatto = o
                 break
             except Exception:

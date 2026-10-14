@@ -415,6 +415,29 @@ class LantekCorrezione(Base):
     quantita_lantek = Column(Float, nullable=True)
 
 
+class LantekInvio(Base):
+    """Un codice mandato a Lantek da "Manda a Lantek" (ordine di produzione
+    via XML Importer): il registro di FerroTrack, che non dipende dal poter
+    leggere Lantek. Prova notturna del 14/10/2026: con SQL Server di Lantek
+    in aggiornamento il controllo "gia' in produzione" non leggeva niente e
+    un secondo "Manda a Lantek" ha rimandato 66 codici. Qui si guarda PRIMA.
+
+    Attivo = annullato_il vuoto. Si annulla solo a mano ("Non e' ancora in
+    Lantek" dal menu dell'ordine), per poterlo rimandare apposta."""
+    __tablename__ = 'lantek_invii'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    order_id = Column(String, nullable=False, index=True)
+    codice = Column(String, nullable=False)
+    quantita = Column(Float, nullable=False, default=0)
+    commessa = Column(String, nullable=True)
+    riferimento = Column(String, nullable=True)            # Reference dell'ordine di produzione
+    invio = Column(String, nullable=True)                  # timbro dell'invio (AAMMGGhhmm)
+    creato_il = Column(DateTime, default=datetime.utcnow)
+    creato_da = Column(String, nullable=True)
+    annullato_il = Column(DateTime, nullable=True)
+    annullato_da = Column(String, nullable=True)
+
+
 class DaProcurare(Base):
     """Un pezzo dell'ordine che NON si taglia al laser e va procurato
     (Stefano, 12/10/2026): tubi e profili da barra (taglio in casa), tubi

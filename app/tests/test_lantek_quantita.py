@@ -412,9 +412,11 @@ margin-top: 5px;
           r10.status_code == 200 and [p[0] for p in passi] == ['pezzi', 'xml']
           and passi[0][1] == ['C1-00'] and passi[0][2] == [pronto] and passi[0][3] == ['DECA', '06/11/2030'],
           (r10.status_code, j, passi[:1]))
-    check('negli ordini anche il pezzo appena creato (C1-00 x 2)',
-          b'"C1-00"' in passi[1][1] and j.get('pezzi_creati') == 1 and j.get('verificati') == j.get('mandati') == 3,
-          j)
+    # A1-00 l'ha gia' mandato FerroTrack al punto 9 (registro lantek_invii,
+    # 14/10/2026): non riparte anche se Lantek non lo mostra piu' in produzione
+    check('negli ordini anche il pezzo appena creato (C1-00 x 2), non A1-00 gia mandato',
+          b'"C1-00"' in passi[1][1] and b'"A1-00"' not in passi[1][1] and j.get('pezzi_creati') == 1
+          and j.get('verificati') == j.get('mandati') == 2, j)
 
     print('\n11) Verifica tecnica dei disegni (al caricamento dell\'ordine)')
     cp = A._controllo_pezzo

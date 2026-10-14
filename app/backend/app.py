@@ -759,6 +759,14 @@ def segna_importato_lantek(order_id):
     try:
         data = request.get_json(silent=True) or {}
         r = OrderManager.segna_importato(order_id, user_id=_chi(), annulla=bool(data.get('annulla')))
+        if r.get('success') and data.get('annulla'):
+            # detto a mano: quello che FerroTrack aveva mandato non conta piu'
+            # (si puo' rimandare apposta, es. ordini di produzione tolti dal MES)
+            from . import lantek_invii as _li
+            n = _li.annulla(order_id, _chi_nome())
+            if n:
+                _audit('LANTEK_INVII_ANNULLATI', 'orders', order_id,
+                       f"Non e' ancora in Lantek: {n} codici mandati prima si possono rimandare")
         _invalida_analisi_laser(order_id)
         return jsonify(r), (200 if r.get('success') else (404 if r.get('codice') == 'non_trovato' else 400))
     except Exception as e:
@@ -7971,6 +7979,8 @@ def api_ordine_lantek_quantita(order_id):
             _lt._svuota_cache()
         righe_dist, righe_pdf, esclusi_laser = _distinta_lantek_con_esclusi(order)
         q = _quantita_lantek(order, righe_dist)
+        from . import lantek_invii as _li
+        gia_ft = _li.mandati(order_id)
         n_avvisi = sum(1 for r in q['righe'] if r['avvisi'])
         nuovi_si, nuovi_no = [], []
         if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
@@ -7992,11 +8002,12 @@ def api_ordine_lantek_quantita(order_id):
                         'n_nuovi': sum(1 for r in q['righe'] if r['stato'] == 'nuovo'),
                         'n_in_produzione': sum(1 for r in q['righe'] if r.get('in_produzione')),
                         'n_gia_fatti': sum(1 for r in q['righe'] if r.get('gia_fatti')),
-                        'n_xml': len(_lt.righe_per_xml(q['righe'])),
+                        'n_xml': len(_li.togli_mandati(_lt.righe_per_xml(q['righe']), gia_ft)),
                         # per la conferma di "Manda a Lantek"
                         'da_mandare': [{'codice': r['codice'], 'quantita': r['quantita'],
                                         'gia_fatti': r.get('gia_fatti') or 0, 'gia_fatti_il': r.get('gia_fatti_il')}
-                                       for r in _lt.righe_per_xml(q['righe'])],
+                                       for r in _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia_ft)],
+                        'gia_mandati_ft': sorted(gia_ft),
                         'invio_automatico': _lt.xmlimporter_disponibile(),
                         # pezzi che il laser ha tenuto fuori (va sviluppato, piu' pezzi, non da laser)
                         'esclusi_laser': [{k: v for k, v in x.items() if k != '_riga'} for x in esclusi_laser],
@@ -8296,6 +8307,16 @@ def api_ordine_lantek_invia(order_id):
     conferma tiene fuori (es. spessore diverso fra ordine e Lantek: lo
     corregge lui). codici + esclusi devono essere esattamente quelli da
     mandare: se nel frattempo e' cambiato qualcosa non si manda niente (409)."""
+    from . import lantek_invii as _li
+    # un invio alla volta per ordine: due "Manda" insieme non partono entrambi
+    with _li.prenota(order_id) as tocca:
+        if not tocca:
+            return jsonify({'success': False, 'codice': 'invio_in_corso',
+                            'error': "Quest'ordine si sta già mandando a Lantek: aspetta l'esito, non lo rimando."}), 409
+        return _lantek_invia(order_id, _li)
+
+
+def _lantek_invia(order_id, _li):
     try:
         from . import lantek as _lt
         order = _ordine_esistente(order_id)
@@ -8310,7 +8331,11 @@ def api_ordine_lantek_invia(order_id):
                             'error': 'Pezzi per assieme da confermare: ' + ', '.join(senza_qta[:5])
                                      + '. Scrivili nella pagina laser, poi manda'}), 409
         q = _quantita_lantek(order, righe_dist)
-        righe = _lt.righe_per_xml(q['righe'])
+        # PRIMA il registro di FerroTrack (lantek_invii): quello che e' gia'
+        # partito per quest'ordine non riparte, che Lantek si legga o no
+        gia = _li.mandati(order_id)
+        righe = _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia)
+        lantek_giu = not q['lantek'].get('disponibile')
         nuovi_si = []
         if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
             nuovi_si = _nuovi_per_lantek(order, q, righe_dist)[0]
@@ -8320,8 +8345,16 @@ def api_ordine_lantek_invia(order_id):
                             'error': 'Un codice non può essere sia da mandare sia tenuto fuori'}), 400
         if not righe and not nuovi_si:
             return jsonify({'success': False, 'codice': 'niente_da_mandare',
-                            'error': 'Niente da mandare: i codici sono già in produzione in Lantek '
-                                     'o i nuovi non si possono creare in automatico'}), 409
+                            'gia_mandati': sorted(gia),
+                            'error': ('Niente da mandare: FerroTrack li ha già mandati a Lantek' if gia else
+                                      'Niente da mandare: i codici sono già in produzione in Lantek '
+                                      'o i nuovi non si possono creare in automatico')}), 409
+        # Lantek non si legge: non si sa cosa c'e' gia' in produzione. Non si
+        # manda a occhi chiusi: si dice, e decide chi manda (senza_controllo_lantek).
+        if lantek_giu and righe and not corpo.get('senza_controllo_lantek'):
+            return jsonify({'success': False, 'codice': 'lantek_non_risponde',
+                            'error': _li.MSG_LANTEK_GIU, 'dettaglio': q['lantek'].get('errore'),
+                            'n_da_mandare': len(righe), 'gia_mandati': sorted(gia)}), 503
         if (sorted({str(c) for c in (corpo.get('codici') or [])} | tenuti_fuori) != sorted(r['codice'] for r in righe)
                 or sorted(str(c) for c in (corpo.get('nuovi') or [])) != sorted(x['codice'] for x in nuovi_si)):
             return jsonify({'success': False, 'codice': 'cambiato',
@@ -8364,13 +8397,17 @@ def api_ordine_lantek_invia(order_id):
             # ora ci sono: rientrano negli ordini di produzione
             q = _quantita_lantek(order, righe_dist)
             ammessi = ({str(c) for c in (corpo.get('codici') or [])} | set(creati)) - tenuti_fuori
-            righe = [r for r in _lt.righe_per_xml(q['righe']) if r['codice'] in ammessi]
+            righe = [r for r in _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia) if r['codice'] in ammessi]
         # 2. ordini di produzione
         rap, presenti = {}, []
         if righe:
-            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'],
-                                            invio=datetime.now().strftime('%y%m%d%H%M'))
+            invio = datetime.now().strftime('%y%m%d%H%M')
+            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'], invio=invio)
             esito = _lt.importa_xml(xml, q['nome_file_xml'].rsplit('.', 1)[0], cartella)
+            if esito.get('eseguito'):
+                # nel registro di FerroTrack, subito: e' cio' che ferma il doppione
+                _li.registra(order_id, righe, q['commessa'], invio,
+                             lambda c: _lt.riferimento_ordine(q['commessa'], c, invio), _chi_nome())
             if not esito.get('eseguito'):
                 _audit('LANTEK_INVIA', 'orders', order_id,
                        f"Pezzi nuovi creati {len(creati)}; ordini di produzione non mandati: "
@@ -8383,7 +8420,9 @@ def api_ordine_lantek_invia(order_id):
         _audit('LANTEK_INVIA', 'orders', order_id,
                f"Mandati a Lantek (ordine {q['commessa']}): {len(creati)} di {len(nuovi_si)} pezzi nuovi creati, "
                f"{len(presenti)} di {len(righe)} ordini di produzione verificati"
-               + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else ''))
+               + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else '')
+               + ('; LANTEK NON LEGGIBILE: mandato senza il controllo dei doppioni, confermato da chi ha mandato'
+                  if lantek_giu else ''))
         # un codice da correggere mandato adesso (corretto in Lantek, o scelto
         # "va bene Lantek" nella conferma) e' risolto
         if presenti:

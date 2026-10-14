@@ -213,7 +213,16 @@
     const inv = d.invio || {};
     const fuori = tenutiFuori(id).filter(c => (inv.codici || []).includes(c));
     const corpo = { codici: (inv.codici || []).filter(c => !fuori.includes(c)), nuovi: inv.nuovi || [], esclusi: fuori };
-    const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-invia`, corpo);
+    let r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-invia`, corpo);
+    if (!r.ok && (r.d || {}).codice === 'lantek_non_risponde') {
+      // Lantek non si legge: non si sa cosa c'e' gia' in produzione. Decide chi manda.
+      const ok = await FT.conferma({
+        titolo: 'Lantek non risponde',
+        testo: `${(r.d || {}).error || ''} Se lo mandi lo stesso, FerroTrack non può controllare i doppioni in Lantek `
+          + `(quelli che ha già mandato lui non ripartono comunque). ${LZ.plur((r.d || {}).n_da_mandare || 0, 'codice', 'codici')} da mandare.`,
+        ok: 'Manda lo stesso', annulla: 'Riprovo più tardi', pericolo: true });
+      if (ok) r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-invia`, { ...corpo, senza_controllo_lantek: true });
+    }
     const x = r.d || {};
     if (!r.ok || !x.success) {
       const cambiato = x.codice === 'cambiato';

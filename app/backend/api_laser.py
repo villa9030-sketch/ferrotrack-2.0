@@ -294,7 +294,9 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                 'foglio': r.get('foglio'),
             })
 
-    invio_codici = [r['codice'] for r in _lt.righe_per_xml(q['righe'])] if q else []
+    # senza i codici gia' mandati da FerroTrack (lantek_invii): anche se Lantek non si legge
+    from . import lantek_invii as _li
+    invio_codici = [r['codice'] for r in _li.togli_mandati(_lt.righe_per_xml(q['righe']), _li.mandati(order.id))] if q else []
     # codici "da correggere in Lantek" (lantek_correzioni.py): finche' Lantek
     # non coincide non partono, e l'ordine non e' "tutto in Lantek"
     from . import lantek_correzioni as _lc
