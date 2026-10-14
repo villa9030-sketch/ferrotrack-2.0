@@ -30,6 +30,7 @@ from .preventivi import (
     step_tubolari as _step_tubolari,
     step_piastre as _step_piastre,
     pdf_exporter as _pdf_exporter,
+    barre_tubi as _barre_tubi,
 )
 import json as _json_mod
 # Carica DB profili tubolari una volta (file copiato dal Preventivatore desktop)
@@ -5745,6 +5746,43 @@ def api_preventivi_profili_tubolari():
     return jsonify({'success': True, 'profili': _PROFILI_TUBOLARI_DB or {}}), 200
 
 
+@app.route('/api/preventivi/barre-tubi', methods=['POST'])
+@richiede(*UFFICI)
+def api_preventivi_barre_tubi_anteprima():
+    """Barre da ordinare per i tubi dell'editor, anche non ancora salvati.
+    Corpo: {tubolari: [...], assiemi: [{codice_assieme, qty}], assieme: opz.}.
+    Solo calcolo (piano di taglio di "Da procurare"), non scrive niente."""
+    try:
+        data = request.get_json(silent=True) or {}
+        tub = data.get('tubolari') if isinstance(data.get('tubolari'), list) else []
+        ass = data.get('assiemi') if isinstance(data.get('assiemi'), list) else []
+        if len(tub) > 2000 or len(ass) > 500:
+            return jsonify({'success': False, 'error': 'Troppe righe'}), 400
+        solo = data.get('assieme') if isinstance(data.get('assieme'), str) else None
+        out = _barre_tubi.barre([t for t in tub if isinstance(t, dict)],
+                                [a for a in ass if isinstance(a, dict)], solo_assieme=solo)
+        return jsonify({'success': True, **out}), 200
+    except Exception as e:
+        logger.exception('barre-tubi failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/preventivi/<preventivo_id>/barre-tubi', methods=['GET'])
+@richiede(*UFFICI)
+def api_preventivi_barre_tubi(preventivo_id):
+    """Barre da ordinare per i tubi SALVATI del preventivo (query: assieme=)."""
+    try:
+        p = PreventivoManager.get(preventivo_id, include_children=True)
+        if not p:
+            return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
+        out = _barre_tubi.barre(p.get('tubolari') or [], p.get('assiemi') or [],
+                                solo_assieme=request.args.get('assieme') or None)
+        return jsonify({'success': True, **out}), 200
+    except Exception as e:
+        logger.exception('barre-tubi failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/preventivi/<preventivo_id>/distinte', methods=['GET'])
 @richiede(*UFFICI)
 def api_preventivi_distinte(preventivo_id):
@@ -8771,7 +8809,9 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                 'costo_tot_pz': tot_pz,
                 'contributo_su_1_ass': tot_pz * qty_ass,
             })
-        # BOM tubolari/piastre figli (contribuiscono per intero al costo assieme, no qty × per adesso)
+        # BOM tubolari/piastre figli: la riga vale per 1 assieme (qty = pezzi
+        # per assieme, costi gia' per quei pezzi); la qty dell'assieme
+        # moltiplica dopo, come per gli articoli (barre_tubi.py)
         bom_tubolari = [t for t in tubolari_list if (t.get('codice_assieme') or '') == cod]
         bom_piastre = [pl for pl in piastre_list if (pl.get('codice_assieme') or '') == cod]
         costi_montaggio[cod] = {
@@ -8790,6 +8830,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
 
     # Tubolari: raggruppa per codice_assieme in dict {codice: {'analisi': {'tubi': [...]}, 'costi': {...}}}
     tubolari_per_assieme = {}
+    _qta_ass = _barre_tubi.qta_assiemi(assiemi_list)
     for t in tubolari_list:
         cod = t.get('codice_assieme') or 'GENERICO'
         node = tubolari_per_assieme.setdefault(cod, {'analisi': {'tubi': []}, 'costi': {'dettaglio_tubi': []}})
@@ -8813,7 +8854,12 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
             'peso_kg': float(t.get('peso_kg') or 0),
             'costo_materiale': float(t.get('costo_materiale') or 0),
             'costo_taglio': float(t.get('costo_taglio_totale') or 0),
+            'costo_esterno': float(t.get('costo_esterno') or 0),
             'materiale': t.get('materiale') or '',
+            # pezzi della riga (per 1 assieme) e quante strutture: la distinta
+            # di taglio conta i pezzi VERI (prima ogni riga valeva 1 pz)
+            'qty': _barre_tubi.pezzi_riga(t),
+            'n_assiemi': _barre_tubi.moltiplicatore(t, _qta_ass),
         })
 
     # Piastre: raggruppa per codice_assieme nel formato dict che pdf_exporter si aspetta:
@@ -9114,6 +9160,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         'sconto_eur': _sconto_eur,
         'costi_montaggio': costi_montaggio,
         'tubolari_per_assieme': tubolari_per_assieme,
+        'barre_tubi': _barre_tubi_sicuro(tubolari_list, assiemi_list),
         'piastre_per_assieme': piastre_per_assieme,
         'data_consegna': _fmt_data_it(p.get('data_consegna_proposta')),
         'totale_pezzo': round(totale_pezzo_calc, 2),
@@ -9130,6 +9177,16 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         'azienda': azienda_info,
         'logo_path': _resolve_logo_path(azienda_info.get('logo_path')),
     }
+
+
+def _barre_tubi_sicuro(tubolari, assiemi):
+    """Barre da ordinare per la distinta interna; un errore qui non deve
+    impedire il PDF."""
+    try:
+        return _barre_tubi.barre(tubolari, assiemi) if tubolari else None
+    except Exception:
+        logger.warning('barre da ordinare non calcolate', exc_info=True)
+        return None
 
 
 def _fmt_data_it(iso):
