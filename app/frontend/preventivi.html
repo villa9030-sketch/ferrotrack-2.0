@@ -2885,6 +2885,20 @@ body { font-size: var(--fs-m); }
 .pa-more summary::before { content: '▸ '; }
 .pa-more[open] summary::before { content: '▾ '; }
 .pa-more .pa { margin-top: 6px; }
+/* Conferme del pezzo: intestazione col conteggio, domande chiuse in grigio */
+.pa-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); padding: 0 2px; }
+.pa-head > b { font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .3px; }
+.pa-head > span { flex: 1; }
+.pa-head > span b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.pa-head button { height: 26px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); font: 600 12px 'Inter'; color: var(--ink); cursor: pointer; }
+.pa-head button.pri { background: var(--ink); border-color: var(--ink); color: #fff; }
+.pa.done { background: var(--panel); border-color: var(--line); padding-top: 6px; padding-bottom: 6px; }
+.pa.done > i, .pa.done > svg { color: var(--ok); }
+.pa.done .pa-main b { font-size: var(--fs-s); font-weight: 500; color: var(--ink-3); }
+.pa-tag { display: inline-block; font-style: normal; font-size: var(--fs-2xs); font-weight: 600; color: var(--ink-2); background: var(--well); border-radius: 5px; padding: 1px 6px; margin-bottom: 3px; }
+.pa-more-n { font-size: 12px; color: var(--ink-4); padding: 0 2px; }
+.pa-wait > i, .pa-wait > svg { animation: wbGira 1.2s linear infinite; }
+@keyframes wbGira { to { transform: rotate(360deg); } }
 @keyframes wbIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 
 /* ── Disegno: barra propria + tavola ── */
@@ -3033,6 +3047,11 @@ body { font-size: var(--fs-m); }
 .qc-head .rl-sec { margin: 0; }
 .qc-n { font: 800 16px 'Geist'; color: var(--ink); font-variant-numeric: tabular-nums; border-radius: 5px; padding: 0 3px; }
 .qc-n small { font: 500 var(--fs-xs) 'Inter'; color: var(--ink-3); }
+.pl-conf:empty { display: none; }
+.pl-conf .qc-conf { margin: 0; }
+.qc-conf { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); margin: 8px 0 2px; }
+.qc-conf b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.qc-conf button { margin-left: auto; height: 24px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--ink); background: var(--ink); color: #fff; font: 600 12px 'Inter'; cursor: pointer; }
 .qc-bar { height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; margin: 8px 0 8px; }
 .qc-bar span { display: block; height: 100%; background: #F79009; border-radius: 3px; transition: width .45s var(--ease); }
 .qc-bar span.ok { background: #12B76A; }
@@ -3337,6 +3356,8 @@ body { font-size: var(--fs-m); }
               <button type="button" data-f="dafare" onclick="wbSetFiltro('dafare')" title="Pezzi con dati mancanti o da verificare">Da fare <b>0</b></button>
               <button type="button" data-f="pronti" onclick="wbSetFiltro('pronti')">Pronti <b>0</b></button>
             </div>
+            <!-- Conferme del preventivo: quante domande restano, e si va pezzo per pezzo -->
+            <div class="pl-conf" id="wb-pl-conf"></div>
           </div>
           <div class="pl-scroll">
             <table class="split-tree">
@@ -10333,6 +10354,9 @@ async function stimaTutti(indici) {
   const lista = Array.isArray(indici) ? indici : currentArticoli.map((_, i) => i);
   let stimati = 0, errori = 0, fatti = 0;
   wbProg.apri(`Calcolo il costo di ${lista.length} pezzi`);
+  // pezzi in attesa della stima: le loro domande arrivano dopo, tutte insieme
+  const inAttesa = lista.map(i => currentArticoli[i]).filter(Boolean);
+  inAttesa.forEach(a => _wbInStima.add(a));
   try {
   for (const i of lista) {
     const a = currentArticoli[i];
@@ -10350,12 +10374,15 @@ async function stimaTutti(indici) {
       if (d.success) {
         _applicaStima(a, d.stima);
         recalcLavorazioniArt(a);
+        _wbInStima.delete(a);
         stimati++;
       } else errori++;
     } catch (e) { errori++; }
+    _wbInStima.delete(a);
   }
-  } finally { wbProg.chiudi(); }
+  } finally { wbProg.chiudi(); inAttesa.forEach(a => _wbInStima.delete(a)); }
   renderArticoli(); recalcTotali();
+  try { wbRenderCheck(); if (_splitSelectedIdx != null) wbPieceSync(_splitSelectedIdx); } catch (_) {}
   if (stimati) segnaArticoliModificati(300);
   showMsg('msg-import', `Stimati ${stimati} articoli, ${errori} saltati (manca materiale/spessore)`, errori ? 'var(--orange)' : 'var(--green)');
 }
@@ -13383,8 +13410,21 @@ function _wbMm(v) { return String(Math.round(v * 100) / 100).replace('.', ','); 
 
 /** Problemi del pezzo come azioni guidate: cosa si e' rilevato, perche'
     c'e' incertezza, cosa si e' scelto, come si risolve. Livelli: err blocca
-    l'invio, warn va verificato, info e' solo da sapere. */
+    l'invio, warn va verificato, info e' solo da sapere.
+    Ogni problema ha una chiave stabile `k` (per il registro delle conferme)
+    e ogni azione dice se e' una RISPOSTA (`r`: chiude la domanda) o solo un
+    modo per andare a vedere (CAD, campo da scrivere). */
+const _WB_RISPOSTA = /^(Ho verificato|Va bene|Conferma|Usa |È corretto|Rimetti|Torna alla stima)/;
 function wbProblemi(a) {
+  _wbRipristinaIncerti(a);
+  const P = _wbProblemiCalcola(a);
+  for (const p of P) {
+    p.k = p.k || String(p.g || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    for (const z of (p.az || [])) if (z.r == null) z.r = _WB_RISPOSTA.test(z.l);
+  }
+  return P;
+}
+function _wbProblemiCalcola(a) {
   const P = [];
   if (!a) return P;
   const manuale = a.costo_base_override != null;
@@ -13528,13 +13568,13 @@ function wbProblemi(a) {
   }
   const conf = (v) => v != null && v < 0.7;
   if (a.materiale && conf(a._materiale_conf)) {
-    P.push({ l: 'warn', g: 'Materiale da confermare', t: `Materiale da confermare: ${String(a.materiale).replace(/_/g, ' ')}`,
+    P.push({ l: 'warn', g: 'Materiale da confermare', k: 'materiale_conf', t:`Materiale da confermare: ${String(a.materiale).replace(/_/g, ' ')}`,
       s: `Letto dal cartiglio con confidenza ${Math.round(a._materiale_conf * 100)}%.`,
       az: [{ l: `Conferma ${String(a.materiale).replace(/_/g, ' ')}`, p: 1, f: i => wbConferma(i, 'materiale') }, { l: 'Cambia', f: () => wbFocus('sd-materiale') }] });
   }
   const _discord = [].concat(a._spessore_warnings || [], a.avvisi_spessore || []).some(w => /discordante/i.test(w));
   if (a.spessore_mm > 0 && conf(a._spessore_conf) && !_discord) {
-    P.push({ l: 'warn', g: 'Spessore da confermare', t: `Spessore da confermare: ${_wbMm(a.spessore_mm)} mm`,
+    P.push({ l: 'warn', g: 'Spessore da confermare', k: 'spessore', t: `Spessore da confermare: ${_wbMm(a.spessore_mm)} mm`,
       s: `Ricavato con confidenza ${Math.round(a._spessore_conf * 100)}%.`,
       az: [{ l: `Conferma ${_wbMm(a.spessore_mm)} mm`, p: 1, f: i => wbConferma(i, 'spessore_mm') }, { l: 'Cambia', f: () => wbFocus('sd-spessore') }] });
   }
@@ -13549,16 +13589,30 @@ function wbProblemi(a) {
       const scelto = a.spessore_mm || v1;
       const altro = Math.abs(scelto - v1) < 0.01 ? v2 : v1;
       const fs = Math.abs(scelto - v1) < 0.01 ? m[2] : m[4], fa = Math.abs(scelto - v1) < 0.01 ? m[4] : m[2];
-      P.push({ l: 'warn', g: 'Spessore da confermare', t: `Spessore: ${_wbMm(scelto)} o ${_wbMm(altro)} mm?`,
-        s: `${_wbFonte(fs).replace(/^./, c => c.toUpperCase())} indica ${_wbMm(scelto)} mm, ${_wbFonte(fa)} fa pensare a ${_wbMm(altro)} mm. È stato scelto ${_wbMm(scelto)} mm.`,
+      // Cosa succede al peso con l'una o l'altra scelta: la conseguenza si
+      // vede PRIMA di rispondere (prima "Usa 4 mm" faceva comparire dopo
+      // "Peso diverso dal cartiglio" e "Contorno da verificare").
+      let conseguenza = '';
+      const pc = a.verifica && a.verifica.peso_cartiglio, pz = _pesoArticoloKg(a);
+      if (pc && pc.peso_kg > 0 && pz > 0 && scelto > 0 && altro > 0) {
+        const torna = v => Math.abs(v / pc.peso_kg - 1) <= 0.15 || Math.abs(v - pc.peso_kg) <= 0.015;
+        const pa = pz * altro / scelto;
+        conseguenza = ` Peso: con ${_wbMm(scelto)} mm ${_wbKg(pz)} kg${torna(pz) ? ' (torna col cartiglio)' : ''}, `
+          + `con ${_wbMm(altro)} mm ${_wbKg(pa)} kg${torna(pa) ? ' (torna col cartiglio)' : ''}; il cartiglio dice ${_wbKg(pc.peso_kg)} kg.`;
+      }
+      P.push({ l: 'warn', g: 'Spessore da confermare', k: 'spessore', t: `Spessore: ${_wbMm(scelto)} o ${_wbMm(altro)} mm?`,
+        s: `${_wbFonte(fs).replace(/^./, c => c.toUpperCase())} indica ${_wbMm(scelto)} mm, ${_wbFonte(fa)} fa pensare a ${_wbMm(altro)} mm. È stato scelto ${_wbMm(scelto)} mm.` + conseguenza,
         az: [{ l: `Conferma ${_wbMm(scelto)} mm`, p: 1, f: i => wbRisolviAvviso(i, w, 'spessore_mm', scelto) },
              { l: `Usa ${_wbMm(altro)} mm`, f: i => wbRisolviAvviso(i, w, 'spessore_mm', altro) }] });
       continue;
     }
+    // Un avviso gia' visto non torna: la stima riscrive avvisi_stima a ogni
+    // ricalcolo e "Ho verificato" si perdeva al primo cambio del pezzo.
+    if (_wbConfFatta(a, 'avviso:' + w)) continue;
     const breve = w.length > 110 ? w.slice(0, 107) + '…' : w;
-    P.push({ l: 'warn', g: /fuori tabella/i.test(w) ? 'Spessore fuori tabella' : 'Stima da verificare', t: breve,
+    P.push({ l: 'warn', g: /fuori tabella/i.test(w) ? 'Spessore fuori tabella' : 'Stima da verificare', k: 'avviso:' + w, t: breve,
       s: /fuori tabella/i.test(w) ? 'La velocità di taglio è quella dello spessore più vicino disponibile.' : '',
-      az: [{ l: 'Ho verificato', f: i => wbRisolviAvviso(i, w) }] });
+      az: [{ l: 'Ho verificato', p: 1, f: i => wbRisolviAvviso(i, w) }] });
   }
   if (a._sald_stima_metro) {
     P.push({ l: 'warn', g: 'Saldatura stimata a metro', t: 'Saldatura stimata a metro',
@@ -13567,11 +13621,205 @@ function wbProblemi(a) {
   }
   for (const x of wbAnomalie(a)) {
     const contorno = /ingombro/i.test(x.t);
-    P.push({ l: x.l, g: contorno ? 'Ingombro incoerente' : (x.l === 'info' ? 'Da sapere' : 'Da verificare'), t: x.t, s: '',
-      az: contorno ? [{ l: 'Rivedi contorno', p: 1, f: () => openCadEditor() }] : [] });
+    // Ogni domanda deve avere una risposta: prima "Spessore insolito" non
+    // si poteva chiudere e il pezzo restava "da fare" per sempre.
+    if (x.l !== 'info' && _wbConfFatta(a, 'anomalia:' + x.t)) continue;
+    const hv = x.l === 'info' ? [] : [{ l: 'Ho verificato', p: contorno ? 0 : 1, f: i => _wbDopoRisolto(i, 'Segnato come verificato') }];
+    P.push({ l: x.l, g: contorno ? 'Ingombro incoerente' : (x.l === 'info' ? 'Da sapere' : 'Da verificare'), k: 'anomalia:' + x.t, t: x.t, s: '',
+      az: (contorno ? [{ l: 'Rivedi contorno', p: 1, f: () => openCadEditor() }] : []).concat(hv) });
   }
   return P;
 }
+// ═════════════ CONFERME DEL PEZZO (registro) ═════════════
+/** Registro delle domande di ogni pezzo, salvato col pezzo (`conferme`).
+    Prima le domande si ricalcolavano a ogni clic dai dati del momento, e
+    il pezzo cambiava sotto gli occhi: una risposta ne faceva sparire altre
+    senza dirlo ("Ho verificato" sul peso chiudeva anche il contorno), ne
+    faceva nascere di nuove ("Usa 4 mm" → peso e contorno), i controlli in
+    sottofondo aggiungevano e toglievano domande nel primo minuto, e dopo la
+    riapertura le domande sul cartiglio incerto sparivano senza risposta
+    (la confidenza non si salvava). Ora:
+     - le domande del pezzo si mostrano TUTTE insieme, quando i controlli in
+       sottofondo del pezzo sono finiti (prima: "controllo in corso");
+     - una domanda chiusa da un'altra risposta resta scritta "risolta da …";
+     - una domanda nuova o riaperta dice perché (cosa e' cambiato);
+     - le risposte si salvano col pezzo e valgono dopo riapertura e ricalcoli. */
+const _WB_CAMPI_FIRMA = {
+  materiale: ['è cambiato il materiale', v => String(v || '—').replace(/_/g, ' ')],
+  spessore: ['è cambiato lo spessore', v => `${_wbMm(v || 0)} mm`],
+  area: ['è cambiato il contorno', v => `${_wbKg(v || 0)} dm²`],
+  taglio: ['è cambiato il taglio', v => `${_wbKg(v || 0)} m`],
+  inneschi: ['sono cambiati gli inneschi', v => String(v || 0)],
+  pieghe: ['sono cambiate le pieghe', v => String(v || 0)],
+  disegno: ['è cambiato il disegno', v => String(v || '—')],
+  costo: ['è cambiato il costo a mano', v => (v == null ? 'stima' : formatEurStr(v))],
+};
+/** I dati da cui dipendono le domande, per dire "riaperta perché …". */
+function _wbFirmaPezzo(a) {
+  const r = (v, d) => (v == null || v === '' || isNaN(parseFloat(v)) ? null : Math.round(parseFloat(v) * d) / d);
+  return { materiale: a.materiale || null, spessore: r(a.spessore_mm, 100), area: r(a.area_dm2, 100),
+           taglio: r(a.perimetro_taglio_m, 100), inneschi: a.n_forature || 0, pieghe: a.pieghe || 0,
+           disegno: a.dxf_filename || null, costo: a.costo_base_override != null ? a.costo_base_override : null };
+}
+/** "è cambiato lo spessore (5 → 4 mm)" fra due firme, o ''. */
+function _wbMotivoCambio(prima, ora) {
+  if (!prima || !ora) return '';
+  const diff = Object.keys(_WB_CAMPI_FIRMA)
+    .filter(c => c in prima && String(prima[c] == null ? '' : prima[c]) !== String(ora[c] == null ? '' : ora[c]));
+  return diff.slice(0, 2).map(c => {
+    const [frase, fmt] = _WB_CAMPI_FIRMA[c];
+    return `${frase} (${fmt(prima[c])} → ${fmt(ora[c])})`;
+  }).join(' e ');
+}
+function _wbRegistro(a) {
+  if (!a.conferme || typeof a.conferme !== 'object' || !a.conferme.d || typeof a.conferme.d !== 'object') {
+    a.conferme = Object.assign({}, a.conferme && typeof a.conferme === 'object' ? a.conferme : {}, { d: {} });
+  }
+  return a.conferme;
+}
+/** La domanda `k` ha avuto risposta (per gli avvisi che si riscrivono a ogni stima). */
+function _wbConfFatta(a, k) {
+  const e = a && a.conferme && a.conferme.d && a.conferme.d[k];
+  return !!(e && e.stato === 'fatta');
+}
+/** Confidenza di materiale e spessore letti dal cartiglio: i campi "_" non si
+    salvano, e alla riapertura "Materiale/Spessore da confermare" sparivano
+    senza risposta. Si tengono nel registro e si rimettono. */
+function _wbRipristinaIncerti(a) {
+  if (!a) return;
+  const R = a.conferme && a.conferme.incerti;
+  if (R) {
+    if (a._materiale_conf == null && R.materiale != null) a._materiale_conf = R.materiale;
+    if (a._spessore_conf == null && R.spessore != null) a._spessore_conf = R.spessore;
+    if (a._materiale_suggerito == null && R.suggerito && !a.materiale) a._materiale_suggerito = R.suggerito;
+  }
+  if (a._materiale_conf != null || a._spessore_conf != null || a._materiale_suggerito) {
+    const reg = _wbRegistro(a), inc = Object.assign({}, reg.incerti || {});
+    if (a._materiale_conf != null) inc.materiale = a._materiale_conf;
+    if (a._spessore_conf != null) inc.spessore = a._spessore_conf;
+    if (a._materiale_suggerito) inc.suggerito = a._materiale_suggerito; else delete inc.suggerito;
+    reg.incerti = inc;
+  }
+}
+/** Il pezzo e' ancora sotto controllo in sottofondo (peso del cartiglio,
+    STEP, correzione del contorno, stima): le sue domande non sono ancora
+    tutte note, e mostrarle a meta' le faceva comparire e sparire. */
+let _wbVerAttesa = false;
+const _wbInStima = new Set();
+function _wbInControllo(a) {
+  if (!a || !currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return false;
+  if (_wbInStima.has(a)) return true;
+  if (_wbAutoGiro && _wbDaCorreggereAuto(a)) return true;
+  if (!(a.dxf_filename || a.codice)) return false;
+  const chiave = `${a.dxf_filename || ''}|${a.codice || ''}`;
+  const fatta = a.verifica && a.verifica.versione === _WB_VERIFICA_VER && a.verifica._chiave === chiave;
+  return !fatta && !!(_wbVerAttesa || _wbVerGiro || _wbImportProf > 0);
+}
+/** Domande che non sono conferme ma dati da completare: chiuse, non si elencano. */
+const _WB_SOLO_DATI = new Set(['Costo non calcolato', 'Geometria mancante', 'Spessore mancante', 'Materiale mancante', 'Senza disegno']);
+/** Le domande del pezzo, tutte insieme, col registro aggiornato:
+    {aperte: [problema + stato/nuova/riaperta], chiuse: [voce registro], info, inControllo}. */
+function wbConferme(a) {
+  const out = { aperte: [], chiuse: [], info: [], inControllo: false };
+  if (!a) return out;
+  const P = wbProblemi(a);
+  out.info = P.filter(p => p.l === 'info');
+  const Q = P.filter(p => p.l !== 'info');
+  if (_wbInControllo(a)) { out.inControllo = true; out.aperte = Q; return out; }
+  const reg = _wbRegistro(a), D = reg.d, ora = _wbFirmaPezzo(a), adesso = Date.now();
+  const ult = reg.ultima && adesso - (reg.ultima.t || 0) < 15 * 60000 ? reg.ultima : null;
+  const perUltima = (k) => (ult && ult.k !== k ? `«${ult.l}»${ult.g ? ` su ${ult.g.toLowerCase()}` : ''}` : '');
+  const presenti = new Set(Q.map(p => p.k));
+  // Chiuse: c'erano, ora la condizione non c'e' piu'
+  for (const [k, e] of Object.entries(D)) {
+    if (presenti.has(k) || !e) continue;
+    if (e.stato === 'aperta') {
+      if (ult && ult.k === k) { e.stato = 'fatta'; e.risposta = ult.l; }
+      else {
+        e.stato = 'risolta';
+        const pu = perUltima(k);
+        e.da = pu ? `da ${pu}` : (_wbMotivoCambio(reg.firma, ora) ? `perché ${_wbMotivoCambio(reg.firma, ora)}` : 'dai dati aggiornati');
+      }
+      e.quando = adesso; e.firma = ora;
+      delete e.nuova; delete e.riaperta;
+    } else if (!e.firma) e.firma = ora;                       // risposta appena data: dati dopo la risposta
+  }
+  // Aperte: tutte, anche quelle nate da una risposta (con il perché)
+  for (const p of Q) {
+    let e = D[p.k];
+    if (!e) {
+      e = D[p.k] = { stato: 'aperta' };
+      if (reg.vista) {
+        const m = _wbMotivoCambio(reg.firma, ora), pu = perUltima(p.k);
+        e.nuova = m ? `perché ${m}` : (pu ? `dopo ${pu}` : 'da un nuovo controllo del disegno');
+      }
+    } else if ((e.stato === 'fatta' || e.stato === 'risolta') && e.firma) {
+      const m = _wbMotivoCambio(e.firma, ora), pu = perUltima(p.k);
+      e.riaperta = m ? `perché ${m}` : (pu ? `dopo ${pu}` : 'perché i dati del pezzo sono cambiati');
+      e.stato = 'aperta';
+      delete e.risposta; delete e.da; delete e.firma; delete e.nuova;
+    }
+    e.g = p.g; e.t = String(p.t || '').slice(0, 200); e.l = p.l;
+    out.aperte.push(Object.assign({}, p, { nuova: e.nuova || null, riaperta: e.riaperta || null }));
+  }
+  for (const [k, e] of Object.entries(D)) {
+    if (presenti.has(k) || !e || (e.stato !== 'fatta' && e.stato !== 'risolta')) continue;
+    if (e.stato === 'risolta' && _WB_SOLO_DATI.has(e.g)) continue;
+    out.chiuse.push(Object.assign({ k }, e));
+  }
+  out.chiuse.sort((x, y) => (y.quando || 0) - (x.quando || 0));
+  // Il registro non cresce senza fine: via le voci chiuse piu' vecchie
+  const chiavi = Object.keys(D);
+  if (chiavi.length > 50) {
+    chiavi.filter(k => !presenti.has(k) && D[k].stato !== 'fatta')
+      .sort((x, y) => (D[x].quando || 0) - (D[y].quando || 0)).slice(0, chiavi.length - 50).forEach(k => delete D[k]);
+  }
+  reg.vista = true; reg.firma = ora;
+  return out;
+}
+/** Prima di eseguire un'azione: si annota la risposta (o il "vado a vedere"),
+    cosi' le domande che si chiudono per effetto suo dicono "risolta da …". */
+function _wbAnnotaRisposta(a, z) {
+  if (!a || !z || !z.k) return;
+  const reg = _wbRegistro(a);
+  reg.ultima = { k: z.k, g: z.g || '', l: z.l, r: !!z.r, t: Date.now() };
+  if (z.r) {
+    const e = Object.assign({}, reg.d[z.k] || {}, { stato: 'fatta', risposta: z.l, quando: Date.now(), g: z.g, l: z.lv });
+    delete e.firma; delete e.nuova; delete e.riaperta; delete e.da;
+    reg.d[z.k] = e;
+  }
+}
+/** La risposta proposta di una domanda (il tasto principale, se e' una risposta). */
+function _wbProposta(p) { return (p.az || []).find(z => z.p && z.r) || null; }
+/** "Conferma tutto": applica, una alla volta, le risposte proposte delle
+    domande aperte del pezzo. Le domande che non hanno una proposta (peso
+    diverso, contorno incerto) restano: vanno guardate. */
+async function wbConfermaTutto(i) {
+  const a = currentArticoli[i];
+  if (!a || _wbInControllo(a)) return;
+  const tentate = new Set(), fatte = [];
+  for (let giro = 0; giro < 20; giro++) {
+    const p = wbConferme(a).aperte.find(q => !tentate.has(q.k) && _wbProposta(q));
+    if (!p) break;
+    tentate.add(p.k);
+    const z = _wbProposta(p);
+    _wbAnnotaRisposta(a, Object.assign({}, z, { k: p.k, g: p.g, lv: p.l }));
+    try { await z.f(i); } catch (e) { console.warn(e); }
+    fatte.push(z.l);
+  }
+  _wbDopoRisolto(i, fatte.length ? `Confermate ${fatte.length} proposte: ${fatte.join(', ')}` : 'Nessuna proposta da confermare');
+}
+/** Conteggio per il preventivo: domande aperte, pezzi da fare, pezzi in controllo. */
+function wbContaConferme() {
+  let domande = 0, pezzi = 0, inControllo = 0;
+  currentArticoli.forEach(a => {
+    const C = wbConferme(a);
+    if (C.inControllo) { inControllo++; return; }
+    if (C.aperte.length) { pezzi++; domande += C.aperte.length; }
+  });
+  return { domande, pezzi, inControllo, tot: currentArticoli.length };
+}
+
 // ═════════════ VERIFICA DI COERENZA (fonti indipendenti) ═════════════
 /** Peso del cartiglio e STEP dello stesso pezzo, letti dal server in sola
     lettura (/verifica-pezzo) e salvati sul pezzo in `verifica`. Il
@@ -13586,11 +13834,24 @@ function _wbKg(v) { return (v || 0).toLocaleString('it-IT', { maximumFractionDig
 function _wbFirmaGeo(a) {
   return [a.area_dm2, a.spessore_mm, a.materiale, a.perimetro_taglio_m, a.n_forature, a.pieghe].join('|');
 }
-function _wbVistoOk(a, k) { return !!(a && a.verifica_ok && a.verifica_ok[k] === _wbFirmaGeo(a)); }
+/** Solo i dati che QUEL controllo guarda: prima ogni "Ho verificato" valeva
+    per area, spessore, materiale, taglio, inneschi e pieghe insieme, e un
+    ricalcolo del taglio o delle lavorazioni faceva ricomparire il peso. */
+function _wbFirmaVisto(a, k) {
+  const r = v => (v == null || v === '' ? '' : String(Math.round(parseFloat(v) * 1000) / 1000));
+  if (k === 'peso' || k === 'materiale') return ['v2', r(a.area_dm2), r(a.spessore_mm), a.materiale || ''].join('|');
+  if (k === 'materiale_cartiglio') return ['v2', a.materiale || ''].join('|');
+  if (k === 'quote') return ['v2', r(a.area_dm2), r(a.bbox_w_mm), r(a.bbox_h_mm)].join('|');
+  return _wbFirmaGeo(a);
+}
+function _wbVistoOk(a, k) {
+  const v = a && a.verifica_ok && a.verifica_ok[k];
+  return !!v && (v === _wbFirmaVisto(a, k) || v === _wbFirmaGeo(a));   // anche i "visto" salvati prima
+}
 function wbVistoOk(i, k) {
   const a = currentArticoli[i];
   if (!a) return;
-  a.verifica_ok = Object.assign({}, a.verifica_ok || {}, { [k]: _wbFirmaGeo(a) });
+  a.verifica_ok = Object.assign({}, a.verifica_ok || {}, { [k]: _wbFirmaVisto(a, k) });
   _wbDopoRisolto(i, 'Segnato come verificato');
 }
 /** Esito dei controlli: {peso: {ok, grave, app, cartiglio}|null, step: {ok, grave, diff, file}|null}. */
@@ -13675,9 +13936,12 @@ async function wbVerifica(i, forza) {
 let _wbVerTimer = null, _wbVerGiro = false;
 function _wbVerificaProgramma() {
   clearTimeout(_wbVerTimer);
+  _wbVerAttesa = true;                 // i pezzi non ancora verificati sono "in controllo"
   _wbVerTimer = setTimeout(async () => {
-    if (_wbVerGiro || !currentPreventivo) return;
+    if (!currentPreventivo) { _wbVerAttesa = false; return; }
+    if (_wbVerGiro) { setTimeout(_wbVerificaProgramma, 1500); return; }   // finito il giro in corso, si riparte
     _wbVerGiro = true;
+    _wbVerAttesa = false;
     const pid = currentPreventivo.id;
     let cambiati = 0;
     try {
@@ -13693,8 +13957,15 @@ function _wbVerificaProgramma() {
       if (_splitSelectedIdx != null) { try { wbPieceSync(_splitSelectedIdx); } catch (_) {} }
       segnaArticoliModificati(1500);
     }
-    _wbCorreggiContorniAuto();
+    try { await _wbCorreggiContorniAuto(); } catch (_) {}
+    // Controlli finiti: le domande dei pezzi ora sono tutte note
+    if (currentPreventivo && currentPreventivo.id === pid) _wbRidisegnaConferme();
   }, 900);
+}
+function _wbRidisegnaConferme() {
+  try { renderSplitTree(); } catch (_) {}
+  if (_splitSelectedIdx != null) { try { wbPieceSync(_splitSelectedIdx); } catch (_) {} }
+  try { wbRenderCheck(); wbRenderChips(); } catch (_) {}
 }
 
 // ── Correzione automatica del contorno col peso del cartiglio ──
@@ -13980,6 +14251,7 @@ function wbAz(n) {
   const x = _wbAz[n];
   if (!x) return;
   const i = _splitSelectedIdx;
+  _wbAnnotaRisposta(currentArticoli[i], x);
   try { x.f(i); } catch (e) { console.warn(e); }
 }
 function wbFocus(id) {
@@ -13994,6 +14266,13 @@ function _wbDopoRisolto(i, msg) {
   if (_splitSelectedIdx === i) wbPieceSync(i);
   recalcTotali();
   wbSnack(msg);
+  // Confermati materiale o spessore, la correzione del contorno col peso del
+  // cartiglio si puo' fare: subito, non alla prossima apertura (prima il
+  // pezzo "finito" tornava giorni dopo con una domanda nuova).
+  const a = currentArticoli[i];
+  if (a && _wbDaCorreggereAuto(a) && !_wbAutoGiro) {
+    setTimeout(async () => { try { await _wbCorreggiContorniAuto(); } catch (_) {} _wbRidisegnaConferme(); }, 0);
+  }
 }
 function wbSetCampo(i, campo, valore) {
   const idMap = { materiale: 'sd-materiale', spessore_mm: 'sd-spessore' };
@@ -14111,12 +14390,25 @@ function wbRenderCheck() {
       <span class="qc-n" id="wb-qc-n">${tot ? `${pronti}<small>/${tot} pronti</small>` : ''}</span>
     </div>
     <div class="qc-bar"><span style="width:${pct}%" class="${bloccanti ? '' : 'ok'}"></span></div>
+    ${_wbRigaConferme()}
     ${tuttoOk && !extra.length
       ? `<div class="rl-allok"><i data-lucide="check-circle-2"></i>Tutti i pezzi sono pronti per l'invio</div>`
       : `<ul>${righe}</ul>`}`;
   if (_wbQCPrima != null && pronti > _wbQCPrima) _wbFlash(document.getElementById('wb-qc-n'));
   _wbQCPrima = pronti;
   if (window.lucide) try { lucide.createIcons(); } catch (_) {}
+}
+/** "Conferme: 5 da fare in 3 pezzi (su 12)": si va pezzo per pezzo, e su
+    ogni pezzo si vedono tutte le sue domande insieme. */
+function _wbRigaConferme() {
+  if (!currentArticoli.length) return '';
+  const K = wbContaConferme();
+  const attesa = K.inControllo ? ` · controllo in corso su ${K.inControllo} ${K.inControllo === 1 ? 'pezzo' : 'pezzi'}` : '';
+  if (!K.domande) {
+    return `<div class="qc-conf">Conferme: <b>nessuna da fare</b>${attesa}</div>`;
+  }
+  return `<div class="qc-conf">Conferme: <b>${K.domande}</b> da fare in <b>${K.pezzi}</b> ${K.pezzi === 1 ? 'pezzo' : 'pezzi'} (su ${K.tot})${attesa}
+    <button type="button" onclick="wbNextIssue()" title="Un pezzo alla volta, con tutte le sue domande">Vai ›</button></div>`;
 }
 function wbQCVai(n) {
   const lista = _wbQC[n] || [];
@@ -14218,6 +14510,11 @@ function wbSetFiltro(f) {
   wbRenderChips();
 }
 function wbRenderChips() {
+  const pc = document.getElementById('wb-pl-conf');
+  if (pc) {
+    const bozza = currentPreventivo && (currentPreventivo.status || 'BOZZA') === 'BOZZA';
+    pc.innerHTML = bozza ? _wbRigaConferme() : '';
+  }
   const tot = currentArticoli.length;
   const daFare = currentArticoli.filter(wbNonPronto).length;
   const seg = document.getElementById('wb-filtri');
@@ -14343,25 +14640,53 @@ function wbPieceSync(idx) {
     if (cadLbl) cadLbl.textContent = c === 'incerto' ? 'Verifica nel CAD' : (c === 'confermato' ? 'Rivedi contorno' : 'Apri CAD');
   }
 
-  // Problemi: al massimo tre in vista, il resto a richiesta
+  // Conferme del pezzo: TUTTE in un posto solo, con la risposta proposta;
+  // sotto, quelle gia' chiuse (con chi le ha chiuse). Prima se ne vedevano
+  // tre e le altre comparivano man mano che si rispondeva.
   const box = document.getElementById('wb-pc-alerts');
   if (box) {
     _wbAz = [];
     const soloLettura = currentPreventivo && (currentPreventivo.status || 'BOZZA') !== 'BOZZA';
     const ico = { err: 'alert-circle', warn: 'alert-triangle', info: 'info' };
     const ordine = { err: 0, warn: 1, info: 2 };
-    const lista = soloLettura ? [] : P.slice().sort((x, y) => ordine[x.l] - ordine[y.l]);
     const card = (p) => {
-      const bott = (p.az || []).map(z => { _wbAz.push(z); return `<button type="button" class="${z.p ? 'pri' : ''}" onclick="wbAz(${_wbAz.length - 1})">${escapeHtml(z.l)}</button>`; }).join('');
-      return `<div class="pa ${p.l}"><i data-lucide="${ico[p.l]}"></i>
-        <div class="pa-main"><b>${escapeHtml(p.t)}</b>${p.s ? `<span>${escapeHtml(p.s)}</span>` : ''}</div>
+      const bott = (p.az || []).map(z => {
+        _wbAz.push(Object.assign({}, z, { k: p.k, g: p.g, lv: p.l }));
+        return `<button type="button" class="${z.p ? 'pri' : ''}" onclick="wbAz(${_wbAz.length - 1})">${escapeHtml(z.l)}</button>`;
+      }).join('');
+      const perche = p.riaperta ? `<em class="pa-tag">Riaperta ${escapeHtml(p.riaperta)}</em>`
+                   : p.nuova ? `<em class="pa-tag">Nuova: ${escapeHtml(p.nuova)}</em>` : '';
+      return `<div class="pa ${p.l}" data-k="${escapeHtml(p.k || '')}"><i data-lucide="${ico[p.l]}"></i>
+        <div class="pa-main">${perche}<b>${escapeHtml(p.t)}</b>${p.s ? `<span>${escapeHtml(p.s)}</span>` : ''}</div>
         ${bott ? `<div class="pa-act">${bott}</div>` : ''}</div>`;
     };
-    let html = soloLettura
-      ? `<div class="pa info"><i data-lucide="lock"></i><div class="pa-main"><b>Preventivo ${_statoLeggibile(currentPreventivo.status).toLowerCase()}: sola lettura</b><span>Duplicalo dal menu ⋯ per modificarlo.</span></div></div>`
-      : lista.slice(0, 3).map(card).join('');
-    if (lista.length > 3) {
-      html += `<details class="pa-more"><summary>Altri ${lista.length - 3} da vedere</summary>${lista.slice(3).map(card).join('')}</details>`;
+    const chiusa = (e) => `<div class="pa done" data-k="${escapeHtml(e.k || '')}"><i data-lucide="check-circle-2"></i>
+        <div class="pa-main"><b>${escapeHtml(e.t || e.g || '')}</b><span>${e.stato === 'fatta'
+          ? `Risposta: «${escapeHtml(e.risposta || 'fatto')}»` : `Risolta ${escapeHtml(e.da || '')}`}</span></div></div>`;
+    let html = '';
+    if (soloLettura) {
+      html = `<div class="pa info"><i data-lucide="lock"></i><div class="pa-main"><b>Preventivo ${_statoLeggibile(currentPreventivo.status).toLowerCase()}: sola lettura</b><span>Duplicalo dal menu ⋯ per modificarlo.</span></div></div>`;
+    } else {
+      const C = wbConferme(a);
+      const aperte = C.aperte.slice().sort((x, y) => ordine[x.l] - ordine[y.l]);
+      const info = C.info;
+      if (C.inControllo) {
+        html = `<div class="pa-head"><b>Conferme di questo disegno</b><span>controllo in corso</span></div>
+          <div class="pa info pa-wait"><i data-lucide="loader"></i><div class="pa-main"><b>Sto controllando il disegno (peso del cartiglio, STEP, costo)…</b>
+          <span>Le domande di questo pezzo arrivano tutte insieme fra poco: niente da confermare a metà.</span></div></div>`;
+      } else if (aperte.length || C.chiuse.length) {
+        const tot = aperte.length + C.chiuse.length;
+        const proposte = aperte.filter(p => _wbProposta(p));
+        const altri = wbDaDefinire().filter(j => j !== idx).length;
+        html = `<div class="pa-head"><b>Conferme di questo disegno</b>
+          <span>${aperte.length ? `<b>${aperte.length}</b> da fare su ${tot}` : `tutte fatte (${tot})`}</span>
+          ${proposte.length > 1 ? `<button type="button" class="pri" onclick="wbConfermaTutto(${idx})" title="${escapeHtml(proposte.map(p => _wbProposta(p).l).join(' · '))}">Conferma tutto (${proposte.length})</button>` : ''}
+          ${!aperte.length && altri ? `<button type="button" onclick="wbNextIssue()">Prossimo pezzo ›</button>` : ''}</div>`;
+        html += aperte.map(card).join('');
+        html += C.chiuse.slice(0, 8).map(chiusa).join('');
+        if (C.chiuse.length > 8) html += `<div class="pa-more-n">e altre ${C.chiuse.length - 8} già chiuse</div>`;
+      }
+      html += info.map(card).join('');
     }
     box.innerHTML = html;
   }
@@ -14628,7 +14953,10 @@ function wbVai(i) {
   document.body.classList.remove('wb-parts-open');
 }
 function wbNextIssue() {
-  const lista = wbDaDefinire();
+  // prima i pezzi con le domande gia' tutte note (non ancora in controllo)
+  const tutti = wbDaDefinire();
+  const pronti = tutti.filter(i => !_wbInControllo(currentArticoli[i]));
+  const lista = pronti.length ? pronti : tutti;
   if (!lista.length) { wbSnack('Tutti i pezzi sono definiti'); return; }
   const da = _splitSelectedIdx == null ? -1 : _splitSelectedIdx;
   const prossimo = lista.find(i => i > da);

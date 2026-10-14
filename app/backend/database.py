@@ -4860,7 +4860,11 @@ class PreventivoManager:
                       'pezzi_foglio',
                       # Contorno scelto a mano sul disegno (mm, come il foglio):
                       # il controllo disegni lo mostra al posto di quello del motore.
-                      'contorno_scelto')
+                      'contorno_scelto',
+                      # Registro delle conferme del pezzo nel preventivatore: le
+                      # domande viste, le risposte date, chi le ha chiuse, e la
+                      # confidenza di materiale/spessore letti dal cartiglio.
+                      'conferme')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -5103,7 +5107,80 @@ class PreventivoManager:
             vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}
             if vok:
                 out['verifica_ok'] = vok
+        cf = PreventivoManager._pulisci_conferme(a.get('conferme'))
+        if cf:
+            out['conferme'] = cf
         return out
+
+    _STATI_CONFERMA = ('aperta', 'fatta', 'risolta')
+    _CAMPI_FIRMA = ('materiale', 'spessore', 'area', 'taglio', 'inneschi', 'pieghe', 'disegno', 'costo')
+
+    @staticmethod
+    def _pulisci_firma(f):
+        if not isinstance(f, dict):
+            return None
+        n = PreventivoManager._num_o_none
+        out = {}
+        for k in PreventivoManager._CAMPI_FIRMA:
+            if k not in f:
+                continue
+            v = f.get(k)
+            if k in ('materiale', 'disegno'):
+                out[k] = str(v)[:255] if v is not None else None
+            else:
+                out[k] = n(v, 1e9)
+        return out or None
+
+    @staticmethod
+    def _pulisci_conferme(c):
+        """Registro delle conferme di un pezzo: solo campi noti, testo corto."""
+        if not isinstance(c, dict):
+            return None
+        n = PreventivoManager._num_o_none
+        t = lambda v, m: (str(v)[:m] if v not in (None, '') else None)
+        out = {}
+        voci = {}
+        d = c.get('d') if isinstance(c.get('d'), dict) else {}
+        for k, e in list(d.items())[:60]:
+            if not isinstance(e, dict) or e.get('stato') not in PreventivoManager._STATI_CONFERMA:
+                continue
+            v = {'stato': e['stato']}
+            for campo, m in (('g', 80), ('t', 200), ('risposta', 80), ('da', 200),
+                             ('nuova', 200), ('riaperta', 200)):
+                x = t(e.get(campo), m)
+                if x:
+                    v[campo] = x
+            if e.get('l') in ('err', 'warn', 'info'):
+                v['l'] = e['l']
+            q = n(e.get('quando'), 1e14)
+            if q is not None:
+                v['quando'] = int(q)
+            fi = PreventivoManager._pulisci_firma(e.get('firma'))
+            if fi:
+                v['firma'] = fi
+            voci[str(k)[:320]] = v
+        out['d'] = voci
+        if c.get('vista'):
+            out['vista'] = True
+        fi = PreventivoManager._pulisci_firma(c.get('firma'))
+        if fi:
+            out['firma'] = fi
+        u = c.get('ultima')
+        if isinstance(u, dict) and u.get('k'):
+            out['ultima'] = {'k': str(u['k'])[:320], 'g': t(u.get('g'), 80) or '', 'l': t(u.get('l'), 80) or '',
+                             'r': bool(u.get('r')), 't': int(n(u.get('t'), 1e14) or 0)}
+        inc = c.get('incerti')
+        if isinstance(inc, dict):
+            pul = {}
+            for k in ('materiale', 'spessore'):
+                x = n(inc.get(k), 10)
+                if x is not None and 0 <= x <= 1:
+                    pul[k] = x
+            if inc.get('suggerito'):
+                pul['suggerito'] = str(inc['suggerito'])[:40]
+            if pul:
+                out['incerti'] = pul
+        return out if (voci or out.get('incerti') or out.get('vista')) else None
 
     # ---- Campi tubolare senza colonna dedicata ------------------------------
     # Riga letta dalla distinta del disegno (quantita', misura di taglio,
