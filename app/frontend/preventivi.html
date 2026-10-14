@@ -2535,6 +2535,21 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 .sa-comp .pr.nolink { cursor: default; }
 .sa-comp .pr.nolink:hover { background: transparent; }
 .sa-comp-empty { padding: 10px 8px 12px; font-size: var(--fs-s); color: var(--ink-3); }
+.sa-comp .pr-tot { color: var(--ink-2); font-weight: 600; }
+/* Barre da ordinare (assieme e scheda Prezzo) */
+.sa-barre { border-top: 1px solid var(--line-2); padding-top: 14px; margin-top: 14px; }
+.sa-barre:empty { display: none; }
+.br-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.br-list li { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.br-list li b.br-n { color: var(--ink); font-size: 13px; }
+.br-list li .br-prof { color: var(--ink); font-weight: 600; }
+.br-list li small { display: block; color: var(--ink-3); font-size: 11.5px; }
+.br-list li small.warn { color: var(--warn); }
+.br-piano { margin-top: 4px; }
+.br-piano summary { cursor: pointer; font-size: 11.5px; color: var(--ink-3); }
+.br-piano ol { margin: 4px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.br-tot { margin-top: 10px; font-size: 12px; color: var(--ink-2); }
+.br-nota { margin-top: 8px; font-size: 11.5px; color: var(--ink-4); line-height: 1.45; }
 #sa-vw button.on { background: var(--line-2); color: var(--ink); }
 /* Disegno d'insieme dell'assieme (senza STEP): come il disegno del pezzo */
 #sa-dwg[hidden] { display: none !important; }
@@ -3636,6 +3651,7 @@ body { font-size: var(--fs-m); }
                   </div>
                   <div id="sa-comp-list"></div>
                 </section>
+                <section class="sa-barre" id="sa-barre" aria-live="polite"></section>
               </div>
             </div>
           </div>
@@ -3681,6 +3697,8 @@ body { font-size: var(--fs-m); }
 
             <div class="rl-col">
             <section class="rl-block rl-check" id="wb-check"></section>
+
+            <section class="rl-block rl-barre" id="wb-barre" aria-live="polite"></section>
 
             <section class="rl-block rl-solid" id="wb-solid"></section>
 
@@ -7498,8 +7516,11 @@ function _saRenderComponenti(r, A) {
     </div>`);
   }
   const avv = x => (x.avvisi || []).length ? ` · <span class="pr-issue warn" title="${escapeHtml(x.avvisi.join(' · '))}">${escapeHtml(x.avvisi[0])}</span>` : '';
+  const nAss = (A && A.qty) || 1;
   for (const t of r.tubolari) {
     const q = _qtaRiga(t), v = _costoTubolare(t), ti = currentTubolari.indexOf(t);
+    // la riga vale per 1 assieme: per tutte le strutture si moltiplica
+    const qTot = nAss > 1 ? ` · <span class="pr-tot" title="Pezzi da preparare per tutte le strutture">${q} per struttura × ${nAss} = ${q * nAss} pz</span>` : '';
     const lung = t.lunghezza_pezzo_mm ? `L ${t.lunghezza_pezzo_mm.toLocaleString('it-IT')} mm` : `${(t.lunghezza_m || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} m`;
     const ang = (t.angolo_1 || t.angolo_2) ? ` · tagli ${t.angolo_1 || 0}°/${t.angolo_2 || 0}°` : '';
     const fm = _tubFormula(t);
@@ -7509,7 +7530,7 @@ function _saRenderComponenti(r, A) {
       <span class="pr-lead"></span>
       <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}${t.codice_pezzo ? ` <small>${escapeHtml(t.codice_pezzo)}</small>` : ''}
         ${t.disegno_pdf ? `<a class="wb-icon-btn sm" href="${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf/${encodeURIComponent(t.disegno_pdf)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Disegno del pezzo"><i data-lucide="file-text"></i></a>` : ''}</span>
-        <span class="pr-meta">Tubolare · ${lung}${ang}${t.nota_esterno ? ' · ' + escapeHtml(t.nota_esterno) : ''}${avv(t)}</span>
+        <span class="pr-meta">Tubolare · ${lung}${ang}${qTot}${t.nota_esterno ? ' · ' + escapeHtml(t.nota_esterno) : ''}${avv(t)}</span>
         <span class="pr-meta sa-tub-mat${fm.avviso ? ' warn' : ''}" title="${escapeHtml(fm.avviso || 'Materiale ' + ({ distinta: 'letto dalla distinta', disegno: 'letto dal cartiglio del disegno', assieme: 'letto dalla distinta dell\'assieme', pezzo: 'del pezzo', 'a mano': 'scelto a mano' }[t.materiale_da] || ''))} · clic per cambiarlo">${escapeHtml(fm.testo)}${fm.avviso ? ` · <span class="pr-issue warn">${escapeHtml(fm.avviso)}</span>` : ''}</span>
         <label class="sa-tub-est" onclick="event.stopPropagation()" title="Lavorazione fatta fuori (es. taglio laser tubo): prezzo del fornitore per tutta la riga">
           Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label></span>
@@ -7529,6 +7550,7 @@ function _saRenderComponenti(r, A) {
     : `<div class="sa-comp-empty">Nessun componente collegato. Assegna i pezzi a questo assieme dal campo "Assieme" nella loro scheda.</div>`;
   const n = righe.length;
   document.getElementById('sa-comp-hint').textContent = n ? `${n} · per 1 assieme` : '';
+  _saRenderBarre(A);
 }
 
 // ── Tubolare a mano ────────────────────────────────────────────────
@@ -7590,7 +7612,7 @@ async function wbTuboAMano(ti, codAss, opts) {
         ${Object.entries(_TUB_MATERIALI).map(([k, M]) => `<option value="${k}" ${mat0 && mat0.chiave === k ? 'selected' : ''}>${M.nome}${k === 'acciaio' ? ' / S235' : k === 'inox' ? ' (AISI 304/316)' : ''} · ${fEkg(T0.mat[k])} €/kg${T0.mat[k] > 0 ? '' : ' — da impostare'}</option>`).join('')}
       </select></label>
       <label>Lunghezza mm<input id="tb-len" inputmode="decimal" value="${num(t ? (t.lunghezza_pezzo_mm || Math.round((t.lunghezza_m || 0) * 1000)) : (pr.lunghezza || ''))}"></label>
-      <label>Quantità<input id="tb-q" type="number" min="1" value="${q0}"></label>
+      <label title="Pezzi in UN assieme: per tutte le strutture si moltiplica per la quantità dell'assieme">Pezzi per 1 assieme<input id="tb-q" type="number" min="1" value="${q0}"></label>
       <label>Angolo taglio 1 °<input id="tb-a1" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_1 : '')}"></label>
       <label>Angolo taglio 2 °<input id="tb-a2" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_2 : '')}"></label>
       <label>Lav. esterna €<input id="tb-est" inputmode="decimal" placeholder="es. laser tubo" value="${num(t ? t.costo_esterno : '')}"></label>
@@ -7668,7 +7690,8 @@ async function wbTuboAMano(ti, codAss, opts) {
     $('tb-calc').innerHTML = x
       ? `${escapeHtml(x.profilo)} · <b>${f(x.kg_m)} kg/m</b>${x.materiale !== 'acciaio' && x.kg_m_acciaio ? ` (${f(x.kg_m_acciaio)} in acciaio)` : ''} · ${x.qty} × ${f(x.lunghezza_pezzo_mm)} mm = <b>${f(x.peso_kg)} kg</b><br>
          <span class="${fm.avviso ? 'warn' : ''}" id="tb-formula">${escapeHtml(fm.testo)}${daDove ? ` <small>(${escapeHtml(daDove)}${x.materiale_testo ? ': ' + escapeHtml(x.materiale_testo) : ''})</small>` : ''}${fm.avviso ? `<br>⚠ ${escapeHtml(fm.avviso)}` : ''}</span><br>
-         Tagli ${_eur(x.costo_taglio_totale)} (${x.n_tagli_dritti} dritti, ${x.n_tagli_obliqui} obliqui)${x.costo_esterno ? ` · esterna ${_eur(x.costo_esterno)}` : ''} · <b>totale ${_eur(_costoTubolare(x))}</b>`
+         Tagli ${_eur(x.costo_taglio_totale)} (${x.n_tagli_dritti} dritti, ${x.n_tagli_obliqui} obliqui)${x.costo_esterno ? ` · esterna ${_eur(x.costo_esterno)}` : ''} · <b>totale ${_eur(_costoTubolare(x))}</b>${x.codice_assieme ? ' per 1 assieme' : ''}
+         ${(nA => x.codice_assieme && nA > 1 ? `<br>Per ${nA} strutture: <b>${x.qty} × ${nA} = ${x.qty * nA} pz</b> · ${_eur(_costoTubolare(x) * nA)}` : '')((currentAssiemi.find(A => A.codice_assieme === x.codice_assieme) || {}).qty || 1)}`
       : '<span class="err">Scegli il profilo e scrivi la lunghezza</span>';
     return x;
   };
@@ -10568,13 +10591,97 @@ async function stimaTutti(indici) {
     all'assieme via campo `codice_assieme`.
     ⚠ Il costo articoli figli è per-assieme (× articolo.quantita = pezzi per
     1 assieme). L'assieme.qty finale moltiplica poi l'intero pacchetto. */
-/** Quantita' di una riga tubolare/piastra (una riga STEP puo' valere N pezzi
-    uguali). Solo informativa: costi, peso e area della riga sono GIA' il totale
-    per N (cosi' li manda import-step e cosi' li somma il server), quindi non
-    si rimoltiplica. `qty` non e' salvato sul server: dopo la riapertura vale 1. */
+/** Pezzi di una riga tubolare/piastra (una riga STEP puo' valere N pezzi
+    uguali). Costi, peso e area della riga sono GIA' il totale per N, quindi
+    non si rimoltiplica per N. Una riga DENTRO un assieme vale per 1 assieme
+    (STEP, "Leggi distinta", "È un tubo", a mano: stessa regola): per tutte le
+    strutture si moltiplica per la quantita' dell'assieme, come fa il prezzo
+    (calcolo.py) e l'ordine. `qty` e' salvato (extra_campi). Vedi barre_tubi.py. */
 function _qtaRiga(r) { const n = parseInt(r && r.qty, 10); return n > 0 ? n : 1; }
 function _costoTubolare(t) { return (t.costo_materiale || 0) + (t.costo_taglio_totale || 0) + (parseFloat(t.costo_esterno) || 0); }
 function _costoPiastra(p) { return p.costo || 0; }
+
+// ── Barre da ordinare ─────────────────────────────────────────────
+// I tubi si comprano in barre (6 m): quante ne servono lo dice il piano di
+// taglio di "Da procurare" (backend procura.piano_barre), chiamato qui con i
+// tubi dell'editor (anche non ancora salvati). Niente copia del calcolo in JS.
+const _wbBarreCache = new Map();
+const _WB_CAMPI_BARRE = ['id', 'codice_assieme', 'profilo', 'materiale', 'materiale_testo', 'qty', 'lunghezza_m',
+  'lunghezza_pezzo_mm', 'peso_kg', 'kg_m', 'euro_kg', 'costo_materiale', 'costo_taglio_totale', 'costo_esterno',
+  'nota_esterno', 'codice_pezzo', 'posizione'];
+function _wbBarre(assieme) {
+  const tub = currentTubolari.filter(t => assieme == null || t.codice_assieme === assieme);
+  if (!tub.length || !currentPreventivo) return Promise.resolve(null);
+  const corpo = JSON.stringify({
+    tubolari: tub.map(t => Object.fromEntries(_WB_CAMPI_BARRE.filter(k => t[k] != null).map(k => [k, t[k]]))),
+    assiemi: currentAssiemi.map(A => ({ codice_assieme: A.codice_assieme, qty: A.qty || 1 })),
+    assieme: assieme == null ? null : assieme,
+  });
+  if (_wbBarreCache.has(corpo)) return _wbBarreCache.get(corpo);
+  if (_wbBarreCache.size > 40) _wbBarreCache.clear();
+  const pr = fetch(`${API_URL}/api/preventivi/barre-tubi`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo })
+    .then(r => r.json()).then(d => (d && d.success ? d : null)).catch(() => null);
+  _wbBarreCache.set(corpo, pr);
+  pr.then(d => { if (!d) _wbBarreCache.delete(corpo); });
+  return pr;
+}
+const _fNum = (v, d) => (v || 0).toLocaleString('it-IT', { minimumFractionDigits: d || 0, maximumFractionDigits: d == null ? 2 : d });
+/** "895 × 6 + 581": i tagli uguali di seguito raccolti. */
+function _wbTagliBarra(b) {
+  const out = [];
+  for (const x of b.tagli) {
+    const l = x.lunghezza_mm, u = out[out.length - 1];
+    if (u && u.l === l) u.n++; else out.push({ l, n: 1 });
+  }
+  return out.map(x => _fNum(x.l, 0) + (x.n > 1 ? ` × ${x.n}` : '')).join(' + ');
+}
+function _wbBarreHtml(d) {
+  const bm = _fNum((d.barra_mm || 6000) / 1000);
+  const righe = d.gruppi.map(g => {
+    const prof = `${escapeHtml(g.profilo)} ${escapeHtml(g.materiale_nome || '')}`.trim();
+    const oltre = (g.troppo_lunghi || []).length
+      ? `<small class="warn">${g.troppo_lunghi.length} pz più lunghi di una barra (${g.troppo_lunghi.map(x => _fNum(x.lunghezza_mm, 0) + ' mm').join(', ')}): da comprare a misura</small>` : '';
+    const senza = g.senza_lunghezza ? `<small class="warn">${g.senza_lunghezza} pz senza lunghezza: fuori dal conto</small>` : '';
+    const est = g.pz_esterni ? `<small>${g.pz_esterni === g.n_pezzi ? 'Tutti' : g.pz_esterni + ' pz'} con taglio laser tubo esterno: le barre servono lo stesso${g.pz_esterni === g.n_pezzi ? ' (se il materiale non lo mette il fornitore)' : ''}</small>` : '';
+    const piano = g.piano && g.piano.length ? `<details class="br-piano"><summary>Piano di taglio</summary><ol>${g.piano.map(b =>
+      `<li>${_wbTagliBarra(b)} mm · avanzo ${_fNum(b.sfrido_mm, 0)} mm</li>`).join('')}</ol></details>` : '';
+    return `<li data-chiave="${escapeHtml(g.chiave)}"><span class="br-prof">${prof}</span>: ${g.n_pezzi} pz, ${_fNum(g.metri)} m → <b class="br-n">${g.n_barre} ${g.n_barre === 1 ? 'barra' : 'barre'} da ${bm} m</b>
+      <small>Sfrido ${_fNum(g.sfrido_pct, 0)}% · pezzi ${_fNum(g.kg_usati, 1)} kg = ${_eur(g.eur_usati)} (in prezzo) · barre ${_fNum(g.kg_barre, 1)} kg = ${_eur(g.eur_barre)}</small>${est}${oltre}${senza}${piano}</li>`;
+  }).join('');
+  return `<ul class="br-list">${righe}</ul>`;
+}
+/** Barre nell'assieme: "Tubi per 3 strutture". */
+async function _saRenderBarre(A) {
+  const box = document.getElementById('sa-barre');
+  if (!box) return;
+  if (!A || !currentTubolari.some(t => t.codice_assieme === A.codice_assieme)) { box.innerHTML = ''; return; }
+  const cod = A.codice_assieme;
+  box.dataset.ass = cod;
+  const d = await _wbBarre(cod);
+  if (box.dataset.ass !== cod) return;           // nel frattempo aperto un altro assieme
+  if (!d || !d.gruppi.length) { box.innerHTML = ''; return; }
+  const n = A.qty || 1;
+  box.innerHTML = `<div class="pc-sec-head"><span>Tubi per ${n} ${n === 1 ? 'struttura' : 'strutture'}</span><span class="pc-sec-hint">barre da ordinare</span></div>
+    ${_wbBarreHtml(d)}`;
+}
+/** Scheda Prezzo: barre di tutto il preventivo (assiemi insieme: le barre si
+    dividono fra le strutture, quindi possono essere meno della somma per assieme). */
+let _wbBarreTimer = null;
+function wbRenderBarre() {
+  clearTimeout(_wbBarreTimer);
+  _wbBarreTimer = setTimeout(async () => {
+    const box = document.getElementById('wb-barre');
+    if (!box) return;
+    if (!currentTubolari.length) { box.innerHTML = ''; return; }
+    const d = await _wbBarre(null);
+    if (!d || !d.gruppi.length) { box.innerHTML = ''; return; }
+    const T = d.totali;
+    box.innerHTML = `<div class="rl-sec">Barre da ordinare <small>${T.n_barre} ${T.n_barre === 1 ? 'barra' : 'barre'} · ${T.n_pezzi} pz</small></div>
+      ${_wbBarreHtml(d)}
+      <div class="br-tot">Tubi in prezzo ${_eur(T.eur_usati)} (${_fNum(T.kg_usati, 1)} kg tagliati) · barre comprate ${_eur(T.eur_barre)} (${_fNum(T.kg_barre, 1)} kg)</div>
+      <div class="br-nota">Il prezzo conta i kg dei pezzi, non lo sfrido delle barre. Pezzi di tutte le strutture (pezzi per assieme × assiemi); lama ${_fNum(d.lama_mm)} mm.</div>`;
+  }, 250);
+}
 
 function computeAssiemeRollup(codice) {
   if (!codice) return { articoli:[], tubolari:[], piastre:[], peso_kg:0, costoBaseArticoli:0, costoLavArticoli:0, costoTubPia:0 };
@@ -13457,6 +13564,7 @@ function wbSync() {
   wbRenderFlow(K);
   wbRenderCheck();
   try { wbRenderSolidita(); } catch (e) { console.warn('solidita', e); }
+  try { wbRenderBarre(); } catch (e) { console.warn('barre', e); }
   wbRenderPareto(K);
   wbRenderPieceRail(K);
   wbRenderChips();
