@@ -1481,7 +1481,8 @@ def _struttura_zip(radice: str, cartella_ordine: str, disegni: list, righe: list
     lamiera_di = {}
     for r in righe or []:
         nome = (r.get('disegno') or '').lower()
-        if nome and r.get('materiale'):
+        # solo le lamiere: un tubo ("È un tubo") ha il disegno ma non una lamiera
+        if nome and r.get('materiale') and r.get('tipo', 'lamiera') == 'lamiera':
             lamiera_di.setdefault(nome, _nome_lamiera(r.get('materiale'), r.get('spessore_mm')))
     for d in disegni:
         cartella = lamiera_di.get(_nome_base_disegno(d['nome']).lower(),
@@ -1779,6 +1780,10 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
         d = disegni_per_nome.get(os.path.basename(nome).lower())
         return d['nome'] if d else None
 
+    # Righe nell'ORDINE DEL CLIENTE (preventivi/ordine_righe.sequenza): ogni
+    # assieme alla sua riga con i suoi pezzi sotto. Prima tutti gli assiemi
+    # in cima e poi i pezzi.
+    righe_ass, righe_art = {}, {}
     for a in prev.get('assiemi') or []:
         cod = a.get('codice_assieme')
         if not cod:
@@ -1790,12 +1795,13 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             lav.append('Puntatura')
         if float(a.get('saldatura_mt') or 0) > 0 or float(a.get('costo_saldatura_assieme') or 0) > 0:
             lav.append('Saldatura')
-        righe.append({'codice': cod, 'descrizione': 'Assieme', 'tipo': 'assieme',
+        righe_ass.setdefault(cod, []).append({'codice': cod, 'descrizione': 'Assieme', 'tipo': 'assieme',
                       'quantita': qta_assieme.get(cod, 1), 'materiale': None,
                       'spessore_mm': None, 'lavorazioni': lav, 'assieme': None,
                       'disegno': None})
 
-    for a in prev.get('articoli') or []:
+    for _i_art, a in enumerate(prev.get('articoli') or []):
+        righe = righe_art.setdefault(_i_art, [])
         cod_ass = a.get('codice_assieme') or None
         molt = qta_assieme.get(cod_ass, 1) if cod_ass else lotto
         lav = ['Taglio laser']
@@ -1837,6 +1843,25 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
                       'motore': _stato_motore(a),
                       **geo})
 
+    from .preventivi.ordine_righe import sequenza as _sequenza
+    _arts = prev.get('articoli') or []
+    righe = []
+    _seq = _sequenza(_arts, list(righe_ass), prev.get('_righe_ordine'))
+    if not any(v['pos'] is not None for v in _seq):
+        # ordine del cliente mai letto: come prima, assiemi e poi pezzi
+        for c in list(righe_ass):
+            righe.extend(righe_ass.pop(c))
+        _seq = [{'tipo': 'articolo', 'indice': i} for i in range(len(_arts))]
+    for v in _seq:
+        if v['tipo'] == 'assieme':
+            righe.extend(righe_ass.pop(v['codice'], []))
+            for i, a in enumerate(_arts):
+                if a.get('codice_assieme') == v['codice']:
+                    righe.extend(righe_art.pop(i, []))
+        else:
+            righe.extend(righe_art.pop(v['indice'], []))
+    for i in sorted(righe_art):          # componenti di un assieme che non c'e'
+        righe.extend(righe_art[i])
     for t in prev.get('tubolari') or []:
         cod_ass = t.get('codice_assieme') or None
         n = _q(t.get('qty'))
@@ -1861,7 +1886,8 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
                       'descrizione': desc, 'tipo': 'tubolare', 'quantita': n,
                       'materiale': t.get('materiale') or None, 'spessore_mm': None,
                       'lavorazioni': lav or ['Taglio'], 'assieme': cod_ass,
-                      'disegno': None,
+                      # "È un tubo": il disegno del pezzo da cui viene resta legato
+                      'disegno': disegno_di(t.get('disegno_pdf')) or disegno_di(t.get('disegno_dxf')),
                       'lav_esterna': (str(t.get('nota_esterno') or '').strip() or 'Lav. esterna')
                       if esterna or t.get('nota_esterno') else None})
 
@@ -1914,6 +1940,10 @@ def _distinta_ordine(order, disegni=None):
     if order.preventivo_id_origine:
         prev = PreventivoManager.get(order.preventivo_id_origine, include_children=True)
     if prev:
+        try:   # righe dell'ordine del cliente, se il preventivo le ha salvate
+            prev['_righe_ordine'] = _righe_ordine_segnate(_cartella_preventivo(prev['id']))
+        except Exception:
+            prev['_righe_ordine'] = []
         righe = _distinta_da_preventivo(prev, disegni_per_nome)
         # Ordine caricato dall'ufficio col pacchetto del cliente: i pezzi
         # stanno su un preventivo tecnico, ma vengono dall'ordine del cliente.
@@ -4339,6 +4369,27 @@ def api_preventivi_import_dxf(preventivo_id):
     """
     try:
         admin_id = _chi()
+        salvato = os.path.basename(request.form.get('salvato') or '')
+        if 'file' not in request.files and salvato:
+            # disegno GIA' nella cartella del preventivo (riga dell'ordine il cui
+            # pezzo era stato tolto): si rianalizza senza ricaricarlo
+            prev_dir = _cartella_preventivo(preventivo_id)
+            tmp_path = os.path.join(prev_dir, salvato)
+            if not salvato.lower().endswith('.dxf') or not os.path.isfile(tmp_path):
+                return jsonify({'success': False, 'error': 'Disegno non trovato nel preventivo'}), 404
+            from .preventivi.analisi_isolata import analizza as _analizza_dxf
+            from .preventivi.materiali_personali import applica_a_risultato as _mat_pers
+            app_cfg = ConfigManager.load_config()
+            payload = _analizza_dxf(tmp_path, salvato, app_cfg.get('dxf_detection') or {
+                'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
+                'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
+                'dxf_svasatura_ratio_min': 1.8, 'dxf_svasatura_ratio_max': 3.0,
+                'dxf_semicerchio_angolo_min': 150.0, 'dxf_semicerchio_angolo_max': 320.0,
+                'dxf_filtra_zona_sviluppata': True})
+            payload = _mat_pers(payload, ((app_cfg or {}).get('laser_config') or {}).get('materiali'))
+            if not payload.get('success'):
+                return jsonify({'success': False, 'error': payload.get('error') or 'Parsing DXF fallito'}), 500
+            return jsonify(payload), 200
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'File disegno obbligatorio'}), 400
         f = request.files['file']
@@ -4593,7 +4644,8 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             pdf_target = os.path.join(prev_dir, os.path.basename(rfq_pdf_filename))
             with open(pdf_target, 'wb') as fp:
                 fp.write(rfq_pdf_bytes)
-            _segna_ordine_cliente(prev_dir, os.path.basename(rfq_pdf_filename))
+            _segna_ordine_cliente(prev_dir, os.path.basename(rfq_pdf_filename),
+                                  getattr(result, 'righe_ordine', None) or [])
         except Exception:
             logger.warning('salvataggio PDF ordine RFQ fallito: %s', rfq_pdf_filename)
 
@@ -4736,12 +4788,18 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             item['abbinamento'] = {'tipo': tipo, 'file': a.matched_dxf,
                                    'score': round(float(getattr(a, '_matched_score', 0) or 0), 3),
                                    'confermato': tipo in ('esatto', 'senza_revisione')}
+        # Posizione = la riga del PDF dell'ordine (1, 2, 3...): pagina, PDF del
+        # preventivo e distinta seguono l'ordine del cliente. Prima era il
+        # numero del pezzo nella lista (len(articoli_db)), non la riga.
+        _righe_a = getattr(a, 'righe_ordine', None) or []
+        _pos_pdf = (min(r['pos'] for r in _righe_a)
+                    if _righe_a and getattr(result, 'righe_ordine', None) else None)
         if solo_tecnico:
             # Riga dell'ordine del cliente: dice all'ufficio quali quantita'
             # ricontrollare, e alla conferma quali disegni l'ordine non
             # chiedeva (entrano solo se l'ufficio da' loro una quantita').
             item['ordine'] = {'stato': _STATO_RIGA_ORDINE.get(item['_qta_fonte'], 'ok'),
-                              'pos': len(articoli_db), 'qta': a.quantita,
+                              'pos': _pos_pdf, 'qta': a.quantita,
                               'file': os.path.basename(rfq_pdf_filename)}
             if item['_qta_fonte'] == 'distinta':
                 item['ordine']['fonte'] = 'distinta'
@@ -4751,6 +4809,20 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             if len(getattr(a, 'righe_ordine', None) or []) > 1:
                 # codice ripetuto su piu' righe del PDF: quantita' sommate
                 item['ordine']['righe'] = a.righe_ordine
+        elif _pos_pdf is not None and not item.get('codice_assieme'):
+            # preventivatore: la riga dell'ordine come la scrive la pagina
+            # quando legge l'ordine allegato (wbLeggiOrdine)
+            item['ordine'] = {'stato': _STATO_RIGA_ORDINE.get(item['_qta_fonte'], 'ok'),
+                              'pos': _pos_pdf, 'qta': a.quantita,
+                              'file': os.path.basename(rfq_pdf_filename), 'righe': _righe_a}
+            if item['_descrizione']:
+                item['ordine']['descrizione'] = item['_descrizione'][:200]
+        if _pos_pdf is not None and not a.matched_dxf and item.get('ordine'):
+            # riga dell'ordine senza disegno (guida in plastica, commerciale):
+            # resta nel preventivo, il prezzo si scrive a mano
+            item['ordine']['senza_disegno'] = True
+            if item['_descrizione']:
+                item['ordine']['descrizione'] = item['_descrizione'][:200]
         # Se il PDF NON aveva materiale/spessore, prova a leggerli dal cartiglio DXF
         if not item['materiale'] and dxf_info:
             cart = dxf_info.get('cartiglio') or dxf_info.get('cartiglio_materiale') or {}
@@ -5480,8 +5552,16 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         saved_tasks = []  # (dxf_path, filename)
         skipped = []
         n_step = 0
+        # "_cleaned" lasciati accanto al disegno vero da una lavorazione
+        # precedente: non sono pezzi (LS 1153 ne aveva due, diventati righe)
+        from .preventivi.rfq_importer import e_copia_cleaned
+        _nomi_batch = [os.path.basename(x.filename or '') for x in files]
         for f in files:
             fname_lower = (f.filename or '').lower()
+            if e_copia_cleaned(f.filename or '', _nomi_batch):
+                skipped.append({'filename': f.filename, 'success': False, 'saltato': True,
+                                'error': "Disegno ripulito di un altro gia' presente: non e' un pezzo"})
+                continue
             # STEP degli assiemi (cartella caricata): come per lo ZIP si salvano
             # soltanto, per il visore 3D che li aggancia all'assieme per codice.
             # Niente analisi tubolari/piastre: i pezzi ci sono gia' come DXF.
@@ -6959,13 +7039,47 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
 _ORDINE_SEGNO = '_ordine_cliente.json'
 
 
-def _segna_ordine_cliente(prev_dir: str, nome: str) -> None:
-    """Ricorda quale PDF della cartella del preventivo e' l'ordine del cliente."""
+def _segna_ordine_cliente(prev_dir: str, nome: str, righe: list | None = None) -> None:
+    """Ricorda quale PDF della cartella del preventivo e' l'ordine del cliente
+    e, se lette, le sue righe nel loro ordine (preventivi/ordine_righe): il PDF
+    del preventivo e la pagina le seguono, assiemi compresi."""
     try:
+        dati = {'file': nome}
+        if righe:
+            dati['righe'] = righe
         with open(os.path.join(prev_dir, _ORDINE_SEGNO), 'w', encoding='utf-8') as fp:
-            _json_mod.dump({'file': nome}, fp)
+            _json_mod.dump(dati, fp)
     except OSError as e:
         logger.warning('segno ordine cliente non scritto: %s', e)
+
+
+def _righe_ordine_segnate(prev_dir: str) -> list:
+    """Le righe dell'ordine del cliente salvate col preventivo ([] se mai lette).
+    Per i preventivi di prima (solo il nome del PDF) si leggono dal PDF
+    allegato, se e' un "Ordine Fornitore", e si salvano."""
+    try:
+        with open(os.path.join(prev_dir, _ORDINE_SEGNO), encoding='utf-8') as fp:
+            dati = _json_mod.load(fp) or {}
+    except (OSError, ValueError):
+        return []
+    if isinstance(dati.get('righe'), list):
+        return dati['righe']
+    nome = os.path.basename(dati.get('file') or '')
+    if not nome or not os.path.isfile(os.path.join(prev_dir, nome)):
+        return []
+    from .preventivi.ordine_righe import righe_ordine_pdf
+    try:
+        with open(os.path.join(prev_dir, nome), 'rb') as fp:
+            righe = righe_ordine_pdf(fp.read()) or []
+    except OSError:
+        righe = []
+    # anche [] si salva: un PDF non leggibile non si rilegge ogni volta
+    try:
+        with open(os.path.join(prev_dir, _ORDINE_SEGNO), 'w', encoding='utf-8') as fp:
+            _json_mod.dump({'file': nome, 'righe': righe}, fp)
+    except OSError:
+        pass
+    return righe
 
 
 def _ordine_cliente_segnato(prev_dir: str) -> str | None:
@@ -7009,19 +7123,63 @@ def api_preventivi_ordine_cliente(preventivo_id):
             nome = _nome_disegno_libero(prev_dir, os.path.basename(f.filename))
             with open(os.path.join(prev_dir, nome), 'wb') as fp:
                 fp.write(dati)
-        _segna_ordine_cliente(prev_dir, nome)
         try:
             codici = _json_mod.loads(request.form.get('codici') or '[]')
         except ValueError:
             codici = []
-        from .preventivi.ordine_codici import leggi_per_codici, intestazione
+        from .preventivi.ordine_codici import leggi_per_codici, intestazione, chiave as _chiave_cod
+        from .preventivi import ordine_righe as _OR
+        # "Ordine Fornitore" (DECA): TUTTE le righe nel loro ordine, anche
+        # quelle senza disegno; la posizione e' il numero di riga (1, 2...).
+        righe_ordine = _OR.righe_ordine_pdf(dati) or []
+        _segna_ordine_cliente(prev_dir, nome, righe_ordine)
         try:
-            righe = leggi_per_codici(dati, [str(c) for c in codici if c])
             testa = intestazione(dati)
+        except Exception:
+            testa = {}
+        righe = {}
+        try:
+            if righe_ordine:
+                idx = _OR.indice_righe(righe_ordine)
+                for c in [str(c) for c in codici if c]:
+                    rr = _OR.righe_del_codice(c, idx)
+                    if not rr:
+                        continue
+                    righe[_chiave_cod(c)] = {
+                        'qta': float(sum(r['quantita'] for r in rr)), 'pos': rr[0]['pos'],
+                        'righe': len(rr), 'dubbio': False,
+                        'codice': rr[0]['codice'], 'descrizione': rr[0]['descrizione'],
+                        'dettaglio': [{'pos': r['pos'], 'commessa': r.get('commessa'),
+                                       'qta': float(r['quantita'])} for r in rr]}
+            else:
+                righe = leggi_per_codici(dati, [str(c) for c in codici if c])
         except Exception as e:
             logger.warning('lettura ordine cliente: %s', e)
-            righe, testa = {}, {}
-        return jsonify({'success': True, 'file': nome, 'righe': righe, **testa}), 200
+            righe = {}
+        # righe dell'ordine che nessun pezzo ha: se il disegno e' nella
+        # cartella del preventivo (pezzo tolto per sbaglio) la pagina lo rimette
+        mancanti = []
+        if righe_ordine:
+            presenti = {_OR.chiave(c) for c in codici if c} | {_OR.chiave_variante(c) for c in codici if c}
+            visti = set()
+            dxf_cartella = {}
+            try:
+                for fn in os.listdir(prev_dir):
+                    if fn.lower().endswith('.dxf') and not re.search(r'_cleaned\.dxf$', fn, re.I) \
+                            and not re.search(r'\s\(\d+\)\.dxf$', fn, re.I):
+                        dxf_cartella.setdefault(_OR.chiave(fn), fn)
+            except OSError:
+                pass
+            for r in righe_ordine:
+                k = _OR.chiave(r['codice'])
+                if k in visti or k in presenti or _OR.chiave_variante(r['codice']) in presenti:
+                    continue
+                visti.add(k)
+                mancanti.append({**r, 'qta_totale': sum(x['quantita'] for x in righe_ordine
+                                                       if _OR.chiave(x['codice']) == k),
+                                 'disegno': dxf_cartella.get(k) or dxf_cartella.get(_OR.chiave_variante(r['codice']))})
+        return jsonify({'success': True, 'file': nome, 'righe': righe, 'righe_ordine': righe_ordine,
+                        'mancanti': mancanti, **testa}), 200
     except Exception as e:
         logger.exception('ordine-cliente failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -7032,7 +7190,9 @@ def api_preventivi_ordine_cliente(preventivo_id):
 def api_preventivi_ordine_cliente_get(preventivo_id):
     """Nome del PDF d'ordine allegato (None se non c'e')."""
     prev_dir = _cartella_preventivo(preventivo_id)
-    return jsonify({'success': True, 'file': _ordine_cliente_segnato(prev_dir)}), 200
+    nome = _ordine_cliente_segnato(prev_dir)
+    return jsonify({'success': True, 'file': nome,
+                    'righe_ordine': _righe_ordine_segnate(prev_dir) if nome else []}), 200
 
 
 def _copy_order_pdf_to_order(preventivo_id: str, order_id: str) -> dict:
@@ -8756,6 +8916,10 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     righe_cliente = []
 
     def _desc_articolo(a):
+        _o = a.get('ordine') if isinstance(a.get('ordine'), dict) else {}
+        if _o.get('senza_disegno') and _o.get('descrizione'):
+            # riga dell'ordine senza disegno (es. guida in plastica): la sua descrizione
+            return str(_o['descrizione'])[:90]
         mat = (a.get('materiale') or '').replace('_', ' ').strip()
         sp = a.get('spessore_mm')
         parts = []
@@ -8767,10 +8931,16 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
 
     # Articoli STANDALONE (senza codice_assieme): quantita = pezzi nel preventivo
     _cliente_deca = bool(re.search(r'(?<![A-Za-z])DECA(?![A-Za-z])', p.get('cliente') or '', re.I))
+    # Le righe si scrivono per pezzo/assieme e poi si mettono NELL'ORDINE DEL
+    # CLIENTE (preventivi/ordine_righe.sequenza): prima tutti i pezzi sciolti
+    # e gli assiemi in fondo (LS 1153, Stefano 14/10/2026).
+    _righe_cliente_art, _righe_cliente_ass = {}, {}
     totale_pezzo_calc = 0.0
-    for a in articoli:
+    for _i_art, a in enumerate(articoli):
         if a.get('codice_assieme'):
             continue  # articoli linkati ad assieme già dentro pricing assieme
+        righe_cliente = _righe_cliente_art.setdefault(_i_art, [])
+        _od = a.get('ordine') if isinstance(a.get('ordine'), dict) else {}
         base = _costo_base_art(a)
         lav = sum(float(a.get(k) or 0) for k in (
             'costo_piega', 'costo_saldatura', 'costo_filettatura',
@@ -8791,7 +8961,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                 _q = float(r.get('qta') or 0)
                 _q = int(_q) if _q.is_integer() else _q
                 righe_cliente.append({
-                    'codice': a.get('codice') or '—',
+                    'codice': _od.get('codice') or a.get('codice') or '—',
                     'commessa': r.get('commessa') or '',
                     'descrizione': _desc_articolo(a),
                     'quantita': _q,
@@ -8800,7 +8970,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                 })
             continue
         righe_cliente.append({
-            'codice': a.get('codice') or '—',
+            'codice': _od.get('codice') or a.get('codice') or '—',
             'descrizione': _desc_articolo(a),
             'quantita': qty_tot,
             'prezzo_unitario': round(prezzo_unit_finale, 2),
@@ -8830,13 +9000,37 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         costo_assiemi_calc += prezzo_1_ass * qty_ass
         prezzo_ass_finale = prezzo_1_ass * _f_finale
         n_comp = len(info.get('bom_articoli', [])) + len(info.get('bom_tubolari', [])) + len(info.get('bom_piastre', []))
-        righe_cliente.append({
+        _righe_cliente_ass.setdefault(cod, []).append({
             'codice': cod or 'Assieme',
             'descrizione': f"Assieme montato ({n_comp} componenti)" if n_comp else "Assieme montato",
             'quantita': qty_ass,
             'prezzo_unitario': round(prezzo_ass_finale, 2),
             'importo': round(prezzo_ass_finale * qty_ass, 2),
         })
+
+    # Nell'ordine del cliente: assiemi alla loro riga, disegni che l'ordine
+    # non cita in fondo (segnati). Senza ordine letto: come prima.
+    from .preventivi.ordine_righe import sequenza as _sequenza
+    try:
+        _righe_ord_prev = _righe_ordine_segnate(_cartella_preventivo(p['id'])) if p.get('id') else []
+    except Exception:
+        _righe_ord_prev = []
+    righe_cliente = []
+    _seq = _sequenza(articoli, [x.get('codice_assieme') or x.get('id') or '' for x in assiemi_list],
+                     _righe_ord_prev)
+    # anche la sezione assiemi della distinta interna nello stesso ordine
+    _ord_ass = [v['codice'] for v in _seq if v['tipo'] == 'assieme']
+    costi_montaggio = {**{c: costi_montaggio[c] for c in _ord_ass if c in costi_montaggio},
+                       **{c: d for c, d in costi_montaggio.items() if c not in _ord_ass}}
+    for _v in _seq:
+        _rr = (_righe_cliente_art.get(_v['indice'], []) if _v['tipo'] == 'articolo'
+               else _righe_cliente_ass.pop(_v['codice'], []))
+        for _r in _rr:
+            if _v['fuori_ordine']:
+                _r['descrizione'] = ((_r.get('descrizione') or '') + " · non nell'ordine").strip(' ·')
+            righe_cliente.append(_r)
+    for _rr in _righe_cliente_ass.values():
+        righe_cliente.extend(_rr)
 
     # Tubolari e piastre STANDALONE (no codice_assieme)
     costo_tubolari_std = sum(_costo_tub(t) for t in tubolari_list if not t.get('codice_assieme'))

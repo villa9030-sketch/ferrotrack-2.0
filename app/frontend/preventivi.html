@@ -3440,6 +3440,7 @@ body { font-size: var(--fs-m); }
                     <button role="menuitem" onclick="wbAllegaPdf()"><i data-lucide="file-text"></i> Allega PDF del disegno</button>
                     <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbPezzoAMano(_splitSelectedIdx)"><i data-lucide="square-pen"></i> Misure a mano <small>piastra rettangolare o tonda, fori</small></button>
                     <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbCostoAMano(_splitSelectedIdx)"><i data-lucide="pencil-line"></i> Costo a mano <small>profili, pezzi comprati</small></button>
+                    <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbETubo(_splitSelectedIdx)"><i data-lucide="cylinder"></i> È un tubo <small>diventa riga tubo, fuori dal laser</small></button>
                     <button role="menuitem" id="sd-btn-clean" onclick="sdOpenCleanup()" style="display:none;"><i data-lucide="eraser"></i> Pulisci DXF</button>
                     <div class="wb-menu-sep"></div>
                     <button role="menuitem" class="danger" onclick="sdRemove()"><i data-lucide="trash-2"></i> Rimuovi pezzo</button>
@@ -7442,7 +7443,8 @@ function _saRenderComponenti(r, A) {
     const meta = primo ? `<span class="pr-issue ${primo.l}">${escapeHtml(primo.g)}</span>` : `${mat} · ${sp}`;
     righe.push(`<div class="pr" onclick="selectSplitArticolo(${i})" title="Apri il pezzo">
       <span class="pr-lead">${_wbDot(a)}</span>
-      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(a.codice || a.dxf_filename || '—')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
+      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(a.codice || a.dxf_filename || '—')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}
+        <button class="wb-icon-btn sm" onclick="event.stopPropagation(); wbETubo(${i})" title="È un tubo: diventa una riga tubo dell'assieme, fuori dai pezzi laser"><i data-lucide="cylinder"></i></button></span>
         <span class="pr-meta">${meta}</span></span>
       ${prezzo(unit * q, unit, q)}
     </div>`);
@@ -7456,8 +7458,9 @@ function _saRenderComponenti(r, A) {
       + (t.distinta ? ` · dalla distinta ${t.distinta} pos. ${t.posizione || ''}` : '');
     righe.push(`<div class="pr" onclick="wbTuboAMano(${ti})" title="${escapeHtml(dett)} · clic per modificare">
       <span class="pr-lead"></span>
-      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
-        <span class="pr-meta">Tubolare · ${lung}${ang} · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${avv(t)}</span>
+      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}${t.codice_pezzo ? ` <small>${escapeHtml(t.codice_pezzo)}</small>` : ''}
+        ${t.disegno_pdf ? `<a class="wb-icon-btn sm" href="${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf/${encodeURIComponent(t.disegno_pdf)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Disegno del pezzo"><i data-lucide="file-text"></i></a>` : ''}</span>
+        <span class="pr-meta">Tubolare · ${lung}${ang} · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${t.nota_esterno ? ' · ' + escapeHtml(t.nota_esterno) : ''}${avv(t)}</span>
         <label class="sa-tub-est" onclick="event.stopPropagation()" title="Lavorazione fatta fuori (es. taglio laser tubo): prezzo del fornitore per tutta la riga">
           Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label></span>
       ${prezzo(v, v / q, q)}
@@ -7496,20 +7499,30 @@ async function _wbProfili() {
 }
 const _WB_TIPI_TUBO = [['SHS', 'Tubo quadro'], ['RHS', 'Tubo rettangolare'], ['CHS', 'Tubo tondo'],
                        ['L', 'Angolare'], ['FLAT', 'Piatto'], ['ALTRO', 'Altro (kg/m a mano)']];
-/** Pannello tubolare: nuovo (ti == null) o modifica della riga currentTubolari[ti]. */
-async function wbTuboAMano(ti, codAss) {
-  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
+/** Pannello tubolare: nuovo (ti == null) o modifica della riga currentTubolari[ti].
+    opts.daPezzo: "È un tubo" — il pezzo laser (DXF) diventa questa riga tubo;
+    opts.proposta: profilo, lunghezza e da dove vengono (_wbPropostaTubo). */
+async function wbTuboAMano(ti, codAss, opts) {
+  opts = opts || {};
+  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') {
+    if (opts.daPezzo) await appAlert(`Il preventivo è ${currentPreventivo ? currentPreventivo.status : ''}: non si modifica più. Per cambiarlo fanne una nuova versione.`);
+    return;
+  }
   const cat = await _wbProfili();
   const t = ti != null ? currentTubolari[ti] : null;
-  const ass0 = t ? (t.codice_assieme || '') : (codAss || (_splitAssIdx != null && currentAssiemi[_splitAssIdx] ? currentAssiemi[_splitAssIdx].codice_assieme : ''));
-  const tipo0 = t ? (['SHS', 'RHS', 'CHS', 'L', 'FLAT'].includes(t.tipo) ? t.tipo : 'ALTRO') : 'SHS';
-  const q0 = t ? _qtaRiga(t) : 1;
+  const daP = !t && opts.daPezzo ? opts.daPezzo : null;
+  const pr = (daP && opts.proposta) || {};
+  const ass0 = t ? (t.codice_assieme || '') : daP ? (daP.codice_assieme || '') : (codAss || (_splitAssIdx != null && currentAssiemi[_splitAssIdx] ? currentAssiemi[_splitAssIdx].codice_assieme : ''));
+  const tipo0 = t ? (['SHS', 'RHS', 'CHS', 'L', 'FLAT'].includes(t.tipo) ? t.tipo : 'ALTRO')
+    : (pr.tipo && ['SHS', 'RHS', 'CHS', 'L', 'FLAT', 'ALTRO'].includes(pr.tipo) ? pr.tipo : 'SHS');
+  const q0 = t ? _qtaRiga(t) : daP ? (daP.quantita || 1) : 1;
   const num = v => v == null || v === '' ? '' : String(v).replace('.', ',');
   document.querySelectorAll('.wb-man-dock').forEach(e => e.remove());
   const ov = document.createElement('div');
   ov.className = 'wb-man-dock';
   ov.innerHTML = `<div class="wb-man">
-    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="cylinder"></i></div><h3>${t ? 'Tubolare' : 'Aggiungi tubolare'}</h3></div>
+    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="cylinder"></i></div><h3>${t ? 'Tubolare' + (t.codice_pezzo ? ' · ' + escapeHtml(t.codice_pezzo) : '') : daP ? 'È un tubo · ' + escapeHtml(daP.codice || '') : 'Aggiungi tubolare'}</h3></div>
+    ${daP ? `<div class="wb-man-calc">Il pezzo esce dai pezzi laser (e da Lantek) e diventa una riga tubo dell'assieme: va in "Da procurare" come tubo, o laser tubo se esterno. Si può rimettere com'era.${pr.fonti && pr.fonti.length ? '<br>Proposta da: ' + pr.fonti.map(escapeHtml).join(' · ') : '<br>Nessuna proposta: scegli profilo e lunghezza.'}</div>` : ''}
     <div class="wb-man-grid">
       <label class="wide">Tipo<select id="tb-tipo">${_WB_TIPI_TUBO.map(([k, l]) => `<option value="${k}" ${k === tipo0 ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="wide tb-cat">Profilo<select id="tb-prof"></select></label>
@@ -7517,15 +7530,16 @@ async function wbTuboAMano(ti, codAss) {
       <label class="tb-lb tb-l">Lato B mm<input id="tb-b" inputmode="decimal"></label>
       <label class="tb-lb">Spessore mm<input id="tb-s" inputmode="decimal"></label>
       <label class="tb-kg">kg/m<input id="tb-kgm" inputmode="decimal" value="${tipo0 === 'ALTRO' && t ? num(t.kg_m) : ''}"></label>
-      <label>Lunghezza mm<input id="tb-len" inputmode="decimal" value="${num(t ? (t.lunghezza_pezzo_mm || Math.round((t.lunghezza_m || 0) * 1000)) : '')}"></label>
+      <label>Lunghezza mm<input id="tb-len" inputmode="decimal" value="${num(t ? (t.lunghezza_pezzo_mm || Math.round((t.lunghezza_m || 0) * 1000)) : (pr.lunghezza || ''))}"></label>
       <label>Quantità<input id="tb-q" type="number" min="1" value="${q0}"></label>
       <label>Angolo taglio 1 °<input id="tb-a1" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_1 : '')}"></label>
       <label>Angolo taglio 2 °<input id="tb-a2" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_2 : '')}"></label>
       <label>Lav. esterna €<input id="tb-est" inputmode="decimal" placeholder="es. laser tubo" value="${num(t ? t.costo_esterno : '')}"></label>
+      ${daP || (t && t.codice_pezzo) ? `<label class="wide"><span><input type="checkbox" id="tb-laser-est" ${t && t.nota_esterno ? 'checked' : ''}> Taglio laser tubo esterno (va in "Da procurare" come laser tubo)</span></label>` : ''}
       <label class="wide">Assieme<select id="tb-ass"><option value="">— nessuno (struttura sciolta)</option>${currentAssiemi.map(A => `<option value="${escapeHtml(A.codice_assieme)}" ${A.codice_assieme === ass0 ? 'selected' : ''}>${escapeHtml(A.codice_assieme)}</option>`).join('')}</select></label>
     </div>
     <div class="wb-man-calc" id="tb-calc"></div>
-    <div class="app-confirm-actions">${t ? '<button class="btn-secondary danger" data-rim>Rimuovi</button>' : ''}<button class="btn-secondary" data-no>Chiudi</button>${t ? '' : '<button class="btn-secondary" data-altro>Aggiungi e un altro</button>'}<button class="btn-primary" data-ok>${t ? 'Applica' : 'Aggiungi'}</button></div>
+    <div class="app-confirm-actions">${t ? '<button class="btn-secondary danger" data-rim>Rimuovi</button>' : ''}${t && t.da_pezzo ? '<button class="btn-secondary" data-pezzo>Rimetti come pezzo laser</button>' : ''}<button class="btn-secondary" data-no>Chiudi</button>${t || daP ? '' : '<button class="btn-secondary" data-altro>Aggiungi e un altro</button>'}<button class="btn-primary" data-ok>${t ? 'Applica' : daP ? 'Diventa tubo' : 'Aggiungi'}</button></div>
   </div>`;
   document.body.appendChild(ov);
   if (window.lucide) lucide.createIcons();
@@ -7534,7 +7548,7 @@ async function wbTuboAMano(ti, codAss) {
   const riempiProfili = () => {
     const tipo = $('tb-tipo').value;
     const lista = cat[tipo] || [];
-    const sel = t && t.tipo === tipo ? t.profilo : '';
+    const sel = t && t.tipo === tipo ? t.profilo : (pr.tipo === tipo ? pr.nome : '');
     $('tb-prof').innerHTML = '<option value="">— scegli —</option>' + lista.map((p, k) =>
       `<option value="${k}" ${p.nome === sel ? 'selected' : ''}>${escapeHtml(p.nome)} · ${String(p.peso_kg_m).replace('.', ',')} kg/m</option>`).join('');
   };
@@ -7563,6 +7577,18 @@ async function wbTuboAMano(ti, codAss) {
     const x = _wbTuboDaRiga(r, $('tb-ass').value || null, null, 1, _wbTariffeTubi());
     x.origine = 'manuale'; delete x.distinta;
     x.costo_esterno = Math.max(0, n('tb-est'));
+    const lEst = $('tb-laser-est');
+    if (lEst && lEst.checked) x.nota_esterno = 'Taglio laser tubo esterno';
+    else if (t && t.nota_esterno && !lEst) x.nota_esterno = t.nota_esterno;
+    // dal pezzo laser: codice, disegni e il pezzo com'era (per rimetterlo)
+    const src = t && t.codice_pezzo ? t : null;
+    if (daP || src) {
+      x.origine = 'pezzo';
+      x.codice_pezzo = daP ? daP.codice : src.codice_pezzo;
+      x.disegno_pdf = daP ? (daP.pdf_filename || null) : src.disegno_pdf;
+      x.disegno_dxf = daP ? (daP.dxf_filename || null) : src.disegno_dxf;
+      x.da_pezzo = daP ? _wbFotoPezzo(daP) : src.da_pezzo;
+    }
     return x;
   };
   const aggiorna = () => {
@@ -7584,6 +7610,7 @@ async function wbTuboAMano(ti, codAss) {
   riempiProfili();
   if (t && tipo0 === 'L') { const m = String(t.profilo).match(/([\d.]+)x([\d.]+)x([\d.]+)/); if (m) { $('tb-a').value = m[1]; $('tb-b').value = m[2]; $('tb-s').value = m[3]; } }
   if (t && tipo0 === 'FLAT') { const m = String(t.profilo).match(/([\d.]+)x([\d.]+)/); if (m) { $('tb-a').value = m[1]; $('tb-s').value = m[2]; } }
+  if (daP && pr.tipo === 'ALTRO' && pr.kg_m) $('tb-kgm').value = num(pr.kg_m);
   aggiorna();
   const tasti = e => {
     if (!ov.contains(e.target)) return;
@@ -7603,14 +7630,33 @@ async function wbTuboAMano(ti, codAss) {
     const x = aggiorna();
     if (!x) { (profilo() ? $('tb-len') : ($('tb-prof').closest('label').hidden ? $('tb-a') : $('tb-prof'))).focus(); return; }
     if (t) { x.id = t.id; if (t.posizione) x.posizione = t.posizione; currentTubolari[ti] = x; }
+    else if (daP) {
+      // il codice del pezzo resta il riferimento della riga (ordine, Da procurare)
+      x.posizione = daP.codice || String(currentTubolari.filter(y => y.codice_assieme === x.codice_assieme).length + 1);
+      const k = currentArticoli.indexOf(daP);
+      if (k < 0) { wbSnack('Il pezzo non c\'è più nell\'elenco', 'err'); return; }
+      currentArticoli.splice(k, 1);
+      currentTubolari.push(x);
+      _splitSelectedIdx = null; _bulkSelected.clear();
+      renderArticoli(); segnaArticoliModificati(300);
+    }
     else { x.posizione = String(currentTubolari.filter(y => y.codice_assieme === x.codice_assieme).length + 1); currentTubolari.push(x); }
     dopo();
+    if (daP) {
+      const xt = x;
+      wbSnack(`${daP.codice}: ora è un tubo ${x.profilo} L ${x.lunghezza_pezzo_mm} mm, fuori dai pezzi laser`, '', 9000,
+        { l: 'Annulla', f: () => _wbRimettiPezzo(currentTubolari.indexOf(xt)) });
+      chiudi();
+      return;
+    }
     wbSnack(`${x.profilo}: ${x.qty} × ${x.lunghezza_pezzo_mm} mm, ${_eur(_costoTubolare(x))}`);
     if (altro) { $('tb-len').value = ''; $('tb-q').value = 1; $('tb-a1').value = ''; $('tb-a2').value = ''; $('tb-est').value = ''; aggiorna(); $('tb-len').focus(); }
     else chiudi();
   };
   ov.querySelector('[data-ok]').onclick = () => salva(false);
   const bA = ov.querySelector('[data-altro]'); if (bA) bA.onclick = () => salva(true);
+  const bP = ov.querySelector('[data-pezzo]');
+  if (bP) bP.onclick = () => { chiudi(); _wbRimettiPezzo(ti); };
   const bR = ov.querySelector('[data-rim]');
   if (bR) bR.onclick = async () => {
     if (!await appConfirm(`Togliere ${t.profilo} (${q0} × ${t.lunghezza_pezzo_mm || ''} mm) dall'assieme?`, { danger: true, okLabel: 'Rimuovi' })) return;
@@ -7618,6 +7664,114 @@ async function wbTuboAMano(ti, codAss) {
     chiudi(); dopo();
   };
   setTimeout(() => ($('tb-prof').closest('label').hidden ? $('tb-len') : $('tb-prof')).focus(), 50);
+}
+/** Il pezzo com'era, per "Rimetti come pezzo laser" (senza i campi di lavoro "_"). */
+function _wbFotoPezzo(a) {
+  const o = {};
+  for (const [k, v] of Object.entries(a || {})) if (!k.startsWith('_') && typeof v !== 'function') o[k] = v;
+  return o;
+}
+/** Annulla "È un tubo": il pezzo torna fra i pezzi laser, la riga tubo esce. */
+function _wbRimettiPezzo(ti) {
+  const t = currentTubolari[ti];
+  if (!t || !t.da_pezzo) return;
+  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') {
+    appAlert(`Il preventivo è ${currentPreventivo ? currentPreventivo.status : ''}: non si modifica più.`); return;
+  }
+  const a = Object.assign({}, t.da_pezzo);
+  a.codice_assieme = t.codice_assieme || null;      // l'assieme puo' essere stato cambiato nel pannello
+  currentTubolari.splice(ti, 1);
+  currentArticoli.push(a);
+  _bulkSelected.clear();
+  renderArticoli(); recalcTotali();
+  segnaArticoliModificati(300); scheduleSaveTubolari(300);
+  try { renderTubolari(); } catch (_) {}
+  try { renderSplitTree(); } catch (_) {}
+  if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
+  wbSnack(`${a.codice}: di nuovo pezzo laser`);
+}
+/** Profilo e lunghezza da una descrizione ("T.Quadro 50x 50x 3 L. 581",
+    "Tubo 40x20x2 Lg 600"): {tipo, a, b, s, lunghezza} o null. */
+function _wbProfiloDaTesto(txt) {
+  const u = String(txt || '').toUpperCase().replace(/,/g, '.');
+  const out = {};
+  const L = u.match(/\bL(?:G|UNG)?\s*\.?\s*(\d{2,5})\b(?!\s*[X×*]\s*\d)/);
+  if (L) out.lunghezza = parseFloat(L[1]);
+  const tre = u.match(/(\d+(?:\.\d+)?)\s*[X×*]\s*(\d+(?:\.\d+)?)\s*[X×*]\s*(\d+(?:\.\d+)?)/);
+  const due = u.match(/(?:Ø|DIAM\.?\s*)(\d+(?:\.\d+)?)\s*[X×*]\s*(\d+(?:\.\d+)?)/);
+  if (tre && /T\.?\s*QUADR|TUBO|T\.?\s*RETT|QUADRO|RETTANG|SHS|RHS|PROFIL/.test(u)) {
+    const a = parseFloat(tre[1]), b = parseFloat(tre[2]), s = parseFloat(tre[3]);
+    Object.assign(out, { tipo: a === b ? 'SHS' : 'RHS', a: Math.max(a, b), b: Math.min(a, b), s });
+  } else if (tre && /ANGOLAR/.test(u)) {
+    Object.assign(out, { tipo: 'L', a: parseFloat(tre[1]), b: parseFloat(tre[2]), s: parseFloat(tre[3]) });
+  } else if (due && /TOND|TUBO|CHS/.test(u)) {
+    Object.assign(out, { tipo: 'CHS', a: parseFloat(due[1]), s: parseFloat(due[2]) });
+  }
+  return (out.tipo || out.lunghezza) ? out : null;
+}
+/** Il profilo del catalogo per tipo e misure (null se non c'e'). */
+function _wbProfiloCatalogo(cat, tipo, a, b, s) {
+  const near = (x, y) => x != null && y != null && Math.abs(x - y) < 0.05;
+  return (cat[tipo] || []).find(p => tipo === 'CHS' ? (near(p.d_ext, a) && near(p.spessore, s))
+    : (near(Math.max(p.lato_a, p.lato_b), a) && near(Math.min(p.lato_a, p.lato_b), b) && near(p.spessore, s))) || null;
+}
+/** Proposta per "È un tubo": (1) la distinta del disegno del pezzo o la riga
+    dell'assieme ("Lg 581"), (2) le descrizioni del pezzo, (3) le misure del
+    DXF (la lunghezza e' il lato lungo). Solo una proposta: decide chi guarda. */
+async function _wbPropostaTubo(a) {
+  const cat = await _wbProfili();
+  const fonti = [], P = {};
+  const kr = _wbChiaveCod(a.codice || a.dxf_filename);
+  try {
+    const codici = [a.codice, a.codice_assieme].filter(Boolean).join(',');
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/distinte?codici=${encodeURIComponent(codici)}`);
+    const D = ((await r.json()) || {}).distinte || {};
+    Object.assign(_wbDistinte, D);
+    const tubo = ((D[kr] || {}).righe || []).find(x => x.profilo && x.lunghezza_mm);
+    if (tubo) {
+      Object.assign(P, { tipo: tubo.profilo.tipo, nome: tubo.profilo.nome, kg_m: tubo.profilo.kg_m, lunghezza: tubo.lunghezza_mm });
+      fonti.push(`distinta del disegno ${kr}: ${tubo.descrizione}`);
+    }
+    const kA = a.codice_assieme ? _wbChiaveCod(a.codice_assieme) : null;
+    const rigaAss = kA && ((D[kA] || {}).righe || []).find(x => _wbChiaveCod(x.codice) === kr);
+    if (rigaAss && rigaAss.lunghezza_mm && !P.lunghezza) {
+      P.lunghezza = rigaAss.lunghezza_mm;
+      fonti.push(`distinta dell'assieme ${a.codice_assieme}: ${[rigaAss.descrizione, rigaAss.descrizione_agg].filter(Boolean).join(' ')}`);
+    }
+  } catch (e) { console.warn('distinta per il tubo non letta:', e); }
+  if (!P.tipo || !P.lunghezza) {
+    for (const [nome, txt] of [['descrizione dell\'ordine', a.ordine && a.ordine.descrizione],
+                               ['profilo letto sul disegno', a.verifica && a.verifica.profilo],
+                               ['descrizione', a._descrizione]]) {
+      const x = _wbProfiloDaTesto(txt);
+      if (!x) continue;
+      if (x.tipo && !P.tipo) {
+        const c = _wbProfiloCatalogo(cat, x.tipo, x.a, x.b, x.s);
+        if (c) Object.assign(P, { tipo: x.tipo, nome: c.nome, kg_m: c.peso_kg_m });
+        else if (x.tipo === 'L') Object.assign(P, { tipo: 'L' });
+        fonti.push(`${nome}: ${txt}`);
+      }
+      if (x.lunghezza && !P.lunghezza) { P.lunghezza = x.lunghezza; if (!fonti.some(f => f.startsWith(nome))) fonti.push(`${nome}: ${txt}`); }
+    }
+  }
+  const w = parseFloat(a.bbox_w_mm) || 0, h = parseFloat(a.bbox_h_mm) || 0;
+  if (!P.lunghezza && w > 0 && h > 0) {
+    P.lunghezza = Math.round(Math.max(w, h));
+    fonti.push(`misure del disegno ${Math.round(w)}×${Math.round(h)} mm: lunghezza ${P.lunghezza}, lato ${Math.round(Math.min(w, h))}`);
+  }
+  P.fonti = fonti;
+  return P;
+}
+/** "È un tubo": il pezzo importato come DXF diventa una riga tubo. */
+async function wbETubo(i) {
+  const a = currentArticoli[i];
+  if (!a || !currentPreventivo) return;
+  if ((currentPreventivo.status || 'BOZZA') !== 'BOZZA') {
+    await appAlert(`Il preventivo è ${currentPreventivo.status}: non si modifica più. Per cambiarlo fanne una nuova versione.`);
+    return;
+  }
+  const proposta = await _wbPropostaTubo(a);
+  wbTuboAMano(null, a.codice_assieme || '', { daPezzo: a, proposta });
 }
 function saAggiungiPezzo() {
   const A = _splitAssIdx != null ? currentAssiemi[_splitAssIdx] : null;
@@ -7922,6 +8076,8 @@ async function wbLeggiOrdine(src) {
   if (!d || !d.success) { wbSnack('Ordine non letto: ' + ((d && d.error) || ''), 'err'); return; }
   const R = d.righe || {};
   const riga = x => R[_wbChiaveOrdine(x)];
+  const righeOrd = d.righe_ordine || [];
+  const mancanti = d.mancanti || [];
   // assiemi: la quantita' dell'ordine e' il numero di assiemi
   const assQ = [];
   for (const A of currentAssiemi) {
@@ -7929,7 +8085,12 @@ async function wbLeggiOrdine(src) {
     if (t && t.qta && Math.round(t.qta) !== (A.qty || 1)) assQ.push([A, Math.max(1, Math.round(t.qta))]);
   }
   const inAss = a => a.codice_assieme && currentAssiemi.some(A => A.codice_assieme === a.codice_assieme && riga(A.codice_assieme));
+  const codiciVeri = new Set(currentArticoli.map(a => String(a.codice || '').toUpperCase()));
   const prop = currentArticoli.map(a => {
+    // "_cleaned" accanto al disegno vero (lasciato da una lavorazione
+    // precedente): non e' la riga dell'ordine, sarebbe contata due volte
+    if (/_cleaned$/i.test(a.codice || '') && codiciVeri.has(String(a.codice).replace(/_cleaned$/i, '').toUpperCase()))
+      return { a, t: null, stato: 'non_trovato', q: null };
     const t = riga(a.codice || a.dxf_filename_originale || a.dxf_filename);
     if (t && t.qta) return { a, t, stato: t.dubbio ? 'dubbio' : 'ok', q: Math.max(1, Math.round(t.qta)) };
     if (t) return { a, t, stato: 'senza_qta', q: null };
@@ -7942,7 +8103,7 @@ async function wbLeggiOrdine(src) {
   const elenco = (arr, max = 8) => arr.slice(0, max).map(nome).join(', ') + (arr.length > max ? ` e altri ${arr.length - max}` : '');
   const senzaQ = prop.filter(p => p.stato === 'senza_qta'), dubbi = prop.filter(p => p.stato === 'dubbio');
   const fuori = prop.filter(p => p.stato === 'non_trovato'), comp = prop.filter(p => p.stato === 'componente');
-  if (!nOk && !nAss) {
+  if (!nOk && !nAss && !mancanti.length) {
     await appAlert(`Nell'ordine "${d.file}" non ho trovato i codici dei pezzi.\n\nIl PDF resta allegato e passerà all'ordine del laser; le quantità le scrivi a mano.`);
     return;
   }
@@ -7957,6 +8118,8 @@ async function wbLeggiOrdine(src) {
     dubbi.length ? `\nDa controllare, riga con più codici: ${elenco(dubbi)}` : '',
     comp.length ? `\nComponenti di assiemi dell'ordine (quantità dalla distinta): ${comp.length}` : '',
     fuori.length ? `\nNon presenti nell'ordine: ${elenco(fuori)}` : '',
+    mancanti.some(m => m.disegno) ? `\nRighe dell'ordine senza pezzo nel preventivo, il disegno c'è: tornano: ${mancanti.filter(m => m.disegno).map(m => m.codice).join(', ')}` : '',
+    mancanti.some(m => !m.disegno) ? `\nRighe dell'ordine SENZA DISEGNO (entrano come righe con prezzo da scrivere a mano): ${mancanti.filter(m => !m.disegno).map(m => m.codice + (m.descrizione ? ' «' + m.descrizione.slice(0, 40) + '»' : '')).join(', ')}` : '',
   ].filter(Boolean).join('\n');
   if (!await appConfirm(msg, { title: 'ORDINE DEL CLIENTE · quantità ordinate', okLabel: 'Applica le quantità', cancelLabel: 'Solo allega' })) {
     wbSnack(`Ordine allegato (${d.file}): passerà all'ordine del laser`);
@@ -7964,26 +8127,86 @@ async function wbLeggiOrdine(src) {
   }
   for (const p of prop) {
     if (p.q) p.a.quantita = p.q;
-    if (p.stato !== 'componente') p.a.ordine = { stato: p.stato, pos: p.t ? p.t.pos : null, qta: p.t ? p.t.qta : null, file: d.file,
+    if (p.stato === 'componente') { delete p.a.ordine; continue; }
+    p.a.ordine = { stato: p.stato, pos: p.t ? p.t.pos : null, qta: p.t ? p.t.qta : null, file: d.file,
       // righe dell'ordine una per una (commessa e quantita'): per DECA il PDF le riporta uguali
       righe: (p.t && p.t.dettaglio) || [] };
-    else delete p.a.ordine;
+    // codice come lo scrive il cliente (191700609-G-00 sul disegno 191700609-00)
+    if (p.t && p.t.codice && p.t.codice !== p.a.codice) p.a.ordine.codice = p.t.codice;
+    if (p.t && p.t.descrizione) p.a.ordine.descrizione = p.t.descrizione;
   }
   for (const [A, q] of assQ) A.qty = q;
+  // L'assieme prende il codice della sua riga d'ordine (cartella "46SA00597",
+  // riga 46SA00597-00): stesso codice a meno della revisione.
+  let rinominati = 0;
+  for (const A of currentAssiemi) {
+    const t = riga(A.codice_assieme);
+    if (!t || !t.codice || t.codice === A.codice_assieme || currentAssiemi.some(B => B.codice_assieme === t.codice)) continue;
+    rinominati++;
+    const vecchio = A.codice_assieme;
+    for (const a of currentArticoli) if (a.codice_assieme === vecchio) a.codice_assieme = t.codice;
+    for (const T of currentTubolari) if (T.codice_assieme === vecchio) T.codice_assieme = t.codice;
+    A.codice_assieme = t.codice;
+  }
+  // Righe dell'ordine che nel preventivo non ci sono: col disegno nella
+  // cartella (pezzo tolto) tornano col disegno; senza disegno (guide in
+  // plastica, commerciali) diventano righe da prezzare a mano.
+  const tornati = [], senzaDis = [];
+  for (const m of mancanti) {
+    let a = null;
+    if (m.disegno) {
+      try {
+        const fd2 = new FormData(); fd2.append('salvato', m.disegno);
+        const r2 = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf`, { method: 'POST', body: fd2 });
+        const d2 = await r2.json();
+        _ultimoIdxDxf = -1;
+        if (d2 && d2.success && applyDxfResultToUI(d2, m.disegno) && _ultimoIdxDxf >= 0) a = currentArticoli[_ultimoIdxDxf];
+      } catch (e) { console.warn('disegno della riga non riletto:', e); }
+      if (a) tornati.push(m.codice);
+    }
+    if (!a) {
+      a = { id: 'tmp-' + Date.now() + '-' + Math.random(), codice: m.codice, quantita: 1, codice_assieme: null,
+            materiale: '', spessore_mm: null, area: 0, area_dm2: 0, perimetro_taglio_m: 0, n_forature: 0,
+            costo_materiale: 0, costo_base_stimato: 0, costo_base_override: null,
+            pieghe: 0, saldatura_ml: 0, filettatura_pz: 0, svasatura_pz: 0,
+            costo_piega: 0, costo_saldatura: 0, costo_filettatura: 0, costo_svasatura: 0, costo_apporto: 0, costo_pulizia: 0,
+            dxf_filename: null };
+      currentArticoli.push(a);
+      senzaDis.push(m.codice);
+    }
+    a.quantita = Math.max(1, Math.round(m.qta_totale || m.quantita || 1));
+    a.ordine = { stato: 'ok', pos: m.pos, qta: m.qta_totale || m.quantita, file: d.file, descrizione: m.descrizione || '',
+      righe: righeOrd.filter(r => _wbChiaveOrdine(r.codice) === _wbChiaveOrdine(m.codice)).map(r => ({ pos: r.pos, qta: r.quantita, commessa: r.commessa })) };
+    if (!a.dxf_filename) a.ordine.senza_disegno = true;
+    if (m.codice !== a.codice) a.ordine.codice = m.codice;
+  }
   // ordine delle righe dell'ordine; i pezzi non citati restano in fondo com'erano
   // i componenti di un assieme subito dopo la riga del loro assieme
   const posAss = a => { const t = a.codice_assieme && riga(a.codice_assieme); return t ? t.pos + 0.5 : null; };
-  const posiz = new Map(prop.map((p, i) => [p.a, p.t ? p.t.pos : (posAss(p.a) ?? 1e9 + i)]));
+  const posiz = new Map(currentArticoli.map((a, i) => [a,
+    (a.ordine && a.ordine.stato !== 'non_trovato' && a.ordine.pos != null) ? a.ordine.pos : (posAss(a) ?? 1e9 + i)]));
   currentArticoli.sort((x, y) => posiz.get(x) - posiz.get(y));
   _splitSelectedIdx = null;
+  // gli indici della selezione multipla non valgono piu' dopo il riordino:
+  // "Rimuovi" avrebbe tolto un altro pezzo
+  if (typeof _bulkSelected !== 'undefined') _bulkSelected.clear();
   const rif = document.getElementById('ed-numero-cliente');
   if (rif && !rif.value.trim() && d.numero_ordine) { rif.value = d.numero_ordine; rif.dispatchEvent(new Event('input')); }
   renderArticoli(); recalcTotali();
   segnaArticoliModificati(300);
-  if (assQ.length) scheduleSaveAssiemi(300);
+  if (assQ.length || rinominati) scheduleSaveAssiemi(300);
+  if (rinominati) scheduleSaveTubolari(300);
   try { renderSplitTree(); } catch (_) {}
-  const daVedere = senzaQ.length + dubbi.length + fuori.length;
-  wbSnack(`Ordine applicato: ${cambi.length} quantità cambiate` + (daVedere ? ` · ${daVedere} pezzi da controllare` : ''), daVedere ? 'warn' : '', 6000);
+  const daVedere = senzaQ.length + dubbi.length + fuori.length + senzaDis.length;
+  wbSnack(`Ordine applicato: ${cambi.length} quantità cambiate`
+    + (tornati.length ? ` · ${tornati.length} righe tornate col disegno (${tornati.join(', ')})` : '')
+    + (senzaDis.length ? ` · ${senzaDis.length} righe senza disegno da prezzare a mano (${senzaDis.join(', ')})` : '')
+    + (daVedere ? ` · ${daVedere} pezzi da controllare` : ''), daVedere ? 'warn' : '', 9000);
+  const daStimareOrd = currentArticoli.map((x, j) => j).filter(j => {
+    const x = currentArticoli[j];
+    return x.ordine && tornati.includes(x.ordine.codice || x.codice) && x.materiale && x.spessore_mm > 0 && x.area_dm2 > 0;
+  });
+  if (daStimareOrd.length) stimaTutti(daStimareOrd).catch(e => console.warn('stima righe tornate:', e));
 }
 /** Avviso sul pezzo dalla lettura dell'ordine (si toglie con "Va bene"). */
 function _wbProblemaOrdine(a) {
@@ -11632,7 +11855,7 @@ async function uploadDxfBatch(files) {
     let ok = 0, err = 0, cached = 0;
     const toccati = new Set();   // indici degli articoli creati/aggiornati da QUESTO batch
     for (const result of (d.results || [])) {
-      if (!result.success) { err++; continue; }
+      if (!result.success) { if (!result.saltato) err++; continue; }
       _ultimoIdxDxf = -1;
       applyDxfResultToUI(result, result.filename || '');
       if (_ultimoIdxDxf >= 0) toccati.add(_ultimoIdxDxf);
@@ -13165,6 +13388,14 @@ function wbProblemi(a) {
   const P = [];
   if (!a) return P;
   const manuale = a.costo_base_override != null;
+  if (a.ordine && a.ordine.senza_disegno && !a.dxf_filename) {
+    // Riga dell'ordine senza disegno (guida in plastica, commerciale): non si
+    // taglia, niente materiale/spessore/contorno. Serve solo il prezzo.
+    if (!manuale) P.push({ l: 'err', g: 'Senza disegno', t: 'Riga dell\'ordine senza disegno: prezzo da scrivere a mano',
+      s: `${a.ordine.descrizione ? a.ordine.descrizione + ' — ' : ''}nel pacchetto non c'è il disegno: non è un pezzo laser (es. da procurare). Scrivi il costo per pezzo.`,
+      az: [{ l: 'Scrivi il prezzo', p: 1, f: i => wbCostoAMano(i) }] });
+    return P;
+  }
   if (!a.materiale) {
     const s = a._materiale_suggerito;
     P.push({ l: 'err', g: 'Materiale mancante', t: 'Materiale mancante',
@@ -14613,7 +14844,7 @@ function _mb(files) {
 // e si scartano, invece di comparire nel nuovo.
 let _wbGen = 0;
 
-function wbSnack(text, tono = '', ms = 3200) {
+function wbSnack(text, tono = '', ms = 3200, azione = null) {
   let el = document.getElementById('wb-snack');
   if (!el) {
     el = document.createElement('div');
@@ -14622,6 +14853,14 @@ function wbSnack(text, tono = '', ms = 3200) {
   }
   el.className = 'wb-snack ' + (tono || '');
   el.innerHTML = `<span class="dot"></span><span>${escapeHtml(String(text).replace(/^[✓⚠]\s*/, ''))}</span>`;
+  if (azione && azione.f) {
+    // un'azione sola (es. "Annulla" dopo "È un tubo")
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn-mini'; b.textContent = azione.l || 'Annulla';
+    b.style.marginLeft = '10px';
+    b.onclick = () => { el.classList.remove('show'); try { azione.f(); } catch (e) { console.warn(e); } };
+    el.appendChild(b);
+  }
   requestAnimationFrame(() => el.classList.add('show'));
   clearTimeout(_wbSnackT);
   _wbSnackT = setTimeout(() => el.classList.remove('show'), ms);

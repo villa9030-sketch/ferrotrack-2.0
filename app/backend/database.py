@@ -5057,6 +5057,12 @@ class PreventivoManager:
                     out['ordine'][k] = str(od[k])[:60]
             if od.get('descrizione'):
                 out['ordine']['descrizione'] = str(od['descrizione'])[:200]
+            # codice come lo scrive il cliente (191700609-G-00 sul disegno
+            # 191700609-00) e riga dell'ordine senza disegno (prezzo a mano)
+            if od.get('codice'):
+                out['ordine']['codice'] = str(od['codice'])[:60]
+            if od.get('senza_disegno'):
+                out['ordine']['senza_disegno'] = True
             # righe dell'ordine una per una (commessa, quantita'): per DECA il
             # PDF del preventivo le riporta uguali
             righe = []
@@ -5103,7 +5109,10 @@ class PreventivoManager:
     # Riga letta dalla distinta del disegno (quantita', misura di taglio,
     # angoli) e lavorazione esterna (taglio laser tubo dal fornitore).
     EXTRA_TUBOLARE = ('qty', 'lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m',
-                      'costo_esterno', 'nota_esterno', 'origine', 'distinta', 'posizione')
+                      'costo_esterno', 'nota_esterno', 'origine', 'distinta', 'posizione',
+                      # "È un tubo" (14/10/2026): il pezzo laser da cui viene,
+                      # i suoi disegni e com'era, per rimetterlo
+                      'codice_pezzo', 'disegno_pdf', 'disegno_dxf', 'da_pezzo')
 
     @staticmethod
     def _extra_tubolare(t: dict) -> dict:
@@ -5116,9 +5125,16 @@ class PreventivoManager:
         q = n(t.get('qty'), 1e6)
         if q is not None and q >= 1:
             out['qty'] = int(q)
-        for k, lim in (('nota_esterno', 120), ('origine', 20), ('distinta', 60), ('posizione', 20)):
+        for k, lim in (('nota_esterno', 120), ('origine', 20), ('distinta', 60), ('posizione', 20),
+                       ('codice_pezzo', 60)):
             if t.get(k):
                 out[k] = str(t.get(k))[:lim]
+        for k in ('disegno_pdf', 'disegno_dxf'):
+            if t.get(k):
+                out[k] = os.path.basename(str(t.get(k)))[:255]
+        dp = t.get('da_pezzo')
+        if isinstance(dp, dict) and len(json.dumps(dp, default=str)) <= 60000:
+            out['da_pezzo'] = json.loads(json.dumps(dp, default=str))
         return out
 
     @staticmethod

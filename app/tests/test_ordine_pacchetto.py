@@ -238,8 +238,12 @@ def main():
           and d.get('dxf_no_match') == ['EXTRA-900.dxf'], d)
     prev_vero = d.get('preventivo_id')
     arts = (PreventivoManager.get(prev_vero) or {}).get('articoli') or []
-    check('i pezzi del preventivo vero non hanno la riga-ordine del pacchetto',
-          arts and not any(a.get('ordine') for a in arts), arts[:1])
+    # dal 14/10/2026 il preventivatore tiene la riga del PDF (posizione 1, 2...)
+    # come quando la pagina legge l'ordine: niente stati dell'ufficio
+    check('i pezzi del preventivo vero hanno la riga del PDF, senza stati ufficio',
+          arts and all((a.get('ordine') or {}).get('stato') in (None, 'ok', 'senza_qta', 'dubbio', 'non_trovato')
+                       for a in arts)
+          and sorted((a.get('ordine') or {}).get('pos') or 99 for a in arts)[0] == 1, arts[:1])
     PreventivoManager.soft_delete(prev_vero)   # fuori dai piedi per i doppioni
 
     # =====================================================================

@@ -65,7 +65,8 @@ def profilo_da_descrizione(desc: str) -> dict | None:
         kg = p['peso_kg_m'] if p else (2 * t * (a + b - 2 * t)) * 7.85e-3
         return {'tipo': 'SHS' if abs(a - b) < 0.01 else 'RHS', 'nome': (p or {}).get('nome') or f'Tubo {a:g}x{b:g} sp.{t:g}',
                 'kg_m': round(kg, 3), 'da_catalogo': bool(p)}
-    if re.search(r'\bT\.?\s*RETTANG|\bTUBO\s+RETT|\bRETT\.|\bRHS\b', u) and tre:
+    # "T.RettSaldato Aisi304 150x 50x 3" (DECA 26CCSA0040): anche T.Rett...
+    if re.search(r'\bT\.?\s*RETT|\bTUBO\s+RETT|\bRETT\.|\bRHS\b', u) and tre:
         a, b, t = _f(tre.group(1)), _f(tre.group(2)), _f(tre.group(3))
         p = dal_catalogo('RHS', lato_a=max(a, b), lato_b=min(a, b), spessore=t)
         kg = p['peso_kg_m'] if p else (2 * t * (a + b - 2 * t)) * 7.85e-3
@@ -137,6 +138,52 @@ def _riga_da_celle(celle: list) -> dict | None:
         'angolo_1': _f(_ANG.match(angoli[0]).group(1)) if len(angoli) >= 1 else None,
         'angolo_2': _f(_ANG.match(angoli[1]).group(1)) if len(angoli) >= 2 else None,
     }
+
+
+# Riga della distinta scritta come TESTO (nessuna tabella: DECA 26CCSA0038,
+# "1 80105L2CB0055 00 T.Quadro Aisi304 50x 50x 3 L. 581 AISI 304 1"):
+# posizione (a volte ripetuta: "1 1 80105..."), codice, revisione,
+# descrizione, quantita'.
+_RIGA_TESTO = re.compile(r'^(?:\d{1,3}\s+)?(\d{1,3})\s+([A-Z0-9][A-Z0-9.\-]{4,})\s+(\d{2})\s+(.+?)\s+(\d{1,4})$')
+# Lunghezza di taglio scritta nella descrizione: "L. 581", "Lg 895", "Lg.0500"
+_LUNG_TESTO = re.compile(r'\bL(?:G|UNG)?\s*\.?\s*(\d{2,5})\b(?!\s*[xX×*]\s*\d)', re.I)
+
+
+def lunghezza_da_testo(*testi) -> float | None:
+    """'Longherone telaio inferiore MTR Lg 895' → 895; None se non c'e'."""
+    for t in testi:
+        m = _LUNG_TESTO.search(str(t or ''))
+        if m and float(m.group(1)) > 0:
+            return float(m.group(1))
+    return None
+
+
+def _righe_testo(testo: str) -> list:
+    """Righe della distinta dal testo, dopo l'intestazione "Num. art.":
+    quando pdfplumber mette tutta la tabella in una cella sola."""
+    out, dentro = [], False
+    for riga in (testo or '').splitlines():
+        r = ' '.join(riga.split())
+        if re.search(r'Num\.?\s*art', r, re.I):
+            dentro = True
+            continue
+        if not dentro:
+            continue
+        m = _RIGA_TESTO.match(r)
+        if not m:
+            if out:
+                break
+            continue
+        codice = m.group(2)
+        if not (re.search(r'\d', codice) and re.search(r'[A-Za-z]', codice)) and not re.fullmatch(r'\d{7,}', codice):
+            continue
+        descr = m.group(4)
+        mat = _RX_MAT.findall(descr)
+        out.append({'pos': m.group(1), 'codice': codice, 'rev': m.group(3), 'descrizione': descr,
+                    'descrizione_agg': '', 'materiale': mat[-1] if mat else '',
+                    'lunghezza_mm': lunghezza_da_testo(descr), 'qta': int(m.group(5)),
+                    'angolo_1': None, 'angolo_2': None, 'da_testo': True})
+    return out
 
 
 def _una_per_posizione(righe: list) -> list:
@@ -304,8 +351,15 @@ def leggi_distinta(pdf_path: str) -> dict | None:
     except Exception:
         return None
     if not righe:
+        # la tabella non esce come tabella (tutta in una cella): dal testo
+        righe = _una_per_posizione(_righe_testo(testo))
+    if not righe:
         return None
     for r in righe:
+        if not r.get('lunghezza_mm'):
+            # "Lg 581" scritto nella descrizione (DECA 26T30SA0233: le righe
+            # dei sotto-assiemi di tubo non hanno la colonna Lunghezza)
+            r['lunghezza_mm'] = lunghezza_da_testo(r.get('descrizione'), r.get('descrizione_agg'))
         prof = profilo_da_descrizione(r['descrizione'])
         if prof and r.get('lunghezza_mm'):
             r['profilo'] = prof

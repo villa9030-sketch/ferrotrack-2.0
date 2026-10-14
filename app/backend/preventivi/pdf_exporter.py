@@ -1485,9 +1485,15 @@ class PDFPreventivo:
                 qty_str = str(int(qty)) if float(qty) == int(qty) else f"{qty}"
             except (TypeError, ValueError):
                 qty_str = str(qty)
+            desc = r.get("descrizione") or ""
+            if len(desc) > 30:
+                # descrizione lunga (riga dell'ordine senza disegno): va a capo
+                # invece di finire sopra le colonne dei numeri
+                from xml.sax.saxutils import escape as _esc
+                desc = Paragraph(_esc(desc), self.style_small)
             riga = [
                 r.get("codice") or "-",
-                r.get("descrizione") or "",
+                desc,
                 qty_str,
                 _eur_plain(r.get("prezzo_unitario") or 0),
                 _eur_plain(r.get("importo") or 0),
