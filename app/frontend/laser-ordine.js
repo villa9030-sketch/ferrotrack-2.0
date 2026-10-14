@@ -532,17 +532,19 @@
   function procuraHtml(o, d) {
     const vv = d.procura_voci || [];
     if (!vv.length) return '';
-    const mancano = vv.filter(v => v.stato !== 'arrivato').length;
+    // laser tubo: il taglio (fornitore) e il materiale (barre comprate da noi) sono due cose
+    const matLt = v => v.tipo === 'laser_tubo' && v.acquisto ? v.acquisto : null;
+    const mancano = vv.filter(v => v.stato !== 'arrivato').length + vv.filter(v => matLt(v) && matLt(v).stato !== 'arrivato').length;
     const st = v => v.stato === 'arrivato' ? `<span class="lz-st ok">${LZ.ico('check')}arrivato</span>`
       : v.stato === 'ordinato' ? `<span class="lz-st${v.scaduta ? ' err' : ''}">${LZ.ico(v.scaduta ? 'clock-alert' : 'truck')}${esc(v.fornitore || 'ordinato')}${v.data_prevista ? ' · prev. ' + esc(FT.fmtDataBreve(v.data_prevista)) : ''}${v.scaduta ? ' (in ritardo)' : ''}</span>`
         : `<span class="lz-st att">${LZ.ico('circle-dot')}da ordinare</span>`;
     return `<section class="lz-o-procura" aria-label="Da procurare">
-      <div class="testa"><b>Da procurare</b><span>${mancano ? `${LZ.plur(mancano, 'pezzo manca', 'pezzi mancano')}: l'ordine non è pronto per il montaggio` : 'tutto arrivato'}</span>
+      <div class="testa"><b>Da procurare</b><span>${mancano ? `${LZ.plur(mancano, 'voce manca', 'voci mancano')}: l'ordine non è pronto per il montaggio` : 'tutto arrivato'}</span>
         <span class="sp"></span><button class="lz-btn piccolo" type="button" data-az="procura" data-fuoco="o-procura">${LZ.ico('package')}Apri «Da procurare»</button></div>
       <table class="lz-tab"><tbody>${vv.map(v => `<tr><td><span class="lz-pc-tipo t-${esc(v.tipo)}">${esc(v.tipo_testo)}</span></td>
         <td class="cod">${esc(v.codice || '—')}</td>
         <td class="lav">${esc([v.profilo || v.descrizione, v.lunghezza_mm ? FT.numero(v.lunghezza_mm) + ' mm' : ''].filter(Boolean).join(' · ') || '—')}</td>
-        <td class="r q">${FT.numero(v.quantita)}</td><td>${st(v)}</td></tr>`).join('')}</tbody></table></section>`;
+        <td class="r q">${FT.numero(v.quantita)}</td><td>${matLt(v) ? `<small>taglio</small> ${st(v)}<br><small>materiale</small> ${st(matLt(v))}` : st(v)}</td></tr>`).join('')}</tbody></table></section>`;
   }
 
   // ── Disegni ─────────────────────────────────────────────────────────

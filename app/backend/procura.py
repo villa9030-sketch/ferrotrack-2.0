@@ -12,6 +12,12 @@ si ricordava di procurarli. Ora:
     T, oppure L se hanno la "Lav. esterna" del preventivatore;
   - i tubi si sommano per profilo e materiale, in barre da 6 m (piano di
     taglio first-fit decreasing, con la lama);
+  - laser tubo (14/10/2026): il materiale lo compra di solito Stefano e lo
+    manda al fornitore, che fa solo il taglio. La voce L e' due cose: il
+    TAGLIO da chiedere al laser tubo (stato, fornitore, disegni) e il
+    MATERIALE da comprare, che va nelle barre con i tubi T dello stesso
+    profilo, con uno stato suo (mat_*). "Materiale fornito dal laser tubo"
+    (raro) lo toglie dalle barre;
   - si prepara la richiesta d'offerta (PDF + disegni dei pezzi) e si segna
     a mano ordinato / arrivato (con annulla e storico).
 
@@ -621,7 +627,7 @@ def gruppi_tubi(voci: list, cfg: dict | None = None) -> list:
     cfg = cfg or config()
     per = {}
     for v in voci:
-        if v.get('tipo') != 'tubo' or not v.get('profilo'):
+        if not compra_materiale(v) or not v.get('profilo'):
             continue            # senza profilo: "da completare", fuori dalle barre
         # "INOX_304" (cartiglio) e "INOX 304" (scritto a mano) sono lo stesso materiale
         k = (chiave_profilo(v.get('profilo') or v.get('descrizione')),
@@ -629,6 +635,8 @@ def gruppi_tubi(voci: list, cfg: dict | None = None) -> list:
         g = per.setdefault(k, {'chiave': '|'.join(k), 'profilo': nome_profilo(v.get('profilo') or v.get('descrizione')),
                                'materiale': (v.get('materiale') or '').strip() or None, 'voci': [], 'pezzi': []})
         g['voci'].append(v['id'])
+        if v.get('tipo') == 'laser_tubo':
+            g.setdefault('voci_laser_tubo', []).append(v['id'])
         for _ in range(max(0, int(v.get('quantita') or 0))):
             g['pezzi'].append({'lunghezza_mm': v.get('lunghezza_mm'), 'id': v['id'], 'codice': v.get('codice'),
                                'ordine': (v.get('ordine') or {}).get('etichetta')})
@@ -647,6 +655,7 @@ def gruppi_tubi(voci: list, cfg: dict | None = None) -> list:
         for t in pb['senza_lunghezza']:
             senza.setdefault(t['id'], {'id': t['id'], 'codice': t['codice'], 'n': 0})['n'] += 1
         out.append({'chiave': g['chiave'], 'profilo': g['profilo'], 'materiale': g['materiale'], 'voci': g['voci'],
+                    'voci_laser_tubo': g.get('voci_laser_tubo', []),
                     'n_pezzi': len(g['pezzi']), 'metri': pb['metri'], 'n_barre': pb['n_barre'], 'kg': kg,
                     'barra_mm': pb['barra_mm'], 'lama_mm': pb['lama_mm'], 'piano': piano,
                     'troppo_lunghi': list(troppo.values()), 'senza_lunghezza': list(senza.values())})
@@ -673,12 +682,50 @@ def _diz(r) -> dict:
             'stato': r.stato, 'fornitore': r.fornitore, 'data_prevista': _iso(r.data_prevista),
             'ordinato_il': _iso(r.ordinato_il), 'arrivato_il': _iso(r.arrivato_il), 'nota': r.nota,
             'creato_il': _iso(r.creato_il), 'creato_da': r.creato_da,
-            'aggiornato_il': _iso(r.aggiornato_il), 'aggiornato_da': r.aggiornato_da}
+            'aggiornato_il': _iso(r.aggiornato_il), 'aggiornato_da': r.aggiornato_da,
+            'materiale_fornito': bool(getattr(r, 'materiale_fornito', None)),
+            'acquisto': _acquisto(r)}
 
 
-def _foto(r) -> dict:
-    """Quello che un cambio di stato tocca: per annullarlo."""
-    return {'id': r.id, 'stato': r.stato, 'fornitore': r.fornitore, 'data_prevista': _iso(r.data_prevista),
+def compra_materiale(v: dict) -> bool:
+    """Il materiale (barre) di questa voce si compra noi: tubo T, o laser
+    tubo L se il materiale non lo mette il fornitore."""
+    return v.get('tipo') == 'tubo' or (v.get('tipo') == 'laser_tubo' and not v.get('materiale_fornito'))
+
+
+def _acquisto(r) -> dict | None:
+    """Lo stato del MATERIALE da comprare: per T e' la voce stessa, per L
+    i campi mat_* (vuoto = da ordinare); None se non si compra."""
+    if r.tipo == 'tubo':
+        return {'stato': r.stato, 'fornitore': r.fornitore, 'data_prevista': _iso(r.data_prevista),
+                'ordinato_il': _iso(r.ordinato_il), 'arrivato_il': _iso(r.arrivato_il)}
+    if r.tipo == 'laser_tubo' and not getattr(r, 'materiale_fornito', None):
+        return {'stato': getattr(r, 'mat_stato', None) or 'da_ordinare', 'fornitore': getattr(r, 'mat_fornitore', None),
+                'data_prevista': _iso(getattr(r, 'mat_data_prevista', None)),
+                'ordinato_il': _iso(getattr(r, 'mat_ordinato_il', None)),
+                'arrivato_il': _iso(getattr(r, 'mat_arrivato_il', None))}
+    return None
+
+
+def stato_materiale(v: dict) -> str | None:
+    a = v.get('acquisto')
+    return a.get('stato') if a else None
+
+
+def _materiale_a_parte(r) -> bool:
+    """Il materiale ha uno stato suo (laser tubo da comprare noi)."""
+    return r.tipo == 'laser_tubo' and not getattr(r, 'materiale_fornito', None)
+
+
+def _foto(r, parte: str = 'voce') -> dict:
+    """Quello che un cambio di stato tocca: per annullarlo. parte 'materiale'
+    = lo stato del materiale di una voce laser tubo."""
+    if parte == 'materiale':
+        return {'id': r.id, 'parte': 'materiale', 'stato': getattr(r, 'mat_stato', None) or 'da_ordinare',
+                'fornitore': r.mat_fornitore, 'data_prevista': _iso(r.mat_data_prevista),
+                'ordinato_il': _iso(r.mat_ordinato_il), 'arrivato_il': _iso(r.mat_arrivato_il)}
+    return {'id': r.id, 'parte': 'voce', 'stato': r.stato, 'fornitore': r.fornitore,
+            'data_prevista': _iso(r.data_prevista),
             'ordinato_il': _iso(r.ordinato_il), 'arrivato_il': _iso(r.arrivato_il)}
 
 
@@ -883,8 +930,9 @@ def avvisa_ufficio(order_id: str) -> None:
             o = _ordini_vivi(s, {order_id}).get(order_id)
             if not o:
                 return
-            n = s.query(DaProcurare).filter(DaProcurare.order_id == order_id,
-                                            DaProcurare.stato == 'da_ordinare').count()
+            n = sum(1 for r in s.query(DaProcurare).filter(DaProcurare.order_id == order_id).all()
+                    for st_ in [r.stato] + ([r.mat_stato or 'da_ordinare'] if _materiale_a_parte(r) else [])
+                    if st_ == 'da_ordinare')
             if not n:
                 return
             msg = f"{n} {'pezzo' if n == 1 else 'pezzi'} da procurare per {o['etichetta']}"
@@ -977,15 +1025,13 @@ def elenco(stato: str | None = 'da_ordinare', tipo: str | None = None, ordine: s
         q = s.query(DaProcurare)
         if ids is not None:
             q = q.filter(DaProcurare.id.in_(list(ids)))
-        if stato in STATI:
-            q = q.filter(DaProcurare.stato == stato)
-        elif stato == 'aperti':
-            q = q.filter(DaProcurare.stato != 'arrivato')
+        # lo stato vale per la voce O per il suo materiale (laser tubo: il
+        # taglio puo' essere ordinato e le barre ancora da comprare)
         if tipo in TIPI:
             q = q.filter(DaProcurare.tipo == tipo)
         if ordine:
             q = q.filter(DaProcurare.order_id == ordine)
-        righe = q.all()
+        righe = [r for r in q.all() if stato not in STATI and stato != 'aperti' or _stato_ok(r, stato)]
         vivi = _ordini_vivi(s, {r.order_id for r in righe})
         oggi = date.today()
         ass = _assiemi_dei_pezzi(s, [r.articolo_id for r in righe if r.articolo_id and r.order_id in vivi])
@@ -997,6 +1043,10 @@ def elenco(stato: str | None = 'da_ordinare', tipo: str | None = None, ordine: s
             d = _diz(r)
             d['ordine'] = o
             d['scaduta'] = bool(r.stato == 'ordinato' and r.data_prevista and r.data_prevista < oggi)
+            if d['acquisto'] is not None:
+                ac = d['acquisto']
+                ac['scaduta'] = bool(ac['stato'] == 'ordinato' and ac['data_prevista']
+                                     and ac['data_prevista'][:10] < oggi.isoformat())
             a = ass.get(str(r.articolo_id or ''))
             # pezzo di un assieme: quanti per assieme x quanti assiemi
             d['assieme'] = a['assieme'] if a else None
@@ -1010,6 +1060,22 @@ def elenco(stato: str | None = 'da_ordinare', tipo: str | None = None, ordine: s
         return out
     finally:
         s.close()
+
+
+def _stato_ok(r, stato) -> bool:
+    """La voce rientra nel filtro: per lo stato suo o del materiale."""
+    stati = [r.stato] + ([getattr(r, 'mat_stato', None) or 'da_ordinare'] if _materiale_a_parte(r) else [])
+    if stato == 'aperti':
+        return any(x != 'arrivato' for x in stati)
+    return stato in stati
+
+
+def stato_corrisponde(stato_voce, filtro) -> bool:
+    if filtro in (None, '', 'tutti'):
+        return True
+    if filtro == 'aperti':
+        return bool(stato_voce) and stato_voce != 'arrivato'
+    return stato_voce == filtro
 
 
 def _assiemi_dei_pezzi(session, articoli_ids) -> dict:
@@ -1051,32 +1117,72 @@ def riassunto_per_ordini(ids=None) -> dict:
     for v in elenco('aperti'):
         if ids is not None and v['order_id'] not in ids:
             continue
-        x = out.setdefault(v['order_id'], {'n': 0, 'n_da_ordinare': 0, 'n_ordinati': 0, 'n_scaduti': 0, 'esterne': []})
-        x['n'] += 1
-        x['n_da_ordinare' if v['stato'] == 'da_ordinare' else 'n_ordinati'] += 1
-        if v['scaduta']:
-            x['n_scaduti'] += 1
-        e = TIPI_ESTERNI.get(v['tipo'])
-        if e and e not in x['esterne']:
-            x['esterne'].append(e)
+        x = out.setdefault(v['order_id'], {'n': 0, 'n_da_ordinare': 0, 'n_ordinati': 0, 'n_scaduti': 0, 'esterne': [],
+                                           'n_materiale': 0})
+        if v['stato'] != 'arrivato':
+            x['n'] += 1
+            x['n_da_ordinare' if v['stato'] == 'da_ordinare' else 'n_ordinati'] += 1
+            if v['scaduta']:
+                x['n_scaduti'] += 1
+            e = TIPI_ESTERNI.get(v['tipo'])
+            if e and e not in x['esterne']:
+                x['esterne'].append(e)
+        # laser tubo: le barre da comprare noi sono una voce in piu'
+        ac = v.get('acquisto')
+        if v['tipo'] == 'laser_tubo' and ac and ac['stato'] != 'arrivato':
+            x['n'] += 1
+            x['n_materiale'] += 1
+            x['n_da_ordinare' if ac['stato'] == 'da_ordinare' else 'n_ordinati'] += 1
+            if ac.get('scaduta'):
+                x['n_scaduti'] += 1
     return out
 
 
-def cambia_stato(ids: list, stato: str, *, fornitore=None, data_prevista=None, chi: str = '') -> list:
+def cambia_stato(ids: list, stato: str, *, fornitore=None, data_prevista=None, chi: str = '',
+                 ids_materiale=None) -> list:
     """Segna ordinato (fornitore e data prevista scritti adesso), arrivato o
-    di nuovo da ordinare. Ritorna [(prima, dopo)] per l'audit e l'annulla."""
+    di nuovo da ordinare. ids: le voci (per il laser tubo: il TAGLIO);
+    ids_materiale: il materiale da comprare (per un tubo T e' la voce stessa,
+    per un laser tubo le sue barre, a parte dal taglio).
+    Ritorna [(prima, dopo)] per l'audit e l'annulla; dopo['parte'] dice cosa."""
     from .database import get_session
     from .models import DaProcurare
     if stato not in STATI:
         raise ValueError('stato non valido')
+    ids, ids_mat = list(ids or []), list(ids_materiale or [])
     s = get_session()
     try:
-        righe = s.query(DaProcurare).filter(DaProcurare.id.in_(list(ids))).all()
+        righe = s.query(DaProcurare).filter(DaProcurare.id.in_(ids + ids_mat)).all()
         vivi = _ordini_vivi(s, {r.order_id for r in righe})
         cambi = []
         ora = datetime.utcnow()
+        fatti = set()
+        lavori = []
         for r in righe:
-            if r.order_id not in vivi:
+            if r.id in ids_mat:
+                lavori.append((r, 'materiale' if _materiale_a_parte(r) else 'voce'))
+            if r.id in ids:
+                lavori.append((r, 'voce'))
+        for r, parte in lavori:
+            if r.order_id not in vivi or (r.id, parte) in fatti:
+                continue
+            fatti.add((r.id, parte))
+            if parte == 'materiale':
+                prima = _foto(r, 'materiale')
+                if stato == 'ordinato':
+                    r.mat_fornitore = (str(fornitore).strip()[:80] or None) if fornitore else r.mat_fornitore
+                    r.mat_data_prevista = _data(data_prevista) if data_prevista else r.mat_data_prevista
+                    r.mat_ordinato_il = r.mat_ordinato_il if r.mat_stato == 'ordinato' else ora
+                    r.mat_arrivato_il = None
+                elif stato == 'arrivato':
+                    r.mat_arrivato_il = ora
+                    if not r.mat_ordinato_il:
+                        r.mat_ordinato_il = ora
+                else:
+                    r.mat_ordinato_il = r.mat_arrivato_il = None
+                r.mat_stato = stato
+                r.aggiornato_il, r.aggiornato_da = ora, chi or None
+                cambi.append((prima, {**_diz(r), 'ordine': vivi[r.order_id], 'parte': 'materiale'}))
                 continue
             prima = _foto(r)
             if stato == 'ordinato':
@@ -1092,7 +1198,7 @@ def cambia_stato(ids: list, stato: str, *, fornitore=None, data_prevista=None, c
                 r.ordinato_il = r.arrivato_il = None
             r.stato = stato
             r.aggiornato_il, r.aggiornato_da = ora, chi or None
-            cambi.append((prima, {**_diz(r), 'ordine': vivi[r.order_id]}))
+            cambi.append((prima, {**_diz(r), 'ordine': vivi[r.order_id], 'parte': 'voce'}))
         s.commit()
         return cambi
     except Exception:
@@ -1106,22 +1212,36 @@ def ripristina(foto: list, chi: str = '') -> list:
     """Annulla un cambio di stato: rimette stato, fornitore e date com'erano."""
     from .database import get_session
     from .models import DaProcurare
-    per = {str(f.get('id')): f for f in foto or [] if isinstance(f, dict) and f.get('stato') in STATI}
+    per = {}
+    for f in foto or []:
+        if isinstance(f, dict) and f.get('stato') in STATI:
+            per[(str(f.get('id')), 'materiale' if f.get('parte') == 'materiale' else 'voce')] = f
     if not per:
         return []
     s = get_session()
     try:
         out = []
-        for r in s.query(DaProcurare).filter(DaProcurare.id.in_(list(per))).all():
-            f = per[r.id]
-            prima = _foto(r)
-            r.stato = f['stato']
-            r.fornitore = f.get('fornitore') or None
-            r.data_prevista = _data(f.get('data_prevista'))
-            r.ordinato_il = _istante(f.get('ordinato_il'))
-            r.arrivato_il = _istante(f.get('arrivato_il'))
-            r.aggiornato_il, r.aggiornato_da = datetime.utcnow(), chi or None
-            out.append((prima, _diz(r)))
+        righe = s.query(DaProcurare).filter(DaProcurare.id.in_(list({k[0] for k in per}))).all()
+        for r in righe:
+            for parte in ('voce', 'materiale'):
+                f = per.get((r.id, parte))
+                if not f:
+                    continue
+                prima = _foto(r, parte)
+                if parte == 'materiale':
+                    r.mat_stato = f['stato']
+                    r.mat_fornitore = f.get('fornitore') or None
+                    r.mat_data_prevista = _data(f.get('data_prevista'))
+                    r.mat_ordinato_il = _istante(f.get('ordinato_il'))
+                    r.mat_arrivato_il = _istante(f.get('arrivato_il'))
+                else:
+                    r.stato = f['stato']
+                    r.fornitore = f.get('fornitore') or None
+                    r.data_prevista = _data(f.get('data_prevista'))
+                    r.ordinato_il = _istante(f.get('ordinato_il'))
+                    r.arrivato_il = _istante(f.get('arrivato_il'))
+                r.aggiornato_il, r.aggiornato_da = datetime.utcnow(), chi or None
+                out.append((prima, {**_diz(r), 'parte': parte}))
         s.commit()
         return out
     except Exception:
@@ -1158,6 +1278,8 @@ def modifica(voce_id: str, campi: dict, chi: str = '') -> dict | None:
             r.descrizione = (str(campi['descrizione'] or '').strip()[:200] or None)
         if 'tipo' in campi and campi['tipo'] in TIPI:
             r.tipo = campi['tipo']
+        if 'materiale_fornito' in campi:
+            r.materiale_fornito = bool(campi['materiale_fornito'])
         r.aggiornato_il, r.aggiornato_da = datetime.utcnow(), chi or None
         s.commit()
         return {'prima': prima, 'dopo': _diz(r)}
@@ -1325,7 +1447,7 @@ def pdf_richiesta(voci: list, gruppi: list, azienda: dict | None = None, quando:
 
     tubi = [g for g in gruppi if g.get('n_pezzi')]
     if tubi:
-        el.append(P('Tubi e profili in barre', 'h'))
+        el.append(P('Materiale: tubi e profili in barre', 'h'))
         righe = [['Profilo', 'Materiale', 'Pezzi', 'Metri', 'Barre', 'Note']]
         for g in tubi:
             note = []
@@ -1343,16 +1465,22 @@ def pdf_richiesta(voci: list, gruppi: list, azienda: dict | None = None, quando:
         el.append(Spacer(1, 1.5 * mm))
         el.append(P(f"Barre calcolate con taglio da {_g(tubi[0]['lama_mm'])} mm fra un pezzo e l'altro.", 'n'))
 
-    el.append(P('Pezzi', 'h'))
-    righe = [['Codice', 'Descrizione', 'Profilo / lunghezza', 'Q.tà', 'Materiale', 'Lavorazione', 'Note']]
-    for v in voci:
-        pl = ' · '.join(z for z in (v.get('profilo') or '', _mm(v.get('lunghezza_mm')) if v.get('lunghezza_mm') else '') if z)
-        righe.append([P(v.get('codice') or '—', 'cb'), P(v.get('descrizione') or '—'), P(pl or '—'),
-                      P(v.get('quantita')), P(_mat(v.get('materiale'))), P(TIPI_BREVI.get(v.get('tipo'), v.get('tipo'))),
-                      P(v.get('nota') or '')])
-    t = Table(righe, colWidths=[26 * mm, 36 * mm, 30 * mm, 10 * mm, 18 * mm, 25 * mm, None], repeatRows=1)
-    t.setStyle(stile_tab)
-    el.append(t)
+    # solo materiale (barre da comprare): niente tabella dei pezzi
+    if voci:
+        el.append(P('Pezzi', 'h'))
+        righe = [['Codice', 'Descrizione', 'Profilo / lunghezza', 'Q.tà', 'Materiale', 'Lavorazione', 'Note']]
+        for v in voci:
+            pl = ' · '.join(z for z in (v.get('profilo') or '', _mm(v.get('lunghezza_mm')) if v.get('lunghezza_mm') else '') if z)
+            lav = TIPI_BREVI.get(v.get('tipo'), v.get('tipo'))
+            if v.get('tipo') == 'laser_tubo':
+                # il fornitore fa solo il taglio: il materiale glielo mandiamo noi
+                lav = 'Solo taglio laser tubo (materiale fornito da noi)' if not v.get('materiale_fornito')                     else 'Taglio laser tubo, materiale vostro'
+            righe.append([P(v.get('codice') or '—', 'cb'), P(v.get('descrizione') or '—'), P(pl or '—'),
+                          P(v.get('quantita')), P(_mat(v.get('materiale'))), P(lav),
+                          P(v.get('nota') or '')])
+        t = Table(righe, colWidths=[26 * mm, 36 * mm, 30 * mm, 10 * mm, 18 * mm, 25 * mm, None], repeatRows=1)
+        t.setStyle(stile_tab)
+        el.append(t)
 
     def piede(canvas, d):
         canvas.saveState()

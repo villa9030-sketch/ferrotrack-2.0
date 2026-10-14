@@ -414,7 +414,8 @@ def con_taglia_entro(order, a: dict, cal=None, procura: dict | None = None) -> d
     return {**a, 'taglia_entro': te,
             'lavorazione_esterna': {'valore': flag, 'nota': nota},
             'procura': {'n': pc.get('n') or 0, 'n_da_ordinare': pc.get('n_da_ordinare') or 0,
-                        'n_ordinati': pc.get('n_ordinati') or 0, 'n_scaduti': pc.get('n_scaduti') or 0}}
+                        'n_ordinati': pc.get('n_ordinati') or 0, 'n_scaduti': pc.get('n_scaduti') or 0,
+                        'n_materiale': pc.get('n_materiale') or 0}}
 
 
 @bp_laser.route('/api/orders/<order_id>/lavorazione-esterna', methods=['POST'])

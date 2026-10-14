@@ -20,6 +20,14 @@
    pezzi per assieme x assiemi, come la distinta e Lantek: si scrivono i
    pezzi per assieme. Tubi senza profilo: "da completare", fuori dalle barre.
 
+   Laser tubo (14/10/2026): il materiale lo compra Stefano e lo manda al
+   fornitore, che fa solo il taglio. Una voce L e' quindi due cose distinte:
+   le sue barre stanno in "Materiale da comprare" (con i tubi T dello stesso
+   profilo, stato suo: chi, quando ordinato, arrivato) e il taglio sta in
+   "Lavorazione al laser tubo" (richiesta coi disegni, ordinato, tornato).
+   Nella selezione il materiale ha la chiave "m:<id>", il taglio "<id>".
+   "Materiale fornito dal laser tubo" (raro) toglie la voce dalle barre.
+
    Lo STESSO modulo serve due pagine (cosi' non divergono mai):
      - laser.html: usa la base del laser (laser-base.js, LZ.s, i tasti di
        laser-avvio.js), il chip sull'ordine, l'ordine aperto si rilegge;
@@ -102,7 +110,7 @@
     if (!p || !p.n) return '';
     const t = corto ? `Procura ${p.n}` : `Da procurare (${p.n})`;
     return `<button class="lz-chip ${p.n_scaduti ? 'err' : 'att'} lz-pc-chip" type="button" data-az="procura"
-      title="${esc(`${p.n_da_ordinare} da ordinare, ${p.n_ordinati} ordinati${p.n_scaduti ? `, ${p.n_scaduti} in ritardo` : ''}`)}"><i class="pt"></i>${esc(t)}</button>`;
+      title="${esc(`${p.n_da_ordinare} da ordinare, ${p.n_ordinati} ordinati${p.n_scaduti ? `, ${p.n_scaduti} in ritardo` : ''}${p.n_materiale ? ` (di cui ${p.n_materiale} materiale da comprare per il laser tubo)` : ''}`)}"><i class="pt"></i>${esc(t)}</button>`;
   };
 
   // ── Apri / chiudi ───────────────────────────────────────────────────
@@ -159,7 +167,7 @@
     st.dati = r.d;
     // la selezione resta sulle voci ancora visibili (anche di ordini diversi)
     const ids = new Set((r.d.voci || []).map(v => v.id));
-    for (const id of [...st.sel]) if (!ids.has(id)) st.sel.delete(id);
+    for (const id of [...st.sel]) if (!ids.has(id.replace(/^m:/, ''))) st.sel.delete(id);
     P.n = { aperti: r.d.conteggi.aperti, da_ordinare: r.d.conteggi.da_ordinare, scaduti: r.d.conteggi.scaduti };
     bottone();
     disegna();
@@ -172,6 +180,15 @@
   const mat = m => String(m || '—').replace(/_/g, ' ');
   const metri = v => `${FT.numero(Number(v), Number(v) % 1 ? 2 : 0)} m`;
 
+  /** Il filtro di stato vale per la voce (taglio) o per il suo materiale. */
+  function okStato(s) {
+    const f = st.filtri.stato;
+    if (f === 'tutti') return true;
+    if (f === 'aperti') return !!s && s !== 'arrivato';
+    return s === f;
+  }
+  /** Lo stato del materiale da comprare (per un tubo T e' la voce stessa). */
+  const acquisto = v => v.acquisto ? { ...v.acquisto, scaduta: !!v.acquisto.scaduta } : null;
   function statoHtml(v) {
     if (v.stato === 'arrivato') return `<span class="lz-st ok">${H.ico('check')}arrivato ${v.arrivato_il ? esc(FT.fmtDataBreve(v.arrivato_il)) : ''}</span>`;
     if (v.stato === 'ordinato') {
@@ -218,7 +235,7 @@
       h = `<div class="lz-vuoto"><div><div class="ico">${H.ico('package-check')}</div><b>${f.stato === 'da_ordinare' && !f.tipo && !f.ordine ? 'Niente da ordinare' : 'Nessuna voce con questi filtri'}</b>
         <p>Le voci arrivano da sole: tasto N nel controllo dei disegni («non è da laser»), e righe dei tubolari della distinta.</p></div></div>`;
     } else {
-      h = modificaHtml() + daCompletareHtml() + tubiHtml() + altriHtml();
+      h = modificaHtml() + daCompletareHtml() + tubiHtml() + laserTuboHtml() + altriHtml();
     }
     H.metti(corpo, `<div class="lz-pc-dentro">${h}</div>`, corpo);
     azioni();
@@ -229,25 +246,36 @@
     if (!gruppi.length) return '';
     const ids = perId();
     const cfg = st.dati.config || {};
-    return `<section class="lz-pc-sez" aria-label="Tubi e profili">
-      <h2>Tubi e profili <small>barre da ${FT.numero((cfg.barra_mm || 6000) / 1000, 1)} m · ${FT.numero(cfg.lama_mm || 3, 1)} mm di lama fra un taglio e l'altro</small></h2>
-      <table class="lz-tab lz-pc-tab"><thead><tr><th class="ck"></th><th>Profilo</th><th>Materiale</th><th class="r">Pezzi</th><th class="r">Metri</th><th class="r">Barre</th><th></th><th class="men"></th></tr></thead>
+    return `<section class="lz-pc-sez lz-pc-mat" aria-label="Materiale da comprare">
+      <h2>Materiale da comprare <small>tubi e profili in barre da ${FT.numero((cfg.barra_mm || 6000) / 1000, 1)} m · ${FT.numero(cfg.lama_mm || 3, 1)} mm di lama · anche il materiale da mandare al laser tubo</small></h2>
+      <table class="lz-tab lz-pc-tab"><thead><tr><th class="ck"></th><th>Profilo</th><th>Materiale</th><th class="r">Pezzi</th><th class="r">Metri</th><th class="r">Barre</th><th>Stato</th><th></th><th class="men"></th></tr></thead>
       <tbody>${gruppi.map(g => {
-        const tutti = g.voci.every(id => st.sel.has(id)), qualcuno = g.voci.some(id => st.sel.has(id));
+        const tutti = g.voci.every(id => st.sel.has('m:' + id)), qualcuno = g.voci.some(id => st.sel.has('m:' + id));
+        const nLt = (g.voci_laser_tubo || []).length;
         const aperto = st.aperti.has(g.chiave);
         const avvisi = [g.troppo_lunghi.length ? `<span class="lz-st err">${H.ico('triangle-alert')}${g.troppo_lunghi.map(t => `${esc(t.codice || '')} ${mm(t.lunghezza_mm)}`).join(', ')}: più lungo di una barra</span>` : '',
           g.senza_lunghezza.length ? `<span class="lz-st att">${H.ico('ruler')}${g.senza_lunghezza.reduce((s, t) => s + t.n, 0)} pz senza lunghezza</span>` : ''].filter(Boolean).join('');
         let riga = `<tr class="lz-pc-g${aperto ? ' aperto' : ''}" data-fuoco="pc-g-${esc(g.chiave)}">
           <td class="ck"><input type="checkbox" data-pc-gruppo="${esc(g.chiave)}" ${tutti ? 'checked' : ''} ${!tutti && qualcuno ? 'data-meta="1"' : ''} aria-label="Seleziona ${esc(g.profilo)}"></td>
-          <td class="cod">${esc(g.profilo)}</td><td>${esc(mat(g.materiale))}</td>
+          <td class="cod">${esc(g.profilo)}${nLt ? `<small class="lz-pc-lt">${H.ico('send')}${nLt === g.voci.length ? 'tutto' : H.plur(nLt, 'voce', 'voci')} da mandare al laser tubo</small>` : ''}</td><td>${esc(mat(g.materiale))}</td>
           <td class="r q">${FT.numero(g.n_pezzi)}</td><td class="r">${metri(g.metri)}</td>
-          <td class="r"><b class="lz-pc-barre">${g.n_barre}</b></td><td>${avvisi}</td>
+          <td class="r"><b class="lz-pc-barre">${g.n_barre}</b> <small>da ${FT.numero((g.barra_mm || 6000) / 1000, 1)} m</small></td><td>${statoGruppo(g, ids)}</td><td>${avvisi}</td>
           <td class="men"><button class="lz-btn piccolo ghost" type="button" data-pc-apri="${esc(g.chiave)}" aria-expanded="${aperto}">${H.ico(aperto ? 'chevron-up' : 'chevron-down')}Piano di taglio</button></td></tr>`;
-        if (aperto) riga += `<tr class="lz-pc-piano"><td></td><td colspan="7">${pianoHtml(g)}${daDoveHtml(g, ids)}</td></tr>`;
+        if (aperto) riga += `<tr class="lz-pc-piano"><td></td><td colspan="8">${pianoHtml(g)}${daDoveHtml(g, ids)}</td></tr>`;
         return riga;
       }).join('')}</tbody></table></section>`;
   }
 
+  /** Stato del materiale del gruppo: uno solo, o quanti per stato. */
+  function statoGruppo(g, ids) {
+    const aa = g.voci.map(id => ids.get(id)).filter(Boolean).map(acquisto).filter(Boolean);
+    if (!aa.length) return '';
+    const st1 = [...new Set(aa.map(a => a.stato))];
+    if (st1.length === 1) return statoHtml({ ...aa[0], scaduta: aa.some(a => a.scaduta) });
+    const n = s => aa.filter(a => a.stato === s).length;
+    return `<span class="lz-st att">${H.ico('circle-dot')}${[['da_ordinare', 'da ordinare'], ['ordinato', 'ordinat'], ['arrivato', 'arrivat']]
+      .filter(([s]) => n(s)).map(([s, t]) => `${n(s)} ${s === 'da_ordinare' ? t : t + (n(s) === 1 ? 'a' : 'e')}`).join(', ')}</span>`;
+  }
   /** Le barre una per una: i tagli in scala (codice e lunghezza), lo sfrido. */
   function pianoHtml(g) {
     if (!g.piano.length) return '<p class="lz-pc-nota">Nessun pezzo con la lunghezza: niente piano.</p>';
@@ -260,16 +288,41 @@
   function daDoveHtml(g, ids) {
     const vv = g.voci.map(id => ids.get(id)).filter(Boolean);
     return `<table class="lz-pc-dove"><thead><tr><th class="ck"></th><th>Da dove</th><th>Codice</th><th class="r">Pezzi</th><th class="r">Lunghezza</th><th>Stato</th><th class="men"></th></tr></thead><tbody>
-      ${vv.map(v => `<tr><td class="ck">${casella(v.id, v.codice || v.profilo || '')}</td><td>${ordineHtml(v.ordine)}</td>
-        <td class="mono">${esc(v.codice || '—')}${v.origine === 'tubolare' ? '<small>riga tubolare della distinta</small>' : ''}</td>
-        <td class="r">${qtaHtml(v)}</td><td class="r">${esc(mm(v.lunghezza_mm) || '—')}</td><td>${statoHtml(v)}</td><td class="men">${matita(v)}</td></tr>`).join('')}</tbody></table>`;
+      ${vv.map(v => `<tr><td class="ck">${casella('m:' + v.id, v.codice || v.profilo || '')}</td><td>${ordineHtml(v.ordine)}</td>
+        <td class="mono">${esc(v.codice || '—')}${v.tipo === 'laser_tubo' ? '<small>materiale da mandare al laser tubo (taglio sotto)</small>' : v.origine === 'tubolare' ? '<small>riga tubolare della distinta</small>' : ''}</td>
+        <td class="r">${qtaHtml(v)}</td><td class="r">${esc(mm(v.lunghezza_mm) || '—')}</td><td>${statoHtml(acquisto(v) || v)}</td><td class="men">${matita(v)}</td></tr>`).join('')}</tbody></table>`;
+  }
+
+  /** Il taglio al laser tubo: la lavorazione da chiedere al fornitore, coi
+      disegni. Il materiale (barre) e' sopra, con uno stato suo. */
+  function laserTuboHtml() {
+    const vv = voci().filter(v => v.tipo === 'laser_tubo' && okStato(v.stato));
+    if (!vv.length) return '';
+    const matHtml = v => {
+      const a = acquisto(v);
+      const sw = `<label class="lz-pc-fornito" title="Caso raro: il materiale lo mette il laser tubo, niente barre da comprare"><input type="checkbox" data-pc-fornito="${esc(v.id)}" ${v.materiale_fornito ? 'checked' : ''}> lo fornisce il laser tubo</label>`;
+      if (!a) return `<span class="lz-st">${H.ico('package')}fornito dal laser tubo</span>${sw}`;
+      return `${v.profilo ? statoHtml(a) : '<span class="lz-st att">' + H.ico('pencil') + 'manca il profilo: niente barre</span>'}${sw}`;
+    };
+    return `<section class="lz-pc-sez lz-pc-lav" aria-label="Lavorazione al laser tubo">
+      <h2>Lavorazione al laser tubo <small>${H.plur(vv.length, 'codice', 'codici')} · il taglio da chiedere al fornitore (richiesta coi disegni); le barre le compri tu, sono in «Materiale da comprare»</small></h2>
+      <table class="lz-tab lz-pc-tab"><thead><tr><th class="ck"></th><th>Codice</th><th>Profilo / lunghezza</th><th class="r">Q.tà</th><th>Ordine</th><th>Disegno</th><th>Materiale</th><th>Taglio</th><th class="men"></th></tr></thead>
+      <tbody>${vv.map(v => `<tr data-fuoco="pc-lt-${esc(v.id)}">
+        <td class="ck">${casella(v.id, v.codice || v.descrizione || '')}</td>
+        <td class="cod">${esc(v.codice || '—')}</td>
+        <td class="lav">${esc([v.profilo || v.descrizione, v.lunghezza_mm ? mm(v.lunghezza_mm) : ''].filter(Boolean).join(' · ') || '—')}${v.nota ? `<small>${esc(v.nota)}</small>` : ''}${v.da_completare ? `<small class="lz-st att">${H.ico('pencil')}da completare: ${esc(v.da_completare)}</small>` : ''}</td>
+        <td class="r q">${qtaHtml(v)}</td>
+        <td>${ordineHtml(v.ordine)}</td>
+        <td>${v.n_disegni ? `<span class="lz-st ok">${H.ico('file-check')}sì (${v.n_disegni})</span>` : '<span class="lz-st">no</span>'}</td>
+        <td class="lz-pc-matcol">${matHtml(v)}</td>
+        <td>${statoHtml(v)}</td><td class="men">${matita(v)}</td></tr>`).join('')}</tbody></table></section>`;
   }
 
   function altriHtml() {
-    const vv = voci().filter(v => v.tipo !== 'tubo');
+    const vv = voci().filter(v => v.tipo !== 'tubo' && v.tipo !== 'laser_tubo' && okStato(v.stato));
     if (!vv.length) return '';
     return `<section class="lz-pc-sez" aria-label="Altri pezzi da procurare">
-      <h2>Laser tubo, meccanica, commerciali, altro</h2>
+      <h2>Meccanica, commerciali, altro</h2>
       <table class="lz-tab lz-pc-tab"><thead><tr><th class="ck"></th><th>Tipo</th><th>Codice</th><th>Descrizione</th><th class="r">Q.tà</th><th>Ordine</th><th>Disegno</th><th>Stato</th><th class="men"></th></tr></thead>
       <tbody>${vv.map(v => `<tr data-fuoco="pc-v-${esc(v.id)}">
         <td class="ck">${casella(v.id, v.codice || v.descrizione || '')}</td>
@@ -284,7 +337,7 @@
 
   /** Tubi senza profilo: non si possono ordinare ne' mettere in barra. */
   function daCompletareHtml() {
-    const vv = voci().filter(v => v.tipo === 'tubo' && v.da_completare && !v.profilo);
+    const vv = voci().filter(v => (v.tipo === 'tubo' || (v.tipo === 'laser_tubo' && !v.materiale_fornito)) && v.da_completare && !v.profilo);
     if (!vv.length) return '';
     return `<section class="lz-pc-sez lz-pc-dacomp" aria-label="Tubi da completare">
       <h2>Tubi da completare <small>${H.plur(vv.length, 'voce senza profilo', 'voci senza profilo')}: fuori dal calcolo delle barre finché non scrivi quale tubo</small></h2>
@@ -375,12 +428,13 @@
     if (!box || !st) return;
     const n = st.sel.size;
     if (!n) { H.metti(box, ''); return; }
-    const sel = voci().filter(v => st.sel.has(v.id));
-    const ordini = new Set(sel.map(v => v.order_id)).size;
+    const nMat = [...st.sel].filter(k => k.startsWith('m:')).length;
+    const ordini = new Set(voci().filter(v => st.sel.has(v.id) || st.sel.has('m:' + v.id)).map(v => v.order_id)).size;
+    const cosa = nMat && nMat < n ? ` (${nMat} materiale, ${n - nMat} lavorazioni)` : nMat ? ' di materiale' : '';
     let h;
     if (st.modulo === 'ordinato') {
       h = `<div class="lz-pc-az modulo">
-        <span class="q"><b>${H.plur(n, 'voce', 'voci')}</b>: segna ordinato</span>
+        <span class="q"><b>${H.plur(n, 'voce', 'voci')}</b>${cosa}: segna ordinato</span>
         <label>Fornitore <input type="text" maxlength="80" data-pc-forn data-fuoco="pc-forn" placeholder="a chi l'hai ordinato" value="${esc(st.forn || '')}"></label>
         <label>Data prevista <input type="date" data-pc-data data-fuoco="pc-data" min="${esc(FT.oggiISO())}" value="${esc(st.data || '')}"></label>
         <span class="sp"></span>
@@ -388,7 +442,7 @@
         <button class="lz-btn pri" type="button" data-pc="ordinato-ok" ${st.lavoro ? 'disabled' : ''}>Segna ordinato${H.tasto('Invio')}</button></div>`;
     } else {
       h = `<div class="lz-pc-az">
-        <span class="q"><b>${H.plur(n, 'voce selezionata', 'voci selezionate')}</b>${ordini > 1 ? ` da ${ordini} ordini` : ''}</span>
+        <span class="q"><b>${H.plur(n, 'voce selezionata', 'voci selezionate')}</b>${cosa}${ordini > 1 ? ` da ${ordini} ordini` : ''}</span>
         <button class="lz-link" type="button" data-pc="sel-via">Togli selezione</button>
         <span class="sp"></span>
         <button class="lz-btn pri" type="button" data-pc="richiesta" ${st.lavoro ? 'disabled' : ''}>${H.ico('file-archive')}Prepara richiesta d'offerta${H.tasto('R')}</button>
@@ -426,11 +480,12 @@
     if (t.matches('[data-pc-sel]')) { if (t.checked) st.sel.add(t.dataset.pcSel); else st.sel.delete(t.dataset.pcSel); disegna(); return; }
     if (t.matches('[data-pc-gruppo]')) {
       const g = ((st.dati || {}).gruppi || []).find(x => x.chiave === t.dataset.pcGruppo);
-      if (g) for (const id of g.voci) { if (t.checked) st.sel.add(id); else st.sel.delete(id); }
+      if (g) for (const id of g.voci) { if (t.checked) st.sel.add('m:' + id); else st.sel.delete('m:' + id); }
       disegna();
       return;
     }
     if (t.matches('[data-pc-f]')) { st.filtri[t.dataset.pcF] = t.value; carica(); return; }
+    if (t.matches('[data-pc-fornito]')) { materialeFornito(t.dataset.pcFornito, t.checked); return; }
     if (t.matches('[data-pcm]') && st.mod) { st.mod.campi[t.dataset.pcm] = t.value; if (t.tagName === 'SELECT') disegna(); return; }
     if (t.matches('[data-pc-forn]')) st.forn = t.value;
     if (t.matches('[data-pc-data]')) st.data = t.value;
@@ -484,7 +539,8 @@
     if (!st || !st.sel.size) return;
     st.modulo = 'ordinato';
     // il fornitore gia' scritto su queste voci, se e' uno solo
-    const forn = [...new Set(voci().filter(v => st.sel.has(v.id) && v.fornitore).map(v => v.fornitore))];
+    const forn = [...new Set([...voci().filter(v => st.sel.has(v.id) && v.fornitore).map(v => v.fornitore),
+      ...voci().filter(v => st.sel.has('m:' + v.id) && v.acquisto && v.acquisto.fornitore).map(v => v.acquisto.fornitore)])];
     st.forn = st.forn || (forn.length === 1 ? forn[0] : '');
     azioni();
     const i = document.querySelector('#lz-pc [data-pc-forn]');
@@ -499,9 +555,9 @@
 
   async function cambiaStato(stato, extra) {
     if (!st || !st.sel.size || st.lavoro) return;
-    const ids = [...st.sel];
+    const { ids, ids_materiale } = divisi();
     st.lavoro = true; azioni();
-    const r = await H.azione(() => H.post('/api/procura/stato', { ids, stato, ...(extra || {}) }));
+    const r = await H.azione(() => H.post('/api/procura/stato', { ids, ids_materiale, stato, ...(extra || {}) }));
     if (!st) return;
     st.lavoro = false;
     if (!r.ok) { azioni(); FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
@@ -518,14 +574,32 @@
     if (st) await dopo(); else { P.conta(); rileggiPagina(); }
   }
 
+  /** La selezione divisa: voci (il taglio, per il laser tubo) e materiale. */
+  function divisi() {
+    const k = [...st.sel];
+    return { ids: k.filter(x => !x.startsWith('m:')), ids_materiale: k.filter(x => x.startsWith('m:')).map(x => x.slice(2)) };
+  }
+  /** "Materiale fornito dal laser tubo": la voce esce (o rientra) dalle barre. */
+  async function materialeFornito(id, si) {
+    if (!st || st.lavoro) return;
+    st.lavoro = true;
+    const r = await H.azione(() => H.post(`/api/procura/${encodeURIComponent(id)}`, { materiale_fornito: !!si }));
+    if (!st) return;
+    st.lavoro = false;
+    if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); await carica(); return; }
+    st.sel.delete('m:' + id);
+    FT.toast(si ? 'Materiale fornito dal laser tubo: tolto dalle barre' : 'Materiale da comprare: rimesso nelle barre', 'ok');
+    await dopo();
+  }
+
   /** ZIP con il PDF della richiesta e i disegni dei pezzi scelti. */
   async function richiesta() {
     if (!st || !st.sel.size || st.lavoro) return;
-    const ids = [...st.sel];
+    const { ids, ids_materiale } = divisi();
     st.lavoro = true; azioni();
     FT.toast('Preparo la richiesta d\'offerta…', '', null, 2000);
     try {
-      const r = await fetch('/api/procura/richiesta-offerta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+      const r = await fetch('/api/procura/richiesta-offerta', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, ids_materiale }) });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'errore del server'); }
       const blob = await r.blob();
       const cd = r.headers.get('Content-Disposition') || '';

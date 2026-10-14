@@ -7539,7 +7539,7 @@ function _saRenderComponenti(r, A) {
         <span class="pr-meta">Tubolare · ${lung}${ang}${qTot}${t.nota_esterno ? ' · ' + escapeHtml(t.nota_esterno) : ''}${avv(t)}</span>
         <span class="pr-meta sa-tub-mat${fm.avviso ? ' warn' : ''}" title="${escapeHtml(fm.avviso || 'Materiale ' + ({ distinta: 'letto dalla distinta', disegno: 'letto dal cartiglio del disegno', assieme: 'letto dalla distinta dell\'assieme', pezzo: 'del pezzo', 'a mano': 'scelto a mano' }[t.materiale_da] || ''))} · clic per cambiarlo">${escapeHtml(fm.testo)}${fm.avviso ? ` · <span class="pr-issue warn">${escapeHtml(fm.avviso)}</span>` : ''}</span>
         <label class="sa-tub-est" onclick="event.stopPropagation()" title="Lavorazione fatta fuori (es. taglio laser tubo): prezzo del fornitore per tutta la riga">
-          Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label></span>
+          Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label>${t.nota_esterno && !(parseFloat(t.costo_esterno) > 0) ? `<span class="pr-meta"><span class="pr-issue warn" title="Taglio al laser tubo: nel prezzo ci sono il materiale (le barre le compri tu) e quello che chiede il fornitore per il taglio, da scrivere in Lav. esterna">taglio laser tubo a 0 €: scrivi il prezzo del fornitore</span></span>` : ''}</span>
       ${prezzo(v, v / q, q)}
     </div>`);
   }
@@ -10648,7 +10648,7 @@ function _wbBarreHtml(d) {
     const oltre = (g.troppo_lunghi || []).length
       ? `<small class="warn">${g.troppo_lunghi.length} pz più lunghi di una barra (${g.troppo_lunghi.map(x => _fNum(x.lunghezza_mm, 0) + ' mm').join(', ')}): da comprare a misura</small>` : '';
     const senza = g.senza_lunghezza ? `<small class="warn">${g.senza_lunghezza} pz senza lunghezza: fuori dal conto</small>` : '';
-    const est = g.pz_esterni ? `<small>${g.pz_esterni === g.n_pezzi ? 'Tutti' : g.pz_esterni + ' pz'} con taglio laser tubo esterno: le barre servono lo stesso${g.pz_esterni === g.n_pezzi ? ' (se il materiale non lo mette il fornitore)' : ''}</small>` : '';
+    const est = g.pz_esterni ? `<small>${g.pz_esterni === g.n_pezzi ? 'Tutti' : g.pz_esterni + ' pz'} tagliati al laser tubo: le barre le compri tu e le mandi al fornitore, che fa solo il taglio</small>` : '';
     const piano = g.piano && g.piano.length ? `<details class="br-piano"><summary>Piano di taglio</summary><ol>${g.piano.map(b =>
       `<li>${_wbTagliBarra(b)} mm · avanzo ${_fNum(b.sfrido_mm, 0)} mm</li>`).join('')}</ol></details>` : '';
     return `<li data-chiave="${escapeHtml(g.chiave)}"><span class="br-prof">${prof}</span>: ${g.n_pezzi} pz, ${_fNum(g.metri)} m → <b class="br-n">${g.n_barre} ${g.n_barre === 1 ? 'barra' : 'barre'} da ${bm} m</b>

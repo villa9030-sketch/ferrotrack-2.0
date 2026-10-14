@@ -475,6 +475,19 @@ class DaProcurare(Base):
     creato_da = Column(String, nullable=True)
     aggiornato_il = Column(DateTime, nullable=True)
     aggiornato_da = Column(String, nullable=True)
+    # Laser tubo (14/10/2026): il MATERIALE (le barre) di solito lo compra
+    # Stefano e lo manda al fornitore, che fa solo il taglio. Sulla voce L lo
+    # stato sopra e' quello del TAGLIO; qui quello del materiale, a parte.
+    # Vuoto = da ordinare. materiale_fornito vero = lo mette il laser tubo
+    # (caso raro): niente barre da comprare. Sulle voci T (tubo) il materiale
+    # e' la voce stessa: questi campi non si usano.
+    # Colonne aggiunte da migrations_ore._migra_colonne_sottosistema.
+    materiale_fornito = Column(Boolean, nullable=True)
+    mat_stato = Column(String, nullable=True)              # da_ordinare | ordinato | arrivato
+    mat_fornitore = Column(String, nullable=True)
+    mat_data_prevista = Column(Date, nullable=True)
+    mat_ordinato_il = Column(DateTime, nullable=True)
+    mat_arrivato_il = Column(DateTime, nullable=True)
     __table_args__ = (UniqueConstraint('order_id', 'chiave', name='ux_da_procurare_ordine_chiave'),)
 
 

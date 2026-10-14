@@ -81,6 +81,14 @@ _NUOVE_TABELLE_COLS = {
                           'quantita_lantek': 'FLOAT'},
     # Registro degli invii a Lantek: da dove viene la riga
     'lantek_invii': {'origine': 'VARCHAR'},
+    # Laser tubo: il materiale (barre) comprato a parte dal taglio, con il
+    # suo stato. Nascono vuoti: vuoto = da ordinare / non fornito dal laser tubo.
+    'da_procurare': {'materiale_fornito': 'BOOLEAN',
+                     'mat_stato': 'VARCHAR',
+                     'mat_fornitore': 'VARCHAR',
+                     'mat_data_prevista': 'DATE',
+                     'mat_ordinato_il': 'DATETIME',
+                     'mat_arrivato_il': 'DATETIME'},
 }
 
 # Con che valore nasce una colonna nuova sulle righe che c'erano gia'.

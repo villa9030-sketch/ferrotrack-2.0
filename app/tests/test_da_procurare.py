@@ -329,12 +329,14 @@ def main():
           [(v.tipo, v.profilo, v.quantita, v.lunghezza_mm) for v in tubi])
     check('con la "Lav. esterna" del preventivatore: laser tubo, la nota resta',
           r and r.quantita == 3 and r.lunghezza_mm == 1200 and r.nota == 'laser tubo Rossi', r and (r.quantita, r.nota))
-    check('chip: 2 da procurare, nessuno in ritardo', d.get('procura') == {'n': 2, 'n_da_ordinare': 2, 'n_ordinati': 0, 'n_scaduti': 0},
+    # 14/10/2026: il laser tubo e' due voci, il taglio e il materiale (barre) da comprare
+    check('chip: 3 da procurare (tubo, taglio laser tubo, suo materiale), nessuno in ritardo',
+          d.get('procura') == {'n': 3, 'n_da_ordinare': 3, 'n_ordinati': 0, 'n_scaduti': 0, 'n_materiale': 1},
           d.get('procura'))
     check('laser tubo dal fornitore = lavorazione esterna nel taglia entro (+5)',
           'laser tubo dal fornitore' in (d.get('taglia_entro') or {}).get('motivo', ''), d.get('taglia_entro'))
-    check("avviso all'Ufficio: uno per l'ordine, \"2 pezzi da procurare per DECA S.r.l. 7001\"",
-          avvisi_ufficio(oid) == [('2 pezzi da procurare per DECA S.r.l. 7001', False)], avvisi_ufficio(oid))
+    check("avviso all'Ufficio: uno per l'ordine, \"3 pezzi da procurare per DECA S.r.l. 7001\" (col materiale del laser tubo)",
+          avvisi_ufficio(oid) == [('3 pezzi da procurare per DECA S.r.l. 7001', False)], avvisi_ufficio(oid))
     riep(laser, oid)
     check('riletto: niente doppioni', len([v for v in voci_db(oid).values() if v.origine == 'tubolare']) == 2)
     # la distinta cambia: quantita' aggiornata, riga sparita tolta
