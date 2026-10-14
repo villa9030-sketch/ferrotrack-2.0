@@ -406,7 +406,12 @@ def process_single_dxf(dxf_path: str, filename: str, dxf_cfg: dict) -> dict:
 
     # ---- Cache lookup (chiave: contenuto + nome file + config + Gemini) ----
     try:
-        cache_key = dxf_cache.chiave_cache(dxf_cache.hash_file(dxf_path), filename, dxf_cfg)
+        # il PDF del pezzo (stesso nome) puo' dare svasature/filettature: se
+        # arriva o cambia, il risultato in cache non vale piu'
+        from .lavorazioni_testi import pdf_gemello
+        _pdf = pdf_gemello(dxf_path)
+        cache_key = dxf_cache.chiave_cache(dxf_cache.hash_file(dxf_path), filename, dxf_cfg,
+                                           extra={'pdf': dxf_cache.hash_file(_pdf)} if _pdf else None)
         cached = dxf_cache.get(cache_key)
     except Exception as e:
         logger.warning('[%s] cache lookup fail: %s', filename, e)
