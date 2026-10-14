@@ -432,6 +432,7 @@ class LantekInvio(Base):
     commessa = Column(String, nullable=True)
     riferimento = Column(String, nullable=True)            # Reference dell'ordine di produzione
     invio = Column(String, nullable=True)                  # timbro dell'invio (AAMMGGhhmm)
+    origine = Column(String, nullable=True)                # 'ft' (Manda a Lantek) | 'storico' (dai file d'importazione)
     creato_il = Column(DateTime, default=datetime.utcnow)
     creato_da = Column(String, nullable=True)
     annullato_il = Column(DateTime, nullable=True)

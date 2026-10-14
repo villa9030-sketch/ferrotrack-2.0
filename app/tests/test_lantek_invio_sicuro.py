@@ -28,6 +28,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime
 import uuid
 
 _QUI = os.path.dirname(os.path.abspath(__file__))
@@ -185,6 +186,87 @@ def registro(oid):
         s.close()
 
 
+def _xml(righe):
+    cmd = ''.join(f'<COMMAND Name="Import" TblRef="MANUFACTURING"><FIELD FldRef="Reference" FldValue="{rif}" FldType="20" />'
+                  f'<FIELD FldRef="Product" FldValue="{cod}" FldType="20" /><FIELD FldRef="SaleOrder" FldValue="{so}" FldType="20" />'
+                  f'<FIELD FldRef="Quantity" FldValue="{q}" FldType="100" /></COMMAND>' for rif, cod, so, q in righe)
+    return f'<?xml version="1.0" encoding="utf-8"?><DATAEX>{cmd}</DATAEX>'
+
+
+def _log(righe, errati=()):
+    blocchi = ''.join(f'<div>{i}. IMPORT FOR TABLE MANUFACTURING <div>Production Order: {rif} Destination Product: {cod}</div></div>'
+                      f'<ul><li><div>{"Product not found" if cod in errati else "Insert into table MANUFACTURING was successful."}</div></li></ul>'
+                      for i, (rif, cod, so, q) in enumerate(righe, 1))
+    n = len(righe)
+    return (f'<html><body><table><tr><td>Total commands:</td><td>{n}</td></tr><tr><td>Commands Ok:</td><td>{n - len(errati)}</td></tr>'
+            f'<tr><td>Commands with warning:</td><td>0</td></tr><tr><td>Commands with error:</td><td>{len(errati)}</td></tr></table>'
+            f'{blocchi}</body></html>')
+
+
+def storico():
+    print('\n8) Gli invii di PRIMA del registro (file dell\'XML Importer)')
+    from backend import lantek_invii as LI
+    from backend.models import Order
+    import shutil
+    cart = tempfile.mkdtemp(prefix='ft_li_storico_')
+    log = os.path.join(cart, 'Importer log')
+    os.makedirs(log)
+    s = models.SessionLocal()
+    ids = {}
+    for num in ('A 009500', 'A 009501', 'A 009502'):
+        ids[num] = str(uuid.uuid4())
+        s.add(Order(id=ids[num], cliente='DECA S.r.l.', numero_ordine=num, status='RICEVUTO', data_consegna=datetime(2026, 11, 2)))
+    s.commit(); s.close()
+    ok = [('FT9500-X1-00-2610121424', 'X1-00', '9500', '3'), ('FT9500-X2-00-2610121424', 'X2-00', '9500', '6')]
+    errato = [('FT9501-Y1-00-2610121500', 'Y1-00', '9501', '2'), ('FT9501-Y2-00-2610121500', 'Y2-00', '9501', '1')]
+    senza_log = [('FT9502-Z1-00-2610121600', 'Z1-00', '9502', '4')]
+    for nome, righe, errati, con_log in (('ORDINI_LANTEK_-_9500_20261012_142444_2026-10-12 142446', ok, (), True),
+                                         ('ORDINI_LANTEK_-_9501_20261012_150000_2026-10-12 150002', errato, ('Y2-00',), True),
+                                         ('ORDINI_LANTEK_-_9502_20261012_160000_2026-10-12 160002', senza_log, (), False)):
+        open(os.path.join(log, nome + '.xml'), 'w', encoding='utf-8').write(_xml(righe))
+        if con_log:
+            open(os.path.join(log, nome + '_log.html'), 'w', encoding='utf-8').write(_log(righe, errati))
+    n = LI.importa_storico(cart)
+    check('importati i codici riusciti (2 + 1)', n == 3, n)
+    g = LI.mandati(ids['A 009500'])
+    check('A 009500: X1-00 x3 e X2-00 x6 (SaleOrder 9500 = ordine A 009500)',
+          {k: v['quantita'] for k, v in g.items()} == {'X1-00': 3.0, 'X2-00': 6.0}, g)
+    check('il codice con l\'errore nel rapporto resta fuori', set(LI.mandati(ids['A 009501'])) == {'Y1-00'})
+    check('senza il rapporto: niente', LI.mandati(ids['A 009502']) == {})
+    s = models.SessionLocal()
+    r = s.query(LantekInvio).filter(LantekInvio.order_id == ids['A 009500']).first()
+    check('origine "storico", riferimento e ora dal file', r.origine == 'storico' and r.riferimento.startswith('FT9500-')
+          and r.invio == '2610121424' and r.creato_il is not None)
+    s.close()
+    check('rifatto: nessuna riga in piu\'', LI.importa_storico(cart) == 0)
+
+    # i file veri di produzione (copie, sola lettura), se ci sono su questo PC
+    vera = os.path.join(_APP, '..', '..', 'ferrotrack-2.0', 'app', 'uploads', 'lantek_import', 'Importer log')
+    if not os.path.isdir(vera):
+        print('  (file veri di produzione non presenti: parte saltata)')
+        return
+    copia = tempfile.mkdtemp(prefix='ft_li_veri_')
+    os.makedirs(os.path.join(copia, 'Importer log'))
+    for f in os.listdir(vera):
+        if f.startswith('ORDINI_LANTEK_') and any(k in f for k in ('A_001221_BIS', '1302', '1030')):
+            shutil.copy2(os.path.join(vera, f), os.path.join(copia, 'Importer log', f))
+    s = models.SessionLocal()
+    veri = {}
+    for num in ('A 001221 BIS', 'A 001302', 'A 001030'):
+        veri[num] = str(uuid.uuid4())
+        s.add(Order(id=veri[num], cliente='DECA S.r.l.', numero_ordine=num, status='RICEVUTO', data_consegna=datetime(2026, 11, 2)))
+    s.commit(); s.close()
+    n = LI.importa_storico(copia)
+    bis, o1302, o1030 = (LI.mandati(veri[k]) for k in ('A 001221 BIS', 'A 001302', 'A 001030'))
+    check('file veri: A 001221 BIS 42 codici, 191700045-00 x1 come mandato allora', len(bis) == 42
+          and bis.get('191700045-00', {}).get('quantita') == 1.0, (len(bis), bis.get('191700045-00')))
+    check('file veri: 1302 due codici', set(o1302) == {'050201310-00', '050201313-00'}, list(o1302))
+    check('file veri: 1030 dai due invii', len(o1030) >= 29, len(o1030))
+    check('file veri rifatti: nessuna riga in piu\'', LI.importa_storico(copia) == 0)
+    # e ora "Manda a Lantek" non li rimanda nemmeno con Lantek giu'
+    check('registrati: il secondo invio li salta', not LI.togli_mandati([{'codice': '191700045-00'}], bis))
+
+
 def main():
     print('1) Lantek leggibile ma "in ritardo": il secondo invio non manda niente')
     o1 = nuovo_ordine('LI1')
@@ -271,6 +353,7 @@ def main():
     lz = LAS.get(f'/api/orders/{o1}/laser?fresco=1').get_json() or {}
     check('/laser: invio vuoto', not ((lz.get('invio') or {}).get('codici')), lz.get('invio'))
 
+    storico()
     print(f'\n{OK} ok, {len(KO)} ko')
     if KO:
         print('FALLITI:', *KO, sep='\n  ')

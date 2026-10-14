@@ -186,6 +186,15 @@ def handle_file_too_large(e):
 # disattivato per i test, che non devono toccare il database di lavoro.
 if os.environ.get('FERROTRACK_SKIP_DB_INIT') != '1':
     initialize_database()
+    # Registro degli invii a Lantek: anche quelli fatti prima che esistesse
+    # (file dell'XML Importer). Si puo' rifare a ogni avvio: i doppioni si saltano.
+    try:
+        from . import lantek_invii as _li_avvio
+        _n = _li_avvio.importa_storico(os.path.join(UPLOAD_FOLDER, 'lantek_import'))
+        if _n:
+            logger.info('Registro invii a Lantek: %d righe dai file di prima', _n)
+    except Exception:
+        logger.warning('invii a Lantek di prima non letti', exc_info=True)
 
 # ============ CHI STA AGENDO ============
 # I permessi li decide backend/accesso.py (@richiede su ogni rotta). Qui

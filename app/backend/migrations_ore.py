@@ -79,6 +79,8 @@ _NUOVE_TABELLE_COLS = {
     # l'invio ("corretto in Lantek" a mano, per quel numero).
     'lantek_correzioni': {'quantita_voluta': 'FLOAT',
                           'quantita_lantek': 'FLOAT'},
+    # Registro degli invii a Lantek: da dove viene la riga
+    'lantek_invii': {'origine': 'VARCHAR'},
 }
 
 # Con che valore nasce una colonna nuova sulle righe che c'erano gia'.

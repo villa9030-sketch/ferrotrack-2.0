@@ -73,7 +73,7 @@ def registra(order_id: str, righe: list, commessa: str, invio: str, riferimento=
     try:
         for r in righe:
             s.add(LantekInvio(order_id=order_id, codice=str(r['codice']).strip(), quantita=float(r.get('quantita') or 0),
-                              commessa=commessa or None, invio=invio or None,
+                              commessa=commessa or None, invio=invio or None, origine='ft',
                               riferimento=riferimento(r['codice']) if callable(riferimento) else None,
                               creato_da=chi or None))
         s.commit()
@@ -99,5 +99,96 @@ def annulla(order_id: str, chi: str = '') -> int:
             r.annullato_il, r.annullato_da = ora, chi or None
         s.commit()
         return len(righe)
+    finally:
+        s.close()
+
+
+# ---------------------------------------------------------------------------
+# Gli invii di PRIMA del registro (file dell'XML Importer)
+# ---------------------------------------------------------------------------
+def _quando_file(nome: str):
+    """'..._20261012_142444_...' -> istante UTC (il nome e' in ora locale)."""
+    import re
+    m = re.search(r'_(\d{8})_(\d{6})', nome)
+    if not m:
+        return None
+    from .orario import locale_a_utc
+    return locale_a_utc(datetime.strptime(m.group(1) + m.group(2), '%Y%m%d%H%M%S'))
+
+
+def importa_storico(cartella: str) -> int:
+    """Riempie il registro con gli invii fatti prima che esistesse: i file
+    ORDINI_LANTEK_*.xml in <cartella>/Importer log, solo se il loro rapporto
+    (*_log.html, letto come fa "Manda a Lantek": lantek.leggi_rapporto) dice
+    che l'import e' riuscito; i codici col loro errore nel rapporto restano
+    fuori. SaleOrder -> ordine FerroTrack con la stessa regola dell'invio
+    (commessa_lantek del numero d'ordine del cliente). Una riga gia' presente
+    (stesso ordine, codice, riferimento) non si riscrive: si puo' rifare
+    quante volte si vuole. Ritorna le righe aggiunte."""
+    import glob
+    import os
+    import xml.etree.ElementTree as ET
+    from .database import get_session
+    from .models import LantekInvio, Order
+    from . import lantek as _lt
+    base = os.path.join(cartella or '', 'Importer log')
+    files = sorted(glob.glob(os.path.join(glob.escape(base), 'ORDINI_LANTEK_*.xml')))
+    if not files:
+        return 0
+    s = get_session()
+    try:
+        # commessa (come la scrive l'invio) -> ordini FerroTrack
+        # (come app._numero_per_cartelle: il numero del cliente del preventivo, se c'e')
+        from .models import Preventivo
+        num_cli = {pid: (n or '').strip() for pid, n in s.query(Preventivo.id, Preventivo.numero_ordine_cliente).all()}
+        per_commessa = {}
+        for o in s.query(Order).all():
+            num = num_cli.get(o.preventivo_id_origine or '') or o.numero_ordine or ''
+            per_commessa.setdefault(_lt.commessa_lantek(num).strip().upper(), []).append(o.id)
+        gia = {(r.order_id, str(r.codice).strip().upper(), r.riferimento or '')
+               for r in s.query(LantekInvio).all()}
+        aggiunte = 0
+        for f in files:
+            log = f[:-4] + '_log.html'
+            if not os.path.isfile(log):
+                continue
+            try:
+                rap = _lt.leggi_rapporto(log)
+            except Exception:
+                continue
+            if not rap.get('totale') or not rap.get('ok'):
+                continue
+            con_errore = {str(e.get('pezzo') or '').strip().upper() for e in rap.get('errori') or []}
+            quando = _quando_file(os.path.basename(f))
+            try:
+                cmds = [{x.get('FldRef'): x.get('FldValue') for x in c.iter('FIELD')}
+                        for c in ET.parse(f).getroot().iter('COMMAND')]
+            except Exception:
+                continue
+            for c in cmds:
+                cod = str(c.get('Product') or '').strip()
+                so = str(c.get('SaleOrder') or '').strip().upper()
+                if not cod or cod.upper() in con_errore:
+                    continue
+                try:
+                    q = float(str(c.get('Quantity') or '0').replace(',', '.'))
+                except ValueError:
+                    q = 0
+                rif = str(c.get('Reference') or '')
+                inv = rif.rsplit('-', 1)[-1] if rif.rsplit('-', 1)[-1].isdigit() else None
+                for oid in per_commessa.get(so, []):
+                    k = (oid, cod.upper(), rif)
+                    if k in gia:
+                        continue
+                    gia.add(k)
+                    s.add(LantekInvio(order_id=oid, codice=cod, quantita=q, commessa=c.get('SaleOrder'),
+                                      riferimento=rif or None, invio=inv, origine='storico',
+                                      creato_il=quando or datetime.utcnow(), creato_da='FerroTrack (storico)'))
+                    aggiunte += 1
+        s.commit()
+        return aggiunte
+    except Exception:
+        s.rollback()
+        raise
     finally:
         s.close()
