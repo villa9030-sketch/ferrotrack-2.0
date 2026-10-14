@@ -88,7 +88,9 @@ def profilo_da_descrizione(desc: str) -> dict | None:
     return None
 
 
-_RX_MAT = re.compile(r'S235|S275|S355|1\.0\d{3}|INOX|AISI|ALU', re.I)
+# Il materiale per intero ("AISI 304", "Aisi304", "S235JR"): il prezzo dei
+# tubi dipende dal materiale (inox ≠ ferro)
+_RX_MAT = re.compile(r'S235\w*|S275\w*|S355\w*|1\.[04]\d{3}|INOX(?:\s*\d{3}L?)?|AISI\s*\d{3}L?|AISI|ALLUMIN\w*|ALU\w*', re.I)
 
 
 def _riga_da_celle(celle: list) -> dict | None:
@@ -281,6 +283,18 @@ def leggi_distinta_dxf(sorgente) -> dict | None:
     return {'file': nome, 'peso_kg': None, 'righe': righe, 'da': 'dxf'}
 
 
+def _materiale_cartiglio(testo: str) -> str | None:
+    """Il materiale scritto nel cartiglio: riga "Materiale Peso Kg ..." e sotto
+    "Aisi304 2.496" (DECA) → "Aisi304"; None se non c'e'."""
+    righe = testo.splitlines()
+    for i, riga in enumerate(righe):
+        if re.match(r'\s*Materiale\b.*Peso', riga, re.I) and i + 1 < len(righe):
+            m = re.match(r'\s*(.*?[A-Za-z].*?)\s+\d+(?:[.,]\d+)?\b', righe[i + 1] + ' 0')
+            if m and len(m.group(1)) <= 24:
+                return m.group(1).strip()
+    return None
+
+
 def _peso_cartiglio(testo: str) -> float | None:
     righe = testo.splitlines()
     for i, riga in enumerate(righe):
@@ -363,4 +377,5 @@ def leggi_distinta(pdf_path: str) -> dict | None:
         prof = profilo_da_descrizione(r['descrizione'])
         if prof and r.get('lunghezza_mm'):
             r['profilo'] = prof
-    return {'file': os.path.basename(pdf_path), 'peso_kg': _peso_cartiglio(testo), 'righe': righe}
+    return {'file': os.path.basename(pdf_path), 'peso_kg': _peso_cartiglio(testo),
+            'materiale': _materiale_cartiglio(testo), 'righe': righe}

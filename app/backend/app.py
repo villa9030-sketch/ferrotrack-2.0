@@ -1725,6 +1725,16 @@ def _righe_pezzi_foglio(a: dict, pf: list, cod_ass, lav: list, sp, disegno_fogli
     return righe
 
 
+def _materiale_tubo_leggibile(t: dict):
+    """Materiale della riga tubo per ordine, Da procurare e PDF: il testo letto
+    dal disegno ("AISI304") se c'e', altrimenti il materiale ("inox")."""
+    testo = str(t.get('materiale_testo') or '').strip()
+    mat = str(t.get('materiale') or '').strip()
+    if testo and mat == 'inox' and 'INOX' not in testo.upper() and 'AISI' not in testo.upper():
+        return f'Inox {testo}'
+    return testo or mat or None
+
+
 def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
     """Le righe della distinta di un ordine nato da un preventivo.
 
@@ -1884,7 +1894,8 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             esterna = False
         righe.append({'codice': t.get('posizione') or t.get('profilo') or '',
                       'descrizione': desc, 'tipo': 'tubolare', 'quantita': n,
-                      'materiale': t.get('materiale') or None, 'spessore_mm': None,
+                      # "AISI304" letto dal disegno se c'e' (per chi compra il tubo)
+                      'materiale': _materiale_tubo_leggibile(t), 'spessore_mm': None,
                       'lavorazioni': lav or ['Taglio'], 'assieme': cod_ass,
                       # "È un tubo": il disegno del pezzo da cui viene resta legato
                       'disegno': disegno_di(t.get('disegno_pdf')) or disegno_di(t.get('disegno_dxf')),
@@ -7351,9 +7362,10 @@ def api_preventivi_import_step(preventivo_id):
             except (TypeError, ValueError):
                 return d
         config_tubolari_piastre = {
+            # €/kg per materiale (Impostazioni → Tubolari e profili, 14/10/2026)
             'costo_materiale_acciaio_kg': _tar('tubolari_euro_kg', 1.50),
-            'costo_materiale_inox_kg': 4.50,
-            'costo_materiale_alluminio_kg': 3.50,
+            'costo_materiale_inox_kg': _tar('tubolari_euro_kg_inox', 4.50),
+            'costo_materiale_alluminio_kg': _tar('tubolari_euro_kg_alluminio', 0.0),
             'costo_orario_taglio_tubo': 40.0,
             'costo_taglio_dritto': _tar('tubolari_taglio_dritto', 1.0),
             'costo_taglio_obliquo': _tar('tubolari_taglio_obliquo', 2.5),
@@ -7412,12 +7424,17 @@ def api_preventivi_import_step(preventivo_id):
                 'codice_assieme': codice_assieme_step,
                 'profilo': t.get('profilo') or '',
                 'tipo': t.get('tipo'),
+                # lo STEP non dice il materiale: prezzato come ferro, "da
+                # confermare" sulla riga (si sceglie inox/alluminio li')
                 'materiale': 'acciaio',
+                'materiale_da': 'step',
                 'qty': q,
                 'lunghezza_m': t.get('lunghezza_m') or 0,
                 'lunghezza_totale_m': round((t.get('lunghezza_m') or 0) * q, 3),
                 'peso_unitario_kg': peso_u,
                 'peso_kg': round(peso_u * q, 2),
+                'peso_kg_acciaio': round(peso_u * q, 3),
+                'euro_kg': config_tubolari_piastre['costo_materiale_acciaio_kg'],
                 'costo_materiale': round(peso_u * q * config_tubolari_piastre['costo_materiale_acciaio_kg'], 2),
                 'costo_taglio_totale': 0,  # aggregato in tub_costi.totale, qui zero per articolo singolo
                 'n_tagli_dritti': tagli.count('dritto') * q,
@@ -8786,8 +8803,10 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
             taglio_1, taglio_2 = 'obliquo', 'dritto'
         else:
             taglio_1, taglio_2 = 'dritto', 'dritto'
+        # inox e ferro dello stesso profilo NON si sommano nella distinta di taglio
+        _mt = (t.get('materiale') or '').lower()
         node['analisi']['tubi'].append({
-            'profilo': t.get('profilo') or '',
+            'profilo': (t.get('profilo') or '') + (f' · {_materiale_tubo_leggibile(t)}' if _mt and _mt != 'acciaio' else ''),
             'lunghezza_m': float(t.get('lunghezza_m') or 0),
             'taglio_1': taglio_1,
             'taglio_2': taglio_2,

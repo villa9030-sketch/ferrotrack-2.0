@@ -2837,6 +2837,10 @@ body { font-size: var(--fs-m); }
 .pr-issue { font-weight: 600; }
 .pr-issue.err { color: var(--err); }
 .pr-issue.warn { color: var(--warn); }
+.sa-tub-mat { white-space: normal; }
+.cfg-tub-nota { font-size: 11px; margin-top: 2px; }
+.cfg-tub-nota.warn { color: var(--warn, #B45309); font-weight: 600; }
+.sa-tub-mat.warn, .wb-man-calc .warn { color: var(--warn); }
 .pr-lead .status-dot.status-ok { background: transparent; }
 .pr-lead .status-dot.status-warn { background: #F79009; }
 .pr-lead .status-dot.status-error { background: var(--err); }
@@ -3960,11 +3964,24 @@ body { font-size: var(--fs-m); }
     <div class="card">
       <div class="card-header"><h3>Tubolari e profili</h3></div>
       <div class="card-body">
+        <!-- €/kg PER MATERIALE (14/10/2026): prima uno solo, anche per i tubi inox -->
         <div class="form-row">
           <div class="form-field">
-            <label>Materiale (&euro;/kg)</label>
+            <label>Ferro S235 (&euro;/kg)</label>
             <input type="number" id="cfg-tub-kg" step="0.01" min="0">
           </div>
+          <div class="form-field">
+            <label title="AISI 304 / 316">Inox (&euro;/kg)</label>
+            <input type="number" id="cfg-tub-kg-inox" step="0.01" min="0">
+            <div id="cfg-tub-kg-inox-nota" class="cfg-tub-nota"></div>
+          </div>
+          <div class="form-field">
+            <label>Alluminio (&euro;/kg)</label>
+            <input type="number" id="cfg-tub-kg-alluminio" step="0.01" min="0">
+            <div id="cfg-tub-kg-alluminio-nota" class="cfg-tub-nota"></div>
+          </div>
+        </div>
+        <div class="form-row">
           <div class="form-field">
             <label>Taglio dritto (&euro;)</label>
             <input type="number" id="cfg-tub-dritto" step="0.1" min="0">
@@ -3974,7 +3991,7 @@ body { font-size: var(--fs-m); }
             <input type="number" id="cfg-tub-obliquo" step="0.1" min="0">
           </div>
         </div>
-        <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Per le righe tubo lette dalla distinta dell'assieme. Il taglio laser tubo fatto fuori si scrive a parte, sulla riga.</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Per le righe tubo lette dalla distinta dell'assieme: ogni riga usa il &euro;/kg del suo materiale (letto da distinta, cartiglio o pezzo; si cambia sulla riga). Peso = kg/m del catalogo (acciaio) &times; densità del materiale (inox 7,93 · alluminio 2,70 kg/dm³). Il taglio laser tubo fatto fuori si scrive a parte, sulla riga. I preventivi già fatti tengono il prezzo salvato finché non rileggi la distinta.</div>
       </div>
     </div>
 
@@ -5428,6 +5445,14 @@ async function loadImpostazioni() {
     document.getElementById('cfg-generali-pct').value = P.costo_generali_pct ?? 8;
     document.getElementById('cfg-tariffa-oraria').value = P.tariffa_oraria ?? 45;
     document.getElementById('cfg-tub-kg').value = P.tubolari_euro_kg ?? 1.5;
+    for (const k of ['inox', 'alluminio']) {
+      const M = _TUB_MATERIALI[k], v = P[M.cfg];
+      document.getElementById('cfg-tub-kg-' + k).value = v ?? M.def;
+      const nota = document.getElementById('cfg-tub-kg-' + k + '-nota');
+      nota.textContent = v == null ? (M.def > 0 ? `Da impostare: ora vale ${String(M.def).replace('.', ',')} di partenza, metti il tuo prezzo` : 'Da impostare: a 0 i tubi in alluminio costano 0')
+        : (parseFloat(v) > 0 ? '' : 'A 0: i tubi in ' + M.nome.toLowerCase() + ' costano 0');
+      nota.classList.toggle('warn', !!nota.textContent);
+    }
     document.getElementById('cfg-tub-dritto').value = P.tubolari_taglio_dritto ?? 1;
     document.getElementById('cfg-tub-obliquo').value = P.tubolari_taglio_obliquo ?? 2.5;
     document.getElementById('cfg-margine-default').value = P.margine_default_pct ?? 25;
@@ -5525,6 +5550,8 @@ async function saveImpostazioni() {
         costo_generali_pct: parseFloat(document.getElementById('cfg-generali-pct').value) || 0,
         tariffa_oraria: parseFloat(document.getElementById('cfg-tariffa-oraria').value) || 45,
         tubolari_euro_kg: (v => v >= 0 ? v : 1.5)(parseFloat(document.getElementById('cfg-tub-kg').value)),
+        tubolari_euro_kg_inox: (v => v >= 0 ? v : 4.5)(parseFloat(document.getElementById('cfg-tub-kg-inox').value)),
+        tubolari_euro_kg_alluminio: (v => v >= 0 ? v : 0)(parseFloat(document.getElementById('cfg-tub-kg-alluminio').value)),
         tubolari_taglio_dritto: (v => v >= 0 ? v : 1)(parseFloat(document.getElementById('cfg-tub-dritto').value)),
         tubolari_taglio_obliquo: (v => v >= 0 ? v : 2.5)(parseFloat(document.getElementById('cfg-tub-obliquo').value)),
         saldatura_a_tempo: (vecchia.prev.saldatura_a_tempo ?? (_prevCfg && _prevCfg.saldatura_a_tempo)) ?? true,
@@ -7454,13 +7481,15 @@ function _saRenderComponenti(r, A) {
     const q = _qtaRiga(t), v = _costoTubolare(t), ti = currentTubolari.indexOf(t);
     const lung = t.lunghezza_pezzo_mm ? `L ${t.lunghezza_pezzo_mm.toLocaleString('it-IT')} mm` : `${(t.lunghezza_m || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} m`;
     const ang = (t.angolo_1 || t.angolo_2) ? ` · tagli ${t.angolo_1 || 0}°/${t.angolo_2 || 0}°` : '';
-    const dett = `Materiale ${_eur(t.costo_materiale || 0)} · tagli ${_eur(t.costo_taglio_totale || 0)} (${t.n_tagli_dritti || 0} dritti, ${t.n_tagli_obliqui || 0} obliqui)`
+    const fm = _tubFormula(t);
+    const dett = `${fm.testo} · tagli ${_eur(t.costo_taglio_totale || 0)} (${t.n_tagli_dritti || 0} dritti, ${t.n_tagli_obliqui || 0} obliqui)`
       + (t.distinta ? ` · dalla distinta ${t.distinta} pos. ${t.posizione || ''}` : '');
     righe.push(`<div class="pr" onclick="wbTuboAMano(${ti})" title="${escapeHtml(dett)} · clic per modificare">
       <span class="pr-lead"></span>
       <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}${t.codice_pezzo ? ` <small>${escapeHtml(t.codice_pezzo)}</small>` : ''}
         ${t.disegno_pdf ? `<a class="wb-icon-btn sm" href="${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf/${encodeURIComponent(t.disegno_pdf)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Disegno del pezzo"><i data-lucide="file-text"></i></a>` : ''}</span>
-        <span class="pr-meta">Tubolare · ${lung}${ang} · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${t.nota_esterno ? ' · ' + escapeHtml(t.nota_esterno) : ''}${avv(t)}</span>
+        <span class="pr-meta">Tubolare · ${lung}${ang}${t.nota_esterno ? ' · ' + escapeHtml(t.nota_esterno) : ''}${avv(t)}</span>
+        <span class="pr-meta sa-tub-mat${fm.avviso ? ' warn' : ''}" title="${escapeHtml(fm.avviso || 'Materiale ' + ({ distinta: 'letto dalla distinta', disegno: 'letto dal cartiglio del disegno', assieme: 'letto dalla distinta dell\'assieme', pezzo: 'del pezzo', 'a mano': 'scelto a mano' }[t.materiale_da] || ''))} · clic per cambiarlo">${escapeHtml(fm.testo)}${fm.avviso ? ` · <span class="pr-issue warn">${escapeHtml(fm.avviso)}</span>` : ''}</span>
         <label class="sa-tub-est" onclick="event.stopPropagation()" title="Lavorazione fatta fuori (es. taglio laser tubo): prezzo del fornitore per tutta la riga">
           Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label></span>
       ${prezzo(v, v / q, q)}
@@ -7517,6 +7546,11 @@ async function wbTuboAMano(ti, codAss, opts) {
     : (pr.tipo && ['SHS', 'RHS', 'CHS', 'L', 'FLAT', 'ALTRO'].includes(pr.tipo) ? pr.tipo : 'SHS');
   const q0 = t ? _qtaRiga(t) : daP ? (daP.quantita || 1) : 1;
   const num = v => v == null || v === '' ? '' : String(v).replace('.', ',');
+  // materiale di partenza: quello della riga, o della proposta (distinta / pezzo)
+  const mat0 = t ? (_tubMaterialeNoto(t) ? { chiave: t.materiale, da: t.materiale_da, testo: t.materiale_testo } : null)
+    : (pr.materiale || null);
+  const T0 = _wbTariffeTubi();
+  const fEkg = v => (v || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   document.querySelectorAll('.wb-man-dock').forEach(e => e.remove());
   const ov = document.createElement('div');
   ov.className = 'wb-man-dock';
@@ -7529,7 +7563,11 @@ async function wbTuboAMano(ti, codAss, opts) {
       <label class="tb-lb">Lato A mm<input id="tb-a" inputmode="decimal"></label>
       <label class="tb-lb tb-l">Lato B mm<input id="tb-b" inputmode="decimal"></label>
       <label class="tb-lb">Spessore mm<input id="tb-s" inputmode="decimal"></label>
-      <label class="tb-kg">kg/m<input id="tb-kgm" inputmode="decimal" value="${tipo0 === 'ALTRO' && t ? num(t.kg_m) : ''}"></label>
+      <label class="tb-kg" title="Come nel catalogo: kg/m in acciaio; per inox e alluminio il peso si corregge con la densità">kg/m (acciaio)<input id="tb-kgm" inputmode="decimal" value="${tipo0 === 'ALTRO' && t ? num(t.kg_m_acciaio || t.kg_m) : ''}"></label>
+      <label class="wide" title="Il prezzo del materiale è peso × €/kg di questo materiale (Impostazioni → Tubolari e profili)">Materiale<select id="tb-mat">
+        <option value="" ${mat0 ? '' : 'selected'}>— da scegliere (intanto prezzo del ferro)</option>
+        ${Object.entries(_TUB_MATERIALI).map(([k, M]) => `<option value="${k}" ${mat0 && mat0.chiave === k ? 'selected' : ''}>${M.nome}${k === 'acciaio' ? ' / S235' : k === 'inox' ? ' (AISI 304/316)' : ''} · ${fEkg(T0.mat[k])} €/kg${T0.mat[k] > 0 ? '' : ' — da impostare'}</option>`).join('')}
+      </select></label>
       <label>Lunghezza mm<input id="tb-len" inputmode="decimal" value="${num(t ? (t.lunghezza_pezzo_mm || Math.round((t.lunghezza_m || 0) * 1000)) : (pr.lunghezza || ''))}"></label>
       <label>Quantità<input id="tb-q" type="number" min="1" value="${q0}"></label>
       <label>Angolo taglio 1 °<input id="tb-a1" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_1 : '')}"></label>
@@ -7574,8 +7612,13 @@ async function wbTuboAMano(ti, codAss, opts) {
     if (!P || !(L > 0)) return null;
     const r = { pos: t ? t.posizione : null, qta: q, lunghezza_mm: L, profilo: P,
                 angolo_1: $('tb-a1').value === '' ? null : n('tb-a1'), angolo_2: $('tb-a2').value === '' ? null : n('tb-a2') };
-    const x = _wbTuboDaRiga(r, $('tb-ass').value || null, null, 1, _wbTariffeTubi());
+    const sm = $('tb-mat').value;
+    const mat = !sm ? null : (mat0 && mat0.chiave === sm ? mat0 : { chiave: sm, da: 'a mano', testo: null });
+    const x = _wbTuboDaRiga(r, $('tb-ass').value || null, null, 1, _wbTariffeTubi(), mat);
     x.origine = 'manuale'; delete x.distinta;
+    // riga della distinta modificata (es. il materiale): resta della distinta,
+    // cosi' "Leggi distinta" la rifa' invece di aggiungerne un'altra uguale
+    if (t && t.origine === 'distinta') { x.origine = 'distinta'; x.distinta = t.distinta; }
     x.costo_esterno = Math.max(0, n('tb-est'));
     const lEst = $('tb-laser-est');
     if (lEst && lEst.checked) x.nota_esterno = 'Taglio laser tubo esterno';
@@ -7599,9 +7642,12 @@ async function wbTuboAMano(ti, codAss, opts) {
     ov.querySelector('.tb-kg').hidden = tipo !== 'ALTRO';
     const x = riga();
     const f = v => v.toLocaleString('it-IT', { maximumFractionDigits: 2 });
+    const fm = x ? _tubFormula(x) : null;
+    const daDove = x && { distinta: 'letto dalla distinta', disegno: 'letto dal cartiglio', assieme: 'letto dalla distinta dell\'assieme', pezzo: 'dal materiale del pezzo', 'a mano': 'scelto a mano' }[x.materiale_da];
     $('tb-calc').innerHTML = x
-      ? `${escapeHtml(x.profilo)} · <b>${f(x.kg_m)} kg/m</b> · ${x.qty} × ${f(x.lunghezza_pezzo_mm)} mm = <b>${f(x.peso_kg)} kg</b><br>
-         Materiale ${_eur(x.costo_materiale)} · tagli ${_eur(x.costo_taglio_totale)} (${x.n_tagli_dritti} dritti, ${x.n_tagli_obliqui} obliqui)${x.costo_esterno ? ` · esterna ${_eur(x.costo_esterno)}` : ''} · <b>totale ${_eur(_costoTubolare(x))}</b>`
+      ? `${escapeHtml(x.profilo)} · <b>${f(x.kg_m)} kg/m</b>${x.materiale !== 'acciaio' && x.kg_m_acciaio ? ` (${f(x.kg_m_acciaio)} in acciaio)` : ''} · ${x.qty} × ${f(x.lunghezza_pezzo_mm)} mm = <b>${f(x.peso_kg)} kg</b><br>
+         <span class="${fm.avviso ? 'warn' : ''}" id="tb-formula">${escapeHtml(fm.testo)}${daDove ? ` <small>(${escapeHtml(daDove)}${x.materiale_testo ? ': ' + escapeHtml(x.materiale_testo) : ''})</small>` : ''}${fm.avviso ? `<br>⚠ ${escapeHtml(fm.avviso)}` : ''}</span><br>
+         Tagli ${_eur(x.costo_taglio_totale)} (${x.n_tagli_dritti} dritti, ${x.n_tagli_obliqui} obliqui)${x.costo_esterno ? ` · esterna ${_eur(x.costo_esterno)}` : ''} · <b>totale ${_eur(_costoTubolare(x))}</b>`
       : '<span class="err">Scegli il profilo e scrivi la lunghezza</span>';
     return x;
   };
@@ -7728,12 +7774,14 @@ async function _wbPropostaTubo(a) {
     const D = ((await r.json()) || {}).distinte || {};
     Object.assign(_wbDistinte, D);
     const tubo = ((D[kr] || {}).righe || []).find(x => x.profilo && x.lunghezza_mm);
+    const kA = a.codice_assieme ? _wbChiaveCod(a.codice_assieme) : null;
+    const rigaAss = kA && ((D[kA] || {}).righe || []).find(x => _wbChiaveCod(x.codice) === kr);
     if (tubo) {
       Object.assign(P, { tipo: tubo.profilo.tipo, nome: tubo.profilo.nome, kg_m: tubo.profilo.kg_m, lunghezza: tubo.lunghezza_mm });
       fonti.push(`distinta del disegno ${kr}: ${tubo.descrizione}`);
     }
-    const kA = a.codice_assieme ? _wbChiaveCod(a.codice_assieme) : null;
-    const rigaAss = kA && ((D[kA] || {}).righe || []).find(x => _wbChiaveCod(x.codice) === kr);
+    const mD = _wbMaterialeRigaTubo(tubo || { materiale: (D[kr] || {}).materiale }, D[kr], rigaAss, null);
+    if (mD) P.materiale = mD;
     if (rigaAss && rigaAss.lunghezza_mm && !P.lunghezza) {
       P.lunghezza = rigaAss.lunghezza_mm;
       fonti.push(`distinta dell'assieme ${a.codice_assieme}: ${[rigaAss.descrizione, rigaAss.descrizione_agg].filter(Boolean).join(' ')}`);
@@ -7753,6 +7801,10 @@ async function _wbPropostaTubo(a) {
       }
       if (x.lunghezza && !P.lunghezza) { P.lunghezza = x.lunghezza; if (!fonti.some(f => f.startsWith(nome))) fonti.push(`${nome}: ${txt}`); }
     }
+  }
+  if (!P.materiale) {
+    const mP = _tubMaterialeDaTesto(a.materiale, a.ordine && a.ordine.descrizione, a._descrizione);
+    if (mP) { P.materiale = Object.assign(mP, { da: 'pezzo' }); fonti.push(`materiale del pezzo: ${a.materiale || mP.testo}`); }
   }
   const w = parseFloat(a.bbox_w_mm) || 0, h = parseFloat(a.bbox_h_mm) || 0;
   if (!P.lunghezza && w > 0 && h > 0) {
@@ -8234,28 +8286,113 @@ function _wbChiaveCod(s) {
   return String(s || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '').toUpperCase().trim()
     .replace(/\s*\(\d+\)$/, '').replace(/[-_]\d{2}$/, '');
 }
+// ── Materiale dei tubi (14/10/2026) ────────────────────────────────
+// Prima ogni tubo era prezzato con UN solo €/kg (quello del ferro), anche
+// i tubi inox (DECA 26T30SA0233: telaio AISI304). Ora ogni riga tubo ha il
+// suo materiale (letto da distinta, cartiglio, pezzo o scelto a mano):
+// peso = kg/m del catalogo (acciaio 7,85 kg/dm³) × densità del materiale /
+// 7,85; costo = peso × €/kg di quel materiale (Impostazioni → Tubolari).
+const _TUB_DENS_CATALOGO = 7.85;
+const _TUB_MATERIALI = {
+  acciaio:   { nome: 'Ferro',     dens: 7.85, cfg: 'tubolari_euro_kg',           def: 1.5 },
+  inox:      { nome: 'Inox',      dens: 7.93, cfg: 'tubolari_euro_kg_inox',      def: 4.5 },
+  alluminio: { nome: 'Alluminio', dens: 2.70, cfg: 'tubolari_euro_kg_alluminio', def: 0 },
+};
+/** Materiale di un tubo da un testo ("Aisi304", "INOX_304", "S235JR", "Fe360",
+    "ALU_6082"): {chiave, testo} o null se il testo non lo dice. */
+function _tubMaterialeDaTesto(...testi) {
+  for (const t0 of testi) {
+    const u = String(t0 || '').toUpperCase().replace(/_/g, ' ');
+    if (!u.trim()) continue;
+    let m = u.match(/AISI\s*\d{3}\s*L?|INOX(?:\s*\d{3}\s*L?)?|\b1\.4\d{3}\b|\bX\d{1,2}CRNI\w*/);
+    if (m) return { chiave: 'inox', testo: m[0].replace(/\s+/g, '') };
+    m = u.match(/ALLUMINI\w*|\bALU(?![A-Z])(?:\s*\d{4})?|\bEN\s*AW[\s-]*\d{4}|ANTICORODAL|\bAL\s*MG\w*/);
+    if (m) return { chiave: 'alluminio', testo: m[0].replace(/\s+/g, ' ').trim() };
+    m = u.match(/\bS\s?(?:235|275|355)\w*|\bFE\s*\d{3}\w*|\bFE\b|\bFERRO\b|\bACCIAIO\b|\bST\s?37\b|\bDC0\d\b|\bDD1\d\b|\bDX5\d\w*|\b1\.0\d{3}\b|ZINCAT\w*|ELETTROZ\w*/);
+    if (m) return { chiave: 'acciaio', testo: m[0].replace(/\s+/g, '') };
+  }
+  return null;
+}
 function _wbTariffeTubi() {
   const P = _prevCfg || {};
   const n = (v, d) => { const f = parseFloat(v); return f >= 0 ? f : d; };
-  return { kg: n(P.tubolari_euro_kg, 1.5), dritto: n(P.tubolari_taglio_dritto, 1), obliquo: n(P.tubolari_taglio_obliquo, 2.5) };
+  const mat = {};
+  for (const [k, M] of Object.entries(_TUB_MATERIALI)) mat[k] = n(P[M.cfg], M.def);
+  return { kg: mat.acciaio, mat, dritto: n(P.tubolari_taglio_dritto, 1), obliquo: n(P.tubolari_taglio_obliquo, 2.5) };
 }
-/** Riga tubo della distinta → tubolare dell'assieme (totali della riga, qty inclusa). */
-function _wbTuboDaRiga(r, codAss, sub, qAss, T) {
+/** Il materiale della riga e' certo? (letto o scelto; non "supposto ferro") */
+function _tubMaterialeNoto(t) {
+  return !!(t && _TUB_MATERIALI[t.materiale] && t.materiale_da && !['non letto', 'step'].includes(t.materiale_da));
+}
+/** Peso della riga se fosse acciaio (base del catalogo): per ricalcolare al cambio materiale. */
+function _tubPesoAcciaio(t) {
+  if (t.peso_kg_acciaio > 0) return t.peso_kg_acciaio;
+  // righe di prima con kg/m del catalogo e misura: dal kg/m (il peso salvato e' arrotondato)
+  if (t.kg_m > 0 && t.lunghezza_pezzo_mm > 0 && (!t.materiale || t.materiale === 'acciaio'))
+    return t.kg_m * t.lunghezza_pezzo_mm / 1000 * _qtaRiga(t);
+  const d = (_TUB_MATERIALI[t.materiale] || _TUB_MATERIALI.acciaio).dens;
+  return (t.peso_kg || 0) * _TUB_DENS_CATALOGO / d;
+}
+/** Applica materiale e €/kg alla riga tubo: peso con la densità, costo materiale. */
+function _tubApplicaMateriale(t, chiave, da, testo, T) {
+  T = T || _wbTariffeTubi();
+  const base = _tubPesoAcciaio(t);
+  const kgmBase = t.kg_m_acciaio > 0 ? t.kg_m_acciaio : (t.kg_m > 0 && !t.peso_kg_acciaio ? t.kg_m * _TUB_DENS_CATALOGO / (_TUB_MATERIALI[t.materiale] || _TUB_MATERIALI.acciaio).dens : 0);
+  const M = _TUB_MATERIALI[chiave] ? chiave : 'acciaio';
+  const f = _TUB_MATERIALI[M].dens / _TUB_DENS_CATALOGO;
+  t.materiale = M;
+  t.materiale_da = _TUB_MATERIALI[chiave] ? (da || 'a mano') : 'non letto';
+  if (testo) t.materiale_testo = String(testo).slice(0, 40); else delete t.materiale_testo;
+  t.peso_kg_acciaio = Math.round(base * 1000) / 1000;
+  if (kgmBase > 0) { t.kg_m_acciaio = Math.round(kgmBase * 1000) / 1000; t.kg_m = Math.round(kgmBase * f * 1000) / 1000; }
+  t.peso_kg = Math.round(base * f * 100) / 100;
+  t.euro_kg = T.mat[M];
+  t.costo_materiale = Math.round(base * f * t.euro_kg * 100) / 100;
+  return t;
+}
+/** "Inox · 3,2 kg × 4,50 €/kg = 14,40 €" e se va guardato (materiale non certo, €/kg a 0). */
+function _tubFormula(t) {
+  const M = _TUB_MATERIALI[t.materiale];
+  const f = v => (v || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 });
+  const nome = M ? M.nome + (t.materiale_testo && M.nome.toUpperCase() !== String(t.materiale_testo).toUpperCase() ? ` ${t.materiale_testo}` : '') : (t.materiale || 'Materiale ?');
+  const ekg = t.euro_kg != null ? t.euro_kg : ((t.peso_kg || 0) > 0 ? (t.costo_materiale || 0) / t.peso_kg : 0);
+  const testo = `${nome} · ${f(t.peso_kg)} kg × ${ekg.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/kg = ${_eur(t.costo_materiale || 0)}`;
+  let avviso = '';
+  if (!_tubMaterialeNoto(t)) avviso = t.materiale_da ? 'materiale non letto: prezzato come ferro, sceglilo' : 'materiale mai controllato (riga di prima): rileggi la distinta o sceglilo';
+  else if (!(ekg > 0)) avviso = `€/kg ${M ? M.nome.toLowerCase() : ''} a 0: impostalo in Impostazioni → Tubolari`;
+  return { testo, avviso };
+}
+/** Riga tubo della distinta → tubolare dell'assieme (totali della riga, qty inclusa).
+    mat: {chiave, da, testo} (null = non letto: prezzato come ferro, da confermare). */
+function _wbTuboDaRiga(r, codAss, sub, qAss, T, mat) {
   const q = Math.max(1, (r.qta || 1) * qAss);
   const L = r.lunghezza_mm || 0, kgm = r.profilo.kg_m || 0;
   const peso = kgm * L / 1000 * q;
   const obl = [r.angolo_1, r.angolo_2].filter(a => a != null && Math.abs(a) > 0.01).length;
   const dritti = (2 - obl) * q, obliqui = obl * q;
-  return {
+  const t = {
     id: 'tmp-' + Date.now() + '-' + Math.random(), codice_assieme: codAss,
     profilo: r.profilo.nome, tipo: r.profilo.tipo, materiale: 'acciaio', qty: q,
-    lunghezza_m: L / 1000, lunghezza_pezzo_mm: L, angolo_1: r.angolo_1, angolo_2: r.angolo_2, kg_m: kgm,
-    peso_kg: Math.round(peso * 100) / 100,
-    costo_materiale: Math.round(peso * T.kg * 100) / 100,
+    lunghezza_m: L / 1000, lunghezza_pezzo_mm: L, angolo_1: r.angolo_1, angolo_2: r.angolo_2,
+    kg_m: kgm, kg_m_acciaio: kgm, peso_kg_acciaio: Math.round(peso * 1000) / 1000, peso_kg: Math.round(peso * 100) / 100,
     n_tagli_dritti: dritti, n_tagli_obliqui: obliqui,
     costo_taglio_totale: Math.round((dritti * T.dritto + obliqui * T.obliquo) * 100) / 100,
     costo_esterno: 0, origine: 'distinta', distinta: sub, posizione: r.pos,
   };
+  return _tubApplicaMateriale(t, mat && mat.chiave, mat && mat.da, mat && mat.testo, T);
+}
+/** Il materiale di una riga tubo della distinta: la riga stessa (colonna
+    Materiale, descrizione), poi il cartiglio del suo disegno, poi la riga
+    dell'assieme che lo cita. */
+function _wbMaterialeRigaTubo(x, subD, rigaAss, assD) {
+  let m = _tubMaterialeDaTesto(x.materiale, x.descrizione, x.descrizione_agg);
+  if (m) return Object.assign(m, { da: 'distinta' });
+  m = _tubMaterialeDaTesto(subD && subD.materiale);
+  if (m) return Object.assign(m, { da: 'disegno' });
+  m = rigaAss && _tubMaterialeDaTesto(rigaAss.materiale, rigaAss.descrizione, rigaAss.descrizione_agg);
+  if (m) return Object.assign(m, { da: 'assieme' });
+  m = _tubMaterialeDaTesto(assD && assD.materiale);
+  return m ? Object.assign(m, { da: 'disegno' }) : null;
 }
 /** Legge le distinte degli assiemi (tutti o uno) e propone le modifiche. */
 async function wbApplicaDistinte(codici, opts) {
@@ -8271,7 +8408,7 @@ async function wbApplicaDistinte(codici, opts) {
   const D = d.distinte || {};
   Object.assign(_wbDistinte, D);
   const T = _wbTariffeTubi();
-  const qty = [], tubi = [], togli = [], righe = [];
+  const qty = [], tubi = [], togli = [], righe = [], aggMat = [];
   for (const A of currentAssiemi) {
     const kA = _wbChiaveCod(A.codice_assieme);
     if (!cod.includes(A.codice_assieme) || !D[kA]) continue;
@@ -8281,13 +8418,30 @@ async function wbApplicaDistinte(codici, opts) {
       const sub = D[kr];
       const tubiSub = sub ? sub.righe.filter(x => x.profilo) : [];
       const art = currentArticoli.filter(a => _wbChiaveCod(a.codice || a.dxf_filename_originale || a.dxf_filename) === kr);
+      // gia' fatto tubo con "È un tubo": non si raddoppia; la distinta ne
+      // aggiorna solo il materiale (profilo e lunghezza restano quelli scelti)
+      const giaPezzo = tubiSub.length ? currentTubolari.filter(t => t.codice_pezzo && t.codice_assieme === A.codice_assieme
+        && _wbChiaveCod(t.codice_pezzo) === kr) : [];
+      if (giaPezzo.length) {
+        const m = _wbMaterialeRigaTubo(tubiSub[0], sub, r, D[kA]);
+        for (const t of giaPezzo) {
+          if (!m || (t.materiale_da === 'a mano' && _tubMaterialeNoto(t))) continue;
+          const prova = _tubApplicaMateriale(Object.assign({}, t), m.chiave, m.da, m.testo, T);
+          if (_tubMaterialeNoto(t) && t.materiale === prova.materiale && Math.abs((t.costo_materiale || 0) - prova.costo_materiale) < 0.01) continue;
+          aggMat.push([t, m]);
+          righe.push(`• ${t.codice_pezzo} (tubo ${t.profilo}): materiale ${_TUB_MATERIALI[m.chiave].nome} ${m.testo || ''} → ${_eur(t.costo_materiale || 0)} diventa ${_eur(prova.costo_materiale)}`);
+        }
+        continue;
+      }
       if (tubiSub.length) {
         // Sotto-assieme saldato di tubi (telaio): righe tubo nell'assieme,
         // il suo DXF non e' un pezzo da laser piano.
-        tubiSub.forEach(x => tubi.push(_wbTuboDaRiga(x, A.codice_assieme, kr, r.qta || 1, T)));
+        tubiSub.forEach(x => tubi.push(_wbTuboDaRiga(x, A.codice_assieme, kr, r.qta || 1, T, _wbMaterialeRigaTubo(x, sub, r, D[kA]))));
         art.forEach(a => togli.push(a));
-        const kg = tubiSub.reduce((s, x) => s + x.profilo.kg_m * x.lunghezza_mm / 1000 * x.qta, 0) * (r.qta || 1);
+        const nuovi = tubi.slice(-tubiSub.length);
+        const kg = nuovi.reduce((s, x) => s + x.peso_kg, 0);
         righe.push(`• ${r.codice}${r.qta > 1 ? ' ×' + r.qta : ''}: ${tubiSub.length} righe di tubo, ${kg.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kg`
+          + ` ${[...new Set(nuovi.map(x => _tubMaterialeNoto(x) ? _TUB_MATERIALI[x.materiale].nome + (x.materiale_testo ? ' ' + x.materiale_testo : '') : 'materiale non letto'))].join(', ')}`
           + (art.length ? ` — il suo DXF esce dai pezzi laser` : ''));
         // pezzi laser dentro il telaio (es. piastrine saldate): quantita' × telaio
         for (const x of sub.righe.filter(x => !x.profilo)) {
@@ -8297,7 +8451,7 @@ async function wbApplicaDistinte(codici, opts) {
             .forEach(a => qty.push([a, (x.qta || 1) * (r.qta || 1), A.codice_assieme]));
         }
       } else if (r.profilo) {
-        tubi.push(_wbTuboDaRiga(r, A.codice_assieme, kA, 1, T));
+        tubi.push(_wbTuboDaRiga(r, A.codice_assieme, kA, 1, T, _wbMaterialeRigaTubo(r, null, null, D[kA])));
         righe.push(`• ${r.codice}: ${r.profilo.nome} L ${r.lunghezza_mm} mm ×${r.qta}`);
       } else {
         art.forEach(a => qty.push([a, r.qta || 1, A.codice_assieme]));
@@ -8307,25 +8461,47 @@ async function wbApplicaDistinte(codici, opts) {
   const cambiQty = qty.filter(([a, q, c]) => (a.quantita || 1) !== q || a.codice_assieme !== c);
   // gia' applicata: stesse righe tubo, nessun DXF da togliere, quantita' uguali
   const giaTubi = currentTubolari.filter(t => t.origine === 'distinta');
+  // materiale scelto a mano su una riga gia' letta: resta (la rilettura non lo rimette)
+  for (const n of tubi) {
+    const v = giaTubi.find(g => g.codice_assieme === n.codice_assieme && g.distinta === n.distinta && g.posizione === n.posizione);
+    if (v && v.materiale_da === 'a mano' && _TUB_MATERIALI[v.materiale]) _tubApplicaMateriale(n, v.materiale, 'a mano', v.materiale_testo, T);
+  }
+  // stesse righe ma materiale o prezzo diversi (righe di prima, €/kg cambiato): si propone il ricalcolo
   const stessiTubi = giaTubi.length === tubi.length
-    && tubi.every(t => giaTubi.some(g => g.codice_assieme === t.codice_assieme && g.distinta === t.distinta && g.posizione === t.posizione && g.qty === t.qty));
-  if (!cambiQty.length && !togli.length && stessiTubi) {
+    && tubi.every(t => giaTubi.some(g => g.codice_assieme === t.codice_assieme && g.distinta === t.distinta && g.posizione === t.posizione && g.qty === t.qty
+      && g.materiale === t.materiale && (g.materiale_da || '') === t.materiale_da && Math.abs((g.costo_materiale || 0) - t.costo_materiale) < 0.01));
+  if (!cambiQty.length && !togli.length && stessiTubi && !aggMat.length) {
     if (!opts.auto) wbSnack(Object.keys(D).length ? 'Distinta già applicata: niente da cambiare' : 'Nessuna distinta leggibile nei PDF d\'assieme', Object.keys(D).length ? '' : 'warn');
     if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
     return false;
   }
   const kgTubi = tubi.reduce((s, t) => s + t.peso_kg, 0);
   const eurTubi = tubi.reduce((s, t) => s + t.costo_materiale + t.costo_taglio_totale, 0);
+  // materiale per materiale: "Inox 21,4 kg × 4,50 €/kg = 96,30 €"
+  const perMat = {};
+  for (const t of tubi) {
+    const k = _tubMaterialeNoto(t) ? t.materiale : '?';
+    const g = perMat[k] || (perMat[k] = { kg: 0, eur: 0, ekg: t.euro_kg });
+    g.kg += t.peso_kg; g.eur += t.costo_materiale;
+  }
+  const fKg = v => v.toLocaleString('it-IT', { maximumFractionDigits: 1 });
+  const vecchiEur = currentTubolari.filter(t => t.origine === 'distinta' && cod.includes(t.codice_assieme))
+    .reduce((s, t) => s + (t.costo_materiale || 0) + (t.costo_taglio_totale || 0), 0);
   const msg = [
     'Letto dai DISEGNI D\'ASSIEME (non dal tuo ordine): quanti pezzi servono per fare UN assieme.\n',
     ...cambiQty.map(([a, q]) => `• ${a.codice || a.dxf_filename}: ${a.quantita || 1} → ${q} per assieme`),
     ...righe,
-    tubi.length ? `\nTubi: ${kgTubi.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kg × ${_eur(T.kg)}/kg + tagli (${_eur(T.dritto)} dritto, ${_eur(T.obliquo)} obliquo) = ${_eur(eurTubi)}.`
+    tubi.length ? `\nTubi: ${fKg(kgTubi)} kg — ` + Object.entries(perMat).map(([k, g]) => k === '?'
+        ? `${fKg(g.kg)} kg con materiale NON letto, prezzati come ferro (${_eur(g.ekg)}/kg): sceglilo sulla riga`
+        : `${_TUB_MATERIALI[k].nome} ${fKg(g.kg)} kg × ${_eur(g.ekg)}/kg = ${_eur(g.eur)}`).join(' · ')
+      + ` + tagli (${_eur(T.dritto)} dritto, ${_eur(T.obliquo)} obliquo) = ${_eur(eurTubi)}`
+      + (vecchiEur > 0 && Math.abs(vecchiEur - eurTubi) >= 0.01 ? ` (prima ${_eur(vecchiEur)}).` : '.')
       + `\nIl taglio laser tubo fatto fuori lo scrivi sulla riga ("lavorazione esterna").` : '',
     `\nSaldatura e montaggio restano da inserire a mano.`,
   ].filter(Boolean).join('\n');
   if (!await appConfirm(msg, { title: 'ASSIEMI · componenti per ogni assieme', okLabel: 'Applica agli assiemi', cancelLabel: 'Non ora' })) return false;
   for (const [a, q, c] of cambiQty) { a.quantita = q; a.codice_assieme = c; }
+  for (const [t, m] of aggMat) _tubApplicaMateriale(t, m.chiave, m.da, m.testo, T);
   // rilettura: le righe tubo della distinta si rifanno, la lavorazione esterna scritta resta
   const vecchi = currentTubolari.filter(t => t.origine === 'distinta' && tubi.some(n => n.codice_assieme === t.codice_assieme && n.distinta === t.distinta));
   for (const n of tubi) {
@@ -8340,7 +8516,7 @@ async function wbApplicaDistinte(codici, opts) {
   scheduleSaveTubolari(300);
   try { renderSplitTree(); } catch (_) {}
   if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
-  wbSnack(`Distinta applicata${tubi.length ? ` · ${tubi.length} righe tubo` : ''}${togli.length ? ` · ${togli.length} DXF di telaio tolti dai pezzi` : ''}`);
+  wbSnack(`Distinta applicata${tubi.length ? ` · ${tubi.length} righe tubo` : ''}${togli.length ? ` · ${togli.length} DXF di telaio tolti dai pezzi` : ''}${aggMat.length ? ` · materiale aggiornato su ${aggMat.length} tubi` : ''}`);
   return true;
 }
 function saLeggiDistinta() {
@@ -11357,11 +11533,11 @@ function renderTubolari() {
       <td><code>${escapeHtml(t.profilo || '—')}</code>${_qtaRiga(t) > 1 ? ` <b title="Pezzi uguali: peso e costi della riga sono già il totale per ${_qtaRiga(t)} pezzi">× ${_qtaRiga(t)}</b>` : ''}${avvT}</td>
       <td><span class="badge gray">${escapeHtml(t.tipo || '—')}</span></td>
       <td>
-        <select class="cell-edit" onchange="updateTub(${i},'materiale',this.value)">
-          <option value="acciaio" ${t.materiale==='acciaio'?'selected':''}>acciaio</option>
-          <option value="inox" ${t.materiale==='inox'?'selected':''}>inox</option>
-          <option value="alluminio" ${t.materiale==='alluminio'?'selected':''}>alluminio</option>
+        <select class="cell-edit" onchange="cambiaMaterialeTub(${i},this.value)" title="Il costo materiale è peso × €/kg di questo materiale">
+          ${_tubMaterialeNoto(t) ? '' : '<option value="" selected>? da scegliere</option>'}
+          ${Object.entries(_TUB_MATERIALI).map(([k, M]) => `<option value="${k}" ${_tubMaterialeNoto(t) && t.materiale === k ? 'selected' : ''}>${M.nome.toLowerCase()}</option>`).join('')}
         </select>
+        ${(fm => `<div style="font-size:10px; ${fm.avviso ? 'color:#B45309;' : 'color:var(--gray-text);'}" title="${escapeHtml(fm.avviso || '')}">${escapeHtml(fm.testo)}${fm.avviso ? ' ⚠' : ''}</div>`)(_tubFormula(t))}
       </td>
       <td class="n">${(t.lunghezza_m||0).toFixed(3)}</td>
       <td class="n">${(t.peso_kg||0).toFixed(2)}</td>
@@ -11380,9 +11556,21 @@ function renderTubolari() {
   meta.textContent = `${n} tubolari • ${pesoTot.toFixed(1)} kg • ${formatEur(costoTot)} €`;
 }
 
+/** Materiale scelto sulla riga tubo: peso con la densità e €/kg di quel materiale. */
+function cambiaMaterialeTub(i, chiave) {
+  const t = currentTubolari[i];
+  if (!t || !_TUB_MATERIALI[chiave]) return;
+  _tubApplicaMateriale(t, chiave, 'a mano', null);
+  renderTubolari(); recalcTotali();
+  scheduleSaveTubolari();
+  if (_splitAssIdx != null) try { wbRenderAssieme(_splitAssIdx); } catch (_) {}
+}
+
 function updateTub(i, field, value, numeric) {
   if (!currentTubolari[i]) return;
   currentTubolari[i][field] = numeric ? parseFloat(value) || 0 : value;
+  // costo materiale scritto a mano: il €/kg mostrato si ricava dal costo
+  if (field === 'costo_materiale') delete currentTubolari[i].euro_kg;
   recalcTotali();
   scheduleSaveTubolari();
 }

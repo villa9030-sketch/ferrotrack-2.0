@@ -943,7 +943,7 @@ class PDFPreventivo:
                     "TUB",
                     f"{t.get('profilo') or '—'} ({lung})",
                     "1",
-                    (t.get('materiale') or "").upper() or "—",
+                    (t.get('materiale_testo') or t.get('materiale') or "").upper() or "—",
                     "—",
                     f"{float(t.get('peso_kg') or 0):.2f}",
                     _eur_plain(mat_c),

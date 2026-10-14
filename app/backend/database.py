@@ -5112,13 +5112,18 @@ class PreventivoManager:
                       'costo_esterno', 'nota_esterno', 'origine', 'distinta', 'posizione',
                       # "È un tubo" (14/10/2026): il pezzo laser da cui viene,
                       # i suoi disegni e com'era, per rimetterlo
-                      'codice_pezzo', 'disegno_pdf', 'disegno_dxf', 'da_pezzo')
+                      'codice_pezzo', 'disegno_pdf', 'disegno_dxf', 'da_pezzo',
+                      # materiale del tubo (14/10/2026): da dove e' letto, il
+                      # testo ("AISI304"), il €/kg usato e la base acciaio del
+                      # catalogo per ricalcolare il peso al cambio materiale
+                      'materiale_da', 'materiale_testo', 'euro_kg', 'kg_m_acciaio', 'peso_kg_acciaio')
 
     @staticmethod
     def _extra_tubolare(t: dict) -> dict:
         n = PreventivoManager._num_o_none
         out = {}
-        for k in ('lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m', 'costo_esterno'):
+        for k in ('lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m', 'costo_esterno',
+                  'euro_kg', 'kg_m_acciaio', 'peso_kg_acciaio'):
             v = n(t.get(k), 1e7)
             if v is not None and v >= 0:
                 out[k] = v
@@ -5126,7 +5131,7 @@ class PreventivoManager:
         if q is not None and q >= 1:
             out['qty'] = int(q)
         for k, lim in (('nota_esterno', 120), ('origine', 20), ('distinta', 60), ('posizione', 20),
-                       ('codice_pezzo', 60)):
+                       ('codice_pezzo', 60), ('materiale_da', 20), ('materiale_testo', 40)):
             if t.get(k):
                 out[k] = str(t.get(k))[:lim]
         for k in ('disegno_pdf', 'disegno_dxf'):
