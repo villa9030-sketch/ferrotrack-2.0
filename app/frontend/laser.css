@@ -1,47 +1,49 @@
 /* Pagina laser (laser.html) — stile.
 
-   Calma e precisa: grigi neutri, UN accento (blu) per l'azione principale,
+   Calma e precisa: grigi neutri, UN accento per l'azione principale (dal
+   15/10 l'indaco di tutta l'app, non piu' il blu del laser),
    colore solo dove c'e' da fare qualcosa (ambra = da controllare, rosso =
    bloccato o in ritardo). Griglia di 8 px, raggi 10-12 px, linee sottili,
    ombre solo sugli strati che galleggiano (finestre, controllo disegni).
    Prefisso "lz-". La base comune (testata, toast, finestre) resta ft-ui.css. */
 
 :root {
-  --lz-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --lz-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --lz-mono: "Cascadia Mono", "Cascadia Code", Consolas, "SFMono-Regular", monospace;
+  /* Caratteri e colori dell'app intera (ft-ui.css): la stazione si
+     riconosce dal nome e dall'icona, non da un colore suo */
+  --lz-font: var(--ft-font);
+  --lz-display: var(--ft-display);
+  --lz-mono: var(--ft-mono);
 
-  --lz-bg: #F3F4F6;
+  --lz-bg: var(--ft-canvas);
   --lz-surface: #FFFFFF;
-  --lz-surface-2: #F9FAFB;
-  --lz-hover: #F5F6F8;
-  --lz-line: #E4E7EB;
-  --lz-line-2: #EDEFF2;
-  --lz-ink: #15181D;
-  --lz-ink-2: #474F5C;
-  --lz-ink-3: #737B88;
-  --lz-ink-4: #A2A8B2;
+  --lz-surface-2: var(--ft-well);
+  --lz-hover: var(--ft-hover);
+  --lz-line: var(--ft-line);
+  --lz-line-2: var(--ft-line-2);
+  --lz-ink: var(--ft-ink);
+  --lz-ink-2: var(--ft-ink-2);
+  --lz-ink-3: var(--ft-ink-3);
+  --lz-ink-4: var(--ft-ink-4);
 
-  --lz-accent: #2459D8;
-  --lz-accent-hover: #1D4CC0;
-  --lz-accent-bg: #EEF3FE;
-  --lz-accent-line: #C9D8FA;
-  --lz-accent-ink: #1C47B0;
+  --lz-accent: var(--ft-accent);
+  --lz-accent-hover: var(--ft-accent-hover);
+  --lz-accent-bg: var(--ft-accent-bg);
+  --lz-accent-line: #C7D2FE;
+  --lz-accent-ink: var(--ft-accent-ink);
 
-  --lz-amber: #9A5A06;
-  --lz-amber-bg: #FDF5E6;
-  --lz-amber-line: #F1D9A8;
+  --lz-amber: var(--ft-warn);
+  --lz-amber-bg: var(--ft-warn-bg);
+  --lz-amber-line: var(--ft-warn-line);
   --lz-red: #B42318;
-  --lz-red-bg: #FDF0EE;
-  --lz-red-line: #F4C9C3;
-  --lz-green: #15803D;
+  --lz-red-bg: #FEF3F2;
+  --lz-red-line: #FECDCA;
+  --lz-green: var(--ft-ok);
 
   --lz-r: 10px;
   --lz-r-l: 12px;
   --lz-float: 0 18px 48px rgba(16, 24, 40, .16), 0 2px 8px rgba(16, 24, 40, .06);
   --lz-ease: cubic-bezier(.2, .8, .2, 1);
-  --ft-topbar-h: 56px;
-  --lz-lista-w: clamp(360px, 29vw, 460px);
+  --lz-lista-w: clamp(380px, 28vw, 460px);
 }
 
 body.ft.lz {
@@ -55,15 +57,7 @@ body.lz :focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 2p
 body.lz button { font-family: inherit; }
 body.lz [data-lucide] { width: 16px; height: 16px; stroke-width: 1.9; flex: none; }
 
-/* ── Testata ─────────────────────────────────────────────────────── */
-body.lz .ft-topbar { height: var(--ft-topbar-h); padding: 0 20px; gap: 16px; background: rgba(255, 255, 255, .9); }
-body.lz .ft-logo { width: 30px; height: 30px; border-radius: 8px; background: var(--lz-ink); font: 700 13px var(--lz-display); }
-body.lz .ft-brand-name { font: 650 15px var(--lz-display); letter-spacing: -.2px; }
-body.lz .ft-brand-area { font-size: 12px; color: var(--lz-ink-3); }
-body.lz .ft-user-name { font-size: 13px; }
-body.lz .ft-avatar { background: var(--lz-ink-2); }
-body.lz .ft-live { font-size: 12.5px; color: var(--lz-ink-3); }
-body.lz .ft-icon-btn { color: var(--lz-ink-2); border-radius: 8px; }
+/* ── Testata: la cornice comune (ft-ui.css, ft-cornice.js) ───────── */
 body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-bell { position: relative; }
 .lz-notif { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
@@ -74,7 +68,7 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 
 /* ── Impianto: elenco a sinistra, ordine a destra ───────────────── */
 .lz-main {
-  position: fixed; top: var(--ft-topbar-h); left: 0; right: 0; bottom: var(--ft-fascia-h, 0px);
+  position: fixed; top: var(--ft-topbar-h); left: var(--ftc-side-w, 0px); right: 0; bottom: var(--ft-fascia-h, 0px);
   display: grid; grid-template-columns: var(--lz-lista-w) minmax(0, 1fr);
 }
 
@@ -83,10 +77,13 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-lista-testa { padding: 20px 20px 12px; }
 .lz-lista-testa h1 { margin: 0; font: 650 20px/1.2 var(--lz-display); letter-spacing: -.3px; }
 .lz-riass { margin-top: 4px; font-size: 13px; color: var(--lz-ink-3); display: flex; flex-wrap: wrap; gap: 4px 6px; }
-.lz-riass .rit { color: var(--lz-red); font-weight: 600; }
+.lz-riass { margin: 4px 0 0; display: block; }
+.lz-riass .rischio { color: #B42318; font-weight: 600; }
+.lz-riass .indietro { color: var(--lz-amber); font-weight: 600; }
 .lz-sat { display: grid; gap: 4px; margin-top: 12px; padding: 9px 12px; border-radius: var(--lz-r);
   background: var(--lz-surface-2); border: 1px solid var(--lz-line-2); font-size: 13px; color: var(--lz-ink-2); min-height: 38px; }
-.lz-sat .riga { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.lz-sat .riga { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; white-space: nowrap; }
+.lz-sat .riga .barra { flex: 1 0 100%; order: 9; }
 .lz-sat b { font-weight: 650; color: var(--lz-ink); font-variant-numeric: tabular-nums; }
 .lz-sat .barra { flex: 1; min-width: 40px; height: 4px; border-radius: 2px; background: var(--lz-line); overflow: hidden; }
 .lz-sat .barra i { display: block; height: 100%; border-radius: 2px; background: var(--lz-ink-3); transition: width .4s var(--lz-ease); }
@@ -100,11 +97,18 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-link:disabled { color: var(--lz-ink-4); cursor: default; text-decoration: none; }
 
 .lz-righe { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--lz-line-2); scrollbar-gutter: stable; }
-.lz-gruppo { position: sticky; top: 0; z-index: 1; padding: 10px 20px 6px; background: rgba(255, 255, 255, .96);
-  font-size: 12px; font-weight: 600; color: var(--lz-ink-3); letter-spacing: .02em; border-bottom: 1px solid var(--lz-line-2); }
+/* Gruppi: Da smistare / Da mandare a Lantek / In Lantek, da tagliare / Tagliati */
+.lz-gruppo { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 40px; padding: 0 16px 0 20px; background: var(--lz-surface-2); border-bottom: 1px solid var(--lz-line); }
+.lz-gruppo + .lz-r { border-top: 0; }
+.lz-r + .lz-gruppo { border-top: 8px solid var(--lz-bg); }
+.lz-gruppo h2 { margin: 0; font: 600 14px var(--lz-font); color: var(--lz-ink); white-space: nowrap; }
+.lz-gruppo .nota, .lz-gruppo .lz-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lz-gruppo h2 span { margin-left: 4px; font-weight: 500; color: var(--lz-ink-3); }
+.lz-gruppo .nota { font-size: 12.5px; color: var(--lz-ink-3); }
 .lz-r {
-  position: relative; display: grid; grid-template-columns: 20px 84px minmax(0, 1fr) auto; align-items: center; gap: 12px;
-  padding: 11px 16px 11px 20px; border-bottom: 1px solid var(--lz-line-2); cursor: pointer; outline: none;
+  position: relative; display: grid; grid-template-columns: 16px 58px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 12px 16px 12px 20px; border-bottom: 1px solid var(--lz-line-2); cursor: pointer; outline: none;
   transition: background .12s;
 }
 .lz-r:hover { background: var(--lz-hover); }
@@ -113,17 +117,29 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-r:focus-visible { box-shadow: inset 0 0 0 2px var(--lz-accent); border-radius: 0; }
 .lz-r.spento { color: var(--lz-ink-3); }
 .lz-r input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(--lz-accent); cursor: pointer; }
-.lz-r input[type=checkbox]:disabled { opacity: .35; cursor: default; }
-.lz-data { font-weight: 650; font-size: 14px; font-variant-numeric: tabular-nums; line-height: 1.25; }
-.lz-data small { display: block; font-size: 12px; font-weight: 400; color: var(--lz-ink-3); white-space: nowrap; }
-.lz-data small.rit { color: var(--lz-red); font-weight: 600; }
-/* "taglia entro" grande; la consegna piccola sotto */
-.lz-data small.cons { font-size: 11.5px; color: var(--lz-ink-3); }
-.lz-data .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* il numero d'ordine grande: e' quello che distingue due ordini dello stesso cliente */
+.lz-num { font: 700 18px/1.15 var(--lz-display); letter-spacing: -.3px; font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lz-r.spento .lz-num { font-weight: 600; color: var(--lz-ink-2); }
 .lz-cli { min-width: 0; line-height: 1.3; }
 .lz-cli b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lz-cli span { display: block; font-family: var(--lz-mono); font-size: 12px; color: var(--lz-ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lz-sotto { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 2px; font-size: 13px; color: var(--lz-ink-3); white-space: nowrap; overflow: hidden; }
+.lz-sotto > * { flex: none; }
+.lz-sot.att { color: var(--lz-amber); font-weight: 600; }
+.lz-sot.err { color: var(--lz-red); font-weight: 600; }
 .lz-r.spento .lz-cli b { font-weight: 500; }
+/* a destra: il "taglia entro", o uno dei due allarmi */
+.lz-q { display: grid; justify-items: end; gap: 2px; text-align: right; line-height: 1.2; white-space: nowrap; }
+.lz-q b { font-size: 13.5px; font-weight: 600; color: var(--lz-ink); font-variant-numeric: tabular-nums; }
+.lz-q small { font-size: 12.5px; color: var(--lz-ink-3); }
+.lz-q.indietro small { color: var(--lz-amber); font-weight: 600; }
+.lz-q.rischio small { color: #B42318; font-weight: 600; }
+.lz-sot.indietro { color: var(--lz-amber); font-weight: 600; }
+.lz-al { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.lz-al.rischio { background: #FEE4E2; color: #B42318; }
+.lz-r.spento .lz-q b { color: var(--lz-ink-3); font-weight: 500; }
+.lz-tasti-nota { margin: 0; padding: 10px 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-top: 1px solid var(--lz-line-2); font-size: 12.5px; color: var(--lz-ink-3); }
+body.lz .lz-tasti-nota kbd { font: 500 11px var(--lz-font); padding: 1px 5px; border: 1px solid var(--lz-line); border-radius: 4px; opacity: 1; color: var(--lz-ink-2); background: #fff; }
 
 /* Stato: un'etichetta per ordine. Grigia; colore solo per cio' che va fatto */
 .lz-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 7px;
@@ -501,10 +517,10 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 /* spessore / materiale scelto dal laser sulla riga bloccata */
 .lz-blocchi .lz-dati { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .lz-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.lz-chip { min-width: 38px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px;
-  background: #fff; color: var(--lz-ink); font: 600 13px/1 inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
-.lz-chip:hover { border-color: var(--lz-ink-3); }
-.lz-chip.on { background: var(--lz-accent); border-color: var(--lz-accent); color: #fff; }
+.lz-dati .lz-chip { min-width: 38px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px;
+  background: #fff; color: var(--lz-ink); font: 600 13px/1 var(--lz-font); font-variant-numeric: tabular-nums; cursor: pointer; justify-content: center; }
+.lz-dati .lz-chip:hover { border-color: var(--lz-ink-3); }
+.lz-dati .lz-chip.on { background: var(--lz-accent); border-color: var(--lz-accent); color: #fff; }
 .lz-sp { display: inline-flex; align-items: center; gap: 6px; color: var(--lz-ink-2); font-size: 13px; }
 .lz-sp input { width: 64px; height: 30px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; }
 /* spessore proposto dal motore: gia' scelto, si conferma con Invio */
@@ -513,7 +529,7 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-blocchi .lz-dati .lz-proposto.att { color: var(--lz-amber); }
 .lz-blocchi .lz-dati .lz-proposto.att b { color: var(--lz-amber); }
 .lz-blocchi .lz-dati select { height: 32px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 8px; font: inherit; background: #fff; }
-.lz-chip:focus-visible, .lz-sp input:focus-visible, .lz-dati select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 2px; }
+.lz-dati .lz-chip:focus-visible, .lz-sp input:focus-visible, .lz-dati select:focus-visible { outline: 2px solid var(--lz-accent); outline-offset: 2px; }
 .lz-salva { font-size: 13px; color: var(--lz-ink-3); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 
 /* ── Codici "da correggere in Lantek" (12/10/2026) ───────────────── */
@@ -592,3 +608,87 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 .lz-pr-campi label.manca input { border-color: var(--lz-amber-line); background: var(--lz-amber-bg); }
 .lz-pr-campi label small { color: var(--lz-amber); font-size: 12px; }
 .lz-pr-campi .mm b { color: var(--lz-ink); }
+
+@media (max-width: 1099px) { .lz-main { left: 0; } }
+
+/* ── 15/10/2026: le migliorie approvate sulla tela "Laser" ──────────── */
+/* Testata dell'ordine: il numero grande, poi il cliente */
+.lz-o-tit h2 { display: flex; align-items: baseline; gap: 14px; white-space: normal; overflow: visible; }
+.lz-o-num { flex: none; font: 700 30px/1.1 var(--lz-display); letter-spacing: -.6px; font-variant-numeric: tabular-nums; }
+.lz-o-cli { min-width: 0; font: 600 19px/1.25 var(--lz-display); letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lz-o-sotto > span:first-child { color: var(--lz-ink-3); }
+.lz-al.indietro { background: var(--lz-amber-bg); color: var(--lz-amber); }
+
+/* Nessun ordine aperto: il prossimo da fare (si apre solo con Apri) */
+.lz-prossimo { max-width: 640px; margin: 0 auto; padding: 56px 32px 40px; }
+.lz-prossimo h2 { margin: 0 0 12px; font: 600 15px var(--lz-font); color: var(--lz-ink-3); }
+.lz-prossimo h3 { margin: 28px 0 8px; font: 600 14px var(--lz-font); color: var(--lz-ink-3); }
+.lz-pr-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 24px; padding: 22px 24px;
+  background: var(--lz-surface); border: 1px solid #C7D2FE; border-radius: var(--lz-r-l); box-shadow: 0 1px 2px rgba(16, 24, 40, .05); }
+.lz-pr-chi { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+.lz-pr-chi .lz-num { font-size: 26px; }
+.lz-pr-chi b { font: 600 17px var(--lz-display); }
+.lz-pr-chi .lz-al { align-self: center; }
+.lz-pr-card p { grid-column: 1; margin: 0; color: var(--lz-ink-2); font-size: 14px; }
+.lz-pr-card .lz-btn { grid-column: 2; grid-row: 1 / span 2; }
+.lz-pr-dopo { list-style: none; margin: 0; padding: 0; background: var(--lz-surface); border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); overflow: hidden; }
+.lz-pr-dopo li + li { border-top: 1px solid var(--lz-line-2); }
+.lz-pr-dopo button { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; padding: 11px 16px; border: 0; background: none;
+  font: 14px var(--lz-font); color: var(--lz-ink-2); text-align: left; cursor: pointer; }
+.lz-pr-dopo button:hover { background: var(--lz-hover); }
+.lz-pr-dopo b { color: var(--lz-ink); font-weight: 650; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.lz-pr-dopo .c { font-size: 13px; color: var(--lz-ink-3); }
+.lz-pr-tasti { margin: 24px 0 0; font-size: 12.5px; color: var(--lz-ink-3); }
+body.lz .lz-pr-tasti kbd, body.lz .lz-pr-card kbd { font: 500 11px var(--lz-font); padding: 1px 5px; border: 1px solid var(--lz-line); border-radius: 4px; opacity: 1; color: var(--lz-ink-2); background: #fff; }
+
+/* PDF dell'ordine ACCANTO ai pezzi (schermo largo): il PDF resta fermo,
+   i pezzi scorrono. "Allarga" da' tutto lo spazio a uno dei due. */
+.lz-o-corpo { min-width: 0; }
+.lz-o-pdf { display: none; }
+.lz-dett.accanto .lz-ordine { max-width: none; }
+.lz-dett.accanto .lz-o-corpo { display: grid; grid-template-columns: minmax(0, 46fr) minmax(0, 54fr); gap: 20px; align-items: start; margin-top: 20px; }
+.lz-dett.accanto .lz-o-pdf { display: flex; flex-direction: column; position: sticky; top: 16px;
+  height: calc(100vh - var(--ft-topbar-h) - 32px - var(--ft-fascia-h, 0px)); min-height: 420px;
+  background: var(--lz-surface); border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); overflow: hidden; }
+.lz-dett.accanto .lz-o-pdf .lz-pdf { flex: 1; min-height: 0; border: 0; border-radius: 0; }
+.lz-dett.accanto .lz-o-pdf iframe { min-height: 0; height: 100%; }
+.lz-pdf-testa { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--lz-line); font-size: 14px; }
+.lz-pdf-testa .sp { flex: 1; }
+.lz-pdf-testa .lz-btn { height: 30px; }
+.lz-dett.accanto .lz-schede { margin-top: 0; }
+.lz-dett.accanto[data-allarga="pdf"] .lz-o-corpo { grid-template-columns: minmax(0, 1fr); }
+.lz-dett.accanto[data-allarga="pdf"] .lz-o-pezzi { display: none; }
+.lz-dett.accanto[data-allarga="pezzi"] .lz-o-corpo { grid-template-columns: minmax(0, 1fr); }
+.lz-dett.accanto[data-allarga="pezzi"] .lz-o-pdf { display: none; }
+
+/* Per lamiera: riepilogo sopra i pezzi, e la vista raggruppata */
+.lz-lam-riep { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0 0 12px; font-size: 13px; color: var(--lz-ink-3); }
+.lz-lam-riep .t { color: var(--lz-ink-2); font-weight: 550; }
+.lz-lam-pill { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px; border-radius: 999px;
+  background: var(--lz-surface); border: 1px solid var(--lz-line); color: var(--lz-ink-2); font-weight: 550; white-space: nowrap; }
+.lz-lam-pill.ok { background: var(--ft-ok-bg); border-color: var(--ft-ok-line); color: var(--ft-ok); }
+.lz-lam-pill [data-lucide] { width: 13px; height: 13px; }
+.lz-lam-riep .lz-link { margin-left: 4px; }
+.lz-lam-nota { margin: 0 0 12px; font-size: 13px; color: var(--lz-ink-3); }
+.lz-lam { margin-bottom: 14px; background: var(--lz-surface); border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); overflow: hidden; }
+.lz-lam-testa { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 52px; padding: 8px 12px 8px 16px;
+  background: var(--lz-surface-2); border-bottom: 1px solid var(--lz-line); }
+.lz-lam-testa b { font-weight: 650; font-size: 15px; margin-right: 10px; }
+.lz-lam-testa span { font-size: 13.5px; color: var(--lz-ink-3); }
+.lz-lam.fatta .lz-lam-testa { background: var(--ft-ok-bg); border-bottom-color: var(--ft-ok-line); }
+.lz-lam-fatto { display: inline-flex; align-items: center; gap: 6px; color: var(--ft-ok); font-size: 13.5px; font-weight: 550; }
+.lz-lam-testa > .lz-link { margin-left: -6px; }
+.lz-lam .lz-tab { border: 0; border-radius: 0; }
+.lz-lam.fatta .lz-tab td { color: var(--lz-ink-3); }
+
+/* Dopo "Manda a Lantek": le cose da fare a mano, da spuntare */
+.lz-amano { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--lz-amber-line); background: #FFFCF5; border-radius: var(--lz-r-l); }
+.lz-amano h3 { margin: 0; font: 600 15px var(--lz-font); color: #93370D; }
+.lz-amano p { margin: 2px 0 8px; font-size: 13.5px; color: var(--lz-ink-3); }
+.lz-amano label { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid #FEF0C7; cursor: pointer; font-size: 14px; }
+.lz-amano label input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--lz-accent); flex: none; cursor: pointer; }
+.lz-amano label small { display: block; font-size: 13px; color: var(--lz-ink-3); }
+.lz-amano label.fatto > span { color: var(--lz-ink-3); text-decoration: line-through; text-decoration-color: var(--lz-ink-4); }
+/* nel PDF accanto la tabella e' piu' stretta: la lamiera su una riga */
+.lz-dett.accanto .lz-tab td, .lz-dett.accanto .lz-tab th { padding-left: 10px; padding-right: 10px; }
+.lz-dett.accanto .lz-tab td:nth-child(3) { white-space: nowrap; }

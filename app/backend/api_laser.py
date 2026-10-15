@@ -191,6 +191,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
 
     pezzi, bloccati, visti = [], [], set()
     n_controllare = 0
+    lamiere: dict = {}          # per lamiera (materiale + spessore): codici e pezzi
     for r in tutte_lam:
         cod = str(r['codice']).strip()
         x = per_q.get(cod.lower())
@@ -266,6 +267,16 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         chiave = cod.lower()
         nuovo_codice = chiave not in visti
         visti.add(chiave)
+        # la lamiera del pezzo (dati dell'ordine, poi Lantek): la stessa chiave
+        # nell'elenco e nell'ordine aperto
+        mat_l = r.get('materiale') or (x or {}).get('materiale')
+        sp_l = r.get('spessore_mm') if r.get('spessore_mm') is not None else (x or {}).get('spessore')
+        k_lam = chiave_lamiera(mat_l, sp_l)
+        if not escluso and not assieme:
+            g = lamiere.setdefault(k_lam, {'chiave': k_lam, 'materiale': mat_l, 'spessore': sp_l,
+                                           'n_codici': 0, 'n_pezzi': 0})
+            g['n_codici'] += 1 if nuovo_codice else 0
+            g['n_pezzi'] += int(r.get('quantita') or 0)
         if da_controllare and nuovo_codice:
             n_controllare += 1
         if blocco and nuovo_codice:
@@ -292,6 +303,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                 'da_abbinare': cod.lower() in da_abbinare, 'assieme_senza_disegno': assieme,
                 'avvisi': avvisi,
                 'foglio': r.get('foglio'),
+                'lamiera': None if (escluso or assieme) else k_lam,
             })
 
     # senza i codici gia' mandati da FerroTrack (lantek_invii): anche se Lantek non si legge
@@ -346,6 +358,7 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         'n_qta_da_confermare': len({str(r.get('codice')).lower() for r in lam if r.get('qta_da_confermare')}),
         'correzioni': corr['correzioni'],
         'n_correggere': corr['n_correggere'], 'n_corretti': corr['n_corretti'],
+        'lamiere': sorted(lamiere.values(), key=lambda g: (str(g['materiale'] or '~').upper(), _num(g['spessore']))),
     }
     out['pronto'] = bool(out['lantek']['disponibile'] and not n_controllare and not bloccati
                          and not da_abbinare_n and out['n_invio'])
@@ -395,7 +408,81 @@ def _procura_ordine(order_id) -> dict:
         return {}
 
 
-def con_taglia_entro(order, a: dict, cal=None, procura: dict | None = None) -> dict:
+def chiave_lamiera(materiale, spessore) -> str:
+    """La lamiera di un pezzo: "INOX|2", "FERRO|2.5". '?' se non si sa."""
+    m = re.sub(r'\s+', ' ', str(materiale or '').replace('_', ' ')).strip().upper() or '?'
+    try:
+        s = ('%g' % float(spessore)) if spessore not in (None, '') else '?'
+    except (TypeError, ValueError):
+        s = '?'
+    return f'{m}|{s}'
+
+
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def lamiere_tagliate(order_ids) -> dict:
+    """{order_id: {chiave: {'il': iso, 'da': chi}}} le lamiere segnate tagliate."""
+    ids = [i for i in (order_ids or []) if i]
+    if not ids:
+        return {}
+    from .database import get_session
+    from .models import LamieraTagliata
+    session = get_session()
+    try:
+        out: dict = {}
+        for r in session.query(LamieraTagliata).filter(LamieraTagliata.order_id.in_(ids)).all():
+            out.setdefault(r.order_id, {})[r.chiave] = {
+                'il': r.tagliata_il.isoformat() + 'Z' if r.tagliata_il else None, 'da': r.tagliata_da}
+        return out
+    finally:
+        session.close()
+
+
+@bp_laser.route('/api/orders/<order_id>/lamiera-tagliata', methods=['POST'])
+@richiede('laser')
+def api_lamiera_tagliata(order_id):
+    """Taglio fatto di UNA lamiera dell'ordine (a mano, dal laser).
+    Corpo: {"chiave": "FERRO|3", "annulla": false}. Il "Taglio fatto"
+    dell'ordine intero e' un'altra cosa (mark-laser-done)."""
+    A = _app()
+    from .database import get_session
+    from .models import LamieraTagliata, Order
+    corpo = request.get_json(silent=True) or {}
+    chiave = str(corpo.get('chiave') or '').strip()[:80]
+    if not chiave or '|' not in chiave:
+        return jsonify({'success': False, 'error': 'Manca la lamiera'}), 400
+    annulla = bool(corpo.get('annulla'))
+    session = get_session()
+    try:
+        o = session.query(Order).filter(Order.id == order_id).first()
+        if not o or o.is_deleted:
+            return jsonify({'success': False, 'error': 'Ordine non trovato'}), 404
+        c = session.query(LamieraTagliata).filter(LamieraTagliata.order_id == order_id,
+                                                  LamieraTagliata.chiave == chiave).first()
+        if annulla:
+            if c:
+                session.delete(c)
+        elif not c:
+            session.add(LamieraTagliata(order_id=order_id, chiave=chiave, tagliata_da=A._chi_nome() or None))
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        logger.exception('lamiera tagliata non salvata')
+        return jsonify({'success': False, 'error': str(e)[:200]}), 500
+    finally:
+        session.close()
+    A._audit('LAMIERA_TAGLIATA', 'orders', order_id,
+             f"lamiera {chiave.replace('|', ' ')}: {'taglio annullato' if annulla else 'tagliata'}")
+    return jsonify({'success': True, 'chiave': chiave, 'tagliata': not annulla,
+                    'lamiere_tagliate': lamiere_tagliate([order_id]).get(order_id, {})}), 200
+
+
+def con_taglia_entro(order, a: dict, cal=None, procura: dict | None = None, tagliate: dict | None = None) -> dict:
     """Il riassunto con il "taglia entro" dell'ordine. Si calcola ADESSO (non
     sta nella cache): la data scelta a mano e la consegna si vedono subito.
     procura: le voci "da procurare" non arrivate dell'ordine (None = si
@@ -411,7 +498,8 @@ def con_taglia_entro(order, a: dict, cal=None, procura: dict | None = None) -> d
            if a.get('dopo_laser') or flag is not None or pc.get('esterne') else None)
     te = _te.taglia_entro(getattr(order, 'data_consegna', None), ant, cal,
                           getattr(order, 'data_taglio_pianificata', None))
-    return {**a, 'taglia_entro': te,
+    tg = tagliate if tagliate is not None else lamiere_tagliate([order.id]).get(order.id, {})
+    return {**a, 'taglia_entro': te, 'lamiere_tagliate': tg,
             'lavorazione_esterna': {'valore': flag, 'nota': nota},
             'procura': {'n': pc.get('n') or 0, 'n_da_ordinare': pc.get('n_da_ordinare') or 0,
                         'n_ordinati': pc.get('n_ordinati') or 0, 'n_scaduti': pc.get('n_scaduti') or 0,
@@ -516,13 +604,18 @@ def api_laser_ordini():
         except Exception:
             logger.warning('da procurare non letto', exc_info=True)
             proc = {}
+        try:
+            tagliate = lamiere_tagliate([o.id for o in ordini])
+        except Exception:
+            logger.warning('lamiere tagliate non lette', exc_info=True)
+            tagliate = {}
         for o in ordini:
             try:
                 out[o.id] = _analisi_in_cache(o, forza=fresco or bool(solo))
             except Exception as e:
                 logger.exception('analisi laser di %s fallita', o.id)
                 out[o.id] = {'id': o.id, 'stato': stato_laser(o), 'errore': str(e)[:200]}
-            out[o.id] = con_taglia_entro(o, out[o.id], cal, proc.get(o.id) or {})
+            out[o.id] = con_taglia_entro(o, out[o.id], cal, proc.get(o.id) or {}, tagliate.get(o.id) or {})
         return jsonify({'success': True, 'ordini': out}), 200
     except Exception as e:
         logger.exception('elenco laser fallito')

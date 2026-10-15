@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#15181D">
+<meta name="theme-color" content="#FFFFFF">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>Laser · FerroTrack</title>
 <link rel="stylesheet" href="/ft-ui.css">
-<link rel="stylesheet" href="/laser.css?v=5">
-<link rel="stylesheet" href="/procura.css?v=3">
+<link rel="stylesheet" href="/laser.css?v=6">
+<link rel="stylesheet" href="/procura.css?v=4">
 <script src="/ft-accesso.js" data-stazioni="laser"></script>
 <script src="/ft-ui.js"></script>
 <!--
@@ -28,19 +28,24 @@
     laser-avvio.js       avvio, aggiornamento automatico, notifiche
 -->
 </head>
-<body class="ft lz">
+<body class="ft lz ftc" data-stazione="laser" data-cerca-testo="Cerca un ordine: numero o cliente">
+
+<!-- Cornice uguale in ogni stazione (ft-cornice.js, ft-ui.css "Cornice unica") -->
+<nav class="ftc-side" aria-label="Laser">
+  <div class="ftc-menu" id="lz-menu">
+    <button class="ft-tab active" type="button" data-lz-vai="tutti">Ordini al laser <span class="ft-count" id="lzm-tutti"></span></button>
+    <button class="ft-tab sub" type="button" data-lz-vai="coda">Da mandare a Lantek <span class="ft-count" id="lzm-coda"></span></button>
+    <button class="ft-tab sub" type="button" data-lz-vai="in_lantek">In Lantek, da tagliare <span class="ft-count" id="lzm-in_lantek"></span></button>
+    <button class="ft-tab" type="button" data-lz-vai="controllo" title="Controlla i disegni degli ordini da mandare (C)">Controllo disegni <span class="ft-count" id="lzm-controllo"></span></button>
+    <button class="ft-tab" type="button" data-lz-vai="correggere" title="Codici tenuti fuori perché diversi dall'ordine">Da correggere in Lantek <span class="ft-count" id="lzm-correggere"></span></button>
+    <div class="ftc-gruppo">Altre pagine</div>
+    <a class="ft-tab" href="/capo-officina.html">Capo officina</a>
+  </div>
+</nav>
 
 <header class="ft-topbar">
-  <a class="ft-brand" href="/laser.html" title="Postazione laser">
-    <span class="ft-logo">LS</span>
-    <span>
-      <div class="ft-brand-name">FerroTrack</div>
-      <div class="ft-brand-area">Laser</div>
-    </span>
-  </a>
-  <div class="ft-topbar-end">
-    <button class="lz-btn piccolo lz-procura-btn" id="lz-procura-btn" type="button" onclick="LZ.procura.apri()" title="Da procurare (D)"><i data-lucide="package"></i><span>Da procurare <span class="n"></span></span><span class="lz-tasto" aria-hidden="true">D</span></button>
-    <button class="ft-icon-btn" id="btn-fullscreen" onclick="LZ.schermoIntero()" title="Schermo intero (F11)" aria-label="Schermo intero"><i data-lucide="maximize"></i></button>
+  <div class="ft-topbar-end" style="margin-left:auto">
+    <button class="lz-btn piccolo lz-procura-btn" id="lz-procura-btn" type="button" onclick="LZ.procura.apri()" title="Da procurare (D)"><i data-lucide="package"></i><span>Da procurare <span class="n"></span></span></button>
     <span class="ft-live" id="conn-badge" title="Si aggiorna da solo">In linea</span>
     <div class="lz-bell">
       <button class="ft-icon-btn" onclick="LZ.notifiche.apriChiudi(event)" title="Notifiche" aria-label="Notifiche">
@@ -54,16 +59,9 @@
         <div id="notif-panel-body"><div class="ft-empty" style="padding:28px 16px;"><p>Nessuna notifica</p></div></div>
       </div>
     </div>
-    <div class="ft-user">
-      <span class="ft-avatar" id="ft-user-avatar">?</span>
-      <span>
-        <div class="ft-user-name" id="ft-user-name">—</div>
-        <div class="ft-user-role" id="ft-user-role"></div>
-      </span>
-    </div>
-    <button class="ft-btn ghost sm" onclick="FTA.cambiaDispositivo()" title="Cambiare cosa fa questo PC: serve il PIN dell'amministratore"><i data-lucide="monitor-cog"></i> Postazione</button>
   </div>
 </header>
+<script src="/ft-cornice.js"></script>
 
 <main class="lz-main">
   <aside class="lz-lista" id="lz-lista" aria-label="Ordini al laser"></aside>
@@ -74,14 +72,14 @@
 <script src="/vendor/lucide.min.js"></script>
 <script src="/ft-stati.js"></script>
 <script src="/carico-laser.js?v=3"></script>
-<script src="/laser-base.js?v=3"></script>
+<script src="/laser-base.js?v=4"></script>
 <script src="/laser-saturazione.js?v=2"></script>
-<script src="/laser-lista.js?v=4"></script>
-<script src="/laser-ordine.js?v=6"></script>
+<script src="/laser-lista.js?v=5"></script>
+<script src="/laser-ordine.js?v=7"></script>
 <script src="/laser-abbina.js?v=1"></script>
 <script src="/laser-controllo.js?v=3"></script>
-<script src="/laser-lantek.js?v=3"></script>
+<script src="/laser-lantek.js?v=4"></script>
 <script src="/laser-procura.js?v=3"></script>
-<script src="/laser-avvio.js?v=4"></script>
+<script src="/laser-avvio.js?v=5"></script>
 </body>
 </html>

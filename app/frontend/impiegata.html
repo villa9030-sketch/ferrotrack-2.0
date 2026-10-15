@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0B1220">
+<meta name="theme-color" content="#FFFFFF">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <title>FerroTrack — Ufficio</title>
 <link rel="stylesheet" href="/ft-ui.css">
-<link rel="stylesheet" href="/procura.css?v=3">
+<link rel="stylesheet" href="/procura.css?v=4">
 <script src="/ft-accesso.js" data-stazioni="ufficio"></script>
 <script src="/ft-ui.js"></script>
 <script src="/ft-stati.js"></script>
@@ -339,13 +339,7 @@ body.ft [hidden] { display: none !important; }
 .imp-pk-details summary { cursor: pointer; font-weight: 600; color: var(--ft-ink-2); }
 .imp-pk-details ul { margin: 6px 0 0; padding-left: 18px; }
 
-/* Otto schede, campanella e utente devono stare in 1280 px senza scorrere. */
-@media (max-width: 1400px) {
-  .ft-topbar { gap: 14px; }
-  .ft-tab { padding: 0 9px; font-size: 13px; }
-  .ft-user-name, .ft-user-role { display: none; }
-  .ft-user { padding: 3px; }
-}
+
 @media (max-width: 1100px) {
   .imp-form, .imp-cal-layout, .imp-pk-head { grid-template-columns: minmax(0, 1fr); }
   .imp-col + .imp-col { border-left: 0; border-top: 1px solid var(--ft-line); }
@@ -360,14 +354,17 @@ body.ft [hidden] { display: none !important; }
 .imp-full { padding-left: 28px; padding-right: 28px; }
 @media (min-width: 1500px) { .imp-narrow { max-width: none; } }
 
-/* Ricerca di un ordine da qualunque scheda (Ctrl+K) */
-.imp-cerca { position: relative; margin-left: 16px; }
-.imp-cerca input { width: 320px; height: 36px; border: 1px solid var(--ft-line); border-radius: 9px; padding: 0 44px 0 34px;
-  font: inherit; font-size: 13.5px; background: var(--ft-bg); color: var(--ft-ink); }
+/* Ricerca di un ordine da qualunque scheda (Ctrl+K): la casella della
+   cornice comune (stesse misure di .ftc-cerca in ft-ui.css) */
+.imp-cerca { position: relative; flex: 0 1 480px; min-width: 200px; }
+.imp-cerca input { width: 100%; height: 38px; border: 1px solid var(--ft-line); border-radius: 10px; padding: 0 64px 0 38px;
+  font: inherit; font-size: 14px; background: var(--ft-well); color: var(--ft-ink); }
+.imp-cerca input::placeholder { color: var(--ft-ink-3); }
+.imp-cerca input::-webkit-search-cancel-button { display: none; }
 .imp-cerca input:focus { outline: none; border-color: var(--ft-accent); background: var(--ft-panel); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
-.imp-cerca > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--ft-ink-3); pointer-events: none; }
-.imp-cerca kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font: 600 11px var(--ft-font); color: var(--ft-ink-3);
-  border: 1px solid var(--ft-line); border-radius: 5px; padding: 1px 5px; background: var(--ft-panel); pointer-events: none; }
+.imp-cerca > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--ft-ink-3); pointer-events: none; }
+body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font: 500 12px var(--ft-font); color: var(--ft-ink-3);
+  border: 1px solid var(--ft-line); border-radius: 5px; padding: 2px 6px; background: var(--ft-panel); pointer-events: none; opacity: 1; }
 .imp-cerca-res { position: absolute; top: 42px; left: 0; width: 520px; max-height: 460px; overflow: auto; z-index: 80; display: none;
   background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 12px; box-shadow: 0 16px 40px rgba(15, 23, 42, .16); }
 .imp-cerca-res.open { display: block; }
@@ -449,50 +446,40 @@ body.ft [hidden] { display: none !important; }
 .imp-storia small { display: block; font-size: 12px; color: var(--ft-ink-3); }
 .imp-storia .q { font-size: 13px; color: var(--ft-ink-2); text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 1400px) { .og-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .og-grid { grid-template-columns: minmax(0, 1fr); } }
-/* Nove schede + ricerca: sotto i 1680 px la ricerca e' corta e si allarga
-   quando la usi, le schede si stringono. Prima Archivio, Ore e Backup
-   finivano fuori dallo schermo a 1440 px. */
-.imp-cerca input { transition: width .2s var(--ft-ease), border-color .15s, box-shadow .15s; }
-@media (max-width: 1680px) {
-  .imp-cerca input { width: 190px; }
-  .imp-cerca input:focus { width: 320px; }
-  .imp-cerca kbd { display: none; }
-  .ft-topbar .ft-tab { padding: 0 9px; font-size: 13px; }
-}
-@media (max-width: 1360px) { .imp-cerca input { width: 150px; } }
+
 </style>
 </head>
-<body class="ft">
+<body class="ft ftc" data-stazione="ufficio">
 
-<!-- ═══════════════ TESTATA ═══════════════ -->
-<header class="ft-topbar">
-  <a class="ft-brand" href="/impiegata.html" title="Ufficio — torna all'inizio">
-    <div class="ft-logo">LS</div>
-    <div>
-      <div class="ft-brand-name">FerroTrack</div>
-      <div class="ft-brand-area">Ufficio</div>
-    </div>
-  </a>
-  <nav class="ft-tabs" role="tablist" aria-label="Sezioni dell'ufficio">
-    <button class="ft-tab active" role="tab" data-tab="oggi" onclick="switchTab('oggi')">Oggi <span class="ft-count hot" id="oggi-badge"></span></button>
-    <button class="ft-tab" role="tab" data-tab="carica" onclick="switchTab('carica')">Carica ordine</button>
-    <button class="ft-tab" role="tab" data-tab="richiesta" onclick="switchTab('richiesta')">Richiesta preventivo</button>
-    <button class="ft-tab" role="tab" data-tab="conferme" onclick="switchTab('conferme')">Da confermare <span class="ft-count hot" id="conferme-badge"></span></button>
-    <button class="ft-tab" role="tab" data-tab="calendario" onclick="switchTab('calendario')">Calendario</button>
-    <button class="ft-tab" role="tab" data-tab="ordini" onclick="switchTab('ordini')" title="Il numero sono gli ordini consegnati ancora da fatturare">Ordini <span class="ft-count hot" id="fatt-badge"></span></button>
-    <button class="ft-tab" role="tab" data-tab="archivio" onclick="switchTab('archivio')">Archivio</button>
+<!-- ═══════════════ CORNICE (uguale in ogni stazione: ft-cornice.js) ═══════════════ -->
+<nav class="ftc-side" aria-label="Ufficio">
+  <button class="ft-tab ftc-cta" type="button" data-tab="carica" onclick="switchTab('carica')"><i data-lucide="plus"></i> Carica ordine</button>
+  <div class="ftc-menu" aria-label="Sezioni dell'ufficio">
+    <button class="ft-tab active" type="button" data-tab="oggi" onclick="switchTab('oggi')">Oggi <span class="ft-count hot" id="oggi-badge"></span></button>
+    <button class="ft-tab" type="button" data-tab="ordini" onclick="switchTab('ordini')" title="Il numero sono gli ordini consegnati ancora da fatturare">Ordini <span class="ft-count hot" id="fatt-badge"></span></button>
+    <button class="ft-tab sub" type="button" data-vista="aperto" onclick="vaiVista('aperto')">In lavorazione <span class="ft-count" id="mv-aperto"></span></button>
+    <button class="ft-tab sub" type="button" data-vista="pronto_ddt" onclick="vaiVista('pronto_ddt')">Pronti per DDT <span class="ft-count" id="mv-pronto_ddt"></span></button>
+    <button class="ft-tab sub" type="button" data-vista="consegnato" onclick="vaiVista('consegnato')">Da fatturare <span class="ft-count" id="mv-consegnato"></span></button>
+    <button class="ft-tab" type="button" data-tab="archivio" onclick="switchTab('archivio')">Archivio</button>
+    <div class="ftc-gruppo">Altro</div>
+    <button class="ft-tab" type="button" data-tab="conferme" onclick="switchTab('conferme')">Preventivi da confermare <span class="ft-count hot" id="conferme-badge"></span></button>
+    <button class="ft-tab" type="button" data-tab="richiesta" onclick="switchTab('richiesta')">Richiesta preventivo</button>
+    <button class="ft-tab" type="button" data-tab="calendario" onclick="switchTab('calendario')">Calendario consegne</button>
     <!-- Le ore stanno su una pagina loro: il numero sono le giornate da controllare -->
     <a class="ft-tab" href="/ufficio-ore.html" title="Ore dichiarate e riepilogo">Ore <span class="ft-count hot" id="ore-badge"></span></a>
-    <button class="ft-tab" role="tab" data-tab="backup" onclick="switchTab('backup')">Backup</button>
-  </nav>
+    <button class="ft-tab" type="button" data-tab="backup" onclick="switchTab('backup')">Backup</button>
+  </div>
+</nav>
+
+<header class="ft-topbar">
   <div class="imp-cerca" id="imp-cerca">
     <i data-lucide="search"></i>
-    <input type="search" id="cerca-globale" placeholder="Trova un ordine: numero o cliente" autocomplete="off"
+    <input type="search" id="cerca-globale" placeholder="Cerca un ordine: numero o cliente" autocomplete="off"
            oninput="cercaGlobale()" onfocus="cercaGlobale()" onkeydown="cercaTasti(event)">
     <kbd>Ctrl K</kbd>
     <div class="imp-cerca-res" id="cerca-res" role="listbox"></div>
   </div>
-  <div class="ft-topbar-end">
+  <div class="ft-topbar-end" style="margin-left:auto">
     <!-- Da procurare (12/10/2026): tubi, laser tubo, meccanica, commerciali da
          ordinare. Lo stesso pannello del laser (laser-procura.js, procura.css):
          qui si prepara la richiesta d'offerta e si segna ordinato / arrivato. -->
@@ -510,16 +497,9 @@ body.ft [hidden] { display: none !important; }
         <div id="notif-panel-body"></div>
       </div>
     </div>
-    <div class="ft-user">
-      <div class="ft-avatar" id="ft-user-avatar">?</div>
-      <div>
-        <div class="ft-user-name" id="ft-user-name">—</div>
-        <div class="ft-user-role" id="ft-user-role">Ufficio</div>
-      </div>
-    </div>
-    <button class="ft-btn ghost sm" onclick="logout()" title="Esci da FerroTrack"><i data-lucide="log-out"></i> Esci</button>
   </div>
 </header>
+<script src="/ft-cornice.js"></script>
 
 <main class="ft-page wide imp-full">
 
@@ -529,7 +509,6 @@ body.ft [hidden] { display: none !important; }
     <div><h1 id="og-titolo">Oggi</h1><p id="og-sotto">Quello che c'è da fare, e cosa rischia di arrivare in ritardo.</p></div>
     <div class="ft-actions">
       <button class="ft-btn" onclick="caricaOggi(true)" title="Aggiorna"><i data-lucide="refresh-cw"></i> Aggiorna</button>
-      <button class="ft-btn primary" onclick="switchTab('carica')"><i data-lucide="plus"></i> Carica ordine</button>
     </div>
   </div>
   <div class="og-kpi" id="og-kpi"></div>
@@ -1148,6 +1127,7 @@ function switchTab(tabId, vista) {
   if (tabId === 'calendario') loadCalendar();
   if (tabId === 'conferme') loadConferme();
   if (tabId === 'ordini') { renderVista(); caricaViste(); }
+  menuViste();
   if (tabId === 'archivio') { loadArchiveFilters(); loadArchive(); }
   if (tabId === 'backup') { loadBackupSettings(); loadBackupList(); }
   FT.icone();
@@ -2534,6 +2514,7 @@ async function caricaViste(silenzioso) {
   }
   VISTE_DATI = res.data;
   VISTE_CARICATE = true;
+  menuViste();
   if (TAB === 'ordini') { renderKpiViste(); renderVista(); }
   if (TAB === 'oggi') renderOggi();
   return true;
@@ -2583,10 +2564,27 @@ function renderKpiViste() {
       <span class="ft-kpi-sub">${sub}</span></button>`;
   }).join('');
   box.querySelectorAll('.ft-kpi-val').forEach(el => FT.contaDa(el.id, el, Number(el.textContent)));
+  menuViste();
+}
+
+/** Menu della cornice: le viste degli Ordini, col loro numero. */
+function vaiVista(fase) {
+  if (TAB !== 'ordini') switchTab('ordini', fase); else cambiaVista(fase);
+  menuViste();
+}
+function menuViste() {
+  let c = {};
+  try { c = (VISTE_DATI && VISTE_DATI.conteggi) || {}; } catch (_) { return; }   // prima del caricamento
+  document.querySelectorAll('.ftc-side .ft-tab[data-vista]').forEach(b => {
+    const n = b.querySelector('.ft-count');
+    if (n) n.textContent = c[b.dataset.vista] ? String(c[b.dataset.vista]) : '';
+    b.classList.toggle('active', TAB === 'ordini' && VISTA === b.dataset.vista);
+  });
 }
 
 function cambiaVista(fase) {
   VISTA = fase;
+  menuViste();
   document.querySelectorAll('#vista-kpis .ft-kpi').forEach(b => {
     const on = b.dataset.fase === fase;
     b.classList.toggle('on', on); b.setAttribute('aria-selected', on);

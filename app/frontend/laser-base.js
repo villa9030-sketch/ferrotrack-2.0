@@ -99,6 +99,54 @@
     return l.sort((a, b) => k(a).localeCompare(k(b)));
   };
 
+  /** Il numero grande della riga: "A 001221 BIS" -> "1221 BIS" (il numero
+      intero resta sotto e nel suggerimento). Senza cifre: il numero com'e'. */
+  LZ.numeroBreve = function (o) {
+    const n = String(LZ.numero(o) || '').trim();
+    const m = n.match(/^[A-Za-z]{0,4}[\s./-]*0*(\d{1,7})((?:[\s./-].*)?)$/);
+    return m ? (m[1] + (m[2] || '').replace(/^[\s./-]+/, ' ')).trim() : n;
+  };
+
+  /** I due allarmi della tela (approvati il 14/10), diversi fra loro:
+      'rischio'  rosso:     consegna vicina (2 giorni o meno, o passata) e ancora da tagliare;
+      'indietro' arancione: "taglia entro" passato, ma la consegna regge.
+      null: niente da dire. */
+  LZ.allarme = function (o) {
+    const st = LZ.statoLaser(o);
+    if (st === 'tagliato' || st === 'escluso') return null;
+    const gc = LZ.giorniA(o);
+    if (gc != null && gc <= 2) return { k: 'rischio', t: 'Consegna a rischio', s: gc < 0 ? `consegna passata da ${-gc} gg` : gc === 0 ? 'consegna oggi' : gc === 1 ? 'consegna domani' : 'consegna tra 2 gg' };
+    const ge = LZ.giorniEntro(o);
+    if (ge != null && ge < 0) return { k: 'indietro', t: 'Taglia entro passato', s: `da ${-ge} gg` };
+    return null;
+  };
+
+  /** I gruppi dell'elenco, nell'ordine in cui si vedono (anche per le frecce). */
+  LZ.GRUPPI = [
+    { k: 'smistare', t: 'Da smistare' },
+    { k: 'coda', t: 'Da mandare a Lantek' },
+    { k: 'in_lantek', t: 'In Lantek, da tagliare' },
+    { k: 'tagliato', t: 'Tagliati nelle ultime 24 ore' },
+  ];
+  LZ.ordiniVisti = function () {
+    const l = LZ.ordiniLaser();
+    return LZ.GRUPPI.flatMap(g => l.filter(o => LZ.statoLaser(o) === g.k));
+  };
+
+  /** Le lamiere dell'ordine e quante sono segnate tagliate. */
+  LZ.lamiere = function (o) {
+    const r = S.riep[o.id] || {};
+    const D = (S.dett[o.id] || {}).dati || {};
+    const l = D.lamiere || r.lamiere || [];
+    const tg = D.lamiere_tagliate || r.lamiere_tagliate || {};
+    return { l, tg, n: l.length, fatte: l.filter(x => tg[x.chiave]).length };
+  };
+  LZ.nomeLamiera = function (x) {
+    const m = String(x.materiale || '').replace(/_/g, ' ').trim().toLowerCase();
+    const mat = m ? m.charAt(0).toUpperCase() + m.slice(1) : 'Materiale non detto';
+    return `${mat}, ${x.spessore != null && x.spessore !== '' ? LZ.mm(x.spessore) : 'spessore non detto'}`;
+  };
+
   /** L'etichetta di stato di un ordine (UNA). tono: '' grigio | att ambra | err rosso | forte */
   LZ.etichetta = function (o) {
     const st = LZ.statoLaser(o);
@@ -161,9 +209,10 @@
   };
   LZ.mm = v => (v == null || v === '' || isNaN(Number(v)) ? '' : `${FT.numero(Number(v), Number(v) % 1 ? 1 : 0)} mm`);
   LZ.lamiera = function (mat, sp) {
-    const m = String(mat || '').replace(/_/g, ' ').trim();
+    let m = String(mat || '').replace(/_/g, ' ').trim().toLowerCase();
+    m = m.charAt(0).toUpperCase() + m.slice(1);
     const s = LZ.mm(sp);
-    return (m + (m && s ? ' · ' : '') + s) || '—';
+    return (m + (m && s ? ', ' : '') + s) || '—';
   };
   LZ.misure = function (m) {
     if (!m || !m[0] || !m[1]) return '';

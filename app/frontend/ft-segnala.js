@@ -129,6 +129,12 @@
     // barra in alto: quella comune (.ft-topbar-end) o quella dei preventivi
     const barra = document.querySelector('.ft-topbar-end, .topbar-actions');
     if (!barra) { b.classList.add('fts-flottante'); document.body.appendChild(b); return; }
+    // Cornice unica (ft-cornice.js): in fondo alla barra, prima del menu ⋯
+    if (document.body.classList.contains('ftc')) {
+      const altro = barra.querySelector('.ftc-altro');
+      if (altro) barra.insertBefore(b, altro); else barra.appendChild(b);
+      return;
+    }
     barra.insertBefore(b, barra.firstChild);
     // Se con il pulsante le schede non ci stanno piu' (ufficio: "Backup"
     // tagliato), resta solo la bandierina; la scritta e' nel suggerimento.

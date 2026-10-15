@@ -3,92 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LS FerroTrack — Capo Officina</title>
+<title>Capo officina · FerroTrack</title>
 <script src="/ft-accesso.js" data-stazioni="ufficio,laser"></script>
 <script src="/ft-stati.js"></script>
-<link href="/vendor/fonts/fonts.css" rel="stylesheet">
+<link rel="stylesheet" href="/ft-ui.css">
+<script src="/ft-ui.js"></script>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; }
-body { animation: pageIn 0.3s ease-out; }
-@keyframes pageIn { from { opacity: 0; } to { opacity: 1; } }
+/* Capo officina. Dal 15/10/2026 nella cornice comune (ft-cornice.js,
+   ft-ui.css): stesso indaco e stessi caratteri delle altre stazioni; il
+   verde resta solo per "fatto". Qui solo cio' che e' della pagina. */
+body.capo h2, body.capo h3, body.capo p { margin: 0; }
 
 :root {
-  --bg: #fafafa;
+  --bg: var(--ft-canvas);
   --white: #ffffff;
-  --black: #000000;
-  --green: #1a7a48;
-  --green-light: #22a060;
-  --gray-text: #666666;
-  --gray-muted: #999999;
-  --border: #e5e5e5;
-  --blue: #1e40af;
-  --blue-bg: #e0eaff;
-  --red: #991b1b;
-  --red-bg: #ffe4e4;
-  --orange: #92400e;
-  --orange-bg: #fff4d6;
-  --green-badge: #166534;
-  --green-badge-bg: #e2fce9;
-  --shadow-sm: 0 0 0 1px rgba(0,0,0,0.03), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 0 0 1px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
-  --shadow-lg: 0 0 0 1px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.05), 0 8px 24px rgba(0,0,0,0.08), 0 24px 48px rgba(0,0,0,0.06);
-  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-xl: 20px;
+  --black: var(--ft-ink);
+  --green: var(--ft-accent);
+  --green-light: var(--ft-accent-hover);
+  --gray-text: var(--ft-ink-3);
+  --gray-muted: var(--ft-ink-3);
+  --border: var(--ft-line);
+  --blue: var(--ft-accent-ink);
+  --blue-bg: var(--ft-accent-bg);
+  --red: #B42318;
+  --red-bg: #FEF3F2;
+  --orange: var(--ft-warn);
+  --orange-bg: var(--ft-warn-bg);
+  --green-badge: var(--ft-ok);
+  --green-badge-bg: var(--ft-ok-bg);
+  --shadow-sm: var(--ft-elev-1);
+  --shadow-md: var(--ft-elev-2);
+  --shadow-lg: var(--ft-elev-3);
+  --r-sm: 6px; --r-md: 10px; --r-lg: 12px; --r-xl: 14px;
 }
 
-body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--black); font-variant-numeric: tabular-nums; }
-
-/* TOPBAR */
-.topbar {
-  position: fixed; top: 0; left: 0; right: 0; height: 64px;
-  background: rgba(255,255,255,0.85);
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 48px; z-index: 1000;
-}
-.logo-section { display: flex; align-items: center; gap: 12px; }
-.logo-icon { width: 36px; height: 36px; background: var(--green); color: white; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; font-family: 'Geist'; }
-.logo-main { font-family: 'Geist'; font-weight: 900; font-size: 18px; letter-spacing: -0.4px; }
-.logo-sub  { font-family: 'Inter'; font-weight: 500; font-size: 12px; color: var(--gray-text); margin-top: -2px; }
-.topbar-actions { display: flex; align-items: center; gap: 12px; }
-.user-pill {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 14px 6px 6px; border: 1px solid var(--border); border-radius: 100px; background: var(--white);
-}
-.user-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--green); color: white;
-  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
-.user-name { font-size: 13px; font-weight: 600; }
-.user-role { font-size: 11px; color: var(--gray-text); }
-.btn-tb {
-  padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--white);
-  font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
-}
-.btn-tb:hover { background: var(--bg); }
-.btn-tb.primary { background: var(--green); color: white; border-color: var(--green); }
-.btn-tb.primary:hover { background: var(--green-light); }
-.btn-tb.danger { color: var(--red); border-color: var(--red-bg); }
-
-/* TAB BAR */
-.tab-bar {
-  position: fixed; top: 64px; left: 0; right: 0; height: 56px;
-  background: var(--white); border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; padding: 0 48px; gap: 4px; z-index: 999;
-}
-.tab-item {
-  padding: 18px 22px; font-size: 14px; font-weight: 600; color: var(--gray-text);
-  cursor: pointer; transition: all 0.15s; border-bottom: 2px solid transparent; height: 56px;
-  display: flex; align-items: center;
-}
-.tab-item.active { color: var(--green); border-bottom-color: var(--green); }
-.tab-item:hover:not(.active) { color: var(--black); background: rgba(26,122,72,0.03); }
+body.capo { font-size: 14px; }
 
 /* PANELS */
-.panel { display: none; margin-top: 140px; padding: 0 48px 48px; }
+.panel { display: none; max-width: var(--ft-page-max); margin: 0 auto; padding: calc(var(--ftc-top-h) + 28px) 32px 48px; }
 .panel.active { display: block; animation: tabFade 0.18s ease-out; }
 @keyframes tabFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-.page-title { font-family: 'Geist'; font-weight: 900; font-size: 22px; letter-spacing: -0.5px; margin-bottom: 20px; }
+.page-title { font: 700 24px/1.2 var(--ft-display); letter-spacing: -0.4px; margin-bottom: 20px; }
 
 /* CARDS */
 .card {
@@ -96,15 +51,11 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   margin-bottom: 20px; overflow: hidden; box-shadow: var(--shadow-sm);
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
-.card:hover { box-shadow: var(--shadow-md); }
 .card-header {
   padding: 14px 18px; border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
 }
-.card-header h3 {
-  font-size: 13px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.4px; color: var(--gray-text); margin: 0;
-}
+.card-header h3 { font-size: 14px; font-weight: 600; color: var(--ft-ink); margin: 0; }
 .card-meta { font-size: 12px; color: var(--gray-muted); font-weight: 600; }
 .card-body { padding: 0; }
 
@@ -115,19 +66,18 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 }
 .kpi-card {
   border: 1px solid var(--border); border-radius: var(--r-lg); padding: 22px;
-  background: linear-gradient(180deg, #fafbfc, var(--white));
+  background: var(--white);
   box-shadow: var(--shadow-sm); transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
-.kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .kpi-card .name { font-weight: 700; font-size: 15px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px; }
 .kpi-card .avatar { width: 32px; height: 32px; border-radius: 50%; color: white;
   display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
   background: var(--green); /* override inline da JS colorFromName */ }
 /* HERO: ore settimana grandi */
 .kpi-hero { padding: 6px 0 14px; border-bottom: 1px solid #f1f3f5; margin-bottom: 10px; }
-.kpi-hero .label { font-size: 11px; font-weight: 700; color: var(--gray-text); text-transform: uppercase; letter-spacing: 0.6px; }
+.kpi-hero .label { font-size: 12.5px; font-weight: 600; color: var(--gray-text); }
 .kpi-hero .value {
-  font-family: 'Geist'; font-weight: 900; font-size: 44px; line-height: 1.05; letter-spacing: -1.5px;
+  font-family: var(--ft-display); font-weight: 700; font-size: 44px; line-height: 1.05; letter-spacing: -1.5px;
   font-variant-numeric: tabular-nums; margin-top: 6px; color: var(--black);
 }
 /* Il testo piccolo dentro il numero grande deve ripartire da spaziatura
@@ -138,7 +88,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 .kpi-hero .value .unit { font-size: 18px; font-weight: 700; color: var(--gray-muted); margin-left: 4px; letter-spacing: 0; }
 .kpi-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
 .kpi-label { font-size: 12px; color: var(--gray-text); }
-.kpi-value { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; font-family: 'Geist'; }
+.kpi-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--ft-display); }
 .kpi-bar-wrap { margin-top: 10px; }
 .kpi-bar-bg { width: 100%; height: 6px; background: #eef0f2; border-radius: 100px; overflow: hidden; }
 .kpi-bar { height: 100%; background: var(--green); border-radius: 100px; transition: width 0.4s ease; }
@@ -149,11 +99,10 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 /* TABLES */
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl thead th {
-  text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.4px; color: var(--gray-text); padding: 10px 18px;
+  text-align: left; font-size: 12.5px; font-weight: 600; color: var(--gray-text); padding: 10px 18px;
   border-bottom: 1px solid var(--border); background: #fafbfc;
 }
-.tbl tbody td { padding: 11px 18px; border-bottom: 1px solid #f1f3f5; }
+.tbl tbody td { padding: 12px 18px; border-bottom: 1px solid var(--ft-line-2); font-size: 13.5px; }
 .tbl tbody tr:hover { background: #fafbfc; cursor: pointer; }
 .tbl tbody tr:last-child td { border-bottom: none; }
 .tbl .n { text-align: right; font-variant-numeric: tabular-nums; }
@@ -161,21 +110,21 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 
 .badge {
   display: inline-flex; align-items: center; padding: 3px 9px;
-  border-radius: 100px; font-size: 11px; font-weight: 700;
+  border-radius: 100px; font-size: 12px; font-weight: 600;
 }
 .badge.green { background: var(--green-badge-bg); color: var(--green-badge); }
 .badge.blue  { background: var(--blue-bg); color: var(--blue); }
 .badge.orange{ background: var(--orange-bg); color: var(--orange); }
 .badge.red   { background: var(--red-bg); color: var(--red); }
 .badge.gray  { background: #eef0f2; color: var(--gray-text); }
-.badge.purple { background: #f3e8ff; color: #6b21a8; }
+.badge.purple { background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
 
 /* CALENDARIO */
 .cal-controls {
   display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;
   border-bottom: 1px solid var(--border); background: #fafbfc;
 }
-.cal-controls .month-title { font-family: 'Geist'; font-weight: 800; font-size: 18px; letter-spacing: -0.3px; }
+.cal-controls .month-title { font-family: var(--ft-display); font-weight: 700; font-size: 18px; letter-spacing: -0.3px; }
 .cal-nav { display: flex; gap: 6px; }
 .cal-nav button {
   padding: 6px 12px; border: 1px solid var(--border); background: var(--white);
@@ -187,8 +136,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
   background: var(--border); border-bottom: 1px solid var(--border);
 }
 .cal-wk-head {
-  background: #fafbfc; padding: 8px 10px; font-size: 11px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.4px; color: var(--gray-muted);
+  background: #fafbfc; padding: 8px 10px; font-size: 12.5px; font-weight: 600; color: var(--gray-muted);
   text-align: center;
 }
 .cal-day {
@@ -198,12 +146,12 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 }
 .cal-day:hover { background: #fafbfc; }
 .cal-day.empty { background: #f7f8f9; cursor: default; pointer-events: none; }
-.cal-day.today { background: #e8f5ee; }
+.cal-day.today { background: var(--ft-accent-bg); }
 .cal-day.today .day-num { color: var(--green); font-weight: 900; }
-.day-num { font-size: 12px; font-weight: 700; color: var(--gray-text); margin-bottom: 4px; }
+.day-num { font-size: 12.5px; font-weight: 600; color: var(--gray-text); margin-bottom: 4px; }
 .day-orders { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
 .day-order {
-  font-size: 11px; padding: 2px 6px; border-radius: 4px;
+  font-size: 12px; padding: 2px 6px; border-radius: 4px;
   background: var(--blue-bg); color: var(--blue);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -214,9 +162,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 /* DAY MODAL */
 .modal-overlay {
   position: fixed; inset: 0;
-  background: rgba(250, 250, 250, 0.55);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  background: rgba(11, 18, 32, .42);
   display: none; align-items: center; justify-content: center;
   z-index: 2000; animation: fadeIn 0.2s ease-out;
 }
@@ -231,7 +177,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 }
 @keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .modal-head { padding: 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-.modal-head h3 { font-family: 'Geist'; font-weight: 800; font-size: 18px; margin: 0; }
+.modal-head h3 { font: 700 18px var(--ft-display); margin: 0; }
 .modal-body { padding: 0; overflow-y: auto; }
 .modal-close {
   width: 32px; height: 32px; border-radius: 8px; border: none;
@@ -245,48 +191,28 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 }
 </style>
 </head>
-<body>
+<body class="ft ftc capo" data-stazione="capo" data-cerca-testo="Cerca un ordine: numero o cliente">
 
-<!-- TOPBAR -->
-<div class="topbar">
-  <div class="logo-section">
-    <div class="logo-icon">LS</div>
-    <div>
-      <div class="logo-main">FerroTrack</div>
-      <div class="logo-sub">Capo Officina</div>
-    </div>
+<!-- Cornice uguale in ogni stazione (ft-cornice.js) -->
+<nav class="ftc-side" aria-label="Capo officina">
+  <div class="ftc-menu">
+    <button class="ft-tab tab-item active" type="button" data-tab="kpi" onclick="switchTab('kpi')">Ore degli operai</button>
+    <button class="ft-tab tab-item" type="button" data-tab="ordini" onclick="switchTab('ordini')">Ordini attivi
+      <span class="ft-count hot" id="sospetti-badge" style="display:none" title="Ordini probabilmente finiti">0</span></button>
+    <button class="ft-tab tab-item" type="button" data-tab="calendario" onclick="switchTab('calendario')">Calendario consegne</button>
+    <div class="ftc-gruppo">Altre pagine</div>
+    <a class="ft-tab" href="/laser.html">Laser</a>
+    <a class="ft-tab" href="/admin.html" title="Impostazioni, utenti, soglie">Amministrazione</a>
   </div>
-  <div class="topbar-actions">
-    <div class="user-pill">
-      <div class="user-avatar" id="user-pill-avatar">?</div>
-      <div>
-        <div class="user-name" id="user-pill-name">Capo</div>
-        <div class="user-role">Officina</div>
-      </div>
-    </div>
-    <button class="btn-tb" onclick="window.location.href='/admin.html'" title="Impostazioni, utenti, soglie">
-      <i data-lucide="settings" style="width:14px;height:14px;vertical-align:-2px;"></i> Admin
-    </button>
-    <button class="btn-tb danger" onclick="logout()">
-      <i data-lucide="log-out" style="width:14px;height:14px;vertical-align:-2px;"></i> Esci
-    </button>
-  </div>
-</div>
-
-<!-- TAB BAR -->
-<div class="tab-bar">
-  <div class="tab-item active" data-tab="kpi" onclick="switchTab('kpi')">KPI Operai</div>
-  <div class="tab-item" data-tab="ordini" onclick="switchTab('ordini')">
-    Ordini Attivi
-    <span id="sospetti-badge" style="display:none; margin-left:8px; padding:2px 8px; border-radius:100px; background:#dc2626; color:white; font-size:11px; font-weight:800;">0</span>
-  </div>
-  <div class="tab-item" data-tab="calendario" onclick="switchTab('calendario')">Calendario</div>
-  <div class="tab-item" onclick="window.location.href='/laser.html'" style="margin-left:auto;">Postazione Laser →</div>
-</div>
+</nav>
+<header class="ft-topbar">
+  <div class="ft-topbar-end" style="margin-left:auto"></div>
+</header>
+<script src="/ft-cornice.js"></script>
 
 <!-- ===================== PANEL: KPI ===================== -->
 <div class="panel active" id="panel-kpi">
-  <h2 class="page-title">KPI Operai — ore lavorate</h2>
+  <h2 class="page-title">Ore degli operai</h2>
   <div id="nota-fonte-ore" style="margin-bottom:12px; padding:10px 14px;
        border-radius:10px; background:#eef2f4; border:1px solid #dde3e6;
        font-size:12px; color:#5a6367; line-height:1.5;">
@@ -308,7 +234,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--bla
 
 <!-- ===================== PANEL: ORDINI ATTIVI ===================== -->
 <div class="panel" id="panel-ordini">
-  <h2 class="page-title">Ordini Attivi <span id="ord-count-title" style="color:var(--gray-muted); font-weight:600; font-size:15px; margin-left:8px;"></span></h2>
+  <h2 class="page-title">Ordini attivi <span id="ord-count-title" style="color:var(--gray-muted); font-weight:600; font-size:15px; margin-left:8px;"></span></h2>
 
   <!-- ORDINI SOSPETTI FINITI — il sistema suggerisce, il capo decide -->
   <div class="card" id="sospetti-card-capo" style="display:none; border-color:#fca5a5; margin-bottom:20px;">
@@ -418,11 +344,8 @@ window.addEventListener('load', async () => {
   currentUser = user;
   // Le ore e i KPI per operaio sono dell'Ufficio: dal laser li chiede il PIN
   // dell'amministratore (lo fa da solo ft-accesso.js quando il server lo vuole).
-  const initials = (user.name || '').split(' ').map(w => w[0]).join('').toUpperCase() || '?';
-  const avatarEl = document.getElementById('user-pill-avatar');
-  avatarEl.textContent = initials;
-  avatarEl.style.background = colorFromName(user.name);
-  document.getElementById('user-pill-name').textContent = user.name || 'Capo';
+  FT.mostraUtente(user, 'Capo officina');
+  loadOrdini();      // anche per la ricerca
   if (window.lucide) lucide.createIcons();
   switchTab('kpi');
 });
@@ -603,6 +526,15 @@ async function loadKpi() {
 }
 
 // ---------- Ordini attivi ----------
+// La ricerca della cornice (Ctrl K) cerca fra gli ordini attivi
+let _ordiniCapo = [];
+if (window.FTC) FTC.cerca = q => {
+  const t = q.toLowerCase();
+  return _ordiniCapo.filter(o => [o.numero_ordine, o.numero_ordine_cliente, o.cliente].some(x => String(x || '').toLowerCase().includes(t)))
+    .map(o => ({ t: (o.numero_ordine || '') + '  ' + (o.cliente || ''), s: 'consegna ' + FT.fmtData(o.data_consegna),
+                 st: '<span class="badge gray">' + escapeHtml(FTStati.laser[FTStati.faseLaser(o)] || '') + '</span>',
+                 fn: () => openOrderDetailModal(o.id, escapeHtml(o.numero_ordine || o.id.substring(0, 8))) }));
+};
 async function loadOrdini() {
   const tbody = document.getElementById('ord-tbody');
   try {
@@ -615,6 +547,7 @@ async function loadOrdini() {
     );
     // Sort per data_consegna ascendente
     orders.sort((a, b) => (a.data_consegna || '').localeCompare(b.data_consegna || ''));
+    _ordiniCapo = orders;
 
     document.getElementById('ord-count-title').textContent = `(${orders.length})`;
     document.getElementById('ord-meta').textContent = `${orders.length} attivi`;

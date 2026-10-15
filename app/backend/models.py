@@ -415,6 +415,19 @@ class LantekCorrezione(Base):
     quantita_lantek = Column(Float, nullable=True)
 
 
+class LamieraTagliata(Base):
+    """Una lamiera (materiale + spessore) di un ordine segnata "tagliata" a
+    mano dal laser (Stefano, 14/10/2026: "il ferro oggi, l'inox domani").
+    Il "Taglio fatto" dell'ordine intero resta com'era; questa e' solo la
+    spunta per lamiera, che si toglie con Annulla. chiave = api_laser.chiave_lamiera."""
+    __tablename__ = 'lamiere_tagliate'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    order_id = Column(String, nullable=False, index=True)
+    chiave = Column(String, nullable=False)
+    tagliata_il = Column(DateTime, default=datetime.utcnow)
+    tagliata_da = Column(String, nullable=True)
+
+
 class LantekInvio(Base):
     """Un codice mandato a Lantek da "Manda a Lantek" (ordine di produzione
     via XML Importer): il registro di FerroTrack, che non dipende dal poter

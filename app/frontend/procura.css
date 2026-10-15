@@ -3,18 +3,17 @@
    dell'Ufficio, cosi' le due non divergono: tutto qui dentro e' sotto
    .lz-pc / .lz-procura-btn, e nell'Ufficio non tocca il resto della pagina.
 
-   Lo stile e' quello del laser: grigi, un solo accento blu, ambra = da
+   Lo stile e' quello di tutta l'app: grigi, un solo accento (indaco), ambra = da
    fare, rosso = in ritardo. */
 .lz-pc, .lz-procura-btn {
-  --lz-font: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --lz-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
-  --lz-mono: "Cascadia Mono", "Cascadia Code", Consolas, "SFMono-Regular", monospace;
-  --lz-bg: #F3F4F6; --lz-surface: #FFFFFF; --lz-surface-2: #F9FAFB; --lz-hover: #F5F6F8;
-  --lz-line: #E4E7EB; --lz-line-2: #EDEFF2;
-  --lz-ink: #15181D; --lz-ink-2: #474F5C; --lz-ink-3: #737B88; --lz-ink-4: #A2A8B2;
-  --lz-accent: #2459D8; --lz-accent-hover: #1D4CC0; --lz-accent-bg: #EEF3FE; --lz-accent-line: #C9D8FA; --lz-accent-ink: #1C47B0;
-  --lz-amber: #9A5A06; --lz-amber-bg: #FDF5E6; --lz-amber-line: #F1D9A8;
-  --lz-red: #B42318; --lz-red-bg: #FDF0EE; --lz-red-line: #F4C9C3; --lz-green: #15803D;
+  /* Dal 15/10 i caratteri e l'indaco di tutta l'app (ft-ui.css) */
+  --lz-font: var(--ft-font); --lz-display: var(--ft-display); --lz-mono: var(--ft-mono);
+  --lz-bg: var(--ft-canvas); --lz-surface: #FFFFFF; --lz-surface-2: var(--ft-well); --lz-hover: var(--ft-hover);
+  --lz-line: var(--ft-line); --lz-line-2: var(--ft-line-2);
+  --lz-ink: var(--ft-ink); --lz-ink-2: var(--ft-ink-2); --lz-ink-3: var(--ft-ink-3); --lz-ink-4: var(--ft-ink-4);
+  --lz-accent: var(--ft-accent); --lz-accent-hover: var(--ft-accent-hover); --lz-accent-bg: var(--ft-accent-bg); --lz-accent-line: #C7D2FE; --lz-accent-ink: var(--ft-accent-ink);
+  --lz-amber: var(--ft-warn); --lz-amber-bg: var(--ft-warn-bg); --lz-amber-line: var(--ft-warn-line);
+  --lz-red: #B42318; --lz-red-bg: #FEF3F2; --lz-red-line: #FECDCA; --lz-green: var(--ft-ok);
   --lz-r: 10px; --lz-r-l: 12px;
 }
 .lz-pc { position: fixed; inset: 0; z-index: 2500; display: flex; flex-direction: column; background: var(--lz-bg);

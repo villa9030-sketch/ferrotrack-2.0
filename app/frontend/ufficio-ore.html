@@ -93,41 +93,32 @@
 @media (max-width: 720px) { .uo-row { flex-direction: column; align-items: stretch; } }
 </style>
 </head>
-<body class="ft">
+<body class="ft ftc" data-stazione="ufficio">
 
-<!-- ═══════════════ TESTATA (la stessa dell'Ufficio) ═══════════════ -->
-<header class="ft-topbar">
-  <a class="ft-brand" href="/impiegata.html" title="Ufficio — torna all'inizio">
-    <div class="ft-logo">LS</div>
-    <div>
-      <div class="ft-brand-name">FerroTrack</div>
-      <div class="ft-brand-area">Ufficio</div>
-    </div>
-  </a>
-  <!-- Le schede dell'Ufficio vivono in impiegata.html: qui sono collegamenti
-       che la riaprono sulla scheda giusta (impiegata legge #scheda). -->
-  <nav class="ft-tabs" aria-label="Sezioni dell'ufficio">
+<!-- ═══════════════ CORNICE (la stessa dell'Ufficio: ft-cornice.js) ═══════════════
+     Le sezioni dell'Ufficio vivono in impiegata.html: qui sono collegamenti
+     che la riaprono sulla sezione giusta (impiegata legge #sezione). -->
+<nav class="ftc-side" aria-label="Ufficio">
+  <a class="ft-tab ftc-cta" href="/impiegata.html#carica"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Carica ordine</a>
+  <div class="ftc-menu">
     <a class="ft-tab" href="/impiegata.html#oggi">Oggi</a>
-    <a class="ft-tab" href="/impiegata.html#carica">Carica ordine</a>
-    <a class="ft-tab" href="/impiegata.html#richiesta">Richiesta preventivo</a>
-    <a class="ft-tab" href="/impiegata.html#conferme">Da confermare</a>
-    <a class="ft-tab" href="/impiegata.html#calendario">Calendario</a>
     <a class="ft-tab" href="/impiegata.html#ordini">Ordini</a>
+    <a class="ft-tab sub" href="/impiegata.html#ordini/aperto">In lavorazione</a>
+    <a class="ft-tab sub" href="/impiegata.html#ordini/pronto_ddt">Pronti per DDT</a>
+    <a class="ft-tab sub" href="/impiegata.html#ordini/consegnato">Da fatturare</a>
     <a class="ft-tab" href="/impiegata.html#archivio">Archivio</a>
+    <div class="ftc-gruppo">Altro</div>
+    <a class="ft-tab" href="/impiegata.html#conferme">Preventivi da confermare</a>
+    <a class="ft-tab" href="/impiegata.html#richiesta">Richiesta preventivo</a>
+    <a class="ft-tab" href="/impiegata.html#calendario">Calendario consegne</a>
     <a class="ft-tab active" href="/ufficio-ore.html" aria-current="page" title="Ore dichiarate e riepilogo">Ore <span class="ft-count hot" id="ore-badge"></span></a>
     <a class="ft-tab" href="/impiegata.html#backup">Backup</a>
-  </nav>
-  <div class="ft-topbar-end">
-    <div class="ft-user">
-      <div class="ft-avatar" id="ft-user-avatar">?</div>
-      <div>
-        <div class="ft-user-name" id="ft-user-name">—</div>
-        <div class="ft-user-role" id="ft-user-role">Ufficio</div>
-      </div>
-    </div>
-    <button class="ft-btn ghost sm" onclick="FTA.esci()" title="Esci da FerroTrack">Esci</button>
   </div>
+</nav>
+<header class="ft-topbar">
+  <div class="ft-topbar-end" style="margin-left:auto"></div>
 </header>
+<script src="/ft-cornice.js"></script>
 
 <main class="ft-page">
   <div class="ft-head">

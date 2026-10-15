@@ -150,7 +150,7 @@
       if (t && t.closest && t.closest('.lz-r[data-id]') && t.closest('.lz-r').dataset.id !== S.aperto) {
         e.preventDefault(); LZ.lista.apri(t.closest('.lz-r').dataset.id); return;
       }
-      if (S.aperto && LZ.ordine.invio()) e.preventDefault();
+      if (LZ.ordine.invio()) e.preventDefault();      // senza ordine aperto: apre il prossimo da fare
       return;
     }
   });
@@ -168,6 +168,11 @@
     if (!u) return;
     FT.mostraUtente(u, 'Postazione laser');
     LZ.icone();
+    // Le cose che servono di rado, nel menu ⋯ della barra (tela "Laser")
+    if (window.FTC) FTC.altro([
+      { t: 'Schermo intero', ico: '<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>', fn: () => LZ.schermoIntero() },
+      { t: 'Cambia postazione', ico: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>', fn: () => FTA.cambiaDispositivo() },
+    ]);
     await A.caricaOrdini(true);
     S.primoCarico = false;
     LZ.ridisegna();

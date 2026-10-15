@@ -61,6 +61,14 @@
                    : 'Correggili in Lantek come scritto sotto: FerroTrack lo rilegge da solo e ti avvisa quando si possono mandare.',
                  bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
       }
+      const lm = LZ.lamiere(o);
+      if (lm.n > 1) {
+        const manca = lm.n - lm.fatte;
+        return { tono: '', ico: 'scissors', t: `Da tagliare: ${LZ.plur(manca, 'lamiera', 'lamiere')} su ${lm.n}`,
+                 s: lm.fatte ? 'Segna le altre quando le hai tagliate, oppure tutto l\'ordine insieme.'
+                   : 'Puoi segnare il taglio lamiera per lamiera (vista «Per lamiera»), oppure tutto l\'ordine insieme.',
+                 bottoni: [{ t: 'Taglio fatto, tutto', az: 'taglio', pri: true, tasto: 'Invio' }] };
+      }
       return { tono: '', ico: 'scissors', t: 'In Lantek: da tagliare', s: 'Quando hai tagliato tutto, segnalo qui.',
                bottoni: [{ t: 'Taglio fatto', az: 'taglio', pri: true, tasto: 'Invio' }] };
     }
@@ -144,7 +152,11 @@
   /** Invio = il pulsante principale del prossimo passo (o lo spessore proposto da confermare). */
   O.invio = function () {
     const o = LZ.trova(S.aperto);
-    if (!o) return false;
+    if (!o) {
+      const p = !S.aperto && LZ.lista.prossimo();
+      if (p) { LZ.lista.apri(p.id); return true; }
+      return false;
+    }
     if (LZ.statoLaser(o) === 'coda') {
       const D = S.dett[o.id] || {};
       const aid = O.primaProposta(D.dati || S.riep[o.id]);
@@ -163,8 +175,9 @@
   function scheletro(el, id) {
     el.innerHTML = `<div class="lz-ordine" data-ordine="${esc(id)}">
       <div id="lz-o-testa"></div><div id="lz-o-passo"></div>
-      <nav class="lz-schede" id="lz-o-schede" role="tablist" aria-label="Viste dell'ordine"></nav>
-      <div class="lz-scheda" id="lz-o-scheda"></div></div>`;
+      <div class="lz-o-corpo"><aside class="lz-o-pdf" id="lz-o-pdf" aria-label="PDF dell'ordine del cliente"></aside>
+        <div class="lz-o-pezzi"><nav class="lz-schede" id="lz-o-schede" role="tablist" aria-label="Viste dell'ordine"></nav>
+        <div class="lz-scheda" id="lz-o-scheda"></div></div></div></div>`;
     el._lzHtml = null;
     costruitoPer = id;
   }
@@ -175,22 +188,55 @@
     const o = S.aperto && LZ.trova(S.aperto);
     if (!o) {
       costruitoPer = null;
-      el.classList.remove('con-pdf');
+      el.classList.remove('con-pdf', 'accanto');
       LZ.metti(el, S.aperto && !S.primoCarico
         ? `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('archive')}</div><b>Quest'ordine non è più al laser</b><p>Scegline un altro a sinistra.</p></div></div>`
-        : `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('mouse-pointer-click')}</div><b>Scegli un ordine a sinistra</b>
-            <p>oppure spuntane più di uno per lavorarli insieme.</p><p style="margin-top:10px"><kbd>↑</kbd> <kbd>↓</kbd> per scorrere gli ordini · <kbd>Spazio</kbd> per selezionarli · <kbd>C</kbd> per controllare i disegni</p></div></div>`);
+        : vuotoProssimo());
       return;
     }
     if (costruitoPer !== o.id || !el.querySelector('#lz-o-testa')) scheletro(el, o.id);
     if (LZ.staScrivendo(el)) return;              // non si ridisegna sotto le dita
+    const acc = O.accanto(o);
+    if (acc && S.scheda === 'pdf') S.scheda = 'pezzi';
     el.classList.toggle('con-pdf', S.scheda === 'pdf');
+    el.classList.toggle('accanto', !!acc);
+    el.dataset.allarga = acc ? (S.allarga || '') : '';
+    pdfAccanto(el, o, acc);
     LZ.metti(document.getElementById('lz-o-testa'), testa(o));
     O.segnaMeta();
     LZ.metti(document.getElementById('lz-o-passo'), passoHtml(o));
     LZ.metti(document.getElementById('lz-o-schede'), schede(o));
     LZ.metti(document.getElementById('lz-o-scheda'), scheda(o), el);
   };
+
+  /** Niente aperto: il prossimo ordine da fare, con Apri. Si apre solo se
+      lo chiedi tu (Stefano, 14/10: niente si apre da solo). */
+  function vuotoProssimo() {
+    if (S.primoCarico) return '<div class="lz-vuoto"><div><div class="lz-skel" style="height:120px;width:520px;max-width:100%"></div></div></div>';
+    const p = LZ.lista.prossimo();
+    if (!p) {
+      return `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('circle-check')}</div><b>Niente da fare al laser</b>
+        <p>Quando l'ufficio carica un ordine, compare a sinistra.</p></div></div>`;
+    }
+    const passo = O.passo(p);
+    const al = LZ.allarme(p);
+    const g = LZ.giorno(p);
+    const dopo = LZ.ordiniVisti().filter(x => x.id !== p.id && LZ.statoLaser(x) !== 'tagliato').slice(0, 4);
+    const W = window.FTStati.laser;
+    const cosa = x => ({ smistare: W.da_smistare, coda: W.da_importare, in_lantek: 'da tagliare' }[LZ.statoLaser(x)] || '');
+    return `<div class="lz-prossimo">
+      <h2>Il prossimo da fare</h2>
+      <div class="lz-pr-card">
+        <div class="lz-pr-chi"><span class="lz-num">${esc(LZ.numeroBreve(p))}</span><b>${esc(p.cliente || 'Cliente non indicato')}</b>
+          ${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}</div>
+        <p>${esc(passo.t)}${g ? `. Consegna ${esc(FT.fmtData(g))}` : ''}.</p>
+        <button class="lz-btn pri grande" type="button" data-az="apri-prossimo" data-id="${esc(p.id)}" data-fuoco="apri-prossimo">Apri${LZ.tasto('Invio')}</button>
+      </div>
+      ${dopo.length ? `<h3>Dopo</h3><ul class="lz-pr-dopo">${dopo.map(x => `<li><button type="button" data-az="apri-prossimo" data-id="${esc(x.id)}">
+        <span><b>${esc(LZ.numeroBreve(x))}</b> ${esc(x.cliente || '')}</span><span class="c">${esc(cosa(x))}</span></button></li>`).join('')}</ul>` : ''}
+      <p class="lz-pr-tasti"><kbd>↑</kbd> <kbd>↓</kbd> per scorrere gli ordini, <kbd>Spazio</kbd> per spuntarli, <kbd>C</kbd> per controllare i disegni.</p>
+    </div>`;
+  }
 
   function testa(o) {
     const st = LZ.statoLaser(o);
@@ -219,9 +265,10 @@
           aria-label="Cambia a mano la data entro cui tagliare" title="Cambia a mano la data entro cui tagliare">
         ${aMano ? `<button class="lz-link" type="button" data-az="entro-calcolo" data-fuoco="entro-calcolo">Torna al calcolo</button>` : ''}</span>`;
     const esterna = st === 'tagliato' ? '' : campoEsterna(o, te);
+    const al = LZ.allarme(o);
     return `<div class="lz-o-testa">
-      <div class="lz-o-tit"><h2 title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</h2>
-        <div class="lz-o-sotto"><span class="mono">${esc(LZ.numero(o))}</span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${LZ.procura.chip(o)}</div></div>
+      <div class="lz-o-tit"><h2><span class="lz-o-num">${esc(LZ.numeroBreve(o))}</span><span class="lz-o-cli" title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</span></h2>
+        <div class="lz-o-sotto"><span>ordine del cliente <span class="mono">${esc(LZ.numero(o))}</span></span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}${LZ.procura.chip(o)}</div></div>
       <div class="lz-o-az"><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
       <div class="lz-fatti">
         <div class="lz-entro"><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
@@ -370,6 +417,31 @@
     await O.dopo(id);
   });
 
+  /** Il PDF dell'ordine sta ACCANTO ai pezzi (approvato il 14/10) quando
+      c'e' posto: meta' schermo il PDF, meta' i pezzi; "Allarga" da' tutto lo
+      spazio a uno dei due. Su uno schermo stretto resta la scheda "PDF ordine". */
+  O.accanto = function (o) {
+    if (!o || !o.pdf_file || S.pdfAccanto === false) return false;
+    const el = document.getElementById('lz-dett');
+    return !!(el && el.clientWidth >= 1080);
+  };
+  let pdfDi = null;
+  function pdfAccanto(el, o, acc) {
+    const box = document.getElementById('lz-o-pdf');
+    if (!box) return;
+    if (!acc) { if (pdfDi) { box.innerHTML = ''; pdfDi = null; } return; }
+    const piena = S.allarga === 'pdf';
+    const testa = `<div class="lz-pdf-testa"><b>PDF dell'ordine del cliente</b><span class="sp"></span>
+      <button class="lz-btn piccolo ghost" type="button" data-az="allarga-pdf" aria-pressed="${piena}">${LZ.ico(piena ? 'minimize-2' : 'maximize-2')}${piena ? 'Accanto ai pezzi' : 'Allarga'}</button>
+      <a class="lz-btn piccolo ghost lz-icona" href="/api/orders/${esc(o.id)}/pdf" target="_blank" rel="noopener" title="Apri in una scheda" aria-label="Apri il PDF in una scheda">${LZ.ico('external-link')}</a></div>`;
+    if (pdfDi !== o.id) {
+      box.innerHTML = `<div id="lz-pdf-testa"></div><div class="lz-pdf"><iframe id="lz-pdf" title="PDF dell'ordine" src="/api/orders/${esc(o.id)}/pdf#navpanes=0&view=FitH"></iframe></div>`;
+      pdfDi = o.id;
+    }
+    LZ.metti(document.getElementById('lz-pdf-testa'), testa);
+  }
+  window.addEventListener('resize', () => { clearTimeout(O._rz); O._rz = setTimeout(() => O.disegna(), 150); });
+
   function schede(o) {
     const D = S.dett[o.id] || {};
     const pezzi = (D.dati && D.dati.pezzi) || [];
@@ -383,7 +455,15 @@
     } else if (S.scheda === 'disegni' && nDis) {
       dx = `<span class="sp"></span><a class="lz-btn piccolo ghost" href="/api/orders/${esc(o.id)}/disegni.zip" download>${LZ.ico('download')}Scarica tutti</a>`;
     }
-    return t('pezzi', 'Pezzi', D.dati ? pezzi.length : null) + t('disegni', 'Disegni', D.dati ? nDis : null) + t('pdf', 'PDF ordine', null) + dx;
+    const lm = LZ.lamiere(o);
+    const acc = O.accanto(o);
+    if (acc && S.scheda !== 'disegni') {
+      const piena = S.allarga === 'pezzi';
+      dx = `<span class="sp"></span><button class="lz-btn piccolo ghost" type="button" data-az="allarga-pezzi" aria-pressed="${piena}">${LZ.ico(piena ? 'minimize-2' : 'maximize-2')}${piena ? 'Mostra il PDF' : 'Allarga'}</button>`;
+    }
+    return t('pezzi', 'Pezzi', D.dati ? pezzi.length : null)
+      + (lm.n ? t('lamiere', 'Per lamiera', lm.n) : '')
+      + t('disegni', 'Disegni', D.dati ? nDis : null) + (acc ? '' : t('pdf', 'PDF ordine', null)) + dx;
   }
 
   function scheda(o) {
@@ -396,11 +476,12 @@
       }
       return `<div aria-busy="true">${Array.from({ length: 6 }, () => '<div class="lz-skel" style="height:40px;margin-bottom:8px"></div>').join('')}</div>`;
     }
+    if (S.scheda === 'lamiere') return schedaLamiere(o, D.dati);
     return S.scheda === 'disegni' ? schedaDisegni(o, D.dati) : schedaPezzi(o, D.dati);
   }
 
   // ── Pezzi ───────────────────────────────────────────────────────────
-  const DECISI = { giusto: 'controllato', scelto: 'contorno scelto a mano', sviluppo: 'va sviluppato',
+  const DECISI = { giusto: 'controllato da te', scelto: 'contorno scelto a mano', sviluppo: 'va sviluppato',
                    piu_pezzi: 'a mano in Lantek', non_laser: 'non è da laser', piu_pezzi_confermati: 'pezzo del foglio' };
   O.DECISI = DECISI;
 
@@ -418,7 +499,7 @@
     if (p.da_controllare) return `<span class="lz-st att">${LZ.ico('scan-eye')}da controllare</span>`;
     if (p.decisione) return `<span class="lz-st ok">${LZ.ico('check')}${esc(DECISI[p.decisione] || p.decisione)}</span>`;
     if (!p.disegno) return `<span class="lz-st">${p.lantek === 'in_lantek' ? 'non serve' : 'senza disegno'}</span>`;
-    if (p.motore === 'sicuro') return `<span class="lz-st ok">${LZ.ico('check')}sicuro</span>`;
+    if (p.motore === 'sicuro') return `<span class="lz-st ok" title="Il motore ha letto il disegno senza dubbi">${LZ.ico('check')}Letto bene</span>`;
     if (p.lantek === 'in_lantek') return '<span class="lz-st" title="Il codice c\'è già in Lantek: il disegno non serve">già in Lantek</span>';
     return '<span class="lz-st">—</span>';
   }
@@ -497,6 +578,7 @@
     const codAss = new Set(assiemi.map(a => a.codice));
     let h = '';
     if (d.pdf && (d.pdf.da_abbinare || []).length && LZ.abbina) h += LZ.abbina.html(o, d);
+    h += riepLamiere(o);
     if (!pezzi.length) {
       h += `<div class="lz-pdf-vuoto">${d.origine === 'nessuna'
         ? 'Quest\'ordine non ha l\'elenco dei pezzi: le quantità sono sul <b>PDF ordine</b>.'
@@ -526,6 +608,50 @@
     h += procuraHtml(o, d);
     return h;
   }
+
+  // ── Per lamiera (14/10) ─────────────────────────────────────────────
+  /** Una riga sola sopra i pezzi: le lamiere dell'ordine e quali sono
+      tagliate. I pezzi restano nell'ordine del PDF del cliente. */
+  function riepLamiere(o) {
+    const lm = LZ.lamiere(o);
+    if (lm.n < 2) return '';
+    return `<div class="lz-lam-riep"><span class="t">${LZ.plur(lm.n, 'lamiera', 'lamiere')}${lm.fatte ? `, ${lm.fatte} tagliat${lm.fatte === 1 ? 'a' : 'e'}` : ''}:</span>
+      ${lm.l.map(x => `<span class="lz-lam-pill${lm.tg[x.chiave] ? ' ok' : ''}">${lm.tg[x.chiave] ? LZ.ico('check') : ''}${esc(LZ.nomeLamiera(x))}</span>`).join('')}
+      <button class="lz-link" type="button" data-scheda="lamiere">Vedi per lamiera</button></div>`;
+  }
+  /** I pezzi raggruppati per lamiera, coi totali, e "Segna tagliato" per
+      ciascuna (a mano: il ferro oggi, l'inox domani). Dentro ogni lamiera
+      i pezzi restano nell'ordine del PDF. */
+  function schedaLamiere(o, d) {
+    const lm = LZ.lamiere(o);
+    const pezzi = (d.pezzi || []).map((p, i) => [p, i]).filter(([p]) => p.lamiera);
+    if (!lm.n) return '<div class="lz-pdf-vuoto">Nessun pezzo di lamiera da tagliare in quest\'ordine.</div>';
+    const st = LZ.statoLaser(o);
+    const puoi = st === 'in_lantek' || st === 'coda';
+    return `<p class="lz-lam-nota">Le lamiere come in Lantek. I pezzi, dentro ogni lamiera, nell'ordine del PDF.</p>` + lm.l.map(x => {
+      const t = lm.tg[x.chiave];
+      const righe = pezzi.filter(([p]) => p.lamiera === x.chiave);
+      const az = st === 'tagliato' ? '<span class="lz-st ok">tagliato con l\'ordine</span>'
+        : t ? `<span class="lz-lam-fatto">${LZ.ico('check')}Tagliata ${esc(FT.fmtRelativo(t.il))}</span>
+            <button class="lz-link" type="button" data-az="lamiera-annulla" data-chiave="${esc(x.chiave)}">Annulla</button>`
+          : puoi ? `<button class="lz-btn piccolo" type="button" data-az="lamiera-tagliata" data-chiave="${esc(x.chiave)}" data-fuoco="lam-${esc(x.chiave)}">Segna tagliata</button>` : '';
+      return `<section class="lz-lam${t ? ' fatta' : ''}" aria-label="${esc(LZ.nomeLamiera(x))}">
+        <div class="lz-lam-testa"><div><b>${esc(LZ.nomeLamiera(x))}</b><span>${LZ.plur(x.n_codici, 'codice', 'codici')}, ${LZ.plur(x.n_pezzi, 'pezzo', 'pezzi')}</span></div>${az}</div>
+        <table class="lz-tab"><tbody>${righe.map(([p, i]) => `<tr data-fuoco="lpz-${i}" ${p.articolo_id && p.disegno && /\.dxf$/i.test(p.disegno) ? `class="cl" data-vedi="${esc(p.articolo_id)}"` : ''}>
+          <td class="cod">${esc(p.codice)}</td><td class="r q">${p.quantita != null ? FT.numero(p.quantita) : '—'}</td>
+          <td class="lav">${esc((p.lavorazioni || []).join(', ')) || 'nessuna'}</td><td>${cellaDisegno(p)}</td></tr>`).join('')}</tbody></table></section>`;
+    }).join('');
+  }
+  O.lamiera = (id, chiave, annulla) => LZ.azione(async () => {
+    const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lamiera-tagliata`, { chiave, annulla: !!annulla });
+    if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
+    const x = (LZ.lamiere(LZ.trova(id) || { id }).l || []).find(l => l.chiave === chiave);
+    const nome = x ? LZ.nomeLamiera(x) : chiave.replace('|', ' ');
+    for (const box of [S.riep[id], (S.dett[id] || {}).dati]) if (box) box.lamiere_tagliate = r.d.lamiere_tagliate || {};
+    LZ.ridisegna();
+    FT.toast(annulla ? `${nome}: di nuovo da tagliare` : `${nome}: tagliata`, 'ok',
+      annulla ? null : { testo: 'Annulla', fn: () => O.lamiera(id, chiave, true) });
+  });
 
   /** I pezzi da procurare dell'ordine (tubi, laser tubo, meccanica,
       commerciali) e a che punto sono. Il pannello "Da procurare" fa il resto. */
@@ -579,13 +705,15 @@
   document.addEventListener('click', e => {
     const dett = document.getElementById('lz-dett');
     if (!dett || !dett.contains(e.target)) return;
+    const ap = e.target.closest('[data-az="apri-prossimo"]');
+    if (ap) { LZ.lista.apri(ap.dataset.id); return; }
     const o = LZ.trova(S.aperto);
     if (!o) return;
     // pezzi per assieme / quanti assiemi: si scrive nel campo, non si apre il disegno
     if (e.target.closest('input[data-pza], input[data-assq], .lz-pza, .lz-assq')) return;
-    const ap = e.target.closest('[data-ass-apri]');
-    if (ap) {
-      const k = ap.dataset.assApri;
+    const aa = e.target.closest('[data-ass-apri]');
+    if (aa) {
+      const k = aa.dataset.assApri;
       if (assChiusi.has(k)) assChiusi.delete(k); else assChiusi.add(k);
       O.disegna();
       return;
@@ -662,7 +790,7 @@
   });
 
   O.mostraScheda = function (k) {
-    if (!['pezzi', 'disegni', 'pdf'].includes(k)) return;
+    if (!['pezzi', 'lamiere', 'disegni', 'pdf'].includes(k)) return;
     S.scheda = k;
     O.disegna();
   };
@@ -685,6 +813,10 @@
       case 'abbina': S.scheda = 'pezzi'; O.disegna(); return LZ.abbina && LZ.abbina.vai(id);
       case 'menu': return menuOrdine(o, ancora);
       case 'procura': return LZ.procura.apri({ ordine: id, stato: 'tutti' });
+      case 'lamiera-tagliata': return ancora && O.lamiera(id, ancora.dataset.chiave, false);
+      case 'lamiera-annulla': return ancora && O.lamiera(id, ancora.dataset.chiave, true);
+      case 'allarga-pdf': S.allarga = S.allarga === 'pdf' ? '' : 'pdf'; return O.disegna();
+      case 'allarga-pezzi': S.allarga = S.allarga === 'pezzi' ? '' : 'pezzi'; return O.disegna();
       case 'usa-lantek': return ancora && O.usaLantek(id, ancora.dataset.codice);
       case 'qta-corretta': return ancora && O.qtaCorretta(id, ancora.dataset.codice, Number(ancora.dataset.q), Number(ancora.dataset.ql));
       case 'pdf-stampa': {

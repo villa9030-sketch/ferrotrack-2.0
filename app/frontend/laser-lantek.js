@@ -4,7 +4,12 @@
    differenze fra ordine e Lantek da scegliere. Poi si manda un ordine alla
    volta (/lantek-invia, lo stesso di sempre) e per ognuno si vede come e'
    andata: mai il dubbio su cosa e' successo.
-   Lantek lo fanno lavorare i suoi programmi sul server, solo dopo "Manda". */
+   Lantek lo fanno lavorare i suoi programmi sul server, solo dopo "Manda".
+
+   Dopo l'invio (tela "Laser", approvata il 14/10): se restano cose da
+   mettere in Lantek A MANO (pezzi "a mano in Lantek", "va sviluppato",
+   codici tenuti fuori da correggere) la finestra le elenca e non si chiude
+   finche' non le spunti tutte come fatte. */
 (function () {
   'use strict';
   const LZ = window.LZ;
@@ -19,7 +24,7 @@
     if (st || !ids.length) return;
     LZ.chiudiMenu();
     st = { ids: LZ.ordiniLaser().map(o => o.id).filter(id => ids.includes(id)), fase: 'carica', dati: {}, errori: {},
-           scelte: {}, esiti: {}, foto: LZ.fotografa() };
+           scelte: {}, esiti: {}, foto: LZ.fotografa(), amano: [], spunte: new Set() };
     const v = document.createElement('div');
     v.className = 'lz-velo';
     v.id = 'lz-lantek';
@@ -27,6 +32,8 @@
     v.addEventListener('mousedown', e => { if (e.target === v && st && st.fase !== 'invio') K.chiudi(); });
     v.addEventListener('click', clic);
     v.addEventListener('change', e => {
+      const m = e.target.closest('input[data-amano]');
+      if (m) { if (m.checked) st.spunte.add(m.dataset.amano); else st.spunte.delete(m.dataset.amano); disegna(); return; }
       const r = e.target.closest('input[data-diff]');
       if (r) { (st.scelte[r.dataset.ordine] = st.scelte[r.dataset.ordine] || {})[r.dataset.codice] = r.value; disegna(); }
     });
@@ -45,8 +52,16 @@
     if (b && !b.disabled) b.focus();
   };
 
+  /** Le cose da fare a mano rimaste dopo l'invio, tutte spuntate? */
+  const mancaAMano = () => st && st.fase === 'fatto' ? st.amano.filter(x => !st.spunte.has(x.k)).length : 0;
+
   K.chiudi = function () {
     if (!st || st.fase === 'invio') return;
+    if (mancaAMano()) {
+      const p = document.querySelector('#lz-lantek .lz-amano input:not(:checked)');
+      if (p) p.focus();
+      return;
+    }
     const fatto = st.fase === 'fatto', ids = st.ids, foto = st.foto;
     st = null;
     const v = document.getElementById('lz-lantek');
@@ -161,15 +176,19 @@
     } else {
       const ok = Object.values(st.esiti).filter(e => e.stato === 'ok').length;
       const ko = Object.values(st.esiti).filter(e => e.stato === 'err').length;
-      piede = `<span class="perche" style="color:${ko ? 'var(--lz-red)' : 'var(--lz-green)'}">${ko ? `${ok} riusciti, ${ko} non riusciti` : 'Tutto fatto. Adesso lanciali dal MES come al solito.'}</span>
-        <span class="sp"></span><button class="lz-btn pri grande" type="button" data-k="annulla">Chiudi${LZ.tasto('Invio')}</button>`;
+      const manca = mancaAMano();
+      piede = manca
+        ? `<span class="perche" style="color:var(--lz-ink-3)">${manca === 1 ? 'Manca 1 riga da spuntare' : `Mancano ${manca} righe da spuntare`}: le cose a mano non si dimenticano.</span>
+          <span class="sp"></span><button class="lz-btn pri grande" type="button" data-k="annulla" disabled>Fatte, chiudi</button>`
+        : `<span class="perche" style="color:${ko ? 'var(--lz-red)' : 'var(--lz-green)'}">${ko ? `${ok} riusciti, ${ko} non riusciti` : st.amano.length ? 'Tutto fatto, anche a mano. Adesso lanciali dal MES come al solito.' : 'Tutto fatto. Adesso lanciali dal MES come al solito.'}</span>
+          <span class="sp"></span><button class="lz-btn pri grande" type="button" data-k="annulla">${st.amano.length ? 'Fatte, chiudi' : 'Chiudi'}${LZ.tasto('Invio')}</button>`;
     }
     const tit = st.fase === 'fatto' ? 'Mandato a Lantek' : `Manda a Lantek${nOrd > 1 ? ` ${nOrd} ordini` : ''}`;
     const sotto = st.fase === 'carica' ? 'Guardo cosa c\'è già in Lantek…'
       : st.fase === 'fatto' ? 'Ho ricontrollato in Lantek cosa c\'è davvero.'
         : 'Controlla il riassunto: niente parte prima di «Manda a Lantek».';
     LZ.metti(box, `<div class="lz-dlg-testa"><h2 id="lz-lt-tit">${esc(tit)}</h2><p>${esc(sotto)}</p></div>
-      <div class="lz-dlg-corpo">${st.ids.map(blocco).join('')}</div>
+      <div class="lz-dlg-corpo">${st.ids.map(blocco).join('')}${amanoHtml()}</div>
       <div class="lz-dlg-piede">${piede}</div>`, box.querySelector('.lz-dlg-corpo'));
   }
 
@@ -202,6 +221,7 @@
       S.occupato = Math.max(0, S.occupato - 1);
     }
     if (!st) return;
+    st.amano = daFareAMano(ids);
     st.fase = 'fatto';
     disegna();
     const c = document.querySelector('#lz-lantek [data-k="annulla"]');
@@ -252,12 +272,44 @@
              dett: righe.map(esc).join('<br>') + (imp.ok ? '<br>Ora è fra quelli da tagliare.' : '<br><b>Non sono riuscito a segnarlo «In Lantek»: fallo dal menu ⋯ dell\'ordine.</b>') };
   }
 
+  /** Cosa resta da mettere in Lantek a mano, ordine per ordine (solo per
+      gli ordini partiti): i pezzi tenuti fuori "a mano in Lantek" o "va
+      sviluppato", e i codici tenuti fuori da correggere. */
+  function daFareAMano(ids) {
+    const out = [];
+    for (const id of ids) {
+      const es = st.esiti[id];
+      if (!es || es.stato !== 'ok') continue;
+      const o = LZ.trova(id) || {};
+      const d = st.dati[id] || {};
+      const chi = `${LZ.numeroBreve(o)} ${o.cliente || ''}`.trim();
+      for (const x of d.esclusi || []) {
+        const m = String(x.motivo || '');
+        if (!/a mano|sviluppat/i.test(m)) continue;
+        const pz = (d.pezzi || []).find(p => p.codice === x.codice);
+        out.push({ k: `${id}|e|${x.codice}`, t: x.codice, q: pz && pz.quantita, s: `${capo(m)}.`, chi });
+      }
+      for (const c of tenutiFuori(id)) out.push({ k: `${id}|c|${c}`, t: c, s: 'Correggilo in Lantek: resta segnato «da correggere» finché non è a posto.', chi });
+    }
+    return out;
+  }
+  const capo = t => { t = String(t || ''); return t.charAt(0).toUpperCase() + t.slice(1); };
+  function amanoHtml() {
+    if (st.fase !== 'fatto' || !st.amano.length) return '';
+    const piu = new Set(st.amano.map(x => x.chi)).size > 1;
+    return `<section class="lz-amano" aria-labelledby="lz-amano-t"><h3 id="lz-amano-t">Da mettere tu in Lantek, a mano</h3>
+      <p>Queste righe non si possono mandare in automatico. Spuntale quando le hai fatte.</p>
+      ${st.amano.map(x => `<label class="${st.spunte.has(x.k) ? 'fatto' : ''}"><input type="checkbox" data-amano="${esc(x.k)}" ${st.spunte.has(x.k) ? 'checked' : ''}>
+        <span><b class="mono">${esc(x.t)}</b>${x.q ? `, ${esc(FT.numero(x.q))} pz` : ''}${piu ? ` <small style="display:inline">(${esc(x.chi)})</small>` : ''}<small>${esc(x.s)}</small></span></label>`).join('')}
+    </section>`;
+  }
+
   /** Tasti della finestra. true = gestito. */
   K.tasto = function (e) {
     if (!st) return false;
     if (e.key === 'Escape') { K.chiudi(); return true; }
     if (e.key === 'Enter') {
-      if (e.target && e.target.matches && e.target.matches('input[type=radio]')) return true;
+      if (e.target && e.target.matches && e.target.matches('input[type=radio], input[data-amano]')) return true;
       if (st.fase === 'conferma') { const b = document.querySelector('#lz-lantek [data-k="manda"]'); if (b && !b.disabled) manda(); }
       else if (st.fase === 'fatto') K.chiudi();
       return true;
