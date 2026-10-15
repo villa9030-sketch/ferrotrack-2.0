@@ -29,7 +29,7 @@ ETICHETTA_REPARTO = dict(REPARTI)
 _PAROLE = (
     ('piega', ('pieg', 'bend')),
     ('saldatura', ('sald', 'puntat', 'weld')),
-    ('filettatura', ('filett', 'svas', 'masch', 'thread')),
+    ('filettatura', ('filett', 'svas', 'masch', 'thread', 'trapan')),   # fori al trapano: stesso reparto
     ('montaggio', ('montag', 'assembl', 'puntat')),
 )
 

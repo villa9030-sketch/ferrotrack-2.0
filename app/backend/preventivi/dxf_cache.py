@@ -99,7 +99,9 @@ _INITIALIZED = False
 # v20 (2026-10-14): svasature/filettature dai callout dei fori (DXF, poi PDF
 #                  del pezzo; chiave con l'hash del PDF) e, senza callout,
 #                  dalla geometria di UNA vista del pezzo.
-PARSER_VERSION = 20
+# v21 (2026-10-15): i fori al trapano escono davvero dal taglio (perimetro e
+#                  inneschi) e si pagano a foro (FORI_TRAPANO_NEL_COSTO=False).
+PARSER_VERSION = 21
 
 
 def _init_db() -> None:

@@ -56,6 +56,9 @@ def stima_tempi_consegna(articoli: list, costi_montaggio: dict,
     tot_saldatura_ml = _somma('saldatura_ml')
     tot_filettatura = _somma('filettatura_pz')
     tot_svasatura = _somma('svasatura_pz')
+    # fori piccoli fatti al trapano (sotto 2/3 dello spessore): stesso tempo
+    # per foro di filettature e svasature
+    tot_trapano = _somma('foratura_pz')
 
     # Bending time
     ore_piegatura = (tot_pieghe * tempo_piega * quantita) / 60.0
@@ -78,8 +81,8 @@ def stima_tempi_consegna(articoli: list, costi_montaggio: dict,
 
     ore_saldatura = ore_saldatura_comp + ore_saldatura_ass
 
-    # Drilling/threading time
-    ore_foratura = ((tot_filettatura + tot_svasatura) * tempo_foro * quantita) / 60.0
+    # Drilling/threading time (filettature, svasature, fori al trapano)
+    ore_foratura = ((tot_filettatura + tot_svasatura + tot_trapano) * tempo_foro * quantita) / 60.0
 
     # Tube cutting time
     ore_taglio_tubo = 0
@@ -98,7 +101,7 @@ def stima_tempi_consegna(articoli: list, costi_montaggio: dict,
     n_setups = 0
     if tot_pieghe > 0: n_setups += 1
     if ore_saldatura > 0: n_setups += 1
-    if tot_filettatura > 0 or tot_svasatura > 0: n_setups += 1
+    if tot_filettatura > 0 or tot_svasatura > 0 or tot_trapano > 0: n_setups += 1
     if ore_taglio_tubo > 0: n_setups += 1
     ore_setup = (n_setups * tempo_setup) / 60.0
 

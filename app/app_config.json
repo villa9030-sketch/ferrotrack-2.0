@@ -52,6 +52,7 @@
     "soglia_setup_pieghe": 5,
     "costo_filettatura": 0.8,
     "costo_svasatura": 0.3,
+    "costo_foratura_trapano": 0.5,
     "costo_saldatura_metro": 25,
     "costo_materiale_apporto_metro": 3,
     "costo_pulizia_saldatura_metro": 5,

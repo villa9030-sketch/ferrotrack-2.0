@@ -95,7 +95,7 @@ def lavorazioni_ordine(righe, origine: str = 'distinta', note: str = '') -> dict
             t = _piano(testo_lavorazione(lv))
             if 'svas' in t:
                 svas = True
-            if 'filett' in t or 'masch' in t or 'thread' in t:
+            if 'filett' in t or 'masch' in t or 'thread' in t or 'trapan' in t:
                 filett = True
             e = _esterna_in(t)
             if e and e not in esterne:

@@ -4381,6 +4381,8 @@ class PreventivoManager:
                         costo_saldatura=src_a.costo_saldatura,
                         costo_filettatura=src_a.costo_filettatura,
                         costo_svasatura=src_a.costo_svasatura,
+                        foratura_pz=src_a.foratura_pz or 0,
+                        costo_foratura=src_a.costo_foratura or 0,
                         costo_apporto=src_a.costo_apporto,
                         costo_pulizia=src_a.costo_pulizia,
                     ))
@@ -4485,6 +4487,7 @@ class PreventivoManager:
                         else (a.costo_base_stimato or a.costo_materiale or 0.0))
                 lav = (float(a.costo_piega or 0) + float(a.costo_saldatura or 0)
                        + float(a.costo_filettatura or 0) + float(a.costo_svasatura or 0)
+                       + float(a.costo_foratura or 0)
                        + float(a.costo_apporto or 0) + float(a.costo_pulizia or 0))
                 costo_base = round(float(base or 0) + lav, 2)
                 # Distingui il tipo di match (utile per l'avviso "rinominato")
@@ -4567,6 +4570,7 @@ class PreventivoManager:
                         else (a.costo_base_stimato or a.costo_materiale or 0.0))
                 lav = (float(a.costo_piega or 0) + float(a.costo_saldatura or 0)
                        + float(a.costo_filettatura or 0) + float(a.costo_svasatura or 0)
+                       + float(a.costo_foratura or 0)
                        + float(a.costo_apporto or 0) + float(a.costo_pulizia or 0))
                 occ = {
                     'art_id': a.id,
@@ -4864,7 +4868,11 @@ class PreventivoManager:
                       # Registro delle conferme del pezzo nel preventivatore: le
                       # domande viste, le risposte date, chi le ha chiuse, e la
                       # confidenza di materiale/spessore letti dal cartiglio.
-                      'conferme')
+                      'conferme',
+                      # Fori tondi del pezzo (diametri mm) e quelli fatti al
+                      # trapano perche' sotto 2/3 dello spessore: se lo spessore
+                      # cambia, il preventivo rifa' la scelta laser/trapano.
+                      'fori_tondi', 'fori_trapano')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -4945,6 +4953,11 @@ class PreventivoManager:
     def _extra_articolo(a: dict) -> dict:
         """Solo i campi ammessi, ripuliti: nessun dato arbitrario in colonna."""
         out = {}
+        for k in ('fori_tondi', 'fori_trapano'):
+            fori = a.get(k)
+            if isinstance(fori, list):
+                out[k] = [x for x in (PreventivoManager._num_o_none(d, 1e4) for d in fori[:500])
+                          if x is not None and 0 < x <= 100]
         gas = str(a.get('gas_taglio') or '').strip().upper()
         if gas in PreventivoManager._GAS_VALIDI:
             out['gas_taglio'] = gas
@@ -5351,6 +5364,8 @@ class PreventivoManager:
                     costo_saldatura=float(a.get('costo_saldatura') or 0),
                     costo_filettatura=float(a.get('costo_filettatura') or 0),
                     costo_svasatura=float(a.get('costo_svasatura') or 0),
+                    foratura_pz=max(0, int(a.get('foratura_pz') or 0)),
+                    costo_foratura=float(a.get('costo_foratura') or 0),
                     costo_apporto=float(a.get('costo_apporto') or 0),
                     costo_pulizia=float(a.get('costo_pulizia') or 0),
                     geometria_manuale_confermata=bool(a.get('geometria_manuale_confermata')),
@@ -6064,6 +6079,8 @@ class PreventivoManager:
             'filettatura_pz': a.filettatura_pz, 'svasatura_pz': a.svasatura_pz,
             'costo_piega': a.costo_piega, 'costo_saldatura': a.costo_saldatura,
             'costo_filettatura': a.costo_filettatura, 'costo_svasatura': a.costo_svasatura,
+            'foratura_pz': getattr(a, 'foratura_pz', 0) or 0,
+            'costo_foratura': getattr(a, 'costo_foratura', 0.0) or 0.0,
             'costo_apporto': a.costo_apporto, 'costo_pulizia': a.costo_pulizia,
             'geometria_manuale_confermata': bool(getattr(a, 'geometria_manuale_confermata', False)),
             'geometry_source': getattr(a, 'geometry_source', None),

@@ -113,7 +113,8 @@ def esporta_xlsx_preventivo(
             c_sald = float(art.get('costo_saldatura', 0.0) or 0.0)
             c_filett = float(art.get('costo_filettatura', 0.0) or 0.0)
             c_svas = float(art.get('costo_svasatura', 0.0) or 0.0)
-            costo = costo_mat + c_piega + c_sald + c_filett + c_svas
+            c_trap = float(art.get('costo_foratura', 0.0) or 0.0)
+            costo = costo_mat + c_piega + c_sald + c_filett + c_svas + c_trap
             if margine > 0:
                 costo = costo * (1 + margine / 100)
             return costo

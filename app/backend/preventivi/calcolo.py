@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 TOLLERANZA_EUR = 0.50
 
 CAMPI_LAVORAZIONE = ('costo_piega', 'costo_saldatura', 'costo_filettatura',
-                     'costo_svasatura', 'costo_apporto', 'costo_pulizia')
+                     'costo_svasatura', 'costo_foratura', 'costo_apporto', 'costo_pulizia')
 
 
 def _num(v, default=0.0):

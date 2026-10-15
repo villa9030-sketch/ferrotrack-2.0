@@ -167,6 +167,7 @@ def _costo_totale_articolo(art: dict) -> float:
         + float(art.get("costo_saldatura", 0))
         + float(art.get("costo_filettatura", 0))
         + float(art.get("costo_svasatura", 0))
+        + float(art.get("costo_foratura", 0) or 0)
         + float(art.get("costo_mat_apporto", 0))
         + float(art.get("costo_pulizia", 0))
     )

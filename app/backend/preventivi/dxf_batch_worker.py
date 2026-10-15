@@ -301,9 +301,12 @@ def diametro_min_laser(spessore_mm) -> int | None:
     return int(math.floor(FORO_LASER_SU_SPESSORE * t + 1e-6))
 
 
-# Finche' Stefano non da' il costo della foratura, il preventivo conta i fori da
-# trapano come tagliati al laser (09/10/2026: prezzo prudente, come prima).
-FORI_TRAPANO_NEL_COSTO = True
+# 09/10/2026: finche' mancava il costo della foratura il preventivo contava i
+# fori da trapano come tagliati al laser (True). 15/10/2026: Stefano ha dato
+# il costo (0,50 EUR/foro, Impostazioni "Foratura trapano"): i fori al trapano
+# escono dal taglio (perimetro e inneschi) e il preventivo li paga a foro
+# (preventivo_articoli.foratura_pz / costo_foratura).
+FORI_TRAPANO_NEL_COSTO = False
 
 
 def fori_sotto_soglia(fori_tondi: list, spessore_mm) -> list:
@@ -346,10 +349,10 @@ def applica_fori_trapano(geo: dict | None, spessore: dict | None) -> dict | None
         n = len(trapano)
         geo = dict(geo)
         # Il foro al trapano toglie comunque materiale: area (e peso) restano
-        # quelle col foro. Taglio e inneschi: finche' non c'e' il costo della
-        # foratura (FORI_TRAPANO_NEL_COSTO) il preventivo li conta come se il
-        # laser li tagliasse, cioe' prezzo come prima della regola. Il DXF per
-        # Lantek invece ha le croci di tracciatura (dxf_cleanup).
+        # quelle col foro. Taglio e inneschi: senza FORI_TRAPANO_NEL_COSTO i
+        # fori escono dal taglio e il preventivo li paga come foratura (a
+        # foro); con True li conterebbe come tagliati al laser. Il DXF per
+        # Lantek ha le croci di tracciatura (dxf_cleanup).
         geo['taglio_senza_trapano'] = {
             'perimetro_taglio_m': round(max(0.0, float(geo.get('perimetro_taglio_m') or 0) - p_mm / 1000.0), 4),
             'n_pierce': max(0, int(geo.get('n_pierce') or 0) - n)}

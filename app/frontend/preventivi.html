@@ -3551,6 +3551,12 @@ body { font-size: var(--fs-m); }
                     <span class="wb-stepper sm"><button type="button" tabindex="-1" onclick="wbStep('sd-svas', -1)">&minus;</button><input type="number" id="sd-svas" step="1" min="0" onchange="sdOnFieldChange('svasatura_pz', this.value, true)" aria-label="Svasature"><button type="button" tabindex="-1" onclick="wbStep('sd-svas', 1)">+</button></span>
                     <span class="lav-eur" id="wb-lav-svas"></span>
                   </div>
+                  <div class="lav" data-lav="trapano">
+                    <span class="lav-name" title="Fori tondi sotto 2/3 dello spessore: segnati dal laser, fatti al trapano">Fori al trapano</span>
+                    <span class="wb-stepper sm"><button type="button" tabindex="-1" onclick="wbStep('sd-trapano', -1)">&minus;</button><input type="number" id="sd-trapano" step="1" min="0" onchange="sdOnFieldChange('foratura_pz', this.value, true)" aria-label="Fori al trapano"><button type="button" tabindex="-1" onclick="wbStep('sd-trapano', 1)">+</button></span>
+                    <span class="lav-eur" id="wb-lav-trapano"></span>
+                    <span class="lav-sub" id="wb-lav-trapano-d"></span>
+                  </div>
                 </div>
                 <div class="lav-add" id="wb-lav-add"></div>
                 <div id="sd-sald-hint" class="pc-note warn" style="display:none;"></div>
@@ -3931,7 +3937,7 @@ body { font-size: var(--fs-m); }
 
     <!-- ═══ PIEGATURA + FILETTATURA + SVASATURA ═══ -->
     <div class="card">
-      <div class="card-header"><h3>Piegatura, filettatura, svasatura</h3></div>
+      <div class="card-header"><h3>Piegatura, filettatura, svasatura, foratura</h3></div>
       <div class="card-body">
         <div class="form-row">
           <div class="form-field">
@@ -3969,6 +3975,11 @@ body { font-size: var(--fs-m); }
             <label>Svasatura (&euro;/pz)</label>
             <input type="number" id="cfg-svas-costo" step="0.01" min="0">
           </div>
+        </div>
+        <div class="form-field" style="margin-top:10px;">
+          <label>Foratura trapano (&euro;/foro)</label>
+          <input type="number" id="cfg-trapano-costo" step="0.01" min="0">
+          <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Fori tondi sotto 2/3 dello spessore (es. sp. 10 &rarr; sotto &Oslash;6): il laser li segna con una croce, si fanno al trapano e non entrano nel tempo di taglio.</div>
         </div>
       </div>
     </div>
@@ -4353,6 +4364,7 @@ body { font-size: var(--fs-m); }
           <div class="field"><label>Saldatura (min)</label><input type="number" id="mad-sald-min" step="1" min="0" title="Minuti saldatura → costo = min/60 × tariffa" onchange="madUpdate('saldatura_min', this.value, true)"></div>
           <div class="field"><label>Filettatura pz</label><input type="number" id="mad-filett" min="0" onchange="madUpdate('filettatura_pz', this.value, true)"></div>
           <div class="field"><label>Svasatura pz</label><input type="number" id="mad-svas" min="0" onchange="madUpdate('svasatura_pz', this.value, true)"></div>
+          <div class="field"><label>Fori al trapano</label><input type="number" id="mad-trapano" min="0" title="Fori tondi sotto 2/3 dello spessore: fatti al trapano, pagati a foro" onchange="madUpdate('foratura_pz', this.value, true)"></div>
         </div>
 
         <!-- Banner source geometria (fallback cartiglio attivato) -->
@@ -4382,6 +4394,7 @@ body { font-size: var(--fs-m); }
           <div id="mad-sald-hint" style="display:none; font-size:11px; color:#B45309; margin:-2px 0 4px;"></div>
           <div class="field"><label>Filettatura</label><div class="ro" id="mad-c-filett">&mdash;</div></div>
           <div class="field"><label>Svasatura</label><div class="ro" id="mad-c-svas">&mdash;</div></div>
+          <div class="field"><label>Foratura trapano</label><div class="ro" id="mad-c-trapano">&mdash;</div></div>
           <div id="mad-base-fonte" style="display:none; font-size:11px; color:#92400E; margin-top:4px; line-height:1.5;"></div>
         </div>
 
@@ -4747,7 +4760,7 @@ function _pesoArticoloKg(a) {
 // `origine_campi` ({campo: 'cad'|'manuale'}) ed e' salvata sul server.
 // ═══════════════════════════════════════════════════════════════════
 const _CAMPI_CON_ORIGINE = ['pieghe', 'saldatura_ml', 'saldatura_min', 'filettatura_pz', 'svasatura_pz',
-  'n_forature', 'perimetro_taglio_m', 'area_dm2', 'materiale', 'spessore_mm'];
+  'foratura_pz', 'n_forature', 'perimetro_taglio_m', 'area_dm2', 'materiale', 'spessore_mm'];
 function _segnaManuale(a, campo) {
   if (!a || !_CAMPI_CON_ORIGINE.includes(campo)) return;
   a.origine_campi = Object.assign({}, a.origine_campi || {}, { [campo]: 'manuale' });
@@ -4760,6 +4773,71 @@ function _applicaDaCad(a, campo, valore) {
   a[campo] = valore;
   a.origine_campi = Object.assign({}, a.origine_campi || {}, { [campo]: 'cad' });
   return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Fori al trapano. Regola di Stefano (08/10/2026): il laser taglia un foro
+// tondo solo da 2/3 dello spessore in su, arrotondato per difetto al mm
+// (10 mm -> Ø6, 5 -> Ø3, 3 -> Ø2); i piu' piccoli si fanno al trapano e si
+// pagano a foro (Impostazioni: "Foratura trapano €/foro", 15/10/2026 0,50 €).
+// Sull'articolo: `fori_tondi` = diametri di TUTTI i fori tondi del pezzo
+// (dal disegno o dal CAD), `fori_trapano` = quelli al trapano, gia' fuori da
+// perimetro_taglio_m e n_forature; `foratura_pz` = quanti (si puo' correggere).
+// Stessa regola del server: dxf_batch_worker.applica_fori_trapano.
+// ═══════════════════════════════════════════════════════════════════
+function _dminLaser(t) {
+  t = parseFloat(t);
+  return t > 0 ? Math.floor(2 / 3 * t + 1e-6) : 0;
+}
+function _stessiFori(x, y) {
+  if (x.length !== y.length) return false;
+  const k = l => l.map(d => Math.round(d * 10)).sort((p, q) => p - q).join(',');
+  return k(x) === k(y);
+}
+/** Riallinea fori al trapano, perimetro e inneschi allo spessore attuale.
+    Chiamare dopo import, conferma CAD e cambio di spessore. */
+function _ricalcolaForiTrapano(a) {
+  if (!a) return;
+  const orig = a.origine_campi || {};
+  const tondi = Array.isArray(a.fori_tondi) ? a.fori_tondi.map(Number).filter(d => d > 0) : null;
+  const prima = Array.isArray(a.fori_trapano) ? a.fori_trapano.map(Number).filter(d => d > 0) : [];
+  // Senza l'elenco dei fori (pezzi vecchi, misure a mano) non si decide nulla.
+  // Perimetro o inneschi scritti a mano: li ha decisi una persona, non si toccano.
+  if (!tondi || orig.perimetro_taglio_m === 'manuale' || orig.n_forature === 'manuale') return;
+  const dmin = _dminLaser(a.spessore_mm);
+  const dopo = dmin ? tondi.filter(d => d < dmin - 0.05) : [];
+  if (!_stessiFori(prima, dopo)) {
+    // i fori di prima tornano al laser, quelli di adesso escono dal taglio
+    const giri = l => l.reduce((s, d) => s + Math.PI * d, 0) / 1000;
+    a.perimetro_taglio_m = Math.max(0, Math.round(((a.perimetro_taglio_m || 0) + giri(prima) - giri(dopo)) * 10000) / 10000);
+    a.n_forature = Math.max(0, (a.n_forature || 0) + prima.length - dopo.length);
+  }
+  a.fori_trapano = dopo.map(d => Math.round(d * 100) / 100);
+  if (orig.foratura_pz !== 'manuale') a.foratura_pz = dopo.length;
+}
+/** Geometria arrivata dal disegno/CAD: `tondi` = fori tondi (diametri mm o
+    {d_mm}), `giaTrapano` = quelli che il server ha gia' tolto dal taglio.
+    `tondi` null = geometria senza elenco fori: tutto resta al laser. */
+function _foriDaGeometria(a, tondi, giaTrapano) {
+  if (!a) return;
+  const orig = a.origine_campi || {};
+  if (orig.perimetro_taglio_m === 'manuale' || orig.n_forature === 'manuale') {
+    // perimetro/inneschi scritti a mano restano: niente elenco fori, il
+    // numero di fori al trapano lo decide chi ha scritto le misure
+    a.fori_tondi = null; a.fori_trapano = [];
+    return;
+  }
+  const mm = l => l.map(f => Math.round(Number(f && f.d_mm != null ? f.d_mm : f) * 100) / 100).filter(d => d > 0);
+  a.fori_tondi = Array.isArray(tondi) ? mm(tondi) : null;
+  a.fori_trapano = Array.isArray(giaTrapano) ? mm(giaTrapano) : [];
+  if (!a.fori_tondi) {
+    // misure dal cartiglio, STEP, sviluppo, a mano: i fori restano tutti nel
+    // perimetro di taglio, niente trapano
+    a.fori_trapano = [];
+    if ((a.origine_campi || {}).foratura_pz !== 'manuale') a.foratura_pz = 0;
+    return;
+  }
+  _ricalcolaForiTrapano(a);
 }
 
 // ---------- session / topbar ----------
@@ -4923,6 +5001,14 @@ function recalcLavorazioniArt(a) {
   // Filettatura + svasatura
   a.costo_filettatura = round2(parseInt(a.filettatura_pz || 0) * (C.costo_filettatura || 0));
   a.costo_svasatura = round2(parseInt(a.svasatura_pz || 0) * (C.costo_svasatura || 0));
+  // Fori al trapano (sotto 2/3 dello spessore): N fori × €/foro
+  a.costo_foratura = round2(Math.max(0, parseInt(a.foratura_pz || 0)) * _eurForoTrapano());
+}
+
+/** €/foro della foratura al trapano (Impostazioni), 0,50 se non impostato. */
+function _eurForoTrapano() {
+  const v = _prevCfg ? _prevCfg.costo_foratura_trapano : null;
+  return (v != null && v !== '' && !isNaN(parseFloat(v))) ? parseFloat(v) : 0.5;
 }
 
 function round2(v) { return Math.round((v || 0) * 100) / 100; }
@@ -5476,6 +5562,7 @@ async function loadImpostazioni() {
     document.getElementById('cfg-svl-raggio').value = P.sviluppo_raggio_rel ?? '';
     document.getElementById('cfg-filett-costo').value = P.costo_filettatura ?? 0;
     document.getElementById('cfg-svas-costo').value = P.costo_svasatura ?? 0;
+    document.getElementById('cfg-trapano-costo').value = P.costo_foratura_trapano ?? 0.5;
     document.getElementById('cfg-sald-costo').value = P.costo_saldatura_metro ?? 0;
     document.getElementById('cfg-sald-apporto').value = P.costo_materiale_apporto_metro ?? 0;
     document.getElementById('cfg-sald-pulizia').value = P.costo_pulizia_saldatura_metro ?? 0;
@@ -5583,6 +5670,7 @@ async function saveImpostazioni() {
         sviluppo_raggio_rel: (r => r > 0 ? r : null)(parseFloat(document.getElementById('cfg-svl-raggio').value)),
         costo_filettatura: parseFloat(document.getElementById('cfg-filett-costo').value) || 0,
         costo_svasatura: parseFloat(document.getElementById('cfg-svas-costo').value) || 0,
+        costo_foratura_trapano: (v => v >= 0 ? v : 0.5)(parseFloat(document.getElementById('cfg-trapano-costo').value)),
         costo_saldatura_metro: parseFloat(document.getElementById('cfg-sald-costo').value) || 0,
         costo_materiale_apporto_metro: parseFloat(document.getElementById('cfg-sald-apporto').value) || 0,
         costo_pulizia_saldatura_metro: parseFloat(document.getElementById('cfg-sald-pulizia').value) || 0,
@@ -6309,7 +6397,7 @@ async function openPreventivo(id) {
     await fetchPreventiviCfg(true);
     if (gen !== _wbGen) return;
     const _firma = a => ['costo_piega', 'costo_saldatura', 'costo_filettatura', 'costo_svasatura',
-                         'costo_apporto', 'costo_pulizia'].map(k => round2(a[k] || 0)).join('|');
+                         'costo_foratura', 'costo_apporto', 'costo_pulizia'].map(k => round2(a[k] || 0)).join('|');
     let _lavCambiate = false;
     currentArticoli.forEach(a => {
       const prima = _firma(a);
@@ -6680,7 +6768,7 @@ function _openAssiemeByCode(code) {
     renderArticoli con raggruppamento). Ritorna solo la stringa HTML della <tr>. */
 function _renderArticoloRow(i, a) {
     const baseEff = (a.costo_base_override != null) ? a.costo_base_override : (a.costo_base_stimato || a.costo_materiale || 0);
-    const lavorazioni = (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
+    const lavorazioni = (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_foratura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
     const totRow = baseEff + lavorazioni;
     const needsVerify = !!a.dxf_needs_verify;
     const rowClass = needsVerify ? ' class="needs-verify"' : '';
@@ -7184,6 +7272,9 @@ window.addEventListener('message', async (ev) => {
   a.origine_campi = _orig;
   a.geometria_manuale_confermata = true;
   a.geometry_source = p.geometry_source;
+  // Il contorno del CAD ha TUTTI i fori nel perimetro: quelli sotto 2/3 dello
+  // spessore escono dal taglio e vanno al trapano (fori_tondi_mm dal CAD).
+  _foriDaGeometria(a, Array.isArray(p.fori_tondi_mm) ? p.fori_tondi_mm : null, []);
   // Conferma a mano: chiude ogni domanda sul contorno ("risolta da …") e la
   // correzione automatica col peso non torna, finche' non cambia il disegno.
   a.dxf_needs_verify = false;
@@ -8723,11 +8814,12 @@ async function renderSplitDetail(idx) {
   const sdMin = document.getElementById('sd-sald-min'); if (sdMin) sdMin.value = a.saldatura_min || 0;
   document.getElementById('sd-filett').value = a.filettatura_pz || 0;
   document.getElementById('sd-svas').value = a.svasatura_pz || 0;
+  const sdTrap = document.getElementById('sd-trapano'); if (sdTrap) sdTrap.value = a.foratura_pz || 0;
   // Hint lavorazioni: distingue "rilevate dal disegno" da "da inserire a mano".
   const _lavHint = document.getElementById('sd-lav-hint');
   if (_lavHint) {
     const _nLav = (a.pieghe || 0) + (a.saldatura_ml || 0) + (a.saldatura_min || 0)
-                + (a.filettatura_pz || 0) + (a.svasatura_pz || 0);
+                + (a.filettatura_pz || 0) + (a.svasatura_pz || 0) + (a.foratura_pz || 0);
     _lavHint.style.color = '';
     if (_nLav > 0) {
       _lavHint.textContent = 'Rilevate dal disegno: correggile se serve';
@@ -8779,7 +8871,7 @@ async function renderSplitDetail(idx) {
 
   // Costi
   const baseEff = (a.costo_base_override != null) ? a.costo_base_override : (a.costo_base_stimato || a.costo_materiale || 0);
-  const lav = (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
+  const lav = (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_foratura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
   document.getElementById('sd-costo-base').value = formatEurStr(baseEff);
   document.getElementById('sd-costo-lav').value = formatEurStr(lav);
   _hintCostiArticolo(a);
@@ -8865,7 +8957,7 @@ function _updateHeroStats(a, totale) {
 /** Somma dei costi di lavorazione di un articolo (post-taglio). */
 function _lavArt(a) {
   return (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0)
-       + (a.costo_svasatura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
+       + (a.costo_svasatura||0) + (a.costo_foratura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
 }
 
 /** STORICO PREZZI — cerca se questo pezzo (codice o geometria confermata) è già
@@ -9000,7 +9092,7 @@ function _refreshSplitDetailCosts() {
   const a = currentArticoli[_splitSelectedIdx];
   if (!a) return;
   const baseEff = (a.costo_base_override != null) ? a.costo_base_override : (a.costo_base_stimato || a.costo_materiale || 0);
-  const lav = (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
+  const lav = (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_foratura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
   document.getElementById('sd-costo-base').value = formatEurStr(baseEff);
   document.getElementById('sd-costo-lav').value = formatEurStr(lav);
   // Nota: il totale è ora nella hero stats bar (hero-costo), non nel breakdown
@@ -9367,7 +9459,11 @@ function updateArt(idx, field, value, numeric) {
     scheduleRealtimeStima(idx);
   }
   // Ricalcola i costi di lavorazione quando cambia una voce lavorazione
-  if (['pieghe', 'saldatura_ml', 'saldatura_min', 'filettatura_pz', 'svasatura_pz'].includes(field)) {
+  // Spessore nuovo: cambia il diametro minimo del laser, quindi quali fori
+  // vanno al trapano (e perimetro/inneschi del taglio)
+  if (field === 'spessore_mm') { _ricalcolaForiTrapano(a); recalcLavorazioniArt(a); }
+  if (['pieghe', 'saldatura_ml', 'saldatura_min', 'filettatura_pz', 'svasatura_pz', 'foratura_pz'].includes(field)) {
+    if (field === 'foratura_pz') a.foratura_pz = Math.max(0, Math.round(a.foratura_pz || 0));
     recalcLavorazioniArt(a);
   }
   recalcTotali();
@@ -9584,6 +9680,7 @@ async function openArtModal(idx) {
   { const e = document.getElementById('mad-sald-min'); if (e) e.value = a.saldatura_min || 0; }
   document.getElementById('mad-filett').value = a.filettatura_pz || 0;
   document.getElementById('mad-svas').value = a.svasatura_pz || 0;
+  { const el = document.getElementById('mad-trapano'); if (el) el.value = a.foratura_pz || 0; }
   madRefreshCosts();
 
   // Mostra il modal subito (poi carica preview)
@@ -9837,6 +9934,8 @@ async function madSelectPoint(x_mm, y_mm) {
     a.perimetro_taglio_m = j.perimetro_taglio_m || 0;
     a.n_forature = j.n_pierce || j.n_forature || 0;
     a.lunghezza_vuoto_mm = _wbVuoto(j);
+    _foriDaGeometria(a, null);
+    recalcLavorazioniArt(a);
     a.dxf_confidence = 1;
     a.dxf_needs_verify = false;
 
@@ -9898,6 +9997,8 @@ async function madSelectPolygon(candIdx) {
   a.perimetro_taglio_m = geom.perimetro_taglio_m || 0;
   a.n_forature = geom.n_pierce || geom.n_forature || 0;
   a.lunghezza_vuoto_mm = _wbVuoto(geom);
+  _foriDaGeometria(a, null);
+  recalcLavorazioniArt(a);
   a.dxf_confidence = geom.confidence || 1;
   a.dxf_needs_verify = false;
 
@@ -10164,6 +10265,8 @@ async function applyCandidateSelection() {
     a.perimetro_taglio_m = geom.perimetro_taglio_m || 0;
     a.n_forature = geom.n_pierce || geom.n_forature || 0;
     a.lunghezza_vuoto_mm = _wbVuoto(geom);
+    _foriDaGeometria(a, null);
+    recalcLavorazioniArt(a);
     a.dxf_confidence = geom.confidence || 1;
     a.dxf_needs_verify = false;
     renderArticoli();
@@ -10217,8 +10320,10 @@ function madUpdate(field, value, numeric) {
   const a = currentArticoli[_madCurrentIdx];
   a[field] = numeric ? (parseFloat(value) || 0) : value;
   _segnaManuale(a, field);
-  // Ricalcolo dei costi di lavorazione (piega/sald/filett/svas) su cambio
-  if (['pieghe', 'saldatura_ml', 'saldatura_min', 'filettatura_pz', 'svasatura_pz'].includes(field)) {
+  // Ricalcolo dei costi di lavorazione (piega/sald/filett/svas/trapano) su cambio
+  if (field === 'spessore_mm') _ricalcolaForiTrapano(a);
+  if (field === 'foratura_pz') a.foratura_pz = Math.max(0, Math.round(a.foratura_pz || 0));
+  if (['pieghe', 'saldatura_ml', 'saldatura_min', 'filettatura_pz', 'svasatura_pz', 'foratura_pz', 'spessore_mm'].includes(field)) {
     recalcLavorazioniArt(a);
   }
   // Spessore manuale = dato certo
@@ -10375,7 +10480,8 @@ function madRefreshCosts() {
   document.getElementById('mad-c-sald').textContent = formatEurStr(a.costo_saldatura || 0);
   document.getElementById('mad-c-filett').textContent = formatEurStr(a.costo_filettatura || 0);
   document.getElementById('mad-c-svas').textContent = formatEurStr(a.costo_svasatura || 0);
-  const tot = base + (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
+  { const el = document.getElementById('mad-c-trapano'); if (el) el.textContent = formatEurStr(a.costo_foratura || 0); }
+  const tot = base + (a.costo_piega||0) + (a.costo_saldatura||0) + (a.costo_filettatura||0) + (a.costo_svasatura||0) + (a.costo_foratura||0) + (a.costo_apporto||0) + (a.costo_pulizia||0);
   document.getElementById('mad-c-tot').textContent = formatEurStr(tot);
   _madRefreshStimaBreakdown(a._stimaBreakdown);
   _hintCostiArticolo(a);
@@ -10699,7 +10805,7 @@ function computeAssiemeRollup(codice) {
     const q = a.quantita || 1;
     peso_kg += _pesoArticoloKg(a) * q;
     const base = (a.costo_base_override != null) ? a.costo_base_override : (a.costo_base_stimato || a.costo_materiale || 0);
-    const lav = (a.costo_piega||0)+(a.costo_saldatura||0)+(a.costo_filettatura||0)+(a.costo_svasatura||0)+(a.costo_apporto||0)+(a.costo_pulizia||0);
+    const lav = (a.costo_piega||0)+(a.costo_saldatura||0)+(a.costo_filettatura||0)+(a.costo_svasatura||0) + (a.costo_foratura||0)+(a.costo_apporto||0)+(a.costo_pulizia||0);
     costoBaseArticoli += base * q;
     costoLavArticoli += lav * q;
   }
@@ -10791,7 +10897,7 @@ function calcolaTotaliAnteprima() {
     if (a.codice_assieme) continue;
     const base = (a.costo_base_override != null) ? a.costo_base_override : (a.costo_base_stimato || a.costo_materiale || 0);
     const lavorazioni = (a.costo_piega || 0) + (a.costo_saldatura || 0) + (a.costo_filettatura || 0) +
-                        (a.costo_svasatura || 0) + (a.costo_apporto || 0) + (a.costo_pulizia || 0);
+                        (a.costo_svasatura||0) + (a.costo_foratura||0) + (a.costo_apporto || 0) + (a.costo_pulizia || 0);
     totalePezzo += (base + lavorazioni) * (a.quantita || 1);
   }
   // Assiemi: costo totale (intrinseco + articoli figli + tubolari/piastre figli) × qty
@@ -11127,7 +11233,7 @@ function _renderAssiemeBom(roll, ctx = _ASS_CTX_MODAL) {
   for (const a of roll.articoli) {
     const q = a.quantita || 1;
     const base = (a.costo_base_override != null) ? a.costo_base_override : (a.costo_base_stimato || a.costo_materiale || 0);
-    const lav = (a.costo_piega||0)+(a.costo_saldatura||0)+(a.costo_filettatura||0)+(a.costo_svasatura||0)+(a.costo_apporto||0)+(a.costo_pulizia||0);
+    const lav = (a.costo_piega||0)+(a.costo_saldatura||0)+(a.costo_filettatura||0)+(a.costo_svasatura||0) + (a.costo_foratura||0)+(a.costo_apporto||0)+(a.costo_pulizia||0);
     const totPz = base + lav;
     const subTot = totPz * q;
     const thumbSrc = a.dxf_filename && currentPreventivo
@@ -11424,7 +11530,7 @@ async function _onCandClickPick(e) {
     if (j.area_dm2 != null) a.area_dm2 = j.area_dm2;
     if (j.perimetro_taglio_m != null) a.perimetro_taglio_m = j.perimetro_taglio_m;
     if (j.n_pierce != null) a.n_forature = j.n_pierce;
-    if (j.perimetro_taglio_m != null) a.lunghezza_vuoto_mm = _wbVuoto(j);
+    if (j.perimetro_taglio_m != null) { a.lunghezza_vuoto_mm = _wbVuoto(j); _foriDaGeometria(a, null); recalcLavorazioniArt(a); }
     if (j.bbox_w_mm != null) a.bbox_w_mm = j.bbox_w_mm;
     if (j.bbox_h_mm != null) a.bbox_h_mm = j.bbox_h_mm;
     // Lavorazioni ricalcolate dal file originale (testi SU/GIU per pieghe)
@@ -11600,7 +11706,7 @@ async function _onMarqueeMouseUp(e) {
     if (j.area_dm2 != null) a.area_dm2 = j.area_dm2;
     if (j.perimetro_taglio_m != null) a.perimetro_taglio_m = j.perimetro_taglio_m;
     if (j.n_pierce != null) a.n_forature = j.n_pierce;
-    if (j.perimetro_taglio_m != null) a.lunghezza_vuoto_mm = _wbVuoto(j);
+    if (j.perimetro_taglio_m != null) { a.lunghezza_vuoto_mm = _wbVuoto(j); _foriDaGeometria(a, null); recalcLavorazioniArt(a); }
     if (j.bbox_w_mm != null) a.bbox_w_mm = j.bbox_w_mm;
     if (j.bbox_h_mm != null) a.bbox_h_mm = j.bbox_h_mm;
     a.dxf_needs_verify = false;
@@ -11992,6 +12098,9 @@ function applyDxfResultToUI(d, rawFilename, opts = {}) {
       _applicaDaCad(ex, 'perimetro_taglio_m', geo.perimetro_taglio_m || 0);
       _applicaDaCad(ex, 'area_dm2', geo.area_dm2 || 0);
       ex.lunghezza_vuoto_mm = _wbVuoto(geo);
+      // fori al trapano: quelli che il motore ha gia' tolto dal taglio
+      _foriDaGeometria(ex, geo.fori_tondi || null, geo.fori_trapano || []);
+      recalcLavorazioniArt(ex);
       // Geometria nuova: la conferma data sul disegno precedente non vale piu'.
       if ((ex.origine_campi || {}).perimetro_taglio_m === 'cad') ex.geometria_manuale_confermata = false;
     }
@@ -12081,6 +12190,9 @@ function applyDxfResultToUI(d, rawFilename, opts = {}) {
     _cleanup_reason: (d.cleanup || {}).cleanup_reason || null,
     _cleanup_stats: (d.cleanup || {}).cleanup_stats || null,
   });
+  // Fori al trapano (sotto 2/3 dello spessore): fuori dal taglio, pagati a foro
+  _foriDaGeometria(currentArticoli[currentArticoli.length - 1],
+                   d.geometria.fori_tondi || null, d.geometria.fori_trapano || []);
   recalcLavorazioniArt(currentArticoli[currentArticoli.length - 1]);
   _ultimoIdxDxf = currentArticoli.length - 1;
   return 'created';
@@ -13065,7 +13177,7 @@ function openRiepilogoModal() {
     let sub = 0, rows = '';
     for (const x of standalone) {
       const baseEff = (x.costo_base_override != null) ? x.costo_base_override : (x.costo_base_stimato || x.costo_materiale || 0);
-      const lav = (x.costo_piega||0)+(x.costo_saldatura||0)+(x.costo_filettatura||0)+(x.costo_svasatura||0)+(x.costo_apporto||0)+(x.costo_pulizia||0);
+      const lav = (x.costo_piega||0)+(x.costo_saldatura||0)+(x.costo_filettatura||0)+(x.costo_svasatura||0) + (x.costo_foratura||0)+(x.costo_apporto||0)+(x.costo_pulizia||0);
       const tot = (baseEff + lav) * (x.quantita || 1);
       sub += tot;
       rows += `<div class="riep-item"><span class="lbl">${escapeHtml(x.codice||'—')} × ${x.quantita||1}</span><span class="val">${formatEurStr(tot)}</span></div>`;
@@ -14193,10 +14305,14 @@ function _wbControlliCoerenza(a) {
       diff.push(`area ${_wbKg(a.area_dm2 || 0)} → ${_wbKg(S.area_dm2)} dm²`);
       if (rel(a.area_dm2 || 0, S.area_dm2) > 0.15) grave = true;
     }
-    if (S.perimetro_taglio_m > 0 && rel(a.perimetro_taglio_m || 0, S.perimetro_taglio_m) > 0.08) {
-      diff.push(`taglio ${_wbKg(a.perimetro_taglio_m || 0)} → ${_wbKg(S.perimetro_taglio_m)} m`);
+    // lo STEP ha tutti i fori: quelli al trapano (fuori dal taglio) si rimettono per confrontare
+    const trapPerim = (Array.isArray(a.fori_trapano) ? a.fori_trapano : []).reduce((t, d) => t + Math.PI * d, 0) / 1000;
+    const taglioTot = (a.perimetro_taglio_m || 0) + trapPerim;
+    const inneschiTot = (a.n_forature || 0) + (Array.isArray(a.fori_trapano) ? a.fori_trapano.length : 0);
+    if (S.perimetro_taglio_m > 0 && rel(taglioTot, S.perimetro_taglio_m) > 0.08) {
+      diff.push(`taglio ${_wbKg(taglioTot)} → ${_wbKg(S.perimetro_taglio_m)} m`);
     }
-    if (S.inneschi > 0 && (a.n_forature || 0) !== S.inneschi) diff.push(`inneschi ${a.n_forature || 0} → ${S.inneschi}`);
+    if (S.inneschi > 0 && inneschiTot !== S.inneschi) diff.push(`inneschi ${inneschiTot} → ${S.inneschi}`);
     if ((a.pieghe || 0) !== (S.n_pieghe || 0)) diff.push(`pieghe ${a.pieghe || 0} → ${S.n_pieghe || 0}`);
     out.step = { ok: !diff.length, grave, diff, file: S.file };
   }
@@ -14338,13 +14454,16 @@ async function _wbContornoAuto(i) {
   a.contorno_auto = { stato: 'da_confermare', chiave, scarto: r.scarto_peso,
     prima: { area_dm2: a.area_dm2, perimetro_taglio_m: a.perimetro_taglio_m, n_forature: a.n_forature,
              bbox_w_mm: a.bbox_w_mm, bbox_h_mm: a.bbox_h_mm, geometry_source: a.geometry_source || null,
-             confermato: !!a.geometria_manuale_confermata } };
+             confermato: !!a.geometria_manuale_confermata,
+             fori_tondi: a.fori_tondi || null, fori_trapano: a.fori_trapano || [], foratura_pz: a.foratura_pz || 0 } };
   a.geometria_manuale_confermata = false;          // la conferma era su un altro contorno
   a.area_dm2 = r.area_dm2;
   a.perimetro_taglio_m = r.perimetro_taglio_m;
   a.n_forature = r.n_forature;
   a.bbox_w_mm = r.bbox_width_mm; a.bbox_h_mm = r.bbox_height_mm;
   a.lunghezza_vuoto_mm = null;
+  _foriDaGeometria(a, null);
+  recalcLavorazioniArt(a);
   a.geometry_source = 'peso-cartiglio';
   a.origine_campi = Object.assign({}, a.origine_campi || {}, { area_dm2: 'cad', perimetro_taglio_m: 'cad', n_forature: 'cad' });
   try { await stimaArt(i, { silent: true }); } catch (_) {}
@@ -14389,6 +14508,10 @@ async function wbAnnullaAuto(i) {
   a.area_dm2 = pr.area_dm2; a.perimetro_taglio_m = pr.perimetro_taglio_m;
   a.n_forature = pr.n_forature != null ? Math.round(pr.n_forature) : a.n_forature;
   a.bbox_w_mm = pr.bbox_w_mm; a.bbox_h_mm = pr.bbox_h_mm;
+  if ('fori_trapano' in pr) {
+    a.fori_tondi = pr.fori_tondi; a.fori_trapano = pr.fori_trapano; a.foratura_pz = pr.foratura_pz || 0;
+    recalcLavorazioniArt(a);
+  }
   a.geometry_source = pr.geometry_source || null;
   a.geometria_manuale_confermata = !!pr.confermato;
   a.lunghezza_vuoto_mm = null;
@@ -14413,6 +14536,7 @@ async function wbUsaStep(i) {
   if (S.inneschi > 0) a.n_forature = S.inneschi;
   a.pieghe = S.n_pieghe || 0;
   a.lunghezza_vuoto_mm = null;
+  _foriDaGeometria(a, null);
   ['spessore_mm', 'area_dm2', 'perimetro_taglio_m', 'n_forature', 'pieghe'].forEach(k => { orig[k] = 'manuale'; });
   a.origine_campi = orig;
   a.geometria_manuale_confermata = true;
@@ -14538,6 +14662,8 @@ async function wbUsaContornoProposto(i) {
   a.n_forature = r.n_forature;
   a.bbox_w_mm = r.bbox_width_mm; a.bbox_h_mm = r.bbox_height_mm;
   a.lunghezza_vuoto_mm = null;
+  _foriDaGeometria(a, null);
+  recalcLavorazioniArt(a);
   orig.area_dm2 = orig.perimetro_taglio_m = orig.n_forature = 'cad';
   a.origine_campi = orig;
   a.geometria_manuale_confermata = true;
@@ -14901,7 +15027,7 @@ function wbLavApri(chiave) {
   if (_splitSelectedIdx == null) return;
   _wbLavAperte.add(_splitSelectedIdx + ':' + chiave);
   wbPieceSync(_splitSelectedIdx);
-  const primo = { pieghe: 'sd-pieghe', saldatura: 'sd-sald', filettature: 'sd-filett', svasature: 'sd-svas' }[chiave];
+  const primo = { pieghe: 'sd-pieghe', saldatura: 'sd-sald', filettature: 'sd-filett', svasature: 'sd-svas', trapano: 'sd-trapano' }[chiave];
   setTimeout(() => wbFocus(primo), 20);
 }
 
@@ -15025,6 +15151,7 @@ function wbPieceSync(idx) {
     saldatura: { v: (a.saldatura_ml || 0) + (a.saldatura_min || 0), eur: (a.costo_saldatura || 0), lbl: 'Saldatura' },
     filettature: { v: a.filettatura_pz, eur: a.costo_filettatura, lbl: 'Filettature' },
     svasature: { v: a.svasatura_pz, eur: a.costo_svasatura, lbl: 'Svasature' },
+    trapano: { v: a.foratura_pz, eur: a.costo_foratura, lbl: 'Fori al trapano' },
   };
   const add = [];
   document.querySelectorAll('#sd-lavorazioni .lav[data-lav]').forEach(row => {
@@ -15038,6 +15165,19 @@ function wbPieceSync(idx) {
   const setE = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v > 0.004 ? _eur(v) : ''; };
   setE('wb-lav-piega', a.costo_piega); setE('wb-lav-sald', a.costo_saldatura);
   setE('wb-lav-filett', a.costo_filettatura); setE('wb-lav-svas', a.costo_svasatura);
+  setE('wb-lav-trapano', a.costo_foratura);
+  const trapD = document.getElementById('wb-lav-trapano-d');
+  if (trapD) {
+    // "Foratura trapano: N fori × 0,50 €" e quali diametri
+    const ft = Array.isArray(a.fori_trapano) ? a.fori_trapano : [];
+    const cont = {};
+    ft.forEach(d => { const k = (Math.round(d * 10) / 10).toLocaleString('it-IT'); cont[k] = (cont[k] || 0) + 1; });
+    trapD.textContent = (a.foratura_pz || 0) > 0
+      ? `${a.foratura_pz} fori × ${_eur(_eurForoTrapano())}`
+        + (ft.length ? ' · ' + Object.entries(cont).map(([d, n]) => `${n}×Ø${d}`).join(' ')
+                       + (_dminLaser(a.spessore_mm) ? ` (il laser taglia da Ø${_dminLaser(a.spessore_mm)})` : '') : '')
+      : '';
+  }
   const ap = (a.costo_apporto || 0) + (a.costo_pulizia || 0);
   const apEl = document.getElementById('wb-lav-apporto');
   if (apEl) apEl.textContent = ap > 0.004 ? `+ ${_eur(ap)} filo, gas e pulizia` : '';
@@ -16803,6 +16943,7 @@ async function wbSvlApplica() {
   a.perimetro_taglio_m = Math.round(R.perim) / 1000;
   a.n_forature = R.inneschi;
   a.pieghe = R.pieghe;
+  _foriDaGeometria(a, null);
   a.bbox_w_mm = Math.round(Math.max(R.W, R.H) * 10) / 10;
   a.bbox_h_mm = Math.round(Math.min(R.W, R.H) * 10) / 10;
   a.lunghezza_vuoto_mm = null;

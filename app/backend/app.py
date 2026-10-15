@@ -1824,6 +1824,8 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             lav.append(f"Filettatura ({int(a['filettatura_pz'])})")
         if int(a.get('svasatura_pz') or 0) > 0:
             lav.append(f"Svasatura ({int(a['svasatura_pz'])})")
+        if int(a.get('foratura_pz') or 0) > 0:
+            lav.append(f"Foratura trapano ({int(a['foratura_pz'])} fori)")
         sp = a.get('spessore_mm')
         desc = 'Lamiera' + (f' sp. {sp:g} mm' if isinstance(sp, (int, float)) and sp else '')
         pf = a.get('pezzi_foglio') if isinstance(a.get('pezzi_foglio'), list) else []
@@ -8765,6 +8767,8 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     tot_sald = sum(float(a.get('costo_saldatura') or 0) * int(a.get('quantita') or 1) for a in articoli)
     tot_filett = sum(float(a.get('costo_filettatura') or 0) * int(a.get('quantita') or 1) for a in articoli)
     tot_svasat = sum(float(a.get('costo_svasatura') or 0) * int(a.get('quantita') or 1) for a in articoli)
+    tot_trapano = sum(float(a.get('costo_foratura') or 0) * int(a.get('quantita') or 1) for a in articoli)
+    n_fori_trapano = sum(int(a.get('foratura_pz') or 0) * int(a.get('quantita') or 1) for a in articoli)
 
     # Assiemi: lista → dict per codice_assieme (formato PDF)
     assiemi_list = p.get('assiemi') or []
@@ -8774,6 +8778,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     # INOX_316L → INOX_304, ALU_6082 → ALU, S235JR → S235…). Prima qui c'era una
     # copia a mano che poteva divergere.
     from .preventivi.calcolo import costo_base_articolo as _costo_base_art
+    from .preventivi.calcolo import CAMPI_LAVORAZIONE as _CAMPI_LAV
     _mat_cfg = (((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali')
                 or _laser_estimator.DEFAULT_LASER_CONFIG['materiali'])
 
@@ -8791,9 +8796,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                 continue
             qty_ass = int(art.get('quantita') or 1)
             base_pz = _costo_base_art(art)
-            lav_pz = sum(float(art.get(k) or 0) for k in (
-                'costo_piega', 'costo_saldatura', 'costo_filettatura',
-                'costo_svasatura', 'costo_apporto', 'costo_pulizia'))
+            lav_pz = sum(float(art.get(k) or 0) for k in _CAMPI_LAV)
             tot_pz = base_pz + lav_pz
             rho = _densita(art.get('materiale'))
             peso_pz = (float(art.get('area_dm2') or 0)
@@ -8905,6 +8908,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                           + float(a.get('costo_saldatura') or 0)
                           + float(a.get('costo_filettatura') or 0)
                           + float(a.get('costo_svasatura') or 0)
+                          + float(a.get('costo_foratura') or 0)
                           + float(a.get('costo_apporto') or 0)
                           + float(a.get('costo_pulizia') or 0))
         articoli_pdf.append({
@@ -8920,6 +8924,8 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
             'costo_saldatura': a.get('costo_saldatura') or 0,
             'costo_filettatura': a.get('costo_filettatura') or 0,
             'costo_svasatura': a.get('costo_svasatura') or 0,
+            'foratura_pz': a.get('foratura_pz') or 0,
+            'costo_foratura': a.get('costo_foratura') or 0,
             'costo_apporto': a.get('costo_apporto') or 0,
             'costo_pulizia': a.get('costo_pulizia') or 0,
         })
@@ -9007,9 +9013,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         righe_cliente = _righe_cliente_art.setdefault(_i_art, [])
         _od = a.get('ordine') if isinstance(a.get('ordine'), dict) else {}
         base = _costo_base_art(a)
-        lav = sum(float(a.get(k) or 0) for k in (
-            'costo_piega', 'costo_saldatura', 'costo_filettatura',
-            'costo_svasatura', 'costo_apporto', 'costo_pulizia'))
+        lav = sum(float(a.get(k) or 0) for k in _CAMPI_LAV)
         qty_art = int(a.get('quantita') or 1)
         totale_pezzo_calc += (base + lav) * qty_art
         prezzo_unit_finale = (base + lav) * _f_finale
@@ -9170,6 +9174,8 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         'costo_saldatura': tot_sald,
         'costo_filettatura': tot_filett,
         'costo_svasatura': tot_svasat,
+        'costo_foratura': tot_trapano,
+        'n_fori_trapano': n_fori_trapano,
         'costo_montaggio_totale': round(costo_assiemi_calc, 2),
         'costo_tubolari_totale': round(costo_tubolari_std, 2),
         'costo_piastre_totale': round(costo_piastre_std, 2),

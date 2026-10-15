@@ -182,6 +182,7 @@ class PDFPreventivo:
                 - costo_saldatura: float
                 - costo_filettatura: float
                 - costo_svasatura: float
+                - costo_foratura: float (fori al trapano), n_fori_trapano: int
                 - costo_montaggio_totale: float
                 - costo_tubolari_totale: float
                 - costo_piastre_totale: float
@@ -492,6 +493,7 @@ class PDFPreventivo:
             costo_altro = (
                 (art.get("costo_filettatura", 0) or 0)
                 + (art.get("costo_svasatura", 0) or 0)
+                + (art.get("costo_foratura", 0) or 0)
                 + (art.get("costo_apporto", art.get("costo_mat_apporto", 0)) or 0)
                 + (art.get("costo_pulizia", 0) or 0)
             )
@@ -588,6 +590,12 @@ class PDFPreventivo:
             ("Filettatura", dati.get("costo_filettatura", 0)),
             ("Svasatura", dati.get("costo_svasatura", 0)),
         ]
+        # Fori piccoli al trapano (sotto 2/3 dello spessore): N fori x EUR/foro
+        if (dati.get("costo_foratura", 0) or 0) > 0:
+            n_fori = int(dati.get("n_fori_trapano", 0) or 0)
+            cost_items.append(
+                (f"Foratura trapano ({n_fori} fori)" if n_fori else "Foratura trapano",
+                 dati["costo_foratura"]))
 
         # Add optional cost items
         if dati.get("costo_montaggio_totale", 0) > 0:
@@ -1933,6 +1941,7 @@ class PDFPreventivo:
             ("Saldatura", dati.get("costo_saldatura", 0)),
             ("Filettatura", dati.get("costo_filettatura", 0)),
             ("Svasatura", dati.get("costo_svasatura", 0)),
+            ("Foratura trapano", dati.get("costo_foratura", 0) or 0),
             ("Montaggio", dati.get("costo_montaggio_totale", 0)),
             ("Tubolari", dati.get("costo_tubolari_totale", 0)),
             ("Piastre", dati.get("costo_piastre_totale", 0)),

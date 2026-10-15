@@ -593,6 +593,10 @@ class PreventivoArticolo(Base):
     costo_saldatura = Column(Float, nullable=False, default=0.0)
     costo_filettatura = Column(Float, nullable=False, default=0.0)
     costo_svasatura = Column(Float, nullable=False, default=0.0)
+    # Fori piccoli fatti al trapano (sotto 2/3 dello spessore, regola di
+    # Stefano): non si tagliano al laser, si pagano a foro (costo_foratura_trapano).
+    foratura_pz = Column(Integer, nullable=False, default=0)
+    costo_foratura = Column(Float, nullable=False, default=0.0)
     costo_apporto = Column(Float, nullable=False, default=0.0)
     costo_pulizia = Column(Float, nullable=False, default=0.0)
 
@@ -1013,6 +1017,13 @@ def initialize_database():
             if 'canonical_dxf_sha256' not in existing_prev_art:
                 conn.execute(text('ALTER TABLE preventivo_articoli ADD COLUMN canonical_dxf_sha256 VARCHAR'))
                 logger.info('Aggiunta colonna canonical_dxf_sha256 a preventivo_articoli')
+            # Foratura al trapano dei fori piccoli (2026-10-15)
+            if 'foratura_pz' not in existing_prev_art:
+                conn.execute(text('ALTER TABLE preventivo_articoli ADD COLUMN foratura_pz INTEGER NOT NULL DEFAULT 0'))
+                logger.info('Aggiunta colonna foratura_pz a preventivo_articoli')
+            if 'costo_foratura' not in existing_prev_art:
+                conn.execute(text('ALTER TABLE preventivo_articoli ADD COLUMN costo_foratura FLOAT NOT NULL DEFAULT 0'))
+                logger.info('Aggiunta colonna costo_foratura a preventivo_articoli')
             conn.commit()
 
     # Migrazione: intake richieste da Elena su preventivi (2026-08-18)

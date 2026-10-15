@@ -22,7 +22,7 @@ PERCENTUALE_MAX = 1000.0
 CAMPI_COSTO_ARTICOLO = (
     'costo_materiale', 'costo_base_stimato', 'costo_base_override',
     'costo_piega', 'costo_saldatura', 'costo_filettatura', 'costo_svasatura',
-    'costo_apporto', 'costo_pulizia',
+    'costo_foratura', 'costo_apporto', 'costo_pulizia',
 )
 # Misure dell'articolo (geometria e lavorazioni): zero e vuoto vanno bene in
 # bozza, negativi e valori fuori da ogni lamiera reale no. I massimi sono
@@ -142,7 +142,7 @@ def valida_articoli(articoli):
     # `quantita` sono i pezzi: almeno 1. Pieghe, filettature e svasature sono
     # conteggi di lavorazioni: zero e' del tutto normale.
     return _valida_righe(articoli, CAMPI_COSTO_ARTICOLO, ('quantita',),
-                         ('pieghe', 'filettatura_pz', 'svasatura_pz', 'n_forature'),
+                         ('pieghe', 'filettatura_pz', 'svasatura_pz', 'foratura_pz', 'n_forature'),
                          MISURE_ARTICOLO)
 
 
