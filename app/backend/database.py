@@ -4847,6 +4847,8 @@ class PreventivoManager:
                       'pezzo_manuale',
                       # disegno (PDF/DXF del preventivo) mostrato su un pezzo senza DXF proprio
                       'disegno_rif',
+                      # DWG originale del cliente, convertito nel DXF del pezzo
+                      'dwg_filename',
                       # posizione nella lista (scritta dal server al salvataggio)
                       'riga',
                       # Come il disegno e' stato abbinato al codice (nome uguale,
@@ -5029,6 +5031,10 @@ class PreventivoManager:
         pdf = os.path.basename(str(a.get('pdf_filename') or '').strip())
         if pdf and pdf.lower().endswith('.pdf') and len(pdf) <= 255:
             out['pdf_filename'] = pdf
+        # DWG originale del cliente (il pezzo usa il DXF convertito)
+        dwg = os.path.basename(str(a.get('dwg_filename') or '').strip())
+        if dwg and dwg.lower().endswith('.dwg') and len(dwg) <= 255:
+            out['dwg_filename'] = dwg
         svl = PreventivoManager._pulisci_sviluppo(a.get('sviluppo'))
         if svl:
             out['sviluppo'] = svl
