@@ -10,7 +10,8 @@ fermare. Un processo si', e se si blocca o cade (shapely puo' andare in
 crash su geometrie strane) il server resta su.
 
 Il calcolo e' lo STESSO di prima: dxf_batch_worker.process_single_dxf, con
-la stessa configurazione e la stessa cache dei disegni.
+la stessa configurazione e la stessa cache dei disegni. Con "tipo": "dwg"
+il compito e' invece la conversione dei DWG in DXF (dwg_conversione).
 """
 import json
 import os
@@ -60,8 +61,16 @@ def main() -> int:
             if cache and cache != dxf_cache._CACHE_DB_PATH:
                 dxf_cache._CACHE_DB_PATH = cache
                 dxf_cache._INITIALIZED = False
-            risposta['payload'] = process_single_dxf(
-                compito['path'], compito['filename'], compito.get('cfg') or {})
+            if compito.get('tipo') == 'dwg':
+                # conversione DWG -> DXF (ODA, senza finestre, con tempo massimo)
+                from backend.preventivi import dwg_conversione
+                if compito.get('cache_dwg'):
+                    dwg_conversione.CACHE_DIR = compito['cache_dwg']
+                risposta['payload'] = dwg_conversione.converti_percorsi(
+                    compito.get('coppie') or [], compito.get('tempo_max'))
+            else:
+                risposta['payload'] = process_single_dxf(
+                    compito['path'], compito['filename'], compito.get('cfg') or {})
             risposta['ok'] = True
         except Exception as e:  # noqa: BLE001 - un disegno non fa cadere il lavoratore
             risposta['ok'] = False

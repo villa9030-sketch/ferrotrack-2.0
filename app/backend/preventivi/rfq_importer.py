@@ -95,6 +95,88 @@ class RFQParseResult:
     # Righe dell'ordine senza disegno nel pacchetto (guide in plastica,
     # commerciali): sono nel preventivo come righe da prezzare a mano.
     senza_disegno: list = field(default_factory=list)
+    # DWG del pacchetto convertiti in DXF: {nome DXF: (nome DWG, bytes DWG)}.
+    # Il DWG originale si salva accanto al DXF e resta col pezzo.
+    dwg_originali: dict = field(default_factory=dict)
+    # DWG che non si sono potuti convertire: {nome DWG: "DWG non leggibile: ..."}.
+    # Restano in dxf_map col loro nome .dwg (la riga d'ordine c'e', il disegno no).
+    dwg_errori: dict = field(default_factory=dict)
+
+
+def converti_dwg_pacchetto(result: 'RFQParseResult', assieme_of: dict, altri_assiemi: dict) -> None:
+    """I DWG del pacchetto diventano DXF, tutti in una conversione.
+
+    Cambia result.dxf_map (chiave "X.dwg" -> "X.dxf", bytes del DXF),
+    result.master_dxf, assieme_of e altri_assiemi; il DWG originale va in
+    result.dwg_originali. Se nello stesso pacchetto c'e' anche il DXF dello
+    stesso codice si usa il DXF (lo ha preparato il cliente) e lo si dice.
+    Un DWG che non si converte resta col suo nome e finisce in dwg_errori."""
+    import shutil
+    import tempfile
+    from .dwg_conversione import e_dwg, nome_dxf
+    dxf_map = result.dxf_map
+    dwg = [b for b in dxf_map if e_dwg(b)]
+    if not dwg:
+        return
+    stems_dxf = {_stem_disegno(b).upper() for b in dxf_map if not e_dwg(b)}
+
+    def _rinomina(vecchio, nuovo):
+        dxf_map[nuovo] = dxf_map.pop(vecchio)
+        if vecchio in assieme_of:
+            assieme_of[nuovo] = assieme_of.pop(vecchio)
+        if vecchio in result.master_dxf:
+            result.master_dxf[nuovo] = result.master_dxf.pop(vecchio)
+        if vecchio in altri_assiemi:
+            altri_assiemi[nuovo] = altri_assiemi.pop(vecchio)
+
+    def _togli(nome):
+        for m in (dxf_map, assieme_of, result.master_dxf, altri_assiemi):
+            m.pop(nome, None)
+
+    doppi = [b for b in dwg if _stem_disegno(b).upper() in stems_dxf]
+    for b in doppi:
+        _togli(b)
+    if doppi:
+        result.warnings.append(
+            f"{len(doppi)} DWG con anche il DXF nel pacchetto: uso il DXF ("
+            + ', '.join(doppi[:4]) + ('…' if len(doppi) > 4 else '') + ')')
+    dwg = [b for b in dwg if b not in doppi]
+    if not dwg:
+        return
+    cart = tempfile.mkdtemp(prefix='ft_pacchetto_dwg_')
+    try:
+        coppie, per_src = [], {}
+        for i, b in enumerate(dwg):
+            src = os.path.join(cart, f'{i:05d}.dwg')
+            with open(src, 'wb') as fh:
+                fh.write(dxf_map[b])
+            dst = os.path.join(cart, f'{i:05d}.dxf')
+            coppie.append((src, dst))
+            per_src[os.path.abspath(src)] = (b, dst)
+        from .analisi_isolata import converti_dwg
+        esiti = converti_dwg(coppie)
+        for src, (b, dst) in per_src.items():
+            e = esiti.get(src) or {}
+            nuovo = nome_dxf(b)
+            if e.get('ok') and nuovo not in dxf_map:
+                with open(dst, 'rb') as fh:
+                    dati_dxf = fh.read()
+                originale = dxf_map[b]
+                _rinomina(b, nuovo)
+                dxf_map[nuovo] = dati_dxf
+                result.dwg_originali[nuovo] = (b, originale)
+            else:
+                result.dwg_errori[b] = e.get('errore') or 'DWG non leggibile: conversione non riuscita'
+    finally:
+        shutil.rmtree(cart, ignore_errors=True)
+    if result.dwg_originali:
+        result.warnings.append(f'{len(result.dwg_originali)} disegni DWG convertiti in DXF')
+    if result.dwg_errori:
+        result.warnings.append(
+            f"{len(result.dwg_errori)} DWG non leggibili: "
+            + '; '.join(f'{b} ({m.replace("DWG non leggibile: ", "")})'
+                        for b, m in list(result.dwg_errori.items())[:3])
+            + ('…' if len(result.dwg_errori) > 3 else ''))
 
 
 class RFQParseError(Exception):
@@ -523,6 +605,10 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
     result.dxf_map = dxf_map
     result.step_map = step_map
     result.master_dxf = dict(masters or {})
+    # 1b. DWG -> DXF (una conversione per tutto il pacchetto): da qui in poi
+    #     i disegni si chiamano .dxf come se il cliente li avesse mandati cosi'.
+    converti_dwg_pacchetto(result, assieme_of, altri_assiemi)
+    dxf_map = result.dxf_map
     # Conserva il PDF ordine: è il documento con i disegni/lavorazioni che Mirko
     # deve vedere in produzione. Va salvato e allegato all'ordine all'accettazione.
     result.pdf_bytes = pdf_bytes

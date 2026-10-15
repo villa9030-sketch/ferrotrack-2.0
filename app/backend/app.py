@@ -44,62 +44,6 @@ except Exception as _e:
     logger.warning('profili_tubolari.json non caricato: %s', _e)
 
 
-def _find_oda_converter():
-    """Cerca ODA File Converter installato sul sistema. Ritorna path .exe o None.
-    Strategia: env var ODA_FC_PATH > glob su Program Files (versione qualsiasi).
-    """
-    import glob
-    custom = os.environ.get('ODA_FC_PATH')
-    if custom and os.path.exists(custom):
-        return custom
-    candidates = []
-    for base in (r'C:\Program Files\ODA', r'C:\Program Files (x86)\ODA'):
-        if os.path.isdir(base):
-            candidates += glob.glob(os.path.join(base, 'ODAFileConverter*', 'ODAFileConverter.exe'))
-    return candidates[-1] if candidates else None
-
-
-def _convert_dwg_to_dxf(dwg_path):
-    """Converte un .dwg in .dxf usando ODA File Converter (subprocess).
-
-    Ritorna path del .dxf convertito, oppure dict {'error': ...} se conversione
-    impossibile (ODA non installato, timeout, file corrotto).
-    """
-    import subprocess
-    import shutil
-    import tempfile
-    import glob
-
-    oda = _find_oda_converter()
-    if not oda:
-        return {'error': 'ODA_NOT_INSTALLED'}
-
-    tmp_in = tempfile.mkdtemp(prefix='dwg_in_')
-    tmp_out = tempfile.mkdtemp(prefix='dwg_out_')
-    try:
-        # ODA processa intere cartelle, non file singoli
-        in_path = os.path.join(tmp_in, os.path.basename(dwg_path))
-        shutil.copy2(dwg_path, in_path)
-        # CLI: <input_dir> <output_dir> <out_ver> <out_format> <recurse> <audit>
-        cmd = [oda, tmp_in, tmp_out, 'ACAD2018', 'DXF', '0', '1']
-        proc = subprocess.run(cmd, capture_output=True, timeout=90)
-        if proc.returncode != 0:
-            return {'error': 'CONVERTER_FAILED', 'detail': proc.stderr.decode('utf-8', errors='ignore')[:200]}
-        out_files = glob.glob(os.path.join(tmp_out, '*.dxf'))
-        if not out_files:
-            return {'error': 'NO_OUTPUT', 'detail': 'ODA non ha prodotto DXF'}
-        # Sposta il DXF in un path che non scompare al cleanup di tmp_out
-        out_path = os.path.join(UPLOAD_FOLDER, 'tmp_conv_' + uuid.uuid4().hex + '.dxf')
-        shutil.copy2(out_files[0], out_path)
-        return out_path
-    except subprocess.TimeoutExpired:
-        return {'error': 'TIMEOUT'}
-    except Exception as e:
-        return {'error': 'EXCEPTION', 'detail': str(e)}
-    finally:
-        shutil.rmtree(tmp_in, ignore_errors=True)
-        shutil.rmtree(tmp_out, ignore_errors=True)
-
 app = Flask(__name__, static_folder=None)
 
 # Sottosistema DICHIARAZIONI ORE (blueprint isolato: la logica non sta qui).
@@ -1486,8 +1430,12 @@ def _struttura_zip(radice: str, cartella_ordine: str, disegni: list, righe: list
         if nome and r.get('materiale') and r.get('tipo', 'lamiera') == 'lamiera':
             lamiera_di.setdefault(nome, _nome_lamiera(r.get('materiale'), r.get('spessore_mm')))
     for d in disegni:
-        cartella = lamiera_di.get(_nome_base_disegno(d['nome']).lower(),
-                                  lamiera_di.get(d['nome'].lower(), '_SENZA MATERIALE'))
+        nome_l = d['nome'].lower()
+        if nome_l.endswith('.dwg'):
+            # il DWG del cliente va con il DXF convertito da lui (stesso nome)
+            nome_l = nome_l[:-4] + '.dxf'
+        cartella = lamiera_di.get(_nome_base_disegno(nome_l).lower(),
+                                  lamiera_di.get(nome_l, '_SENZA MATERIALE'))
         voci.append((d['percorso'], f"{radice}/{cartella}/{d['nome']}"))
     return _senza_doppioni(voci, cartella_ordine)
 
@@ -4417,32 +4365,18 @@ def api_preventivi_import_dxf(preventivo_id):
         saved_filename = _nome_disegno_libero(prev_dir, f.filename)
 
         is_dwg = fname_lower.endswith('.dwg')
+        dwg_salvato = None
         if is_dwg:
-            tmp_dwg = os.path.join(UPLOAD_FOLDER, 'tmp_' + uuid.uuid4().hex + '.dwg')
-            f.save(tmp_dwg)
-            conv = _convert_dwg_to_dxf(tmp_dwg)
-            try: os.remove(tmp_dwg)
-            except OSError: pass
-            if isinstance(conv, dict) and conv.get('error'):
-                err_code = conv['error']
-                if err_code == 'ODA_NOT_INSTALLED':
-                    return jsonify({
-                        'success': False,
-                        'error': 'ODA File Converter non installato. Scarica e installa da: '
-                                 'https://www.opendesign.com/guestfiles/oda_file_converter '
-                                 '(gratuito, ~50MB). Una volta installato il DWG viene '
-                                 'convertito automaticamente in DXF. Alternativa: salva il '
-                                 'DWG come DXF (AutoCAD 2018) dal tuo CAD e ricarica.',
-                    }), 415
-                return jsonify({'success': False, 'error': 'Conversione DWG fallita: ' + err_code + ' ' + str(conv.get('detail', ''))}), 500
-            # Sposta il convertito (DXF) nella cartella preview persistente con nome originale
-            saved_filename = os.path.splitext(saved_filename)[0] + '.dxf'
+            # Il DWG resta nella cartella del preventivo, accanto al DXF
+            # convertito (stesso nome): il pezzo usa il DXF, il DWG va con l'ordine.
+            esito_dwg = _converti_dwg_caricati(prev_dir, [(f, f.filename)])[0]
+            if not esito_dwg['ok']:
+                from .preventivi.dwg_conversione import MSG_NON_INSTALLATO
+                return jsonify({'success': False, 'error': esito_dwg['errore'],
+                                'codice': 'dwg_non_leggibile'}), (
+                    415 if esito_dwg['errore'] == MSG_NON_INSTALLATO else 422)
+            saved_filename, dwg_salvato = esito_dwg['dxf'], esito_dwg['dwg']
             tmp_path = os.path.join(prev_dir, saved_filename)
-            try:
-                import shutil
-                shutil.move(conv, tmp_path)
-            except Exception:
-                tmp_path = conv  # fallback
         else:
             tmp_path = os.path.join(prev_dir, saved_filename)
             f.save(tmp_path)
@@ -4469,9 +4403,15 @@ def api_preventivi_import_dxf(preventivo_id):
         from .preventivi.materiali_personali import applica_a_risultato as _mat_pers
         payload = _mat_pers(payload, ((ConfigManager.load_config() or {}).get('laser_config') or {}).get('materiali'))
         if not payload.get('success'):
-            try: os.remove(tmp_path)
-            except OSError: pass
+            for _p in (tmp_path, os.path.join(prev_dir, dwg_salvato) if dwg_salvato else None):
+                try:
+                    if _p:
+                        os.remove(_p)
+                except OSError:
+                    pass
             return jsonify({'success': False, 'error': payload.get('error') or 'Parsing DXF fallito'}), 500
+        if dwg_salvato:
+            payload['dwg_originale'] = dwg_salvato
         # NOTA: tmp_path resta su disco (in uploads/preventivi_tmp/<preventivo_id>/<filename>.dxf)
         # per consentire la preview successiva. Cleanup quando preventivo viene
         # accettato/rifiutato/eliminato.
@@ -4693,6 +4633,11 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
     quantita_da_distinte(prev_dir, result)
 
     dxf_map = getattr(result, 'dxf_map', {}) or {}
+    # DWG del pacchetto: gia' convertiti in DXF da process_rfq_package; qui si
+    # salva anche il DWG originale accanto al DXF. Quelli non convertibili
+    # restano righe con l'errore "DWG non leggibile: ..." (niente analisi).
+    dwg_originali = getattr(result, 'dwg_originali', None) or {}
+    dwg_errori = getattr(result, 'dwg_errori', None) or {}
     saved_tasks = []  # (dxf_path, nome_salvato, nome_originale)
     matched_dxfs = {a.matched_dxf for a in result.articoli if a.matched_dxf}
     for fname, data in dxf_map.items():
@@ -4701,6 +4646,11 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
         target_path = os.path.join(prev_dir, os.path.basename(fname))
         with open(target_path, 'wb') as fp:
             fp.write(data)
+        if fname in dwg_originali:
+            with open(os.path.join(prev_dir, os.path.basename(dwg_originali[fname][0])), 'wb') as fp:
+                fp.write(dwg_originali[fname][1])
+        if fname in dwg_errori:
+            continue
         saved_tasks.append((target_path, os.path.basename(fname)))
 
     # 3b. Scrivi gli STEP su disco: il visore 3D li aggancia per nome
@@ -4738,6 +4688,8 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             except Exception as e:
                 logger.exception('rfq worker fail per %s', fname)
                 dxf_results[fname] = {'success': False, 'error': str(e)}
+    for fname, msg in dwg_errori.items():
+        dxf_results[fname] = {'success': False, 'error': msg, 'codice': 'dwg_non_leggibile'}
 
     # 5. Costruisci articoli DB combinando dati PDF + DXF
     # L'assieme NON è un pezzo tagliabile: il suo disegno 2D (master) non va
@@ -4793,6 +4745,13 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             '_errore_dxf': ((dxf_info or {}).get('error')
                             if dxf_info and dxf_info.get('success') is False else None),
         }
+        if a.matched_dxf in dwg_originali:
+            # il DWG del cliente, salvato accanto al DXF convertito
+            item['dwg_filename'] = os.path.basename(dwg_originali[a.matched_dxf][0])
+        elif a.matched_dxf in dwg_errori:
+            # DWG non convertibile: il pezzo resta, senza disegno da leggere
+            item['dwg_filename'] = os.path.basename(a.matched_dxf)
+            item['dxf_filename'] = None
         if a.matched_dxf:
             # come e' stato abbinato il disegno: "per somiglianza" va confermato
             # (blocca Lantek finche' nessuno lo guarda)
@@ -5140,7 +5099,9 @@ def _avvisi_riga_pacchetto(it, fonte):
         avvisi.append(f"Pezzo dell'assieme {it.get('codice_assieme') or ''} senza riga nell'ordine: quanti per "
                       "assieme? Se non lo sai lascialo com'e': lo conferma il laser")
     if not it.get('dxf_filename'):
-        avvisi.append('Nessun disegno per questo pezzo')
+        # un DWG arrivato ma non convertibile lo si dice, non "nessun disegno"
+        avvisi.append((it.get('_errore_dxf') + ': fatti mandare il DXF') if it.get('dwg_filename') and it.get('_errore_dxf')
+                      else 'Nessun disegno per questo pezzo')
     return avvisi
 
 
@@ -5239,6 +5200,8 @@ def api_ordine_pacchetto_analizza():
                 'area_dm2': it.get('area_dm2') or None,
                 'confidenza': round(float(conf), 3) if isinstance(conf, (int, float)) else None,
                 'disegno': dxf,
+                # il DWG mandato dal cliente (convertito in "disegno", o non leggibile)
+                'disegno_dwg': it.get('dwg_filename'),
                 # disegno non letto (troppo complesso...): niente anteprima,
                 # che lo rileggerebbe nel server
                 'url_svg': (f'/api/preventivi/{pid}/dxf/{quote(dxf)}/svg'
@@ -5526,6 +5489,51 @@ def api_ordine_pacchetto_scarta(pacchetto_id):
         return _errore_pacchetto('errore_interno', str(e), 500)
 
 
+def _stem_dwg(nome: str) -> str:
+    """Codice di un disegno per confrontare DWG e DXF: "Pezzo (2).DWG" -> "pezzo"."""
+    stem = os.path.splitext(os.path.basename(nome or ''))[0]
+    return re.sub(r'\s*\(\d+\)$', '', stem).strip().lower()
+
+
+def _converti_dwg_caricati(prev_dir: str, voci: list) -> list:
+    """DWG caricati [(file, nome originale)] -> DXF nella cartella del preventivo.
+
+    Ogni DWG si salva col suo nome (libero anche per il .dxf: "flangia.dwg"
+    e "flangia.dxf" di un altro caricamento non si pestano) e TUTTI si
+    convertono in una chiamata (analisi_isolata.converti_dwg: lavoratore
+    separato, ODA senza finestre, tempo massimo, cache per impronta).
+    Ritorna [{ok, errore, dxf, dwg, nome_originale}] nello stesso ordine.
+    Un DWG non convertibile si toglie dalla cartella (errore col motivo)."""
+    from .preventivi.analisi_isolata import converti_dwg
+    voci_salvate = []
+    for f, nome in voci:
+        base = os.path.basename(nome or 'disegno.dwg')
+        radice = os.path.splitext(base)[0]
+        stem, n = radice, 1
+        while (os.path.exists(os.path.join(prev_dir, stem + '.dwg'))
+               or os.path.exists(os.path.join(prev_dir, stem + '.dxf'))):
+            n += 1
+            stem = f'{radice} ({n})'
+        dwg = os.path.join(prev_dir, stem + os.path.splitext(base)[1])
+        f.save(dwg)
+        voci_salvate.append((dwg, os.path.join(prev_dir, stem + '.dxf'), base))
+    esiti = converti_dwg([(a, b) for a, b, _n in voci_salvate])
+    out = []
+    for dwg, dxf, nome in voci_salvate:
+        e = esiti.get(os.path.abspath(dwg)) or {}
+        if e.get('ok') and os.path.isfile(dxf):
+            out.append({'ok': True, 'errore': None, 'dxf': os.path.basename(dxf),
+                        'dwg': os.path.basename(dwg), 'nome_originale': nome})
+            continue
+        try:
+            os.remove(dwg)
+        except OSError:
+            pass
+        out.append({'ok': False, 'errore': e.get('errore') or 'DWG non leggibile: conversione non riuscita',
+                    'dxf': None, 'dwg': None, 'nome_originale': nome})
+    return out
+
+
 @app.route('/api/preventivi/<preventivo_id>/import-dxf-batch', methods=['POST'])
 @richiede('commerciale')
 def api_preventivi_import_dxf_batch(preventivo_id):
@@ -5558,7 +5566,7 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         # pezzo da tagliare (si prezzano i componenti + il montaggio).
         disegni_assieme = disegni_assieme_da_paths(rel_paths) if rel_paths else set()
         master_saltati = []
-        # Salva tutti i file su disco (solo DXF; per DWG serve conversione singola)
+        # Salva tutti i file su disco (i DWG si convertono in DXF, tutti insieme)
         prev_dir = _cartella_preventivo(preventivo_id)
         os.makedirs(prev_dir, exist_ok=True)
         saved_tasks = []  # (dxf_path, filename)
@@ -5568,6 +5576,8 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         # precedente: non sono pezzi (LS 1153 ne aveva due, diventati righe)
         from .preventivi.rfq_importer import e_copia_cleaned
         _nomi_batch = [os.path.basename(x.filename or '') for x in files]
+        stem_dxf_batch = {_stem_dwg(n): n for n in _nomi_batch if n.lower().endswith('.dxf')}
+        dwg_da_convertire = []   # (file, nome originale)
         for f in files:
             fname_lower = (f.filename or '').lower()
             if e_copia_cleaned(f.filename or '', _nomi_batch):
@@ -5587,10 +5597,22 @@ def api_preventivi_import_dxf_batch(preventivo_id):
                 f.save(os.path.join(prev_dir, os.path.basename(f.filename)))
                 master_saltati.append(os.path.basename(f.filename))
                 continue
+            if fname_lower.endswith('.dwg'):
+                # Se c'e' anche il DXF dello stesso codice si usa quello (lo ha
+                # preparato il cliente); altrimenti il DWG si converte, tutti
+                # insieme dopo questo giro.
+                stem = _stem_dwg(f.filename)
+                if stem in stem_dxf_batch:
+                    skipped.append({'filename': os.path.basename(f.filename), 'success': False, 'saltato': True,
+                                    'codice': 'dwg_con_dxf',
+                                    'error': f"C'e' anche il DXF ({stem_dxf_batch[stem]}): uso il DXF"})
+                    continue
+                dwg_da_convertire.append((f, os.path.basename(f.filename)))
+                continue
             if not fname_lower.endswith('.dxf'):
                 skipped.append({
                     'filename': f.filename,
-                    'error': 'Batch supporta solo .dxf (per .dwg usa import single)',
+                    'error': 'Formato non supportato: servono DXF o DWG',
                 })
                 continue
             # In un albero di cartelle lo stesso nome ricorre spesso (ogni
@@ -5602,6 +5624,16 @@ def api_preventivi_import_dxf_batch(preventivo_id):
             tmp_path = os.path.join(prev_dir, saved_filename)
             f.save(tmp_path)
             saved_tasks.append((tmp_path, saved_filename, nome_originale))
+        # DWG: una sola conversione per tutti (ODA, nel lavoratore separato).
+        # Il DXF convertito si analizza come gli altri; il DWG resta accanto.
+        dwg_di = {}      # nome DXF salvato -> nome DWG salvato
+        for e in (_converti_dwg_caricati(prev_dir, dwg_da_convertire) if dwg_da_convertire else []):
+            if e['ok']:
+                saved_tasks.append((os.path.join(prev_dir, e['dxf']), e['dxf'], e['nome_originale']))
+                dwg_di[e['dxf']] = e['dwg']
+            else:
+                skipped.append({'filename': e['nome_originale'], 'success': False,
+                                'codice': 'dwg_non_leggibile', 'error': e['errore']})
         if not saved_tasks:
             return jsonify({'success': True, 'results': skipped, 'step_salvati': n_step,
                             'master_saltati': master_saltati}), 200
@@ -5636,6 +5668,8 @@ def api_preventivi_import_dxf_batch(preventivo_id):
                     if assieme_by_base:
                         r['codice_assieme'] = (assieme_by_base.get(originale)
                                                or assieme_by_base.get(fname))
+                    if fname in dwg_di:
+                        r['dwg_originale'] = dwg_di[fname]
                     results.append(_mat_pers_b(r, _mats_b))
                 except Exception as e:
                     logger.exception('worker fail per %s', fname)
@@ -5918,6 +5952,26 @@ def api_preventivi_disegno_pdf(preventivo_id, filename):
                          download_name=safe_name, max_age=3600)
     except Exception as e:
         logger.exception('pdf disegno failed')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/preventivi/<preventivo_id>/dwg/<path:filename>', methods=['GET'])
+@richiede(*UFFICI)
+def api_preventivi_disegno_dwg(preventivo_id, filename):
+    """Il DWG originale del cliente (il pezzo usa il DXF convertito da questo)."""
+    try:
+        safe_name = os.path.basename(filename)
+        if not safe_name.lower().endswith('.dwg'):
+            return jsonify({'error': 'Estensione file non valida'}), 400
+        path = os.path.join(_cartella_preventivo(preventivo_id), safe_name)
+        if not os.path.isfile(path):
+            return jsonify({'error': 'DWG non trovato'}), 404
+        return send_file(path, mimetype='application/acad', as_attachment=True,
+                         download_name=safe_name, max_age=0)
+    except ValueError:
+        return jsonify({'error': 'Preventivo non valido'}), 400
+    except Exception as e:
+        logger.exception('dwg disegno failed')
         return jsonify({'error': str(e)}), 500
 
 
@@ -7010,6 +7064,16 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
         for a in articoli:
             codice = a.get('codice') or '?'
             original = a.get('dxf_filename')
+            # Il DWG del cliente (convertito in DXF all'import) va con l'ordine,
+            # accanto al DXF: chi apre i disegni dell'ordine li trova tutti e due.
+            dwg = os.path.basename(a.get('dwg_filename') or '')
+            if dwg and os.path.isfile(os.path.join(src_dir, dwg)):
+                try:
+                    dst_dwg = os.path.join(dst_dir, dwg)
+                    shutil.copy2(os.path.join(src_dir, dwg), dst_dwg)
+                    OrderManager.add_order_file(order_id, dwg, dst_dwg, 'DWG', sha256=_sha256(dst_dwg))
+                except Exception as de:
+                    logger.warning('copia DWG %s fallita: %s', dwg, de)
             # A Mirko va l'ORIGINALE: la pulizia/nesting la fa lui in Lantek (affidabile).
             # L'app non genera più un disegno "pulito" per la produzione.
             src = None

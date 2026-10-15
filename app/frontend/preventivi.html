@@ -2406,6 +2406,9 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 .wb-vw-src { display: inline-flex; background: var(--line-2); border-radius: 8px; padding: 2px; margin-right: 4px; }
 .wb-vw-src button { width: auto !important; padding: 0 9px; height: 24px !important; font: 700 11px 'Inter'; letter-spacing: .03em; color: var(--ink-3); }
 .wb-vw-src button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(15,23,42,.1); }
+.wb-vw-dwg { font: 700 11px 'Inter'; color: var(--ink-3); text-decoration: none; padding: 0 8px; margin-right: 4px; line-height: 24px; border-radius: 6px; background: var(--line-2); white-space: nowrap; }
+.wb-vw-dwg:hover { color: var(--ink); }
+.wb-vw-dwg[hidden] { display: none; }
 .wb-vw-pag { display: inline-flex; align-items: center; }
 .wb-vw-pag #wb-vw-pag-t { min-width: 34px; text-align: center; font: 600 11.5px var(--mono); color: var(--ink-3); }
 /* Schermo intero: il disegno prende tutto il banco */
@@ -11996,6 +11999,8 @@ function applyDxfResultToUI(d, rawFilename, opts = {}) {
       if ((ex.origine_campi || {}).perimetro_taglio_m === 'cad') ex.geometria_manuale_confermata = false;
     }
     ex.dxf_filename = d.filename || rawFilename;
+    // DWG del cliente convertito: il pezzo usa il DXF, l'originale resta col pezzo
+    ex.dwg_filename = d.dwg_originale || null;
     ex.dxf_needs_verify = !!d.geometria.needs_manual_select;
     ex.dxf_confidence = d.geometria.confidence || 1;
     // Cleanup DXF (auto/manual): mantiene i campi popolati dal backend
@@ -12070,6 +12075,7 @@ function applyDxfResultToUI(d, rawFilename, opts = {}) {
     costo_piega: 0, costo_saldatura: 0, costo_filettatura: 0, costo_svasatura: 0,
     costo_apporto: 0, costo_pulizia: 0,
     dxf_filename: d.filename || rawFilename,
+    dwg_filename: d.dwg_originale || null,   // DWG del cliente, convertito nel DXF qui sopra
     dxf_needs_verify: !!d.geometria.needs_manual_select,
     dxf_confidence: d.geometria.confidence || 1,
     _geo_source: (d.geometria || {})._source || 'detector',
@@ -12143,8 +12149,9 @@ async function uploadDxf(file, suppressMsg) {
  *  per il riconoscimento assiemi) e li manda al batch. */
 async function uploadFolderDxf(fileList) {
   const all = Array.from(fileList || []);
-  const dxf = all.filter(f => /\.dxf$/i.test(f.name));
-  if (!dxf.length) { showMsg('msg-import', 'Nessun DXF trovato nella cartella.', 'var(--orange)'); return; }
+  // DWG compresi: il server li converte in DXF (se c'e' anche il DXF usa quello)
+  const dxf = all.filter(f => /\.(dxf|dwg)$/i.test(f.name) && !/^\./.test(f.name));
+  if (!dxf.length) { showMsg('msg-import', 'Nessun disegno DXF o DWG trovato nella cartella.', 'var(--orange)'); return; }
   if (!currentPreventivo) { showMsg('msg-import', 'Salva prima il preventivo.', 'var(--red)'); return; }
   // Gli STEP degli assiemi viaggiano coi DXF (come nello ZIP): il server li
   // salva per il visore 3D. Prima venivano scartati e il 3D non c'era.
@@ -12166,7 +12173,7 @@ async function uploadDxfBatch(files) {
   }
   showMsg('msg-import', `Elaborazione ${files.length} file DXF in parallelo…`, 'var(--gray-text)');
   const t0 = Date.now();
-  const nDxf = files.filter(f => /\.dxf$/i.test(f.name)).length;
+  const nDxf = files.filter(f => /\.(dxf|dwg)$/i.test(f.name)).length;
   wbProg.apri(`Carico ${files.length} disegni`, _mb(files));
   try {
     const d = await _postConAvanzamento(
@@ -12182,8 +12189,14 @@ async function uploadDxfBatch(files) {
     const elapsedMs = Date.now() - t0;
     let ok = 0, err = 0, cached = 0;
     const toccati = new Set();   // indici degli articoli creati/aggiornati da QUESTO batch
+    const nonLetti = [];         // "nome: motivo" dei disegni non letti (DWG non convertibili...)
+    let nDwgConDxf = 0;          // DWG lasciati perche' c'era anche il DXF
     for (const result of (d.results || [])) {
-      if (!result.success) { if (!result.saltato) err++; continue; }
+      if (!result.success) {
+        if (result.codice === 'dwg_con_dxf') nDwgConDxf++;
+        if (!result.saltato) { err++; nonLetti.push(`${result.filename || '?'}: ${result.error || 'non leggibile'}`); }
+        continue;
+      }
       _ultimoIdxDxf = -1;
       applyDxfResultToUI(result, result.filename || '');
       if (_ultimoIdxDxf >= 0) toccati.add(_ultimoIdxDxf);
@@ -12255,6 +12268,12 @@ async function uploadDxfBatch(files) {
       ? '1 contorno da verificare: è il pezzo aperto'
       : `${dubbi.length} contorni da verificare: il primo è aperto, E per il successivo`);
     if (_wbDisegniAssieme.size) avvisi.push(`${_wbDisegniAssieme.size} disegni d'assieme non prezzati come pezzi`);
+    if (nDwgConDxf) avvisi.push(`${nDwgConDxf} DWG con anche il DXF: usato il DXF`);
+    if (nonLetti.length) {
+      // per nome e col motivo ("DWG non leggibile: file incompleto"), non solo il numero
+      avvisi.push(`${nonLetti.length} non letti — ` + nonLetti.slice(0, 3).join(' · ') + (nonLetti.length > 3 ? ' …' : ''));
+      showMsg('msg-import', 'Disegni non letti: ' + nonLetti.join(' · '), 'var(--orange)');
+    }
     // dopo la stima, che altrimenti coprirebbe l'avviso col suo messaggio
     if (avvisi.length) stima.then(() => wbSnack(avvisi.join(' · '), dubbi.length ? 'warn' : '', 8000));
     else stima.then(() => wbSnack(`${ok} disegni importati in ${secs.replace('.', ',')} s${err ? ` · ${err} non leggibili` : ''}`, err ? 'warn' : ''));
@@ -15789,6 +15808,7 @@ function _wbBarra() {
         <button type="button" data-s="pdf" onclick="wbSorgente('pdf')" title="Tavola PDF del cliente">PDF</button>
         <button type="button" data-s="dxf" onclick="wbSorgente('dxf')" title="Anteprima dal file DXF">DXF</button>
       </span>
+      <a class="wb-vw-dwg" id="wb-vw-dwg" hidden download title="Il cliente ha mandato un DWG: il pezzo usa il DXF convertito. Scarica il DWG originale">DWG originale</a>
       <span class="wb-vw-pag" id="wb-vw-pag">
         <button type="button" onclick="wbPdfPagina(-1)" title="Pagina precedente"><i data-lucide="chevron-left"></i></button>
         <span id="wb-vw-pag-t">1/1</span>
@@ -15822,6 +15842,12 @@ function wbAggiornaBarra(a) {
   }
   const pag = document.getElementById('wb-vw-pag');
   if (pag) pag.style.display = (_wbVw && _wbVw.mode === 'pdf' && _wbVw.n > 1) ? '' : 'none';
+  // DWG del cliente convertito in DXF all'import: si puo' scaricare l'originale
+  const dwg = document.getElementById('wb-vw-dwg');
+  if (dwg) {
+    dwg.hidden = !(a && a.dwg_filename && currentPreventivo);
+    if (!dwg.hidden) dwg.href = `${API_URL}/api/preventivi/${currentPreventivo.id}/dwg/${encodeURIComponent(a.dwg_filename)}`;
+  }
   _wbPct();
 }
 function _wbPct() {

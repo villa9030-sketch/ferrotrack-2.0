@@ -286,6 +286,45 @@ def analizza_tutti(compiti, dxf_cfg: dict, tempo_max: float | None = None) -> di
     return out
 
 
+def converti_dwg(coppie, tempo_max: float | None = None) -> dict:
+    """Converte i DWG in DXF [(dwg_path, dxf_path), ...] nel lavoratore
+    separato, tutti in una chiamata a ODA (dwg_conversione.converti_percorsi).
+    Ritorna {dwg_path: {'ok', 'errore', 'da_cache'}}.
+
+    ODA e' gia' un processo a parte con un tempo massimo; passare dal
+    lavoratore aggiunge un secondo limite: se la conversione si blocca in
+    modo imprevisto, si ferma il lavoratore con ODA e il server resta su.
+    Se il lavoratore non parte si converte dal server (stessa funzione)."""
+    from . import dwg_conversione as dc
+    coppie = [(os.path.abspath(a), os.path.abspath(b)) for a, b in coppie]
+    if not coppie:
+        return {}
+    tmax = dc.TEMPO_MAX_S if tempo_max is None else float(tempo_max)
+    # il tempo del lotto, piu' i ritentativi uno per uno nel caso peggiore
+    limite = (min(dc._TEMPO_LOTTO_MAX_S, max(tmax, dc._TEMPO_BASE_S + dc._TEMPO_PER_DISEGNO_S * len(coppie)))
+              + (tmax * len(coppie) if len(coppie) > 1 else 0) + 30)
+    compito = {'tipo': 'dwg', 'coppie': coppie, 'tempo_max': tmax, 'cache_dwg': dc.CACHE_DIR}
+    with _posti:
+        w = _prendi()
+        if w is None:
+            return dc.converti_percorsi(coppie, tmax)
+        stato, dato = w.esegui(compito, limite)
+        if stato == 'ok' and isinstance(dato, dict):
+            _rendi(w)
+            # le chiavi tornano dal JSON: stesse stringhe dei percorsi passati
+            return dato
+        if stato == 'errore':
+            _rendi(w)
+            msg = dc.MSG_ROTTO.format(motivo=str(dato)[:160])
+        else:
+            w.chiudi()
+            msg = (dc.MSG_LENTO.format(s=tmax) if stato == 'lento'
+                   else dc.MSG_ROTTO.format(motivo='la conversione si e\' interrotta'))
+        logger.warning('conversione DWG nel lavoratore: %s (%s)', stato, msg)
+        return {a: {'ok': os.path.isfile(b) and dc._e_dxf(b), 'errore': None if (os.path.isfile(b) and dc._e_dxf(b)) else msg,
+                    'da_cache': False} for a, b in coppie}
+
+
 def chiudi_tutti():
     """Per i test e l'arresto: chiude i lavoratori fermi."""
     with _lock:
