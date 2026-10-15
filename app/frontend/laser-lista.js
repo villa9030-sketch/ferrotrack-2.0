@@ -79,7 +79,7 @@
         data-fuoco="r-${esc(o.id)}" ${on ? 'aria-current="true"' : ''} title="${esc(tit)}">
       ${sp ? `<input type="checkbox" data-sp="${esc(o.id)}" ${S.spuntati.has(o.id) ? 'checked' : ''}
         aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">` : '<span aria-hidden="true"></span>'}
-      <span class="lz-num">${esc(LZ.numeroBreve(o))}</span>
+      <span class="lz-num${LZ.numeroBreve(o).length > 6 ? ' lungo' : ''}">${esc(LZ.numeroBreve(o))}</span>
       <div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><span class="lz-sotto">${sotto(o, st)}</span></div>
       ${quando(o, st)}
     </div>`;
@@ -97,7 +97,7 @@
   function menu(attivi) {
     const set = (k, n) => { const el = document.getElementById('lzm-' + k); if (el) el.textContent = n ? String(n) : ''; };
     set('tutti', attivi.length);
-    set('coda', attivi.filter(o => ['coda', 'smistare'].includes(LZ.statoLaser(o))).length);
+    set('coda', attivi.filter(o => LZ.statoLaser(o) === 'coda').length);
     set('in_lantek', attivi.filter(o => LZ.statoLaser(o) === 'in_lantek').length);
     set('controllo', attivi.filter(o => L.spuntabile(o)).reduce((s, o) => s + ((S.riep[o.id] || {}).n_controllare || 0), 0));
     set('correggere', attivi.reduce((s, o) => s + ((S.riep[o.id] || {}).n_correggere || 0), 0));

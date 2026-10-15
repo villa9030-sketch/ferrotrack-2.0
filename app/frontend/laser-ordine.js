@@ -229,7 +229,7 @@
       <div class="lz-pr-card">
         <div class="lz-pr-chi"><span class="lz-num">${esc(LZ.numeroBreve(p))}</span><b>${esc(p.cliente || 'Cliente non indicato')}</b>
           ${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}</div>
-        <p>${esc(passo.t)}${g ? `. Consegna ${esc(FT.fmtData(g))}` : ''}.</p>
+        <p>${esc(/[?]$/.test(passo.t) ? passo.t : passo.t.replace(/[.!…]$/, '') + '.')}${g ? ` Consegna ${esc(FT.fmtData(g))}.` : ''}</p>
         <button class="lz-btn pri grande" type="button" data-az="apri-prossimo" data-id="${esc(p.id)}" data-fuoco="apri-prossimo">Apri${LZ.tasto('Invio')}</button>
       </div>
       ${dopo.length ? `<h3>Dopo</h3><ul class="lz-pr-dopo">${dopo.map(x => `<li><button type="button" data-az="apri-prossimo" data-id="${esc(x.id)}">
