@@ -1,6 +1,7 @@
 """Addestramento ranker dei candidati + modello del "sicuro" (agente I).
 
     .venv_studio python addestra.py --dump dump_I.jsonl --dump-dwg dump_dwg_I.jsonl --out modelli/
+        [--dump-es dump_es.jsonl --peso-es 3]   (esempi confermati da Stefano, GT in FT_GT_ESEMPI)
 
 - fold = hash della CARTELLA D'ORDINE (5 fold): mai righe a caso;
 - tutti i numeri riportati sono su fold tenuti fuori;
@@ -66,7 +67,7 @@ def carica(args):
     info = comune.info_codici()
     gt = comune.carica_gt()
     rec = []
-    for fonte, p in (('dxf', args.dump), ('dwg', args.dump_dwg)):
+    for fonte, p in (('dxf', args.dump), ('dwg', args.dump_dwg), ('es', getattr(args, 'dump_es', None))):
         if not p:
             continue
         for c, r in comune.leggi_jsonl(p).items():
@@ -76,6 +77,8 @@ def carica(args):
             e = comune.rep.valuta(r, g)
             m = r.get('modello') or {}
             ii = info.get((fonte, c)) or {'cartella': '?', 'cliente': '?', 'fold': 0}
+            if ii.get('tenuto_fuori'):
+                continue        # esempi tenuti fuori: solo per la misura finale
             rec.append({'fonte': fonte, 'codice': c, 'r': r, 'g': g, 'geo_ok': bool(e['geo']),
                         'sicuro_base': bool(e['sicuro']), 'manuale': bool(r.get('manuale')),
                         'conf': r.get('conf'), 'm': m, **ii})
@@ -152,6 +155,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--dump', required=True)
     ap.add_argument('--dump-dwg')
+    ap.add_argument('--dump-es', help='dump degli esempi confermati (GT in FT_GT_ESEMPI)')
+    ap.add_argument('--peso-es', type=float, default=3.0,
+                    help='peso di un esempio confermato da Stefano rispetto a un pezzo di Lantek')
     ap.add_argument('--out', required=True)
     ap.add_argument('--prec', type=float, default=0.995)
     ap.add_argument('--politica', default='sostituisce', choices=('sostituisce', 'promuove'))
@@ -174,6 +180,8 @@ def main():
     X, y, gid, per = dati_ranker(rec)
     fold_c = fold[gid]
     w = pesi_ranker(y, gid)
+    pes = np.array([args.peso_es if rec[g]['fonte'] == 'es' else 1.0 for g in gid])
+    w = w * pes
     p_oof = np.zeros(len(y))
     rank_fold = {}
     for k in range(5):
@@ -254,22 +262,24 @@ def main():
     bS = np.array([rec[k]['sicuro_base'] for k in ks], dtype=bool)
     print(f'\nSICURO: disegni ammessi (nessuna regola fissa contraria) {len(ks)} su {N}, giusti {yS.sum()}')
 
-    def fit_s(Xa, ya):
-        return HistGradientBoostingClassifier(**PAR_SIC).fit(Xa, ya)
+    wS = np.array([args.peso_es if rec[k]['fonte'] == 'es' else 1.0 for k in ks])
+
+    def fit_s(Xa, ya, wa=None):
+        return HistGradientBoostingClassifier(**PAR_SIC).fit(Xa, ya, sample_weight=wa)
 
     pS = np.zeros(len(yS))
     sic_fold = {}
     soglie_nested = {}
     for k in range(5):
         tr, te = fS != k, fS == k
-        clf = fit_s(XS[tr], yS[tr])
+        clf = fit_s(XS[tr], yS[tr], wS[tr])
         pS[te] = clf.predict_proba(XS[te])[:, 1]
         # soglia annidata: CV interna sui 4 fold d'addestramento
         pin = np.zeros(tr.sum())
-        Xi, yi, fi, bi = XS[tr], yS[tr], fS[tr], bS[tr]
+        Xi, yi, fi, bi, wi = XS[tr], yS[tr], fS[tr], bS[tr], wS[tr]
         for j in set(fi.tolist()):
             a, b = fi != j, fi == j
-            pin[b] = fit_s(Xi[a], yi[a]).predict_proba(Xi[b])[:, 1]
+            pin[b] = fit_s(Xi[a], yi[a], wi[a]).predict_proba(Xi[b])[:, 1]
         soglie_nested[k] = {}
         for pr in PRECS:
             soglie_nested[k]['sostituisce', pr] = soglia_per(pin, yi, pr)
@@ -280,7 +290,7 @@ def main():
         sic_fold[k]['politica'] = args.politica
         sic_fold[k]['soglie'] = {f'prec_{int(round(pr * 1000))}': float(soglie_nested[k]['sostituisce', pr])
                                  for pr in PRECS}
-    clf_s = fit_s(XS, yS)
+    clf_s = fit_s(XS, yS, wS)
     sic_fin = esporta(clf_s, FD)
     sic_fin['soglia'] = (soglia_per(pS, yS, args.prec) if args.politica == 'sostituisce'
                          else soglia_per(pS[~bS], yS[~bS], args.prec))
