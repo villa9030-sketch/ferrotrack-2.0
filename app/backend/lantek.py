@@ -60,7 +60,19 @@ def _config() -> dict:
     return {**DB_DEFAULT, **(cfg if isinstance(cfg, dict) else {})}
 
 
-def _connessione(cfg: dict):
+# Errori passeggeri di SQL Server (prova notturna 14/10/2026, Windows Update
+# su localhost\LANTEK): si riprova una volta dopo una breve pausa.
+_PASSEGGERI = ('08S01', '08001', 'single user mode', 'Communication link failure',
+               'Error Locating Server', 'Login timeout expired')
+PAUSA_RIPROVA_S = 1.5
+
+
+def passeggero(e) -> bool:
+    t = str(e)
+    return any(p.lower() in t.lower() for p in _PASSEGGERI)
+
+
+def _connetti(cfg: dict):
     import pyodbc
     cs = (f"DRIVER={{{cfg['driver']}}};SERVER={cfg['server']};DATABASE={cfg['database']};"
           'Trusted_Connection=yes;ApplicationIntent=ReadOnly;APP=FerroTrack-lettura')
@@ -69,6 +81,17 @@ def _connessione(cfg: dict):
     # mai bloccare Lantek: si legge senza aspettare chi sta scrivendo
     cur.execute('SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED')
     return con, cur
+
+
+def _connessione(cfg: dict):
+    try:
+        return _connetti(cfg)
+    except Exception as e:
+        if not passeggero(e):
+            raise
+        logger.info('Lantek: errore passeggero (%s), riprovo tra %.1f s', str(e)[:120], PAUSA_RIPROVA_S)
+        time.sleep(PAUSA_RIPROVA_S)
+        return _connetti(cfg)
 
 
 _CACHE = {}

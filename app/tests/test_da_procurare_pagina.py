@@ -154,7 +154,9 @@ with sync_playwright() as p:
         pg.wait_for_function(f'LZ.procura.n && LZ.procura.n.aperti === {n0 + 1}', timeout=30000)
         dec = stato['decisioni'][-1] if stato['decisioni'] else {}
         check('salvato: non_laser + tubo, profilo e lunghezza',
-              dec.get('scelta') == 'non_laser' and dec.get('procura') == {'tipo': 'tubo', 'profilo': PROFILO, 'lunghezza_mm': 795, 'nota': None},
+              # (dal 12/10 la decisione porta anche materiale, descrizione e pezzi per assieme)
+              dec.get('scelta') == 'non_laser' and {k: (dec.get('procura') or {}).get(k) for k in ('tipo', 'profilo', 'lunghezza_mm', 'nota')}
+              == {'tipo': 'tubo', 'profilo': PROFILO, 'lunghezza_mm': 795, 'nota': None},
               dec)
 
         print('2) L\'ordine dice "Da procurare"')
@@ -167,7 +169,8 @@ with sync_playwright() as p:
         check('sezione dell\'ordine col pezzo e "da ordinare"', cod in sez and 'da ordinare' in sez and 'non è pronto per il montaggio' in sez, sez)
         check('bottone in testata: una voce in piu\'', f'({n0 + 1})' in pg.inner_text('#lz-procura-btn'), pg.inner_text('#lz-procura-btn'))
         riga = pg.locator(f'#lz-dett tr[data-vedi="{aid}"]').inner_text()
-        check('il pezzo resta fuori da Lantek', 'non è da laser' in riga, riga)
+        # dal 12/10 la riga dice cosa e' (tubo/profilo) invece di "non e' da laser"
+        check('il pezzo resta fuori da Lantek', 'non è da laser' in riga or 'Tubo/profilo' in riga, riga)
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'ft_procura_2_ordine.png'))
 
         print('3) D: il pannello')
@@ -215,10 +218,12 @@ with sync_playwright() as p:
         pg.keyboard.press('Enter')
         toast = pg.locator('.ft-toast:has-text("ordinata (Fornitore di prova)")')
         toast.last.wait_for(timeout=15000)
-        pg.wait_for_function("!document.querySelector('#lz-pc tr.lz-pc-g')", timeout=15000)
-        check('ordinato: sparisce da "Da ordinare"', pg.locator('#lz-pc tr.lz-pc-g').count() == 0)
+        # solo il gruppo di prova: nella copia possono esserci altre barre da ordinare
+        # (es. il materiale dei laser tubo, 14/10/2026)
+        pg.wait_for_function("p => ![...document.querySelectorAll('#lz-pc tr.lz-pc-g')].some(t => t.innerText.includes(p))", arg=PROFILO, timeout=15000)
+        check('ordinato: sparisce da "Da ordinare"', pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).count() == 0)
         toast.last.locator('.ft-toast-act').click()
-        pg.wait_for_selector('#lz-pc tr.lz-pc-g', timeout=15000)
+        pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).first.wait_for(timeout=15000)  # il gruppo di prova, non uno qualunque
         check('Annulla: torna da ordinare', pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).count() == 1)
         pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).locator('[data-pc-gruppo]').check()
         pg.evaluate("document.activeElement && document.activeElement.blur()")
@@ -227,9 +232,11 @@ with sync_playwright() as p:
         pg.fill('#lz-pc [data-pc-forn]', 'Fornitore di prova')
         pg.fill('#lz-pc [data-pc-data]', prevista)
         pg.click('#lz-pc [data-pc="ordinato-ok"]')
-        pg.wait_for_function("!document.querySelector('#lz-pc tr.lz-pc-g')", timeout=15000)
+        # solo il gruppo di prova: nella copia possono esserci altre barre da ordinare
+        # (es. il materiale dei laser tubo, 14/10/2026)
+        pg.wait_for_function("p => ![...document.querySelectorAll('#lz-pc tr.lz-pc-g')].some(t => t.innerText.includes(p))", arg=PROFILO, timeout=15000)
         pg.click('#lz-pc [data-pc-stato="ordinato"]')
-        pg.wait_for_selector('#lz-pc tr.lz-pc-g', timeout=15000)
+        pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).first.wait_for(timeout=15000)  # il gruppo di prova, non uno qualunque
         ap = pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).locator('[data-pc-apri]')
         if ap.get_attribute('aria-expanded') != 'true':        # resta aperto da prima
             ap.click()
@@ -241,7 +248,7 @@ with sync_playwright() as p:
         pg.keyboard.press('a')
         pg.locator('.ft-toast:has-text("arrivata")').last.wait_for(timeout=15000)
         pg.click('#lz-pc [data-pc-stato="arrivato"]')
-        pg.wait_for_selector('#lz-pc tr.lz-pc-g', timeout=15000)
+        pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).first.wait_for(timeout=15000)  # il gruppo di prova, non uno qualunque
         check('arrivato: fra gli "Arrivati"', pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).count() == 1)
         pg.screenshot(path=os.path.join(tempfile.gettempdir(), 'ft_procura_5_arrivati.png'))
 

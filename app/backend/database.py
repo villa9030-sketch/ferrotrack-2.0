@@ -4860,7 +4860,11 @@ class PreventivoManager:
                       'pezzi_foglio',
                       # Contorno scelto a mano sul disegno (mm, come il foglio):
                       # il controllo disegni lo mostra al posto di quello del motore.
-                      'contorno_scelto')
+                      'contorno_scelto',
+                      # Registro delle conferme del pezzo nel preventivatore: le
+                      # domande viste, le risposte date, chi le ha chiuse, e la
+                      # confidenza di materiale/spessore letti dal cartiglio.
+                      'conferme')
     _GAS_VALIDI = ('N2', 'O2', 'AIR', 'FIBRA')
 
     @staticmethod
@@ -5057,6 +5061,12 @@ class PreventivoManager:
                     out['ordine'][k] = str(od[k])[:60]
             if od.get('descrizione'):
                 out['ordine']['descrizione'] = str(od['descrizione'])[:200]
+            # codice come lo scrive il cliente (191700609-G-00 sul disegno
+            # 191700609-00) e riga dell'ordine senza disegno (prezzo a mano)
+            if od.get('codice'):
+                out['ordine']['codice'] = str(od['codice'])[:60]
+            if od.get('senza_disegno'):
+                out['ordine']['senza_disegno'] = True
             # righe dell'ordine una per una (commessa, quantita'): per DECA il
             # PDF del preventivo le riporta uguali
             righe = []
@@ -5097,28 +5107,116 @@ class PreventivoManager:
             vok = {k: str(v)[:200] for k, v in vok.items() if k in ('peso', 'step', 'quote', 'materiale', 'materiale_cartiglio') and v}
             if vok:
                 out['verifica_ok'] = vok
+        cf = PreventivoManager._pulisci_conferme(a.get('conferme'))
+        if cf:
+            out['conferme'] = cf
         return out
+
+    _STATI_CONFERMA = ('aperta', 'fatta', 'risolta')
+    _CAMPI_FIRMA = ('materiale', 'spessore', 'area', 'taglio', 'inneschi', 'pieghe', 'disegno', 'costo')
+
+    @staticmethod
+    def _pulisci_firma(f):
+        if not isinstance(f, dict):
+            return None
+        n = PreventivoManager._num_o_none
+        out = {}
+        for k in PreventivoManager._CAMPI_FIRMA:
+            if k not in f:
+                continue
+            v = f.get(k)
+            if k in ('materiale', 'disegno'):
+                out[k] = str(v)[:255] if v is not None else None
+            else:
+                out[k] = n(v, 1e9)
+        return out or None
+
+    @staticmethod
+    def _pulisci_conferme(c):
+        """Registro delle conferme di un pezzo: solo campi noti, testo corto."""
+        if not isinstance(c, dict):
+            return None
+        n = PreventivoManager._num_o_none
+        t = lambda v, m: (str(v)[:m] if v not in (None, '') else None)
+        out = {}
+        voci = {}
+        d = c.get('d') if isinstance(c.get('d'), dict) else {}
+        for k, e in list(d.items())[:60]:
+            if not isinstance(e, dict) or e.get('stato') not in PreventivoManager._STATI_CONFERMA:
+                continue
+            v = {'stato': e['stato']}
+            for campo, m in (('g', 80), ('t', 200), ('risposta', 80), ('da', 200),
+                             ('nuova', 200), ('riaperta', 200)):
+                x = t(e.get(campo), m)
+                if x:
+                    v[campo] = x
+            if e.get('l') in ('err', 'warn', 'info'):
+                v['l'] = e['l']
+            q = n(e.get('quando'), 1e14)
+            if q is not None:
+                v['quando'] = int(q)
+            fi = PreventivoManager._pulisci_firma(e.get('firma'))
+            if fi:
+                v['firma'] = fi
+            voci[str(k)[:320]] = v
+        out['d'] = voci
+        if c.get('vista'):
+            out['vista'] = True
+        fi = PreventivoManager._pulisci_firma(c.get('firma'))
+        if fi:
+            out['firma'] = fi
+        u = c.get('ultima')
+        if isinstance(u, dict) and u.get('k'):
+            out['ultima'] = {'k': str(u['k'])[:320], 'g': t(u.get('g'), 80) or '', 'l': t(u.get('l'), 80) or '',
+                             'r': bool(u.get('r')), 't': int(n(u.get('t'), 1e14) or 0)}
+        inc = c.get('incerti')
+        if isinstance(inc, dict):
+            pul = {}
+            for k in ('materiale', 'spessore'):
+                x = n(inc.get(k), 10)
+                if x is not None and 0 <= x <= 1:
+                    pul[k] = x
+            if inc.get('suggerito'):
+                pul['suggerito'] = str(inc['suggerito'])[:40]
+            if pul:
+                out['incerti'] = pul
+        return out if (voci or out.get('incerti') or out.get('vista')) else None
 
     # ---- Campi tubolare senza colonna dedicata ------------------------------
     # Riga letta dalla distinta del disegno (quantita', misura di taglio,
     # angoli) e lavorazione esterna (taglio laser tubo dal fornitore).
     EXTRA_TUBOLARE = ('qty', 'lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m',
-                      'costo_esterno', 'nota_esterno', 'origine', 'distinta', 'posizione')
+                      'costo_esterno', 'nota_esterno', 'origine', 'distinta', 'posizione',
+                      # "È un tubo" (14/10/2026): il pezzo laser da cui viene,
+                      # i suoi disegni e com'era, per rimetterlo
+                      'codice_pezzo', 'disegno_pdf', 'disegno_dxf', 'da_pezzo',
+                      # materiale del tubo (14/10/2026): da dove e' letto, il
+                      # testo ("AISI304"), il €/kg usato e la base acciaio del
+                      # catalogo per ricalcolare il peso al cambio materiale
+                      'materiale_da', 'materiale_testo', 'euro_kg', 'kg_m_acciaio', 'peso_kg_acciaio')
 
     @staticmethod
     def _extra_tubolare(t: dict) -> dict:
         n = PreventivoManager._num_o_none
         out = {}
-        for k in ('lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m', 'costo_esterno'):
+        for k in ('lunghezza_pezzo_mm', 'angolo_1', 'angolo_2', 'kg_m', 'costo_esterno',
+                  'euro_kg', 'kg_m_acciaio', 'peso_kg_acciaio'):
             v = n(t.get(k), 1e7)
             if v is not None and v >= 0:
                 out[k] = v
         q = n(t.get('qty'), 1e6)
         if q is not None and q >= 1:
             out['qty'] = int(q)
-        for k, lim in (('nota_esterno', 120), ('origine', 20), ('distinta', 60), ('posizione', 20)):
+        for k, lim in (('nota_esterno', 120), ('origine', 20), ('distinta', 60), ('posizione', 20),
+                       ('codice_pezzo', 60), ('materiale_da', 20), ('materiale_testo', 40)):
             if t.get(k):
                 out[k] = str(t.get(k))[:lim]
+        for k in ('disegno_pdf', 'disegno_dxf'):
+            if t.get(k):
+                out[k] = os.path.basename(str(t.get(k)))[:255]
+        dp = t.get('da_pezzo')
+        if isinstance(dp, dict) and len(json.dumps(dp, default=str)) <= 60000:
+            out['da_pezzo'] = json.loads(json.dumps(dp, default=str))
         return out
 
     @staticmethod

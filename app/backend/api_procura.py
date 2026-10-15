@@ -58,7 +58,8 @@ def _data_it(iso) -> str:
 
 def _descr_voce(v: dict) -> str:
     cod = v.get('codice') or v.get('profilo') or v.get('descrizione') or v['id'][:8]
-    return f"{cod} x{v.get('quantita')}"
+    mat = ' (materiale)' if v.get('parte') == 'materiale' else ''
+    return f"{cod} x{v.get('quantita')}{mat}"
 
 
 @bp_procura.route('/api/procura', methods=['GET'])
@@ -75,21 +76,32 @@ def api_procura_elenco():
         tipo = request.args.get('tipo') or None
         ordine = request.args.get('ordine') or None
         tutte = pc.elenco('tutti')
-        voci = [v for v in tutte if (stato == 'tutti' or (stato == 'aperti' and v['stato'] != 'arrivato')
-                                     or v['stato'] == stato)
-                and (not tipo or v['tipo'] == tipo) and (not ordine or v['order_id'] == ordine)]
+        # una voce c'e' se il suo stato O quello del suo materiale (laser
+        # tubo: barre comprate a parte) e' nel filtro; tipo "tubo" = anche il
+        # materiale dei laser tubo, che va nelle barre
+        ok_st = pc.stato_corrisponde
+        voci = [v for v in tutte if (ok_st(v['stato'], stato) or ok_st(pc.stato_materiale(v), stato))
+                and (not tipo or v['tipo'] == tipo or (tipo == 'tubo' and v['tipo'] == 'laser_tubo'
+                                                       and pc.compra_materiale(v)))
+                and (not ordine or v['order_id'] == ordine)]
         dis = pc.disegni_disponibili(voci)
         for v in voci:
             v['n_disegni'] = dis.get(v['id'], 0)
         cfg = pc.config()
-        conteggi = {s: sum(1 for v in tutte if v['stato'] == s) for s in pc.STATI}
+        # il materiale di un laser tubo conta come una voce in piu'
+        stati_tutti = [v['stato'] for v in tutte] + [v['acquisto']['stato'] for v in tutte
+                                                    if v['tipo'] == 'laser_tubo' and v.get('acquisto')]
+        conteggi = {s: stati_tutti.count(s) for s in pc.STATI}
         conteggi['aperti'] = conteggi['da_ordinare'] + conteggi['ordinato']
-        conteggi['scaduti'] = sum(1 for v in tutte if v['scaduta'])
+        conteggi['scaduti'] = (sum(1 for v in tutte if v['scaduta'])
+                               + sum(1 for v in tutte if v['tipo'] == 'laser_tubo' and (v.get('acquisto') or {}).get('scaduta')))
         ordini = {}
         for v in tutte:
-            if v['stato'] != 'arrivato' or v['order_id'] == ordine:
+            if v['stato'] != 'arrivato' or pc.stato_corrisponde(pc.stato_materiale(v), 'aperti') or v['order_id'] == ordine:
                 ordini.setdefault(v['order_id'], v['ordine'])
-        return jsonify({'success': True, 'voci': voci, 'gruppi': pc.gruppi_tubi(voci, cfg),
+        # barre: il materiale da comprare il cui stato e' nel filtro
+        materiale = [v for v in voci if ok_st(pc.stato_materiale(v), stato)]
+        return jsonify({'success': True, 'voci': voci, 'gruppi': pc.gruppi_tubi(materiale, cfg),
                         'conteggi': conteggi, 'ordini': sorted(ordini.values(), key=lambda o: o['etichetta'].lower()),
                         'tipi': pc.TIPI_BREVI, 'config': cfg, 'filtri': {'stato': stato, 'tipo': tipo, 'ordine': ordine}}), 200
     except Exception as e:
@@ -104,10 +116,10 @@ def api_procura_conteggio():
     from . import procura as pc
     try:
         pc.sincronizza_tutti()
-        voci = pc.elenco('aperti')
-        return jsonify({'success': True, 'aperti': len(voci),
-                        'da_ordinare': sum(1 for v in voci if v['stato'] == 'da_ordinare'),
-                        'scaduti': sum(1 for v in voci if v['scaduta'])}), 200
+        r = pc.riassunto_per_ordini()
+        return jsonify({'success': True, 'aperti': sum(x['n'] for x in r.values()),
+                        'da_ordinare': sum(x['n_da_ordinare'] for x in r.values()),
+                        'scaduti': sum(x['n_scaduti'] for x in r.values())}), 200
     except Exception as e:
         logger.exception('conteggio da procurare fallito')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
@@ -127,8 +139,8 @@ def api_ordine_procura(order_id):
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
 
 
-def _ids(corpo) -> list:
-    ids = corpo.get('ids')
+def _ids(corpo, campo='ids') -> list:
+    ids = corpo.get(campo)
     if not isinstance(ids, list):
         return []
     return [str(x) for x in ids if isinstance(x, (str, int)) and str(x).strip()][:500]
@@ -137,15 +149,18 @@ def _ids(corpo) -> list:
 @bp_procura.route('/api/procura/stato', methods=['POST'])
 @richiede('laser', 'ufficio', ADMIN)
 def api_procura_stato():
-    """Corpo: {ids: [...], stato: "ordinato" | "arrivato" | "da_ordinare",
-    fornitore: "Rossi tubi" (con ordinato), data_prevista: "2026-10-20"}.
+    """Corpo: {ids: [...], ids_materiale: [...], stato: "ordinato" | "arrivato" |
+    "da_ordinare", fornitore: "Rossi tubi" (con ordinato), data_prevista:
+    "2026-10-20"}. ids_materiale: il materiale da comprare (barre), per un
+    laser tubo a parte dal taglio (ids).
     Risposta: {success, n, prima: [foto per annullare]}"""
     from . import procura as pc
     A = _app()
     try:
         corpo = request.get_json(silent=True) or {}
         ids, stato = _ids(corpo), corpo.get('stato')
-        if not ids:
+        ids_mat = _ids(corpo, 'ids_materiale')
+        if not ids and not ids_mat:
             return jsonify({'success': False, 'error': 'Scegli almeno una voce'}), 400
         if stato not in pc.STATI:
             return jsonify({'success': False, 'error': 'Stato non valido (da_ordinare, ordinato, arrivato)'}), 400
@@ -162,7 +177,8 @@ def api_procura_stato():
                 if not date(2020, 1, 1) <= d <= date(2100, 1, 1):
                     return jsonify({'success': False, 'error': 'Data prevista fuori misura'}), 400
         chi = A._chi_nome()
-        cambi = pc.cambia_stato(ids, stato, fornitore=fornitore or None, data_prevista=prevista, chi=chi)
+        cambi = pc.cambia_stato(ids, stato, fornitore=fornitore or None, data_prevista=prevista, chi=chi,
+                                ids_materiale=ids_mat)
         if not cambi:
             return jsonify({'success': False, 'codice': 'non_trovato', 'error': 'Voci non trovate'}), 404
         per_ordine = {}
@@ -225,7 +241,9 @@ def api_procura_modifica(voce_id):
     try:
         corpo = request.get_json(silent=True) or {}
         campi = {k: corpo[k] for k in ('profilo', 'lunghezza_mm', 'quantita', 'nota', 'tipo', 'materiale',
-                                        'descrizione') if k in corpo}
+                                        'descrizione', 'materiale_fornito') if k in corpo}
+        if 'materiale_fornito' in campi and not isinstance(campi['materiale_fornito'], bool):
+            return jsonify({'success': False, 'error': 'materiale_fornito: vero o falso'}), 400
         per = corpo.get('per_assieme')
         if not campi and per in (None, ''):
             return jsonify({'success': False, 'error': 'Niente da cambiare'}), 400
@@ -309,21 +327,28 @@ def api_procura_richiesta():
     try:
         corpo = request.get_json(silent=True) or {}
         ids = _ids(corpo)
-        if not ids:
+        ids_mat = _ids(corpo, 'ids_materiale')
+        if not ids and not ids_mat:
             return jsonify({'success': False, 'error': 'Scegli almeno una voce'}), 400
-        voci = pc.elenco('tutti', ids=ids)
-        if not voci:
+        # pezzi (con i disegni): le voci scelte, e i tubi T scelti come
+        # materiale (si tagliano in casa: la lista serve); il materiale di un
+        # laser tubo va solo nelle barre (al laser tubo vanno i disegni)
+        con_mat = pc.elenco('tutti', ids=ids + ids_mat)
+        voci = [v for v in con_mat if v['id'] in ids or (v['id'] in ids_mat and v['tipo'] == 'tubo')]
+        materiale = [v for v in con_mat if (v['id'] in ids_mat and pc.compra_materiale(v))
+                     or (v['id'] in ids and v['tipo'] == 'tubo')]
+        if not con_mat:
             return jsonify({'success': False, 'codice': 'non_trovato', 'error': 'Voci non trovate'}), 404
         s = get_session()
         try:
-            ordini = {o.id: o for o in s.query(Order).filter(Order.id.in_({v['order_id'] for v in voci})).all()}
+            ordini = {o.id: o for o in s.query(Order).filter(Order.id.in_({v['order_id'] for v in con_mat})).all()}
         finally:
             s.close()
         azienda = (ConfigManager.load_config() or {}).get('azienda') or {}
         quando = datetime.now()
-        dati, nomi = pc.zip_richiesta(voci, pc.gruppi_tubi(voci), ordini, azienda, quando)
+        dati, nomi = pc.zip_richiesta(voci, pc.gruppi_tubi(materiale), ordini, azienda, quando)
         per_ordine = {}
-        for v in voci:
+        for v in con_mat:
             per_ordine.setdefault(v['order_id'], []).append(v)
         for oid, vv in per_ordine.items():
             A._audit('PROCURA_RICHIESTA', 'orders', oid,

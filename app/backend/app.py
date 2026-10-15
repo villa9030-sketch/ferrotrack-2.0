@@ -30,6 +30,7 @@ from .preventivi import (
     step_tubolari as _step_tubolari,
     step_piastre as _step_piastre,
     pdf_exporter as _pdf_exporter,
+    barre_tubi as _barre_tubi,
 )
 import json as _json_mod
 # Carica DB profili tubolari una volta (file copiato dal Preventivatore desktop)
@@ -186,6 +187,15 @@ def handle_file_too_large(e):
 # disattivato per i test, che non devono toccare il database di lavoro.
 if os.environ.get('FERROTRACK_SKIP_DB_INIT') != '1':
     initialize_database()
+    # Registro degli invii a Lantek: anche quelli fatti prima che esistesse
+    # (file dell'XML Importer). Si puo' rifare a ogni avvio: i doppioni si saltano.
+    try:
+        from . import lantek_invii as _li_avvio
+        _n = _li_avvio.importa_storico(os.path.join(UPLOAD_FOLDER, 'lantek_import'))
+        if _n:
+            logger.info('Registro invii a Lantek: %d righe dai file di prima', _n)
+    except Exception:
+        logger.warning('invii a Lantek di prima non letti', exc_info=True)
 
 # ============ CHI STA AGENDO ============
 # I permessi li decide backend/accesso.py (@richiede su ogni rotta). Qui
@@ -271,6 +281,15 @@ _LEGACY_REDIRECTS = {
     'approva-ordine.html': '/capo-officina.html',
     'dettaglio-ordine.html': '/capo-officina.html',
 }
+
+
+@app.route('/ft-stati.js')
+def ft_stati_js():
+    """Le parole degli stati, uguali in ogni pagina (backend/stati.py)."""
+    from . import stati as _stati
+    resp = app.response_class(_stati.js(), mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 
 @app.route('/<path:filename>')
@@ -632,6 +651,42 @@ def delete_order(order_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/ordini/eliminati', methods=['GET'])
+@richiede('ufficio', 'laser')
+def api_ordini_eliminati():
+    """Gli ordini eliminati (ultimi 90 giorni), per ripristinarli. Il laser,
+    eliminando, dice "piu' tardi lo recupera l'ufficio": prima l'ufficio non
+    aveva nessun posto dove vederli."""
+    try:
+        from .models import AuditLog
+        s = get_session()
+        try:
+            limite = datetime.utcnow() - timedelta(days=90)
+            elim = {}
+            for a in s.query(AuditLog).filter(AuditLog.action == 'ORDINE_ELIMINATO',
+                                              AuditLog.timestamp >= limite).all():
+                if a.entity_id not in elim or a.timestamp > elim[a.entity_id].timestamp:
+                    elim[a.entity_id] = a
+            ordini = s.query(Order).filter(Order.is_deleted == True).all()  # noqa: E712
+            out = []
+            for o in ordini:
+                a = elim.get(o.id)
+                if a is None and (o.data_ricezione or datetime.min) < limite:
+                    continue
+                out.append({'id': o.id, 'numero_ordine': o.numero_ordine, 'cliente': o.cliente or '',
+                            'data_consegna': iso_data(o.data_consegna),
+                            'eliminato_il': iso_utc(a.timestamp) if a else None,
+                            'eliminato_da': (a.user_name if a else None) or None,
+                            'in_lantek': bool(o.importato_lantek_il)})
+        finally:
+            s.close()
+        out.sort(key=lambda x: x['eliminato_il'] or '', reverse=True)
+        return jsonify({'success': True, 'ordini': out[:200]}), 200
+    except Exception as e:
+        logger.exception('ordini eliminati')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/ripristina', methods=['POST'])
 @richiede('ufficio', 'laser')
 def ripristina_ordine(order_id):
@@ -714,6 +769,14 @@ def segna_importato_lantek(order_id):
     try:
         data = request.get_json(silent=True) or {}
         r = OrderManager.segna_importato(order_id, user_id=_chi(), annulla=bool(data.get('annulla')))
+        if r.get('success') and data.get('annulla'):
+            # detto a mano: quello che FerroTrack aveva mandato non conta piu'
+            # (si puo' rimandare apposta, es. ordini di produzione tolti dal MES)
+            from . import lantek_invii as _li
+            n = _li.annulla(order_id, _chi_nome())
+            if n:
+                _audit('LANTEK_INVII_ANNULLATI', 'orders', order_id,
+                       f"Non e' ancora in Lantek: {n} codici mandati prima si possono rimandare")
         _invalida_analisi_laser(order_id)
         return jsonify(r), (200 if r.get('success') else (404 if r.get('codice') == 'non_trovato' else 400))
     except Exception as e:
@@ -1419,7 +1482,8 @@ def _struttura_zip(radice: str, cartella_ordine: str, disegni: list, righe: list
     lamiera_di = {}
     for r in righe or []:
         nome = (r.get('disegno') or '').lower()
-        if nome and r.get('materiale'):
+        # solo le lamiere: un tubo ("È un tubo") ha il disegno ma non una lamiera
+        if nome and r.get('materiale') and r.get('tipo', 'lamiera') == 'lamiera':
             lamiera_di.setdefault(nome, _nome_lamiera(r.get('materiale'), r.get('spessore_mm')))
     for d in disegni:
         cartella = lamiera_di.get(_nome_base_disegno(d['nome']).lower(),
@@ -1662,6 +1726,16 @@ def _righe_pezzi_foglio(a: dict, pf: list, cod_ass, lav: list, sp, disegno_fogli
     return righe
 
 
+def _materiale_tubo_leggibile(t: dict):
+    """Materiale della riga tubo per ordine, Da procurare e PDF: il testo letto
+    dal disegno ("AISI304") se c'e', altrimenti il materiale ("inox")."""
+    testo = str(t.get('materiale_testo') or '').strip()
+    mat = str(t.get('materiale') or '').strip()
+    if testo and mat == 'inox' and 'INOX' not in testo.upper() and 'AISI' not in testo.upper():
+        return f'Inox {testo}'
+    return testo or mat or None
+
+
 def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
     """Le righe della distinta di un ordine nato da un preventivo.
 
@@ -1717,6 +1791,10 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
         d = disegni_per_nome.get(os.path.basename(nome).lower())
         return d['nome'] if d else None
 
+    # Righe nell'ORDINE DEL CLIENTE (preventivi/ordine_righe.sequenza): ogni
+    # assieme alla sua riga con i suoi pezzi sotto. Prima tutti gli assiemi
+    # in cima e poi i pezzi.
+    righe_ass, righe_art = {}, {}
     for a in prev.get('assiemi') or []:
         cod = a.get('codice_assieme')
         if not cod:
@@ -1728,12 +1806,13 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             lav.append('Puntatura')
         if float(a.get('saldatura_mt') or 0) > 0 or float(a.get('costo_saldatura_assieme') or 0) > 0:
             lav.append('Saldatura')
-        righe.append({'codice': cod, 'descrizione': 'Assieme', 'tipo': 'assieme',
+        righe_ass.setdefault(cod, []).append({'codice': cod, 'descrizione': 'Assieme', 'tipo': 'assieme',
                       'quantita': qta_assieme.get(cod, 1), 'materiale': None,
                       'spessore_mm': None, 'lavorazioni': lav, 'assieme': None,
                       'disegno': None})
 
-    for a in prev.get('articoli') or []:
+    for _i_art, a in enumerate(prev.get('articoli') or []):
+        righe = righe_art.setdefault(_i_art, [])
         cod_ass = a.get('codice_assieme') or None
         molt = qta_assieme.get(cod_ass, 1) if cod_ass else lotto
         lav = ['Taglio laser']
@@ -1775,6 +1854,25 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
                       'motore': _stato_motore(a),
                       **geo})
 
+    from .preventivi.ordine_righe import sequenza as _sequenza
+    _arts = prev.get('articoli') or []
+    righe = []
+    _seq = _sequenza(_arts, list(righe_ass), prev.get('_righe_ordine'))
+    if not any(v['pos'] is not None for v in _seq):
+        # ordine del cliente mai letto: come prima, assiemi e poi pezzi
+        for c in list(righe_ass):
+            righe.extend(righe_ass.pop(c))
+        _seq = [{'tipo': 'articolo', 'indice': i} for i in range(len(_arts))]
+    for v in _seq:
+        if v['tipo'] == 'assieme':
+            righe.extend(righe_ass.pop(v['codice'], []))
+            for i, a in enumerate(_arts):
+                if a.get('codice_assieme') == v['codice']:
+                    righe.extend(righe_art.pop(i, []))
+        else:
+            righe.extend(righe_art.pop(v['indice'], []))
+    for i in sorted(righe_art):          # componenti di un assieme che non c'e'
+        righe.extend(righe_art[i])
     for t in prev.get('tubolari') or []:
         cod_ass = t.get('codice_assieme') or None
         n = _q(t.get('qty'))
@@ -1797,9 +1895,11 @@ def _distinta_da_preventivo(prev: dict, disegni_per_nome: dict) -> list:
             esterna = False
         righe.append({'codice': t.get('posizione') or t.get('profilo') or '',
                       'descrizione': desc, 'tipo': 'tubolare', 'quantita': n,
-                      'materiale': t.get('materiale') or None, 'spessore_mm': None,
+                      # "AISI304" letto dal disegno se c'e' (per chi compra il tubo)
+                      'materiale': _materiale_tubo_leggibile(t), 'spessore_mm': None,
                       'lavorazioni': lav or ['Taglio'], 'assieme': cod_ass,
-                      'disegno': None,
+                      # "È un tubo": il disegno del pezzo da cui viene resta legato
+                      'disegno': disegno_di(t.get('disegno_pdf')) or disegno_di(t.get('disegno_dxf')),
                       'lav_esterna': (str(t.get('nota_esterno') or '').strip() or 'Lav. esterna')
                       if esterna or t.get('nota_esterno') else None})
 
@@ -1852,6 +1952,10 @@ def _distinta_ordine(order, disegni=None):
     if order.preventivo_id_origine:
         prev = PreventivoManager.get(order.preventivo_id_origine, include_children=True)
     if prev:
+        try:   # righe dell'ordine del cliente, se il preventivo le ha salvate
+            prev['_righe_ordine'] = _righe_ordine_segnate(_cartella_preventivo(prev['id']))
+        except Exception:
+            prev['_righe_ordine'] = []
         righe = _distinta_da_preventivo(prev, disegni_per_nome)
         # Ordine caricato dall'ufficio col pacchetto del cliente: i pezzi
         # stanno su un preventivo tecnico, ma vengono dall'ordine del cliente.
@@ -2257,6 +2361,49 @@ def _precarica_tempi_lantek(session, ordini) -> None:
         logger.warning('tempi di Lantek non precaricati', exc_info=True)
 
 
+def _carico_laser(per_ord: dict, dati_ord: dict, entro: dict, cal: dict) -> dict:
+    """durate {ordine: {min, fonte}}, giorni {ordine: 'AAAA-MM-GG'} su cui
+    pesa, e il riepilogo (periodo, in ritardo, taglio in ritardo): lo stesso
+    conto per l'ufficio e per il laser (backend/carico_laser.py)."""
+    from . import carico_laser as _cl
+    from .ordini_service import fase as _fase
+    from .orario import oggi_locale
+    oggi = oggi_locale()
+    formati = _formati_lamiera()
+    parametri = {'margine_mm': 10, 'distanza_mm': 5}
+    durate, giorni, righe = {}, {}, []
+    for oid, d in dati_ord.items():
+        gruppi = list((per_ord.get(oid) or {}).values())
+        chiave = repr((sorted((k, sorted((p['quantita'], p['w_mm'] or 0, p['h_mm'] or 0, p['tempo_min'] or 0)
+                                         for p in v)) for k, v in (per_ord.get(oid) or {}).items()),
+                       d['manuale'], [(f['w_mm'], f['h_mm']) for f in formati],
+                       cal.get('carico_min_lamiera'), cal.get('scarico_s_pezzo')))
+        du = _DURATE_MEMO.get(chiave)
+        if du is None:
+            du = _cl.durata_ordine(gruppi, d['manuale'], cal, formati, parametri)
+            if len(_DURATE_MEMO) > 500:
+                _DURATE_MEMO.clear()
+            _DURATE_MEMO[chiave] = du
+        g, arretrato = _cl.giorno_carico(d['tagliato'], d['giorno_taglio'], entro.get(oid), d['consegna'], oggi)
+        durate[oid] = du
+        giorni[oid] = g.isoformat() if g else None
+        righe.append({'id': oid, 'tagliato': d['tagliato'], 'giorno': g, 'arretrato': arretrato, 'min': du['min']})
+    s = get_session()
+    try:
+        from .ordini_service import STATI_ARCHIVIO
+        aperti = s.query(Order).filter(
+            Order.is_deleted == False,  # noqa: E712
+            (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO))).all()
+        ritardo = [o.id for o in aperti if _cl.in_ritardo(_fase(o), o.data_consegna, oggi)]
+    finally:
+        s.close()
+    return {'durate': durate, 'giorni_carico': giorni,
+            'riepilogo': _cl.riepilogo(righe, cal, oggi, ritardo)}
+
+
+_DURATE_MEMO: dict = {}
+
+
 @app.route('/api/laser/banco', methods=['GET'])
 @richiede('laser', 'ufficio')
 def api_laser_banco():
@@ -2303,6 +2450,8 @@ def api_laser_banco():
             # la distinta di ogni ordine li trova gia' in memoria
             _precarica_tempi_lantek(session, ordini)
             gruppi, senza = {}, []
+            per_ord = {}      # ordine -> {chiave lamiera: [pezzi]} (carico_laser)
+            dati_ord = {}     # ordine -> cosa serve a carico_laser
             # pezzi da procurare fatti fuori (laser tubo, meccanica): +5 come
             # la lavorazione esterna (backend/procura.py)
             try:
@@ -2316,6 +2465,9 @@ def api_laser_banco():
                 # il giorno in cui l'ordine pesa sul laser: "taglia entro"
                 # (consegna meno le lavorazioni dopo il laser, o scelto a mano)
                 entro[o.id] = _te.per_ordine(o, righe, origine, cal, (proc.get(o.id) or {}).get('esterne'))['data']
+                dati_ord[o.id] = {'tagliato': bool(o.taglio_completato),
+                                  'giorno_taglio': data_locale(o.data_taglio_completato) if o.data_taglio_completato else None,
+                                  'consegna': o.data_consegna, 'manuale': o.durata_laser_manuale_min}
                 # il numero che conosce l'officina: quello dell'ordine del cliente
                 num_cli = ((_prev or {}).get('numero_ordine_cliente') or '').strip()
                 info = {'ordine_id': o.id, 'numero_ordine': num_cli or o.numero_ordine or '',
@@ -2337,6 +2489,9 @@ def api_laser_banco():
                     g = gruppi.setdefault(chiave, {
                         'chiave': chiave, 'materiale': mat, 'spessore_mm': sp, 'pezzi': []})
                     disegno = r.get('disegno')
+                    per_ord.setdefault(o.id, {}).setdefault(chiave, []).append(
+                        {'quantita': int(r.get('quantita') or 1), 'w_mm': r.get('bbox_w_mm'),
+                         'h_mm': r.get('bbox_h_mm'), 'tempo_min': r.get('tempo_min')})
                     g['pezzi'].append({
                         **info,
                         'codice': r.get('codice') or '', 'descrizione': r.get('descrizione') or '',
@@ -2371,7 +2526,9 @@ def api_laser_banco():
             })
         # La lamiera piu' urgente (da tagliare prima) per prima; a parita', la piu' grossa.
         out.sort(key=lambda g: (g['taglia_entro_prima'] or g['consegna_prima'] or '9999', -g['area_dm2']))
-        return jsonify({'success': True, 'gruppi': out, 'senza_distinta': senza,
+        # Carico del laser e ritardi: UN conto per ufficio e laser (backend/carico_laser.py)
+        carico = _carico_laser(per_ord, dati_ord, entro, cal)
+        return jsonify({'success': True, 'gruppi': out, 'senza_distinta': senza, **carico,
                         # {ordine: 'AAAA-MM-GG'}: il giorno su cui l'ordine pesa
                         # nella saturazione (carico-laser.js, ufficio e laser)
                         'taglia_entro': entro,
@@ -3278,6 +3435,74 @@ def _proprietario_avvisi() -> str:
     return accesso.STAZIONI[st]['utente'] if st in accesso.STAZIONI else ''
 
 
+def _pulisci_avvisi(user_id: str, stazione: str) -> int:
+    """Toglie le notifiche superate di questa stazione (backend/avvisi.py):
+    ordine eliminato o chiuso, "Nuovo ordine" gia' smistato, consegna a
+    rischio di un ordine gia' tagliato, da procurare gia' arrivato... Ritorna
+    quante ne ha tolte (e lo scrive nello storico)."""
+    from .models import Notification as _N
+    from . import avvisi as _av
+    from .ordini_service import fase as _fase
+    s = get_session()
+    try:
+        notif = s.query(_N).filter(_N.user_id == user_id, _N.is_deleted == False,  # noqa: E712
+                                   _N.order_id.isnot(None)).all()
+        if not notif:
+            return 0
+        ids = {n.order_id for n in notif}
+        ordini = {o.id: o for o in s.query(Order).filter(Order.id.in_(list(ids))).all()}
+        proc = {}
+        if any(n.notification_type == 'procura' for n in notif):
+            try:
+                from . import procura as _pc
+                proc = _pc.riassunto_per_ordini(list(ids))
+            except Exception:
+                logger.warning('da procurare non letto per le notifiche', exc_info=True)
+                proc = None
+        tolte = []
+        for n in notif:
+            o = ordini.get(n.order_id)
+            info = ({'eliminato': True} if o is None else
+                    {'eliminato': bool(o.is_deleted), 'fase': _fase(o), 'taglio_richiesto': o.taglio_richiesto,
+                     'tagliato': bool(o.taglio_completato), 'completato': bool(o.data_completamento_operativo)})
+            if n.notification_type == 'procura' and proc is None:
+                continue
+            perche = _av.superata(n.notification_type, info, ((proc or {}).get(n.order_id) or {}).get('n', 0), stazione)
+            if perche:
+                n.is_deleted = True
+                tolte.append(f'{n.title} ({perche})')
+        if tolte:
+            s.commit()
+            try:
+                AuditManager.log(user_id=user_id, action='NOTIFICHE_SUPERATE', entity_type='notifications',
+                                 entity_id=user_id, detail=f'{len(tolte)} tolte: ' + '; '.join(tolte[:20])[:1900])
+            except Exception:
+                pass
+        return len(tolte)
+    except Exception:
+        s.rollback()
+        logger.warning('pulizia notifiche non riuscita', exc_info=True)
+        return 0
+    finally:
+        s.close()
+
+
+def _simili_avviso(notification_id: str) -> list:
+    """Gli id delle notifiche dello stesso gruppo (stesso ordine e tipo, stessa
+    stazione): letta o tolta una, lo sono tutte (backend/avvisi.raggruppa)."""
+    from .models import Notification as _N
+    s = get_session()
+    try:
+        n = s.get(_N, notification_id)
+        if n is None or not n.order_id:
+            return [notification_id]
+        return [x.id for x in s.query(_N).filter(_N.user_id == n.user_id, _N.order_id == n.order_id,
+                                                  _N.notification_type == n.notification_type,
+                                                  _N.is_deleted == False).all()]  # noqa: E712
+    finally:
+        s.close()
+
+
 def _avviso_mio(notification_id: str) -> bool:
     from .models import Notification as _N
     s = get_session()
@@ -3297,8 +3522,11 @@ def handle_notifications():
         try:
             user_id = _proprietario_avvisi()    # lo user_id dell'indirizzo non conta
             limit = request.args.get('limit', 50, type=int)
-            notifications = NotificationManager.get_notifications(user_id, limit=limit)
-            unread_count = NotificationManager.get_unread_count(user_id)
+            # solo quelle che servono ancora, una per ordine e tipo (backend/avvisi.py)
+            from . import avvisi as _av
+            _pulisci_avvisi(user_id, identita().stazione or '')
+            notifications = _av.raggruppa(NotificationManager.get_notifications(user_id, limit=500))[:max(1, limit)]
+            unread_count = len(_av.raggruppa(NotificationManager.get_notifications(user_id, limit=2000, unread_only=True)))
 
             return jsonify({
                 'success': True,
@@ -3352,7 +3580,7 @@ def mark_notification_read(notification_id):
     try:
         if not _avviso_mio(notification_id):
             return jsonify({'success': False, 'error': 'Notifica non trovata'}), 404
-        success = NotificationManager.mark_as_read(notification_id)
+        success = all([NotificationManager.mark_as_read(x) for x in _simili_avviso(notification_id)])
         return jsonify({'success': success}), 200 if success else 404
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
@@ -3364,7 +3592,7 @@ def delete_notification(notification_id):
     try:
         if not _avviso_mio(notification_id):
             return jsonify({'success': False, 'error': 'Notifica non trovata'}), 404
-        success = NotificationManager.delete_notification(notification_id)
+        success = all([NotificationManager.delete_notification(x) for x in _simili_avviso(notification_id)])
 
         if success:
             return jsonify({'success': True, 'message': 'Notifica cancellata'}), 200
@@ -3467,6 +3695,99 @@ def api_ordini_viste():
     except Exception as e:
         logger.exception('api_ordini_viste failed')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ordini/forse-finiti', methods=['GET'])
+@richiede('ufficio')
+def api_ordini_forse_finiti():
+    """Ordini che forse sono finiti: tagliati al laser e senza altro in
+    sospeso (ordini_service.motivo_non_forse_finito). Sono PROPOSTE: l'ufficio
+    conferma ("Finito -> DDT da fare", la stessa /completamento) o rimanda
+    ("Non ancora"). Per ognuno cosa resta dopo il laser, letto dalla distinta,
+    da chiedere all'officina."""
+    try:
+        from .ordini_service import motivo_non_forse_finito, STATI_ARCHIVIO
+        from . import taglia_entro as _te
+        from .models import AuditLog, ProcessingStep
+        s = get_session()
+        try:
+            ordini = s.query(Order).filter(
+                Order.is_deleted == False,  # noqa: E712
+                Order.taglio_completato == True,  # noqa: E712
+                Order.data_completamento_operativo.is_(None),
+                (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO))).all()
+            ids = [o.id for o in ordini]
+            rimandi = {}
+            if ids:
+                for a in s.query(AuditLog).filter(AuditLog.action == 'FORSE_FINITO_NON_ANCORA',
+                                                  AuditLog.entity_id.in_(ids)).all():
+                    if a.entity_id not in rimandi or a.timestamp > rimandi[a.entity_id]:
+                        rimandi[a.entity_id] = a.timestamp
+            fasi_aperte = {}
+            if ids:
+                for st in s.query(ProcessingStep).filter(ProcessingStep.order_id.in_(ids),
+                                                         ProcessingStep.timestamp_inizio.isnot(None),
+                                                         ProcessingStep.timestamp_fine.is_(None)).all():
+                    fasi_aperte[st.order_id] = fasi_aperte.get(st.order_id, 0) + 1
+        finally:
+            s.close()
+        try:
+            from . import procura as _pc
+            proc = _pc.riassunto_per_ordini(ids) if ids else {}
+        except Exception:
+            logger.warning('da procurare non letto per i forse finiti', exc_info=True)
+            proc = {}
+        cal = _cal_config()
+        out = []
+        for o in ordini:
+            if motivo_non_forse_finito(o, (proc.get(o.id) or {}).get('n', 0), fasi_aperte.get(o.id, 0),
+                                       rimandi.get(o.id)) is not None:
+                continue
+            try:
+                righe, origine, prev = _distinta_ordine(o)
+                dopo = _te.anticipo(righe, origine, o.note or '', cal).get('voci') or []
+            except Exception:
+                prev, dopo = None, []
+            dopo = [v for v in dopo if v not in ('taglio',)]
+            out.append({'id': o.id, 'numero_ordine': o.numero_ordine,
+                        'numero_ordine_cliente': ((prev or {}).get('numero_ordine_cliente') or '').strip() or None,
+                        'cliente': o.cliente or '', 'data_consegna': iso_data(o.data_consegna),
+                        'tagliato_il': iso_utc(o.data_taglio_completato),
+                        # cosa dice la distinta dopo il laser: da chiedere all'officina
+                        'dopo_il_laser': dopo})
+        out.sort(key=lambda x: (x['data_consegna'] or '9999', x['tagliato_il'] or ''))
+        return jsonify({'success': True, 'ordini': out, 'n': len(out)}), 200
+    except Exception as e:
+        logger.exception('forse finiti falliti')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/ordini/<order_id>/forse-finito/non-ancora', methods=['POST'])
+@richiede('ufficio')
+def api_ordine_forse_finito_non_ancora(order_id):
+    """"Non ancora": l'ordine esce dai forse finiti per qualche giorno
+    (ordini_service.GIORNI_NON_ANCORA), poi torna a chiederlo. Scritto nello
+    storico, che e' anche dove si legge."""
+    from .ordini_service import GIORNI_NON_ANCORA
+    order = _ordine_esistente(order_id)
+    if not order:
+        return _non_trovato_ordine()
+    _audit('FORSE_FINITO_NON_ANCORA', 'orders', order_id,
+           f'Ufficio: non ancora finito (richiede di nuovo fra {GIORNI_NON_ANCORA} giorni)')
+    return jsonify({'success': True, 'giorni': GIORNI_NON_ANCORA}), 200
+
+
+def _al_laser_proposto(order_id: str, data: dict) -> dict | None:
+    """L'ufficio, creando l'ordine, ha confermato la proposta "va al laser"
+    (corpo: "al_laser": true): l'ordine nasce gia' fra quelli da tagliare
+    invece che "da smistare". Il laser puo' sempre cambiarlo. Senza la
+    spunta l'ordine resta da smistare, come prima."""
+    if not data.get('al_laser'):
+        return None
+    r = OrderManager.smista(order_id, True, user_id=_chi())
+    if r.get('success'):
+        _audit('AL_LASER_DA_UFFICIO', 'orders', order_id, "Va al laser: proposta confermata dall'ufficio alla creazione dell'ordine")
+    return r
 
 
 def _transizione(funzione, order_id, **extra):
@@ -4060,6 +4381,27 @@ def api_preventivi_import_dxf(preventivo_id):
     """
     try:
         admin_id = _chi()
+        salvato = os.path.basename(request.form.get('salvato') or '')
+        if 'file' not in request.files and salvato:
+            # disegno GIA' nella cartella del preventivo (riga dell'ordine il cui
+            # pezzo era stato tolto): si rianalizza senza ricaricarlo
+            prev_dir = _cartella_preventivo(preventivo_id)
+            tmp_path = os.path.join(prev_dir, salvato)
+            if not salvato.lower().endswith('.dxf') or not os.path.isfile(tmp_path):
+                return jsonify({'success': False, 'error': 'Disegno non trovato nel preventivo'}), 404
+            from .preventivi.analisi_isolata import analizza as _analizza_dxf
+            from .preventivi.materiali_personali import applica_a_risultato as _mat_pers
+            app_cfg = ConfigManager.load_config()
+            payload = _analizza_dxf(tmp_path, salvato, app_cfg.get('dxf_detection') or {
+                'dxf_colori_piega': [2], 'dxf_colori_saldatura': [1],
+                'dxf_lunghezza_minima': 15.0, 'dxf_tolleranza_centro': 1.0,
+                'dxf_svasatura_ratio_min': 1.8, 'dxf_svasatura_ratio_max': 3.0,
+                'dxf_semicerchio_angolo_min': 150.0, 'dxf_semicerchio_angolo_max': 320.0,
+                'dxf_filtra_zona_sviluppata': True})
+            payload = _mat_pers(payload, ((app_cfg or {}).get('laser_config') or {}).get('materiali'))
+            if not payload.get('success'):
+                return jsonify({'success': False, 'error': payload.get('error') or 'Parsing DXF fallito'}), 500
+            return jsonify(payload), 200
         if 'file' not in request.files:
             return jsonify({'success': False, 'error': 'File disegno obbligatorio'}), 400
         f = request.files['file']
@@ -4314,7 +4656,8 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             pdf_target = os.path.join(prev_dir, os.path.basename(rfq_pdf_filename))
             with open(pdf_target, 'wb') as fp:
                 fp.write(rfq_pdf_bytes)
-            _segna_ordine_cliente(prev_dir, os.path.basename(rfq_pdf_filename))
+            _segna_ordine_cliente(prev_dir, os.path.basename(rfq_pdf_filename),
+                                  getattr(result, 'righe_ordine', None) or [])
         except Exception:
             logger.warning('salvataggio PDF ordine RFQ fallito: %s', rfq_pdf_filename)
 
@@ -4457,12 +4800,18 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             item['abbinamento'] = {'tipo': tipo, 'file': a.matched_dxf,
                                    'score': round(float(getattr(a, '_matched_score', 0) or 0), 3),
                                    'confermato': tipo in ('esatto', 'senza_revisione')}
+        # Posizione = la riga del PDF dell'ordine (1, 2, 3...): pagina, PDF del
+        # preventivo e distinta seguono l'ordine del cliente. Prima era il
+        # numero del pezzo nella lista (len(articoli_db)), non la riga.
+        _righe_a = getattr(a, 'righe_ordine', None) or []
+        _pos_pdf = (min(r['pos'] for r in _righe_a)
+                    if _righe_a and getattr(result, 'righe_ordine', None) else None)
         if solo_tecnico:
             # Riga dell'ordine del cliente: dice all'ufficio quali quantita'
             # ricontrollare, e alla conferma quali disegni l'ordine non
             # chiedeva (entrano solo se l'ufficio da' loro una quantita').
             item['ordine'] = {'stato': _STATO_RIGA_ORDINE.get(item['_qta_fonte'], 'ok'),
-                              'pos': len(articoli_db), 'qta': a.quantita,
+                              'pos': _pos_pdf, 'qta': a.quantita,
                               'file': os.path.basename(rfq_pdf_filename)}
             if item['_qta_fonte'] == 'distinta':
                 item['ordine']['fonte'] = 'distinta'
@@ -4472,6 +4821,20 @@ def _crea_preventivo_da_pacchetto(result, zip_bytes, nome_file, *, creato_da,
             if len(getattr(a, 'righe_ordine', None) or []) > 1:
                 # codice ripetuto su piu' righe del PDF: quantita' sommate
                 item['ordine']['righe'] = a.righe_ordine
+        elif _pos_pdf is not None and not item.get('codice_assieme'):
+            # preventivatore: la riga dell'ordine come la scrive la pagina
+            # quando legge l'ordine allegato (wbLeggiOrdine)
+            item['ordine'] = {'stato': _STATO_RIGA_ORDINE.get(item['_qta_fonte'], 'ok'),
+                              'pos': _pos_pdf, 'qta': a.quantita,
+                              'file': os.path.basename(rfq_pdf_filename), 'righe': _righe_a}
+            if item['_descrizione']:
+                item['ordine']['descrizione'] = item['_descrizione'][:200]
+        if _pos_pdf is not None and not a.matched_dxf and item.get('ordine'):
+            # riga dell'ordine senza disegno (guida in plastica, commerciale):
+            # resta nel preventivo, il prezzo si scrive a mano
+            item['ordine']['senza_disegno'] = True
+            if item['_descrizione']:
+                item['ordine']['descrizione'] = item['_descrizione'][:200]
         # Se il PDF NON aveva materiale/spessore, prova a leggerli dal cartiglio DXF
         if not item['materiale'] and dxf_info:
             cart = dxf_info.get('cartiglio') or dxf_info.get('cartiglio_materiale') or {}
@@ -4718,16 +5081,24 @@ def _ordine_gia_caricato(numero_ordine, cliente):
     if not numero:
         return None
     cli = (cliente or '').strip().lower()
+    # Lo stesso ordine ricaricato come "BIS"/"TER" (o viceversa) e' lo stesso
+    # PDF con gli stessi pezzi: A 001221 BIS era gia' in Lantek e ricaricando
+    # A 001221 nessuno avvisava (e in Lantek il riferimento e' diverso, quindi
+    # "gia' in produzione" non lo vede: i pezzi partirebbero due volte).
+    base = re.sub(r'[\s\-_/]*(bis|ter|quater)$', '', numero).strip()
+    varianti = {numero, base} | {f'{base} {x}' for x in ('bis', 'ter', 'quater')}
     session = get_session()
     try:
         from sqlalchemy import func
         q = session.query(Order).filter(
             Order.is_deleted == False,  # noqa: E712
-            func.lower(func.trim(Order.numero_ordine)) == numero)
+            func.lower(func.trim(Order.numero_ordine)).in_(sorted(varianti)))
         if cli:
             q = q.filter(func.lower(func.trim(Order.cliente)) == cli)
-        o = q.first()
-        return ({'id': o.id, 'numero_ordine': o.numero_ordine, 'cliente': o.cliente}
+        trovati = q.all()
+        o = next((x for x in trovati if (x.numero_ordine or '').strip().lower() == numero), None)             or (trovati[0] if trovati else None)
+        return ({'id': o.id, 'numero_ordine': o.numero_ordine, 'cliente': o.cliente,
+                 'variante': (o.numero_ordine or '').strip().lower() != numero}
                 if o else None)
     finally:
         session.close()
@@ -5099,6 +5470,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
         else:
             _cleanup_preventivo_files(pacchetto_id)
 
+        smistato = _al_laser_proposto(order.id, data)
         _avvisa_capi_nuovo_ordine(order)
         try:
             OrderEventBus.publish('order.created', {
@@ -5111,7 +5483,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
                 user_id=user_id, action='CREATE_ORDER_FROM_PACKAGE',
                 entity_type='order', entity_id=order.id,
                 detail=f'Ordine {numero} ({cliente}) dal pacchetto {pacchetto_id}: '
-                       f'{len(nuovi)} pezzi, {len(attesi) - mancanti} disegni'
+                       f'{len(nuovi)} codici, {len(attesi) - mancanti} disegni'
                        + (f', {mancanti} file non trasferiti' if mancanti else ''))
         except Exception:
             pass
@@ -5123,6 +5495,7 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
             'numero_ordine': numero,
             'ordine': riga_ordine(order.id),
             'n_pezzi': len(nuovi),
+            'al_laser': bool(smistato and smistato.get('success')),
             'dxf_transfer': dxf_stats,
             'pdf_transfer': pdf_stats,
             'export_disegni': export,
@@ -5191,8 +5564,16 @@ def api_preventivi_import_dxf_batch(preventivo_id):
         saved_tasks = []  # (dxf_path, filename)
         skipped = []
         n_step = 0
+        # "_cleaned" lasciati accanto al disegno vero da una lavorazione
+        # precedente: non sono pezzi (LS 1153 ne aveva due, diventati righe)
+        from .preventivi.rfq_importer import e_copia_cleaned
+        _nomi_batch = [os.path.basename(x.filename or '') for x in files]
         for f in files:
             fname_lower = (f.filename or '').lower()
+            if e_copia_cleaned(f.filename or '', _nomi_batch):
+                skipped.append({'filename': f.filename, 'success': False, 'saltato': True,
+                                'error': "Disegno ripulito di un altro gia' presente: non e' un pezzo"})
+                continue
             # STEP degli assiemi (cartella caricata): come per lo ZIP si salvano
             # soltanto, per il visore 3D che li aggancia all'assieme per codice.
             # Niente analisi tubolari/piastre: i pezzi ci sono gia' come DXF.
@@ -5363,6 +5744,43 @@ def api_preventivi_profili_tubolari():
     """Catalogo dei profili (tubi quadri, rettangolari, tondi) con kg/m, per
     aggiungere un tubolare a mano. Sola lettura."""
     return jsonify({'success': True, 'profili': _PROFILI_TUBOLARI_DB or {}}), 200
+
+
+@app.route('/api/preventivi/barre-tubi', methods=['POST'])
+@richiede(*UFFICI)
+def api_preventivi_barre_tubi_anteprima():
+    """Barre da ordinare per i tubi dell'editor, anche non ancora salvati.
+    Corpo: {tubolari: [...], assiemi: [{codice_assieme, qty}], assieme: opz.}.
+    Solo calcolo (piano di taglio di "Da procurare"), non scrive niente."""
+    try:
+        data = request.get_json(silent=True) or {}
+        tub = data.get('tubolari') if isinstance(data.get('tubolari'), list) else []
+        ass = data.get('assiemi') if isinstance(data.get('assiemi'), list) else []
+        if len(tub) > 2000 or len(ass) > 500:
+            return jsonify({'success': False, 'error': 'Troppe righe'}), 400
+        solo = data.get('assieme') if isinstance(data.get('assieme'), str) else None
+        out = _barre_tubi.barre([t for t in tub if isinstance(t, dict)],
+                                [a for a in ass if isinstance(a, dict)], solo_assieme=solo)
+        return jsonify({'success': True, **out}), 200
+    except Exception as e:
+        logger.exception('barre-tubi failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/preventivi/<preventivo_id>/barre-tubi', methods=['GET'])
+@richiede(*UFFICI)
+def api_preventivi_barre_tubi(preventivo_id):
+    """Barre da ordinare per i tubi SALVATI del preventivo (query: assieme=)."""
+    try:
+        p = PreventivoManager.get(preventivo_id, include_children=True)
+        if not p:
+            return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
+        out = _barre_tubi.barre(p.get('tubolari') or [], p.get('assiemi') or [],
+                                solo_assieme=request.args.get('assieme') or None)
+        return jsonify({'success': True, **out}), 200
+    except Exception as e:
+        logger.exception('barre-tubi failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/preventivi/<preventivo_id>/distinte', methods=['GET'])
@@ -6670,13 +7088,47 @@ def _copy_cleaned_dxf_to_drawings(preventivo_id: str, order_id: str) -> dict:
 _ORDINE_SEGNO = '_ordine_cliente.json'
 
 
-def _segna_ordine_cliente(prev_dir: str, nome: str) -> None:
-    """Ricorda quale PDF della cartella del preventivo e' l'ordine del cliente."""
+def _segna_ordine_cliente(prev_dir: str, nome: str, righe: list | None = None) -> None:
+    """Ricorda quale PDF della cartella del preventivo e' l'ordine del cliente
+    e, se lette, le sue righe nel loro ordine (preventivi/ordine_righe): il PDF
+    del preventivo e la pagina le seguono, assiemi compresi."""
     try:
+        dati = {'file': nome}
+        if righe:
+            dati['righe'] = righe
         with open(os.path.join(prev_dir, _ORDINE_SEGNO), 'w', encoding='utf-8') as fp:
-            _json_mod.dump({'file': nome}, fp)
+            _json_mod.dump(dati, fp)
     except OSError as e:
         logger.warning('segno ordine cliente non scritto: %s', e)
+
+
+def _righe_ordine_segnate(prev_dir: str) -> list:
+    """Le righe dell'ordine del cliente salvate col preventivo ([] se mai lette).
+    Per i preventivi di prima (solo il nome del PDF) si leggono dal PDF
+    allegato, se e' un "Ordine Fornitore", e si salvano."""
+    try:
+        with open(os.path.join(prev_dir, _ORDINE_SEGNO), encoding='utf-8') as fp:
+            dati = _json_mod.load(fp) or {}
+    except (OSError, ValueError):
+        return []
+    if isinstance(dati.get('righe'), list):
+        return dati['righe']
+    nome = os.path.basename(dati.get('file') or '')
+    if not nome or not os.path.isfile(os.path.join(prev_dir, nome)):
+        return []
+    from .preventivi.ordine_righe import righe_ordine_pdf
+    try:
+        with open(os.path.join(prev_dir, nome), 'rb') as fp:
+            righe = righe_ordine_pdf(fp.read()) or []
+    except OSError:
+        righe = []
+    # anche [] si salva: un PDF non leggibile non si rilegge ogni volta
+    try:
+        with open(os.path.join(prev_dir, _ORDINE_SEGNO), 'w', encoding='utf-8') as fp:
+            _json_mod.dump({'file': nome, 'righe': righe}, fp)
+    except OSError:
+        pass
+    return righe
 
 
 def _ordine_cliente_segnato(prev_dir: str) -> str | None:
@@ -6720,19 +7172,63 @@ def api_preventivi_ordine_cliente(preventivo_id):
             nome = _nome_disegno_libero(prev_dir, os.path.basename(f.filename))
             with open(os.path.join(prev_dir, nome), 'wb') as fp:
                 fp.write(dati)
-        _segna_ordine_cliente(prev_dir, nome)
         try:
             codici = _json_mod.loads(request.form.get('codici') or '[]')
         except ValueError:
             codici = []
-        from .preventivi.ordine_codici import leggi_per_codici, intestazione
+        from .preventivi.ordine_codici import leggi_per_codici, intestazione, chiave as _chiave_cod
+        from .preventivi import ordine_righe as _OR
+        # "Ordine Fornitore" (DECA): TUTTE le righe nel loro ordine, anche
+        # quelle senza disegno; la posizione e' il numero di riga (1, 2...).
+        righe_ordine = _OR.righe_ordine_pdf(dati) or []
+        _segna_ordine_cliente(prev_dir, nome, righe_ordine)
         try:
-            righe = leggi_per_codici(dati, [str(c) for c in codici if c])
             testa = intestazione(dati)
+        except Exception:
+            testa = {}
+        righe = {}
+        try:
+            if righe_ordine:
+                idx = _OR.indice_righe(righe_ordine)
+                for c in [str(c) for c in codici if c]:
+                    rr = _OR.righe_del_codice(c, idx)
+                    if not rr:
+                        continue
+                    righe[_chiave_cod(c)] = {
+                        'qta': float(sum(r['quantita'] for r in rr)), 'pos': rr[0]['pos'],
+                        'righe': len(rr), 'dubbio': False,
+                        'codice': rr[0]['codice'], 'descrizione': rr[0]['descrizione'],
+                        'dettaglio': [{'pos': r['pos'], 'commessa': r.get('commessa'),
+                                       'qta': float(r['quantita'])} for r in rr]}
+            else:
+                righe = leggi_per_codici(dati, [str(c) for c in codici if c])
         except Exception as e:
             logger.warning('lettura ordine cliente: %s', e)
-            righe, testa = {}, {}
-        return jsonify({'success': True, 'file': nome, 'righe': righe, **testa}), 200
+            righe = {}
+        # righe dell'ordine che nessun pezzo ha: se il disegno e' nella
+        # cartella del preventivo (pezzo tolto per sbaglio) la pagina lo rimette
+        mancanti = []
+        if righe_ordine:
+            presenti = {_OR.chiave(c) for c in codici if c} | {_OR.chiave_variante(c) for c in codici if c}
+            visti = set()
+            dxf_cartella = {}
+            try:
+                for fn in os.listdir(prev_dir):
+                    if fn.lower().endswith('.dxf') and not re.search(r'_cleaned\.dxf$', fn, re.I) \
+                            and not re.search(r'\s\(\d+\)\.dxf$', fn, re.I):
+                        dxf_cartella.setdefault(_OR.chiave(fn), fn)
+            except OSError:
+                pass
+            for r in righe_ordine:
+                k = _OR.chiave(r['codice'])
+                if k in visti or k in presenti or _OR.chiave_variante(r['codice']) in presenti:
+                    continue
+                visti.add(k)
+                mancanti.append({**r, 'qta_totale': sum(x['quantita'] for x in righe_ordine
+                                                       if _OR.chiave(x['codice']) == k),
+                                 'disegno': dxf_cartella.get(k) or dxf_cartella.get(_OR.chiave_variante(r['codice']))})
+        return jsonify({'success': True, 'file': nome, 'righe': righe, 'righe_ordine': righe_ordine,
+                        'mancanti': mancanti, **testa}), 200
     except Exception as e:
         logger.exception('ordine-cliente failed')
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -6743,7 +7239,9 @@ def api_preventivi_ordine_cliente(preventivo_id):
 def api_preventivi_ordine_cliente_get(preventivo_id):
     """Nome del PDF d'ordine allegato (None se non c'e')."""
     prev_dir = _cartella_preventivo(preventivo_id)
-    return jsonify({'success': True, 'file': _ordine_cliente_segnato(prev_dir)}), 200
+    nome = _ordine_cliente_segnato(prev_dir)
+    return jsonify({'success': True, 'file': nome,
+                    'righe_ordine': _righe_ordine_segnate(prev_dir) if nome else []}), 200
 
 
 def _copy_order_pdf_to_order(preventivo_id: str, order_id: str) -> dict:
@@ -6902,9 +7400,10 @@ def api_preventivi_import_step(preventivo_id):
             except (TypeError, ValueError):
                 return d
         config_tubolari_piastre = {
+            # €/kg per materiale (Impostazioni → Tubolari e profili, 14/10/2026)
             'costo_materiale_acciaio_kg': _tar('tubolari_euro_kg', 1.50),
-            'costo_materiale_inox_kg': 4.50,
-            'costo_materiale_alluminio_kg': 3.50,
+            'costo_materiale_inox_kg': _tar('tubolari_euro_kg_inox', 4.50),
+            'costo_materiale_alluminio_kg': _tar('tubolari_euro_kg_alluminio', 0.0),
             'costo_orario_taglio_tubo': 40.0,
             'costo_taglio_dritto': _tar('tubolari_taglio_dritto', 1.0),
             'costo_taglio_obliquo': _tar('tubolari_taglio_obliquo', 2.5),
@@ -6963,12 +7462,17 @@ def api_preventivi_import_step(preventivo_id):
                 'codice_assieme': codice_assieme_step,
                 'profilo': t.get('profilo') or '',
                 'tipo': t.get('tipo'),
+                # lo STEP non dice il materiale: prezzato come ferro, "da
+                # confermare" sulla riga (si sceglie inox/alluminio li')
                 'materiale': 'acciaio',
+                'materiale_da': 'step',
                 'qty': q,
                 'lunghezza_m': t.get('lunghezza_m') or 0,
                 'lunghezza_totale_m': round((t.get('lunghezza_m') or 0) * q, 3),
                 'peso_unitario_kg': peso_u,
                 'peso_kg': round(peso_u * q, 2),
+                'peso_kg_acciaio': round(peso_u * q, 3),
+                'euro_kg': config_tubolari_piastre['costo_materiale_acciaio_kg'],
                 'costo_materiale': round(peso_u * q * config_tubolari_piastre['costo_materiale_acciaio_kg'], 2),
                 'costo_taglio_totale': 0,  # aggregato in tub_costi.totale, qui zero per articolo singolo
                 'n_tagli_dritti': tagli.count('dritto') * q,
@@ -7699,6 +8203,8 @@ def api_ordine_lantek_quantita(order_id):
             _lt._svuota_cache()
         righe_dist, righe_pdf, esclusi_laser = _distinta_lantek_con_esclusi(order)
         q = _quantita_lantek(order, righe_dist)
+        from . import lantek_invii as _li
+        gia_ft = _li.mandati(order_id)
         n_avvisi = sum(1 for r in q['righe'] if r['avvisi'])
         nuovi_si, nuovi_no = [], []
         if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
@@ -7720,11 +8226,12 @@ def api_ordine_lantek_quantita(order_id):
                         'n_nuovi': sum(1 for r in q['righe'] if r['stato'] == 'nuovo'),
                         'n_in_produzione': sum(1 for r in q['righe'] if r.get('in_produzione')),
                         'n_gia_fatti': sum(1 for r in q['righe'] if r.get('gia_fatti')),
-                        'n_xml': len(_lt.righe_per_xml(q['righe'])),
+                        'n_xml': len(_li.togli_mandati(_lt.righe_per_xml(q['righe']), gia_ft)),
                         # per la conferma di "Manda a Lantek"
                         'da_mandare': [{'codice': r['codice'], 'quantita': r['quantita'],
                                         'gia_fatti': r.get('gia_fatti') or 0, 'gia_fatti_il': r.get('gia_fatti_il')}
-                                       for r in _lt.righe_per_xml(q['righe'])],
+                                       for r in _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia_ft)],
+                        'gia_mandati_ft': sorted(gia_ft),
                         'invio_automatico': _lt.xmlimporter_disponibile(),
                         # pezzi che il laser ha tenuto fuori (va sviluppato, piu' pezzi, non da laser)
                         'esclusi_laser': [{k: v for k, v in x.items() if k != '_riga'} for x in esclusi_laser],
@@ -8024,6 +8531,16 @@ def api_ordine_lantek_invia(order_id):
     conferma tiene fuori (es. spessore diverso fra ordine e Lantek: lo
     corregge lui). codici + esclusi devono essere esattamente quelli da
     mandare: se nel frattempo e' cambiato qualcosa non si manda niente (409)."""
+    from . import lantek_invii as _li
+    # un invio alla volta per ordine: due "Manda" insieme non partono entrambi
+    with _li.prenota(order_id) as tocca:
+        if not tocca:
+            return jsonify({'success': False, 'codice': 'invio_in_corso',
+                            'error': "Quest'ordine si sta già mandando a Lantek: aspetta l'esito, non lo rimando."}), 409
+        return _lantek_invia(order_id, _li)
+
+
+def _lantek_invia(order_id, _li):
     try:
         from . import lantek as _lt
         order = _ordine_esistente(order_id)
@@ -8038,7 +8555,11 @@ def api_ordine_lantek_invia(order_id):
                             'error': 'Pezzi per assieme da confermare: ' + ', '.join(senza_qta[:5])
                                      + '. Scrivili nella pagina laser, poi manda'}), 409
         q = _quantita_lantek(order, righe_dist)
-        righe = _lt.righe_per_xml(q['righe'])
+        # PRIMA il registro di FerroTrack (lantek_invii): quello che e' gia'
+        # partito per quest'ordine non riparte, che Lantek si legga o no
+        gia = _li.mandati(order_id)
+        righe = _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia)
+        lantek_giu = not q['lantek'].get('disponibile')
         nuovi_si = []
         if q['lantek'].get('disponibile') and _lt.procesos_disponibile():
             nuovi_si = _nuovi_per_lantek(order, q, righe_dist)[0]
@@ -8048,8 +8569,16 @@ def api_ordine_lantek_invia(order_id):
                             'error': 'Un codice non può essere sia da mandare sia tenuto fuori'}), 400
         if not righe and not nuovi_si:
             return jsonify({'success': False, 'codice': 'niente_da_mandare',
-                            'error': 'Niente da mandare: i codici sono già in produzione in Lantek '
-                                     'o i nuovi non si possono creare in automatico'}), 409
+                            'gia_mandati': sorted(gia),
+                            'error': ('Niente da mandare: FerroTrack li ha già mandati a Lantek' if gia else
+                                      'Niente da mandare: i codici sono già in produzione in Lantek '
+                                      'o i nuovi non si possono creare in automatico')}), 409
+        # Lantek non si legge: non si sa cosa c'e' gia' in produzione. Non si
+        # manda a occhi chiusi: si dice, e decide chi manda (senza_controllo_lantek).
+        if lantek_giu and righe and not corpo.get('senza_controllo_lantek'):
+            return jsonify({'success': False, 'codice': 'lantek_non_risponde',
+                            'error': _li.MSG_LANTEK_GIU, 'dettaglio': q['lantek'].get('errore'),
+                            'n_da_mandare': len(righe), 'gia_mandati': sorted(gia)}), 503
         if (sorted({str(c) for c in (corpo.get('codici') or [])} | tenuti_fuori) != sorted(r['codice'] for r in righe)
                 or sorted(str(c) for c in (corpo.get('nuovi') or [])) != sorted(x['codice'] for x in nuovi_si)):
             return jsonify({'success': False, 'codice': 'cambiato',
@@ -8092,13 +8621,17 @@ def api_ordine_lantek_invia(order_id):
             # ora ci sono: rientrano negli ordini di produzione
             q = _quantita_lantek(order, righe_dist)
             ammessi = ({str(c) for c in (corpo.get('codici') or [])} | set(creati)) - tenuti_fuori
-            righe = [r for r in _lt.righe_per_xml(q['righe']) if r['codice'] in ammessi]
+            righe = [r for r in _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia) if r['codice'] in ammessi]
         # 2. ordini di produzione
         rap, presenti = {}, []
         if righe:
-            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'],
-                                            invio=datetime.now().strftime('%y%m%d%H%M'))
+            invio = datetime.now().strftime('%y%m%d%H%M')
+            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'], invio=invio)
             esito = _lt.importa_xml(xml, q['nome_file_xml'].rsplit('.', 1)[0], cartella)
+            if esito.get('eseguito'):
+                # nel registro di FerroTrack, subito: e' cio' che ferma il doppione
+                _li.registra(order_id, righe, q['commessa'], invio,
+                             lambda c: _lt.riferimento_ordine(q['commessa'], c, invio), _chi_nome())
             if not esito.get('eseguito'):
                 _audit('LANTEK_INVIA', 'orders', order_id,
                        f"Pezzi nuovi creati {len(creati)}; ordini di produzione non mandati: "
@@ -8111,7 +8644,9 @@ def api_ordine_lantek_invia(order_id):
         _audit('LANTEK_INVIA', 'orders', order_id,
                f"Mandati a Lantek (ordine {q['commessa']}): {len(creati)} di {len(nuovi_si)} pezzi nuovi creati, "
                f"{len(presenti)} di {len(righe)} ordini di produzione verificati"
-               + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else ''))
+               + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else '')
+               + ('; LANTEK NON LEGGIBILE: mandato senza il controllo dei doppioni, confermato da chi ha mandato'
+                  if lantek_giu else ''))
         # un codice da correggere mandato adesso (corretto in Lantek, o scelto
         # "va bene Lantek" nella conferma) e' risolto
         if presenti:
@@ -8274,7 +8809,9 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                 'costo_tot_pz': tot_pz,
                 'contributo_su_1_ass': tot_pz * qty_ass,
             })
-        # BOM tubolari/piastre figli (contribuiscono per intero al costo assieme, no qty × per adesso)
+        # BOM tubolari/piastre figli: la riga vale per 1 assieme (qty = pezzi
+        # per assieme, costi gia' per quei pezzi); la qty dell'assieme
+        # moltiplica dopo, come per gli articoli (barre_tubi.py)
         bom_tubolari = [t for t in tubolari_list if (t.get('codice_assieme') or '') == cod]
         bom_piastre = [pl for pl in piastre_list if (pl.get('codice_assieme') or '') == cod]
         costi_montaggio[cod] = {
@@ -8293,6 +8830,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
 
     # Tubolari: raggruppa per codice_assieme in dict {codice: {'analisi': {'tubi': [...]}, 'costi': {...}}}
     tubolari_per_assieme = {}
+    _qta_ass = _barre_tubi.qta_assiemi(assiemi_list)
     for t in tubolari_list:
         cod = t.get('codice_assieme') or 'GENERICO'
         node = tubolari_per_assieme.setdefault(cod, {'analisi': {'tubi': []}, 'costi': {'dettaglio_tubi': []}})
@@ -8306,15 +8844,22 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
             taglio_1, taglio_2 = 'obliquo', 'dritto'
         else:
             taglio_1, taglio_2 = 'dritto', 'dritto'
+        # inox e ferro dello stesso profilo NON si sommano nella distinta di taglio
+        _mt = (t.get('materiale') or '').lower()
         node['analisi']['tubi'].append({
-            'profilo': t.get('profilo') or '',
+            'profilo': (t.get('profilo') or '') + (f' · {_materiale_tubo_leggibile(t)}' if _mt and _mt != 'acciaio' else ''),
             'lunghezza_m': float(t.get('lunghezza_m') or 0),
             'taglio_1': taglio_1,
             'taglio_2': taglio_2,
             'peso_kg': float(t.get('peso_kg') or 0),
             'costo_materiale': float(t.get('costo_materiale') or 0),
             'costo_taglio': float(t.get('costo_taglio_totale') or 0),
+            'costo_esterno': float(t.get('costo_esterno') or 0),
             'materiale': t.get('materiale') or '',
+            # pezzi della riga (per 1 assieme) e quante strutture: la distinta
+            # di taglio conta i pezzi VERI (prima ogni riga valeva 1 pz)
+            'qty': _barre_tubi.pezzi_riga(t),
+            'n_assiemi': _barre_tubi.moltiplicatore(t, _qta_ass),
         })
 
     # Piastre: raggruppa per codice_assieme nel formato dict che pdf_exporter si aspetta:
@@ -8436,6 +8981,10 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
     righe_cliente = []
 
     def _desc_articolo(a):
+        _o = a.get('ordine') if isinstance(a.get('ordine'), dict) else {}
+        if _o.get('senza_disegno') and _o.get('descrizione'):
+            # riga dell'ordine senza disegno (es. guida in plastica): la sua descrizione
+            return str(_o['descrizione'])[:90]
         mat = (a.get('materiale') or '').replace('_', ' ').strip()
         sp = a.get('spessore_mm')
         parts = []
@@ -8447,10 +8996,16 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
 
     # Articoli STANDALONE (senza codice_assieme): quantita = pezzi nel preventivo
     _cliente_deca = bool(re.search(r'(?<![A-Za-z])DECA(?![A-Za-z])', p.get('cliente') or '', re.I))
+    # Le righe si scrivono per pezzo/assieme e poi si mettono NELL'ORDINE DEL
+    # CLIENTE (preventivi/ordine_righe.sequenza): prima tutti i pezzi sciolti
+    # e gli assiemi in fondo (LS 1153, Stefano 14/10/2026).
+    _righe_cliente_art, _righe_cliente_ass = {}, {}
     totale_pezzo_calc = 0.0
-    for a in articoli:
+    for _i_art, a in enumerate(articoli):
         if a.get('codice_assieme'):
             continue  # articoli linkati ad assieme già dentro pricing assieme
+        righe_cliente = _righe_cliente_art.setdefault(_i_art, [])
+        _od = a.get('ordine') if isinstance(a.get('ordine'), dict) else {}
         base = _costo_base_art(a)
         lav = sum(float(a.get(k) or 0) for k in (
             'costo_piega', 'costo_saldatura', 'costo_filettatura',
@@ -8471,7 +9026,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                 _q = float(r.get('qta') or 0)
                 _q = int(_q) if _q.is_integer() else _q
                 righe_cliente.append({
-                    'codice': a.get('codice') or '—',
+                    'codice': _od.get('codice') or a.get('codice') or '—',
                     'commessa': r.get('commessa') or '',
                     'descrizione': _desc_articolo(a),
                     'quantita': _q,
@@ -8480,7 +9035,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
                 })
             continue
         righe_cliente.append({
-            'codice': a.get('codice') or '—',
+            'codice': _od.get('codice') or a.get('codice') or '—',
             'descrizione': _desc_articolo(a),
             'quantita': qty_tot,
             'prezzo_unitario': round(prezzo_unit_finale, 2),
@@ -8510,13 +9065,37 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         costo_assiemi_calc += prezzo_1_ass * qty_ass
         prezzo_ass_finale = prezzo_1_ass * _f_finale
         n_comp = len(info.get('bom_articoli', [])) + len(info.get('bom_tubolari', [])) + len(info.get('bom_piastre', []))
-        righe_cliente.append({
+        _righe_cliente_ass.setdefault(cod, []).append({
             'codice': cod or 'Assieme',
             'descrizione': f"Assieme montato ({n_comp} componenti)" if n_comp else "Assieme montato",
             'quantita': qty_ass,
             'prezzo_unitario': round(prezzo_ass_finale, 2),
             'importo': round(prezzo_ass_finale * qty_ass, 2),
         })
+
+    # Nell'ordine del cliente: assiemi alla loro riga, disegni che l'ordine
+    # non cita in fondo (segnati). Senza ordine letto: come prima.
+    from .preventivi.ordine_righe import sequenza as _sequenza
+    try:
+        _righe_ord_prev = _righe_ordine_segnate(_cartella_preventivo(p['id'])) if p.get('id') else []
+    except Exception:
+        _righe_ord_prev = []
+    righe_cliente = []
+    _seq = _sequenza(articoli, [x.get('codice_assieme') or x.get('id') or '' for x in assiemi_list],
+                     _righe_ord_prev)
+    # anche la sezione assiemi della distinta interna nello stesso ordine
+    _ord_ass = [v['codice'] for v in _seq if v['tipo'] == 'assieme']
+    costi_montaggio = {**{c: costi_montaggio[c] for c in _ord_ass if c in costi_montaggio},
+                       **{c: d for c, d in costi_montaggio.items() if c not in _ord_ass}}
+    for _v in _seq:
+        _rr = (_righe_cliente_art.get(_v['indice'], []) if _v['tipo'] == 'articolo'
+               else _righe_cliente_ass.pop(_v['codice'], []))
+        for _r in _rr:
+            if _v['fuori_ordine']:
+                _r['descrizione'] = ((_r.get('descrizione') or '') + " · non nell'ordine").strip(' ·')
+            righe_cliente.append(_r)
+    for _rr in _righe_cliente_ass.values():
+        righe_cliente.extend(_rr)
 
     # Tubolari e piastre STANDALONE (no codice_assieme)
     costo_tubolari_std = sum(_costo_tub(t) for t in tubolari_list if not t.get('codice_assieme'))
@@ -8581,6 +9160,7 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         'sconto_eur': _sconto_eur,
         'costi_montaggio': costi_montaggio,
         'tubolari_per_assieme': tubolari_per_assieme,
+        'barre_tubi': _barre_tubi_sicuro(tubolari_list, assiemi_list),
         'piastre_per_assieme': piastre_per_assieme,
         'data_consegna': _fmt_data_it(p.get('data_consegna_proposta')),
         'totale_pezzo': round(totale_pezzo_calc, 2),
@@ -8597,6 +9177,16 @@ def _preventivo_to_pdf_dati(p: dict) -> dict:
         'azienda': azienda_info,
         'logo_path': _resolve_logo_path(azienda_info.get('logo_path')),
     }
+
+
+def _barre_tubi_sicuro(tubolari, assiemi):
+    """Barre da ordinare per la distinta interna; un errore qui non deve
+    impedire il PDF."""
+    try:
+        return _barre_tubi.barre(tubolari, assiemi) if tubolari else None
+    except Exception:
+        logger.warning('barre da ordinare non calcolate', exc_info=True)
+        return None
 
 
 def _fmt_data_it(iso):
@@ -9094,6 +9684,8 @@ def api_preventivi_accetta(preventivo_id):
             # Allega il PDF ordine (disegni/lavorazioni) così Mirko vede cosa fare.
             pdf_stats = _copy_order_pdf_to_order(preventivo_id, order_id)
             result['pdf_transfer'] = pdf_stats
+            sm = _al_laser_proposto(order_id, data)
+            result['al_laser'] = bool(sm and sm.get('success'))
             # Audit log dedicato
             try:
                 AuditManager.log(user_id=user_id, action='TRANSFER_DXF_TO_ORDER',

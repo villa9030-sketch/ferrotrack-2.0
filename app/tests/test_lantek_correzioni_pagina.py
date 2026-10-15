@@ -178,7 +178,7 @@ with sync_playwright() as p:
             pg.wait_for_selector('.ft-modal-bg.open', timeout=5000)
             check('chiede conferma', "va bene com'è in Lantek" in pg.locator('.ft-modal-bg.open').inner_text())
             pg.click('.ft-modal-bg.open button[data-v="1"]')
-            pg.wait_for_function("document.querySelector('.lz-passo') && document.querySelector('.lz-passo').innerText.includes('Pronto per Lantek')", timeout=30000)
+            pg.wait_for_function("document.querySelector('.lz-passo') && document.querySelector('.lz-passo').innerText.includes('Da mandare a Lantek')", timeout=30000)
             check('salvato e pronto da mandare', len(stato['usa']) == 1 and json.loads(stato['usa'][0]) == {'codice': COD, 'azione': 'usa_lantek'},
                   stato['usa'])
             check('niente piu\' promemoria', pg.locator('.lz-ricorda').count() == 0)

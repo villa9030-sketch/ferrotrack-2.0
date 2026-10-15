@@ -20,6 +20,7 @@ from .dxf_polygon_detector_v3 import (
     contorno_pezzo_mm as _contorno_pezzo_mm,
     entita_espanse as _entita_espanse,
     scala_unita_mm as _scala_unita_mm,
+    viste_pezzo_mm as _viste_pezzo_mm,
     _layer_piega,
 )
 
@@ -449,18 +450,42 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
     # le altre viste (18B4A3004-00 e' disegnato due volte: 64 filetti contati
     # invece di 32) e i simboli del cartiglio (il simbolo di proiezione sono
     # due cerchi concentrici, contati come svasatura su 20PA00690-00).
+    # Con la scelta del pezzo incerta (sviluppo + vista piegata dello stesso
+    # pezzo, 25CCPA0998-00) si conta UNA vista: la piu' probabile, o quella
+    # che ne ha, mai la somma delle viste.
     if not outer_pezzo_letto:
         outer_pezzo = _contorno_pezzo_mm(doc, config)
         outer_pezzo_letto = True
-    _dentro_pezzo = None
-    if outer_pezzo is not None:
-        try:
-            from shapely.geometry import Point as _P
-            from shapely.prepared import prep as _prep
-            _pp = _prep(outer_pezzo.buffer(0.05))
-            _dentro_pezzo = lambda x, y: _pp.contains(_P(x, y))
-        except Exception:
-            _dentro_pezzo = None
+    viste = [outer_pezzo] if outer_pezzo is not None else _viste_pezzo_mm(doc, config)
+    viste_prep = []
+    try:
+        from shapely.geometry import Point as _P
+        from shapely.prepared import prep as _prep
+        viste_prep = [(v, _prep(v.buffer(0.05))) for v in viste]
+    except Exception:
+        viste_prep = []
+
+    def _vista_di(x, y, r=0.0):
+        """Indice della vista che contiene il cerchio (centro x,y raggio r)
+        senza esserne il contorno, None se fuori da tutte."""
+        for k, (v, pv) in enumerate(viste_prep):
+            try:
+                if r > 0:
+                    c = _P(x, y).buffer(r, 64)
+                    if c.area < 0.95 * v.area and pv.contains(c):
+                        return k
+                elif pv.contains(_P(x, y)):
+                    return k
+            except Exception:
+                continue
+        return None
+
+    def _una_vista(per_vista: dict) -> int:
+        """Conteggio di una sola vista: la piu' probabile (0) se ne ha,
+        altrimenti quella che ne ha di piu'."""
+        if per_vista.get(0):
+            return per_vista[0]
+        return max(per_vista.values(), default=0)
 
     # === PASSO 4: Filettatura (CIRCLE + ARC concentrici, in zona sviluppata) ===
     # Gli archi del simbolo filetto (3/4 di cerchio) a volte sono spezzati in più
@@ -470,9 +495,12 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
     # contiene, valgono quelle; se non ne contiene nessuna, la vista scelta non
     # e' quella coi fori (o la scelta e' sbagliata) e vale il disegno intero.
     conteggio_filettatura = 0
-    filettature_nel_pezzo = 0
+    filettature_per_vista = {}
+    # La "zona sviluppata" (attorno alle linee di piega) serve solo senza il
+    # contorno del pezzo: con le viste del pezzo valgono quelle (25NRASA0039-00:
+    # 4 svasature su 8 fuori dalla zona delle pieghe ma dentro il pezzo).
     for (cxc, cyc, rc) in circles:
-        if not in_zona(cxc, cyc) or rc == 0:
+        if rc == 0 or not (viste_prep or in_zona(cxc, cyc)):
             continue
         gruppi = []   # [raggio, ampiezza_totale]
         for (cxa, cya, ra, sa, ea) in arcs:
@@ -492,18 +520,19 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
         for _r, ampiezza in gruppi:
             ampiezza = min(ampiezza, 360.0)
             if (angolo_min <= ampiezza <= angolo_max) or (240 <= ampiezza <= 360):
-                conteggio_filettatura += 1
-                if _dentro_pezzo is not None and _dentro_pezzo(cxc, cyc):
-                    filettature_nel_pezzo += 1
+                if in_zona(cxc, cyc):
+                    conteggio_filettatura += 1
+                k = _vista_di(cxc, cyc)
+                if k is not None:
+                    filettature_per_vista[k] = filettature_per_vista.get(k, 0) + 1
                 break
-    if filettature_nel_pezzo:
-        conteggio_filettatura = filettature_nel_pezzo
+    if _una_vista(filettature_per_vista):
+        conteggio_filettatura = _una_vista(filettature_per_vista)
 
     # === PASSO 5: Svasatura (CIRCLE concentrici, escluso se c'è arco concentrico = filettatura) ===
     # Un gruppo di cerchi concentrici = al massimo una svasatura. Conta solo se il
     # cerchio esterno è DENTRO il pezzo e non è il contorno del pezzo stesso: una
     # rondella Ø60/Ø25 (contorno + foro) non è una svasatura.
-    conteggio_svasatura = 0
     gruppi_conc = []
     for c in circles:
         for g in gruppi_conc:
@@ -512,39 +541,78 @@ def scansiona_dxf_dettagli(path: str, config: dict) -> tuple[int, float, int, in
                 break
         else:
             gruppi_conc.append([c])
+    # Dentro una vista del pezzo i cerchi fuori (cartiglio, simboli) sono gia'
+    # esclusi: si accettano anche le svasature "strette" (Ø7,47/Ø11,47 = 1,54
+    # su 18B4A3004-00 e 25CCPA0998-00; le viti a testa svasata M4…M10 danno
+    # 1,8-1,9, ma su lamiera sottile la svasatura e' meno profonda). Sotto 1,3
+    # e' il simbolo del filetto disegnato con due cerchi (M6: 5/6 = 1,2).
+    # Senza pezzo resta la soglia prudente.
+    r_min_vista = min(ratio_min, float(config.get("dxf_svasatura_ratio_min_nel_pezzo", 1.3)))
+    svasature_per_vista = {}
+    svasature_nette = 0      # nel pezzo, rapporto da svasatura vera (>= 1,45)
+    svasature_fuori = 0
     for g in gruppi_conc:
         if len(g) < 2:
             continue
         cx1, cy1 = g[0][0], g[0][1]
-        if not in_zona(cx1, cy1):
+        if not (viste_prep or in_zona(cx1, cy1)):
             continue
         r_outer = max(c[2] for c in g)
         r_inner = min(c[2] for c in g)
         if r_inner == 0:
             continue
         ratio = r_outer / r_inner
-        # Col pezzo noto i cerchi fuori (cartiglio, altre viste) sono gia'
-        # esclusi: si accettano anche le svasature "strette" (Ø7,47/Ø11,47 =
-        # 1,54 su 18B4A3004-00). Senza pezzo resta la soglia prudente.
-        r_min = ratio_min
-        if outer_pezzo is not None:
-            r_min = min(ratio_min, float(config.get("dxf_svasatura_ratio_min_nel_pezzo", 1.3)))
-        if not (r_min <= ratio <= ratio_max):
+        if not (r_min_vista <= ratio <= ratio_max):
             continue
         if any(math.hypot(cx1 - cxa, cy1 - cya) <= tolleranza_centro for (cxa, cya, _ra, _, _) in arcs):
             continue
-        if _simbolo_proiezione(cx1, cy1, r_outer, tutte_linee):
+        k = _vista_di(cx1, cy1, r_outer) if viste_prep else None
+        # il simbolo di proiezione sta nel cartiglio, mai dentro il pezzo: dentro
+        # una vista le linee oblique accanto sono il cono della svasatura in
+        # sezione (07PA00333: 2 svasature perse)
+        if k is None and _simbolo_proiezione(cx1, cy1, r_outer, tutte_linee):
             continue
-        if outer_pezzo is not None:
-            try:
-                from shapely.geometry import Point
-                cerchio = Point(cx1, cy1).buffer(r_outer, 64)
-                if not (cerchio.area < 0.95 * outer_pezzo.area and
-                        outer_pezzo.buffer(0.05).contains(cerchio)):
-                    continue  # cerchio esterno = contorno del pezzo o fuori dal pezzo
-            except Exception:
-                pass
-        conteggio_svasatura += 1
+        if k is not None:
+            svasature_per_vista[k] = svasature_per_vista.get(k, 0) + 1
+            if k == 0 and ratio >= 1.45:
+                svasature_nette += 1
+        elif not viste_prep and ratio >= ratio_min:
+            svasature_fuori += 1      # nessun pezzo riconosciuto: soglia prudente
+    if viste_prep:
+        conteggio_svasatura = _una_vista(svasature_per_vista)
+    else:
+        conteggio_svasatura = svasature_fuori
+
+    # === PASSO 6: callout dei fori scritti nel disegno (o nel PDF del pezzo) ===
+    # "6 x <> PASSANTE ⌵ Ø11.47 X 90°", "4 x M8 - 6H": il numero scritto dal
+    # disegnatore vale piu' della geometria quando la geometria e' incerta
+    # (pezzo non riconosciuto con sicurezza: piu' viste, simboli disegnati in
+    # modi diversi). Col pezzo riconosciuto vale il maggiore dei due: spesso
+    # il callout copre un solo gruppo di fori e gli altri, uguali, non sono
+    # quotati (050200286: "2 x … Ø9,18 X 90°" e 9 svasature Ø4,5/Ø9,18 nel
+    # pezzo). Una nota senza numero ("attenzione alle svasature") dice solo
+    # che ci sono: almeno una.
+    try:
+        testi = None
+        if config.get('dxf_lavorazioni_da_testi', True):
+            from .lavorazioni_testi import lavorazioni_da_testi
+            testi = lavorazioni_da_testi(doc, path)
+    except Exception as e:
+        logger.debug('callout dei fori non letti: %s', e)
+        testi = None
+    if testi:
+        geo_fil = filettature_per_vista.get(0, 0) if outer_pezzo is not None else 0
+        # per superare il callout servono svasature nette: Ø3/Ø4 (1,33) puo' essere
+        # uno smusso o una lamatura, non una svasatura in piu' (20PA00889-00)
+        geo_svas = svasature_nette if outer_pezzo is not None else 0
+        if testi['filettature']:
+            conteggio_filettatura = max(testi['filettature'], geo_fil)
+        elif testi['fil_nota'] and not conteggio_filettatura:
+            conteggio_filettatura = 1
+        if testi['svasature']:
+            conteggio_svasatura = max(testi['svasature'], geo_svas)
+        elif testi['svas_nota'] and not conteggio_svasatura:
+            conteggio_svasatura = 1
 
     totale_saldatura_ml = round(totale_saldatura / 1000.0, 2)
     logger.info("DXF %s: pieghe=%d, saldatura=%.2f ml, filettatura=%d, svasatura=%d",

@@ -149,3 +149,9 @@
 .lz-pc-mod-az .sp { flex: 1 1 auto; }
 .lz-pc-dacomp h2 { color: var(--lz-amber); }
 .lz-pc-tab td small.lz-st { display: flex; margin-top: 3px; }
+
+/* Laser tubo: materiale (barre comprate da noi) distinto dal taglio */
+.lz-pc-lt { display: flex; align-items: center; gap: 4px; font: 400 12px var(--lz-font); color: var(--lz-ink-3); margin-top: 2px; }
+.lz-pc-lt svg { width: 13px; height: 13px; }
+.lz-pc-fornito { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--lz-ink-3); margin-top: 4px; cursor: pointer; }
+.lz-pc-matcol .lz-st { white-space: nowrap; }

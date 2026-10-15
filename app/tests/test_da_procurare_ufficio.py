@@ -57,7 +57,7 @@ if not _salute.get('istanza_di_prova'):
     print("RIFIUTO: %s non e' un'istanza di prova." % B)
     sys.exit(1)
 
-PROFILO = 'Tubo quadro 50x50 sp.3mm'
+PROFILO = 'Tubo quadro 35x35 sp.2mm'  # non nella copia: i laser tubo DECA sono 50x50 (barre anche loro)
 bloccate, scritture = [], []
 
 
@@ -148,7 +148,7 @@ try:
         pg.keyboard.press('Enter')
         pg.locator('.ft-toast:has-text("Tubi Rossi")').last.wait_for(timeout=15000)
         pg.click('#lz-pc [data-pc-stato="ordinato"]')
-        pg.wait_for_selector('#lz-pc tr.lz-pc-g', timeout=15000)
+        pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).first.wait_for(timeout=15000)  # il gruppo di prova, non uno qualunque
         g2 = pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO)
         check('3) O: fra gli ordinati', g2.count() == 1)
         g2.locator('[data-pc-gruppo]').check()
@@ -156,7 +156,7 @@ try:
         pg.keyboard.press('a')
         pg.locator('.ft-toast:has-text("arrivat")').last.wait_for(timeout=15000)
         pg.click('#lz-pc [data-pc-stato="arrivato"]')
-        pg.wait_for_selector('#lz-pc tr.lz-pc-g', timeout=15000)
+        pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).first.wait_for(timeout=15000)  # il gruppo di prova, non uno qualunque
         check('A: fra gli arrivati', pg.locator('#lz-pc tr.lz-pc-g', has_text=PROFILO).count() == 1)
 
         pg.evaluate("document.activeElement && document.activeElement.blur()")

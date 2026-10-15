@@ -2535,6 +2535,21 @@ svg.wb-dwg { shape-rendering: geometricPrecision; }
 .sa-comp .pr.nolink { cursor: default; }
 .sa-comp .pr.nolink:hover { background: transparent; }
 .sa-comp-empty { padding: 10px 8px 12px; font-size: var(--fs-s); color: var(--ink-3); }
+.sa-comp .pr-tot { color: var(--ink-2); font-weight: 600; }
+/* Barre da ordinare (assieme e scheda Prezzo) */
+.sa-barre { border-top: 1px solid var(--line-2); padding-top: 14px; margin-top: 14px; }
+.sa-barre:empty { display: none; }
+.br-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.br-list li { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.br-list li b.br-n { color: var(--ink); font-size: 13px; }
+.br-list li .br-prof { color: var(--ink); font-weight: 600; }
+.br-list li small { display: block; color: var(--ink-3); font-size: 11.5px; }
+.br-list li small.warn { color: var(--warn); }
+.br-piano { margin-top: 4px; }
+.br-piano summary { cursor: pointer; font-size: 11.5px; color: var(--ink-3); }
+.br-piano ol { margin: 4px 0 0; padding-left: 18px; font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.br-tot { margin-top: 10px; font-size: 12px; color: var(--ink-2); }
+.br-nota { margin-top: 8px; font-size: 11.5px; color: var(--ink-4); line-height: 1.45; }
 #sa-vw button.on { background: var(--line-2); color: var(--ink); }
 /* Disegno d'insieme dell'assieme (senza STEP): come il disegno del pezzo */
 #sa-dwg[hidden] { display: none !important; }
@@ -2837,6 +2852,10 @@ body { font-size: var(--fs-m); }
 .pr-issue { font-weight: 600; }
 .pr-issue.err { color: var(--err); }
 .pr-issue.warn { color: var(--warn); }
+.sa-tub-mat { white-space: normal; }
+.cfg-tub-nota { font-size: 11px; margin-top: 2px; }
+.cfg-tub-nota.warn { color: var(--warn, #B45309); font-weight: 600; }
+.sa-tub-mat.warn, .wb-man-calc .warn { color: var(--warn); }
 .pr-lead .status-dot.status-ok { background: transparent; }
 .pr-lead .status-dot.status-warn { background: #F79009; }
 .pr-lead .status-dot.status-error { background: var(--err); }
@@ -2885,6 +2904,20 @@ body { font-size: var(--fs-m); }
 .pa-more summary::before { content: '▸ '; }
 .pa-more[open] summary::before { content: '▾ '; }
 .pa-more .pa { margin-top: 6px; }
+/* Conferme del pezzo: intestazione col conteggio, domande chiuse in grigio */
+.pa-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); padding: 0 2px; }
+.pa-head > b { font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .3px; }
+.pa-head > span { flex: 1; }
+.pa-head > span b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.pa-head button { height: 26px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); font: 600 12px 'Inter'; color: var(--ink); cursor: pointer; }
+.pa-head button.pri { background: var(--ink); border-color: var(--ink); color: #fff; }
+.pa.done { background: var(--panel); border-color: var(--line); padding-top: 6px; padding-bottom: 6px; }
+.pa.done > i, .pa.done > svg { color: var(--ok); }
+.pa.done .pa-main b { font-size: var(--fs-s); font-weight: 500; color: var(--ink-3); }
+.pa-tag { display: inline-block; font-style: normal; font-size: var(--fs-2xs); font-weight: 600; color: var(--ink-2); background: var(--well); border-radius: 5px; padding: 1px 6px; margin-bottom: 3px; }
+.pa-more-n { font-size: 12px; color: var(--ink-4); padding: 0 2px; }
+.pa-wait > i, .pa-wait > svg { animation: wbGira 1.2s linear infinite; }
+@keyframes wbGira { to { transform: rotate(360deg); } }
 @keyframes wbIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 
 /* ── Disegno: barra propria + tavola ── */
@@ -3033,6 +3066,11 @@ body { font-size: var(--fs-m); }
 .qc-head .rl-sec { margin: 0; }
 .qc-n { font: 800 16px 'Geist'; color: var(--ink); font-variant-numeric: tabular-nums; border-radius: 5px; padding: 0 3px; }
 .qc-n small { font: 500 var(--fs-xs) 'Inter'; color: var(--ink-3); }
+.pl-conf:empty { display: none; }
+.pl-conf .qc-conf { margin: 0; }
+.qc-conf { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); margin: 8px 0 2px; }
+.qc-conf b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.qc-conf button { margin-left: auto; height: 24px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--ink); background: var(--ink); color: #fff; font: 600 12px 'Inter'; cursor: pointer; }
 .qc-bar { height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; margin: 8px 0 8px; }
 .qc-bar span { display: block; height: 100%; background: #F79009; border-radius: 3px; transition: width .45s var(--ease); }
 .qc-bar span.ok { background: #12B76A; }
@@ -3337,6 +3375,8 @@ body { font-size: var(--fs-m); }
               <button type="button" data-f="dafare" onclick="wbSetFiltro('dafare')" title="Pezzi con dati mancanti o da verificare">Da fare <b>0</b></button>
               <button type="button" data-f="pronti" onclick="wbSetFiltro('pronti')">Pronti <b>0</b></button>
             </div>
+            <!-- Conferme del preventivo: quante domande restano, e si va pezzo per pezzo -->
+            <div class="pl-conf" id="wb-pl-conf"></div>
           </div>
           <div class="pl-scroll">
             <table class="split-tree">
@@ -3440,6 +3480,7 @@ body { font-size: var(--fs-m); }
                     <button role="menuitem" onclick="wbAllegaPdf()"><i data-lucide="file-text"></i> Allega PDF del disegno</button>
                     <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbPezzoAMano(_splitSelectedIdx)"><i data-lucide="square-pen"></i> Misure a mano <small>piastra rettangolare o tonda, fori</small></button>
                     <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbCostoAMano(_splitSelectedIdx)"><i data-lucide="pencil-line"></i> Costo a mano <small>profili, pezzi comprati</small></button>
+                    <button role="menuitem" onclick="if (_splitSelectedIdx != null) wbETubo(_splitSelectedIdx)"><i data-lucide="cylinder"></i> È un tubo <small>diventa riga tubo, fuori dal laser</small></button>
                     <button role="menuitem" id="sd-btn-clean" onclick="sdOpenCleanup()" style="display:none;"><i data-lucide="eraser"></i> Pulisci DXF</button>
                     <div class="wb-menu-sep"></div>
                     <button role="menuitem" class="danger" onclick="sdRemove()"><i data-lucide="trash-2"></i> Rimuovi pezzo</button>
@@ -3610,6 +3651,7 @@ body { font-size: var(--fs-m); }
                   </div>
                   <div id="sa-comp-list"></div>
                 </section>
+                <section class="sa-barre" id="sa-barre" aria-live="polite"></section>
               </div>
             </div>
           </div>
@@ -3655,6 +3697,8 @@ body { font-size: var(--fs-m); }
 
             <div class="rl-col">
             <section class="rl-block rl-check" id="wb-check"></section>
+
+            <section class="rl-block rl-barre" id="wb-barre" aria-live="polite"></section>
 
             <section class="rl-block rl-solid" id="wb-solid"></section>
 
@@ -3959,11 +4003,24 @@ body { font-size: var(--fs-m); }
     <div class="card">
       <div class="card-header"><h3>Tubolari e profili</h3></div>
       <div class="card-body">
+        <!-- €/kg PER MATERIALE (14/10/2026): prima uno solo, anche per i tubi inox -->
         <div class="form-row">
           <div class="form-field">
-            <label>Materiale (&euro;/kg)</label>
+            <label>Ferro S235 (&euro;/kg)</label>
             <input type="number" id="cfg-tub-kg" step="0.01" min="0">
           </div>
+          <div class="form-field">
+            <label title="AISI 304 / 316">Inox (&euro;/kg)</label>
+            <input type="number" id="cfg-tub-kg-inox" step="0.01" min="0">
+            <div id="cfg-tub-kg-inox-nota" class="cfg-tub-nota"></div>
+          </div>
+          <div class="form-field">
+            <label>Alluminio (&euro;/kg)</label>
+            <input type="number" id="cfg-tub-kg-alluminio" step="0.01" min="0">
+            <div id="cfg-tub-kg-alluminio-nota" class="cfg-tub-nota"></div>
+          </div>
+        </div>
+        <div class="form-row">
           <div class="form-field">
             <label>Taglio dritto (&euro;)</label>
             <input type="number" id="cfg-tub-dritto" step="0.1" min="0">
@@ -3973,7 +4030,7 @@ body { font-size: var(--fs-m); }
             <input type="number" id="cfg-tub-obliquo" step="0.1" min="0">
           </div>
         </div>
-        <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Per le righe tubo lette dalla distinta dell'assieme. Il taglio laser tubo fatto fuori si scrive a parte, sulla riga.</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Per le righe tubo lette dalla distinta dell'assieme: ogni riga usa il &euro;/kg del suo materiale (letto da distinta, cartiglio o pezzo; si cambia sulla riga). Peso = kg/m del catalogo (acciaio) &times; densità del materiale (inox 7,93 · alluminio 2,70 kg/dm³). Il taglio laser tubo fatto fuori si scrive a parte, sulla riga. I preventivi già fatti tengono il prezzo salvato finché non rileggi la distinta.</div>
       </div>
     </div>
 
@@ -5427,6 +5484,14 @@ async function loadImpostazioni() {
     document.getElementById('cfg-generali-pct').value = P.costo_generali_pct ?? 8;
     document.getElementById('cfg-tariffa-oraria').value = P.tariffa_oraria ?? 45;
     document.getElementById('cfg-tub-kg').value = P.tubolari_euro_kg ?? 1.5;
+    for (const k of ['inox', 'alluminio']) {
+      const M = _TUB_MATERIALI[k], v = P[M.cfg];
+      document.getElementById('cfg-tub-kg-' + k).value = v ?? M.def;
+      const nota = document.getElementById('cfg-tub-kg-' + k + '-nota');
+      nota.textContent = v == null ? (M.def > 0 ? `Da impostare: ora vale ${String(M.def).replace('.', ',')} di partenza, metti il tuo prezzo` : 'Da impostare: a 0 i tubi in alluminio costano 0')
+        : (parseFloat(v) > 0 ? '' : 'A 0: i tubi in ' + M.nome.toLowerCase() + ' costano 0');
+      nota.classList.toggle('warn', !!nota.textContent);
+    }
     document.getElementById('cfg-tub-dritto').value = P.tubolari_taglio_dritto ?? 1;
     document.getElementById('cfg-tub-obliquo').value = P.tubolari_taglio_obliquo ?? 2.5;
     document.getElementById('cfg-margine-default').value = P.margine_default_pct ?? 25;
@@ -5524,6 +5589,8 @@ async function saveImpostazioni() {
         costo_generali_pct: parseFloat(document.getElementById('cfg-generali-pct').value) || 0,
         tariffa_oraria: parseFloat(document.getElementById('cfg-tariffa-oraria').value) || 45,
         tubolari_euro_kg: (v => v >= 0 ? v : 1.5)(parseFloat(document.getElementById('cfg-tub-kg').value)),
+        tubolari_euro_kg_inox: (v => v >= 0 ? v : 4.5)(parseFloat(document.getElementById('cfg-tub-kg-inox').value)),
+        tubolari_euro_kg_alluminio: (v => v >= 0 ? v : 0)(parseFloat(document.getElementById('cfg-tub-kg-alluminio').value)),
         tubolari_taglio_dritto: (v => v >= 0 ? v : 1)(parseFloat(document.getElementById('cfg-tub-dritto').value)),
         tubolari_taglio_obliquo: (v => v >= 0 ? v : 2.5)(parseFloat(document.getElementById('cfg-tub-obliquo').value)),
         saldatura_a_tempo: (vecchia.prev.saldatura_a_tempo ?? (_prevCfg && _prevCfg.saldatura_a_tempo)) ?? true,
@@ -7117,6 +7184,12 @@ window.addEventListener('message', async (ev) => {
   a.origine_campi = _orig;
   a.geometria_manuale_confermata = true;
   a.geometry_source = p.geometry_source;
+  // Conferma a mano: chiude ogni domanda sul contorno ("risolta da …") e la
+  // correzione automatica col peso non torna, finche' non cambia il disegno.
+  a.dxf_needs_verify = false;
+  a.contorno_auto = { stato: 'confermato', chiave: 'cad|' + (a.dxf_filename || '') };
+  { const reg = _wbRegistro(a);
+    reg.ultima = { k: 'cad', g: '', l: 'Confermato a mano nel CAD', r: true, t: Date.now() }; }
   a.area_stimata_piega = !!p.area_stimata_piega;
   if (p.canonical_dxf_filename) {
     a.canonical_dxf_filename = p.canonical_dxf_filename;
@@ -7442,24 +7515,31 @@ function _saRenderComponenti(r, A) {
     const meta = primo ? `<span class="pr-issue ${primo.l}">${escapeHtml(primo.g)}</span>` : `${mat} · ${sp}`;
     righe.push(`<div class="pr" onclick="selectSplitArticolo(${i})" title="Apri il pezzo">
       <span class="pr-lead">${_wbDot(a)}</span>
-      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(a.codice || a.dxf_filename || '—')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
+      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(a.codice || a.dxf_filename || '—')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}
+        <button class="wb-icon-btn sm" onclick="event.stopPropagation(); wbETubo(${i})" title="È un tubo: diventa una riga tubo dell'assieme, fuori dai pezzi laser"><i data-lucide="cylinder"></i></button></span>
         <span class="pr-meta">${meta}</span></span>
       ${prezzo(unit * q, unit, q)}
     </div>`);
   }
   const avv = x => (x.avvisi || []).length ? ` · <span class="pr-issue warn" title="${escapeHtml(x.avvisi.join(' · '))}">${escapeHtml(x.avvisi[0])}</span>` : '';
+  const nAss = (A && A.qty) || 1;
   for (const t of r.tubolari) {
     const q = _qtaRiga(t), v = _costoTubolare(t), ti = currentTubolari.indexOf(t);
+    // la riga vale per 1 assieme: per tutte le strutture si moltiplica
+    const qTot = nAss > 1 ? ` · <span class="pr-tot" title="Pezzi da preparare per tutte le strutture">${q} per struttura × ${nAss} = ${q * nAss} pz</span>` : '';
     const lung = t.lunghezza_pezzo_mm ? `L ${t.lunghezza_pezzo_mm.toLocaleString('it-IT')} mm` : `${(t.lunghezza_m || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} m`;
     const ang = (t.angolo_1 || t.angolo_2) ? ` · tagli ${t.angolo_1 || 0}°/${t.angolo_2 || 0}°` : '';
-    const dett = `Materiale ${_eur(t.costo_materiale || 0)} · tagli ${_eur(t.costo_taglio_totale || 0)} (${t.n_tagli_dritti || 0} dritti, ${t.n_tagli_obliqui || 0} obliqui)`
+    const fm = _tubFormula(t);
+    const dett = `${fm.testo} · tagli ${_eur(t.costo_taglio_totale || 0)} (${t.n_tagli_dritti || 0} dritti, ${t.n_tagli_obliqui || 0} obliqui)`
       + (t.distinta ? ` · dalla distinta ${t.distinta} pos. ${t.posizione || ''}` : '');
     righe.push(`<div class="pr" onclick="wbTuboAMano(${ti})" title="${escapeHtml(dett)} · clic per modificare">
       <span class="pr-lead"></span>
-      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}</span>
-        <span class="pr-meta">Tubolare · ${lung}${ang} · ${(t.peso_kg || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 })} kg${avv(t)}</span>
+      <span class="pr-main"><span class="pr-code"><span class="pr-code-t">${escapeHtml(t.profilo || 'Tubolare')}</span>${q > 1 ? `<span class="pr-q">×${q}</span>` : ''}${t.codice_pezzo ? ` <small>${escapeHtml(t.codice_pezzo)}</small>` : ''}
+        ${t.disegno_pdf ? `<a class="wb-icon-btn sm" href="${API_URL}/api/preventivi/${currentPreventivo.id}/disegni-pdf/${encodeURIComponent(t.disegno_pdf)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Disegno del pezzo"><i data-lucide="file-text"></i></a>` : ''}</span>
+        <span class="pr-meta">Tubolare · ${lung}${ang}${qTot}${t.nota_esterno ? ' · ' + escapeHtml(t.nota_esterno) : ''}${avv(t)}</span>
+        <span class="pr-meta sa-tub-mat${fm.avviso ? ' warn' : ''}" title="${escapeHtml(fm.avviso || 'Materiale ' + ({ distinta: 'letto dalla distinta', disegno: 'letto dal cartiglio del disegno', assieme: 'letto dalla distinta dell\'assieme', pezzo: 'del pezzo', 'a mano': 'scelto a mano' }[t.materiale_da] || ''))} · clic per cambiarlo">${escapeHtml(fm.testo)}${fm.avviso ? ` · <span class="pr-issue warn">${escapeHtml(fm.avviso)}</span>` : ''}</span>
         <label class="sa-tub-est" onclick="event.stopPropagation()" title="Lavorazione fatta fuori (es. taglio laser tubo): prezzo del fornitore per tutta la riga">
-          Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label></span>
+          Lav. esterna <input type="number" min="0" step="0.5" value="${t.costo_esterno || ''}" placeholder="0" onchange="saTubEsterno(${ti}, this.value)"> €</label>${t.nota_esterno && !(parseFloat(t.costo_esterno) > 0) ? `<span class="pr-meta"><span class="pr-issue warn" title="Taglio al laser tubo: nel prezzo ci sono il materiale (le barre le compri tu) e quello che chiede il fornitore per il taglio, da scrivere in Lav. esterna">taglio laser tubo a 0 €: scrivi il prezzo del fornitore</span></span>` : ''}</span>
       ${prezzo(v, v / q, q)}
     </div>`);
   }
@@ -7476,6 +7556,7 @@ function _saRenderComponenti(r, A) {
     : `<div class="sa-comp-empty">Nessun componente collegato. Assegna i pezzi a questo assieme dal campo "Assieme" nella loro scheda.</div>`;
   const n = righe.length;
   document.getElementById('sa-comp-hint').textContent = n ? `${n} · per 1 assieme` : '';
+  _saRenderBarre(A);
 }
 
 // ── Tubolare a mano ────────────────────────────────────────────────
@@ -7496,36 +7577,56 @@ async function _wbProfili() {
 }
 const _WB_TIPI_TUBO = [['SHS', 'Tubo quadro'], ['RHS', 'Tubo rettangolare'], ['CHS', 'Tubo tondo'],
                        ['L', 'Angolare'], ['FLAT', 'Piatto'], ['ALTRO', 'Altro (kg/m a mano)']];
-/** Pannello tubolare: nuovo (ti == null) o modifica della riga currentTubolari[ti]. */
-async function wbTuboAMano(ti, codAss) {
-  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return;
+/** Pannello tubolare: nuovo (ti == null) o modifica della riga currentTubolari[ti].
+    opts.daPezzo: "È un tubo" — il pezzo laser (DXF) diventa questa riga tubo;
+    opts.proposta: profilo, lunghezza e da dove vengono (_wbPropostaTubo). */
+async function wbTuboAMano(ti, codAss, opts) {
+  opts = opts || {};
+  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') {
+    if (opts.daPezzo) await appAlert(`Il preventivo è ${currentPreventivo ? currentPreventivo.status : ''}: non si modifica più. Per cambiarlo fanne una nuova versione.`);
+    return;
+  }
   const cat = await _wbProfili();
   const t = ti != null ? currentTubolari[ti] : null;
-  const ass0 = t ? (t.codice_assieme || '') : (codAss || (_splitAssIdx != null && currentAssiemi[_splitAssIdx] ? currentAssiemi[_splitAssIdx].codice_assieme : ''));
-  const tipo0 = t ? (['SHS', 'RHS', 'CHS', 'L', 'FLAT'].includes(t.tipo) ? t.tipo : 'ALTRO') : 'SHS';
-  const q0 = t ? _qtaRiga(t) : 1;
+  const daP = !t && opts.daPezzo ? opts.daPezzo : null;
+  const pr = (daP && opts.proposta) || {};
+  const ass0 = t ? (t.codice_assieme || '') : daP ? (daP.codice_assieme || '') : (codAss || (_splitAssIdx != null && currentAssiemi[_splitAssIdx] ? currentAssiemi[_splitAssIdx].codice_assieme : ''));
+  const tipo0 = t ? (['SHS', 'RHS', 'CHS', 'L', 'FLAT'].includes(t.tipo) ? t.tipo : 'ALTRO')
+    : (pr.tipo && ['SHS', 'RHS', 'CHS', 'L', 'FLAT', 'ALTRO'].includes(pr.tipo) ? pr.tipo : 'SHS');
+  const q0 = t ? _qtaRiga(t) : daP ? (daP.quantita || 1) : 1;
   const num = v => v == null || v === '' ? '' : String(v).replace('.', ',');
+  // materiale di partenza: quello della riga, o della proposta (distinta / pezzo)
+  const mat0 = t ? (_tubMaterialeNoto(t) ? { chiave: t.materiale, da: t.materiale_da, testo: t.materiale_testo } : null)
+    : (pr.materiale || null);
+  const T0 = _wbTariffeTubi();
+  const fEkg = v => (v || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   document.querySelectorAll('.wb-man-dock').forEach(e => e.remove());
   const ov = document.createElement('div');
   ov.className = 'wb-man-dock';
   ov.innerHTML = `<div class="wb-man">
-    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="cylinder"></i></div><h3>${t ? 'Tubolare' : 'Aggiungi tubolare'}</h3></div>
+    <div class="app-confirm-head"><div class="app-confirm-ico"><i data-lucide="cylinder"></i></div><h3>${t ? 'Tubolare' + (t.codice_pezzo ? ' · ' + escapeHtml(t.codice_pezzo) : '') : daP ? 'È un tubo · ' + escapeHtml(daP.codice || '') : 'Aggiungi tubolare'}</h3></div>
+    ${daP ? `<div class="wb-man-calc">Il pezzo esce dai pezzi laser (e da Lantek) e diventa una riga tubo dell'assieme: va in "Da procurare" come tubo, o laser tubo se esterno. Si può rimettere com'era.${pr.fonti && pr.fonti.length ? '<br>Proposta da: ' + pr.fonti.map(escapeHtml).join(' · ') : '<br>Nessuna proposta: scegli profilo e lunghezza.'}</div>` : ''}
     <div class="wb-man-grid">
       <label class="wide">Tipo<select id="tb-tipo">${_WB_TIPI_TUBO.map(([k, l]) => `<option value="${k}" ${k === tipo0 ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="wide tb-cat">Profilo<select id="tb-prof"></select></label>
       <label class="tb-lb">Lato A mm<input id="tb-a" inputmode="decimal"></label>
       <label class="tb-lb tb-l">Lato B mm<input id="tb-b" inputmode="decimal"></label>
       <label class="tb-lb">Spessore mm<input id="tb-s" inputmode="decimal"></label>
-      <label class="tb-kg">kg/m<input id="tb-kgm" inputmode="decimal" value="${tipo0 === 'ALTRO' && t ? num(t.kg_m) : ''}"></label>
-      <label>Lunghezza mm<input id="tb-len" inputmode="decimal" value="${num(t ? (t.lunghezza_pezzo_mm || Math.round((t.lunghezza_m || 0) * 1000)) : '')}"></label>
-      <label>Quantità<input id="tb-q" type="number" min="1" value="${q0}"></label>
+      <label class="tb-kg" title="Come nel catalogo: kg/m in acciaio; per inox e alluminio il peso si corregge con la densità">kg/m (acciaio)<input id="tb-kgm" inputmode="decimal" value="${tipo0 === 'ALTRO' && t ? num(t.kg_m_acciaio || t.kg_m) : ''}"></label>
+      <label class="wide" title="Il prezzo del materiale è peso × €/kg di questo materiale (Impostazioni → Tubolari e profili)">Materiale<select id="tb-mat">
+        <option value="" ${mat0 ? '' : 'selected'}>— da scegliere (intanto prezzo del ferro)</option>
+        ${Object.entries(_TUB_MATERIALI).map(([k, M]) => `<option value="${k}" ${mat0 && mat0.chiave === k ? 'selected' : ''}>${M.nome}${k === 'acciaio' ? ' / S235' : k === 'inox' ? ' (AISI 304/316)' : ''} · ${fEkg(T0.mat[k])} €/kg${T0.mat[k] > 0 ? '' : ' — da impostare'}</option>`).join('')}
+      </select></label>
+      <label>Lunghezza mm<input id="tb-len" inputmode="decimal" value="${num(t ? (t.lunghezza_pezzo_mm || Math.round((t.lunghezza_m || 0) * 1000)) : (pr.lunghezza || ''))}"></label>
+      <label title="Pezzi in UN assieme: per tutte le strutture si moltiplica per la quantità dell'assieme">Pezzi per 1 assieme<input id="tb-q" type="number" min="1" value="${q0}"></label>
       <label>Angolo taglio 1 °<input id="tb-a1" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_1 : '')}"></label>
       <label>Angolo taglio 2 °<input id="tb-a2" inputmode="decimal" placeholder="0 = dritto" value="${num(t ? t.angolo_2 : '')}"></label>
       <label>Lav. esterna €<input id="tb-est" inputmode="decimal" placeholder="es. laser tubo" value="${num(t ? t.costo_esterno : '')}"></label>
+      ${daP || (t && t.codice_pezzo) ? `<label class="wide"><span><input type="checkbox" id="tb-laser-est" ${t && t.nota_esterno ? 'checked' : ''}> Taglio laser tubo esterno (va in "Da procurare" come laser tubo)</span></label>` : ''}
       <label class="wide">Assieme<select id="tb-ass"><option value="">— nessuno (struttura sciolta)</option>${currentAssiemi.map(A => `<option value="${escapeHtml(A.codice_assieme)}" ${A.codice_assieme === ass0 ? 'selected' : ''}>${escapeHtml(A.codice_assieme)}</option>`).join('')}</select></label>
     </div>
     <div class="wb-man-calc" id="tb-calc"></div>
-    <div class="app-confirm-actions">${t ? '<button class="btn-secondary danger" data-rim>Rimuovi</button>' : ''}<button class="btn-secondary" data-no>Chiudi</button>${t ? '' : '<button class="btn-secondary" data-altro>Aggiungi e un altro</button>'}<button class="btn-primary" data-ok>${t ? 'Applica' : 'Aggiungi'}</button></div>
+    <div class="app-confirm-actions">${t ? '<button class="btn-secondary danger" data-rim>Rimuovi</button>' : ''}${t && t.da_pezzo ? '<button class="btn-secondary" data-pezzo>Rimetti come pezzo laser</button>' : ''}<button class="btn-secondary" data-no>Chiudi</button>${t || daP ? '' : '<button class="btn-secondary" data-altro>Aggiungi e un altro</button>'}<button class="btn-primary" data-ok>${t ? 'Applica' : daP ? 'Diventa tubo' : 'Aggiungi'}</button></div>
   </div>`;
   document.body.appendChild(ov);
   if (window.lucide) lucide.createIcons();
@@ -7534,7 +7635,7 @@ async function wbTuboAMano(ti, codAss) {
   const riempiProfili = () => {
     const tipo = $('tb-tipo').value;
     const lista = cat[tipo] || [];
-    const sel = t && t.tipo === tipo ? t.profilo : '';
+    const sel = t && t.tipo === tipo ? t.profilo : (pr.tipo === tipo ? pr.nome : '');
     $('tb-prof').innerHTML = '<option value="">— scegli —</option>' + lista.map((p, k) =>
       `<option value="${k}" ${p.nome === sel ? 'selected' : ''}>${escapeHtml(p.nome)} · ${String(p.peso_kg_m).replace('.', ',')} kg/m</option>`).join('');
   };
@@ -7560,9 +7661,26 @@ async function wbTuboAMano(ti, codAss) {
     if (!P || !(L > 0)) return null;
     const r = { pos: t ? t.posizione : null, qta: q, lunghezza_mm: L, profilo: P,
                 angolo_1: $('tb-a1').value === '' ? null : n('tb-a1'), angolo_2: $('tb-a2').value === '' ? null : n('tb-a2') };
-    const x = _wbTuboDaRiga(r, $('tb-ass').value || null, null, 1, _wbTariffeTubi());
+    const sm = $('tb-mat').value;
+    const mat = !sm ? null : (mat0 && mat0.chiave === sm ? mat0 : { chiave: sm, da: 'a mano', testo: null });
+    const x = _wbTuboDaRiga(r, $('tb-ass').value || null, null, 1, _wbTariffeTubi(), mat);
     x.origine = 'manuale'; delete x.distinta;
+    // riga della distinta modificata (es. il materiale): resta della distinta,
+    // cosi' "Leggi distinta" la rifa' invece di aggiungerne un'altra uguale
+    if (t && t.origine === 'distinta') { x.origine = 'distinta'; x.distinta = t.distinta; }
     x.costo_esterno = Math.max(0, n('tb-est'));
+    const lEst = $('tb-laser-est');
+    if (lEst && lEst.checked) x.nota_esterno = 'Taglio laser tubo esterno';
+    else if (t && t.nota_esterno && !lEst) x.nota_esterno = t.nota_esterno;
+    // dal pezzo laser: codice, disegni e il pezzo com'era (per rimetterlo)
+    const src = t && t.codice_pezzo ? t : null;
+    if (daP || src) {
+      x.origine = 'pezzo';
+      x.codice_pezzo = daP ? daP.codice : src.codice_pezzo;
+      x.disegno_pdf = daP ? (daP.pdf_filename || null) : src.disegno_pdf;
+      x.disegno_dxf = daP ? (daP.dxf_filename || null) : src.disegno_dxf;
+      x.da_pezzo = daP ? _wbFotoPezzo(daP) : src.da_pezzo;
+    }
     return x;
   };
   const aggiorna = () => {
@@ -7573,9 +7691,13 @@ async function wbTuboAMano(ti, codAss) {
     ov.querySelector('.tb-kg').hidden = tipo !== 'ALTRO';
     const x = riga();
     const f = v => v.toLocaleString('it-IT', { maximumFractionDigits: 2 });
+    const fm = x ? _tubFormula(x) : null;
+    const daDove = x && { distinta: 'letto dalla distinta', disegno: 'letto dal cartiglio', assieme: 'letto dalla distinta dell\'assieme', pezzo: 'dal materiale del pezzo', 'a mano': 'scelto a mano' }[x.materiale_da];
     $('tb-calc').innerHTML = x
-      ? `${escapeHtml(x.profilo)} · <b>${f(x.kg_m)} kg/m</b> · ${x.qty} × ${f(x.lunghezza_pezzo_mm)} mm = <b>${f(x.peso_kg)} kg</b><br>
-         Materiale ${_eur(x.costo_materiale)} · tagli ${_eur(x.costo_taglio_totale)} (${x.n_tagli_dritti} dritti, ${x.n_tagli_obliqui} obliqui)${x.costo_esterno ? ` · esterna ${_eur(x.costo_esterno)}` : ''} · <b>totale ${_eur(_costoTubolare(x))}</b>`
+      ? `${escapeHtml(x.profilo)} · <b>${f(x.kg_m)} kg/m</b>${x.materiale !== 'acciaio' && x.kg_m_acciaio ? ` (${f(x.kg_m_acciaio)} in acciaio)` : ''} · ${x.qty} × ${f(x.lunghezza_pezzo_mm)} mm = <b>${f(x.peso_kg)} kg</b><br>
+         <span class="${fm.avviso ? 'warn' : ''}" id="tb-formula">${escapeHtml(fm.testo)}${daDove ? ` <small>(${escapeHtml(daDove)}${x.materiale_testo ? ': ' + escapeHtml(x.materiale_testo) : ''})</small>` : ''}${fm.avviso ? `<br>⚠ ${escapeHtml(fm.avviso)}` : ''}</span><br>
+         Tagli ${_eur(x.costo_taglio_totale)} (${x.n_tagli_dritti} dritti, ${x.n_tagli_obliqui} obliqui)${x.costo_esterno ? ` · esterna ${_eur(x.costo_esterno)}` : ''} · <b>totale ${_eur(_costoTubolare(x))}</b>${x.codice_assieme ? ' per 1 assieme' : ''}
+         ${(nA => x.codice_assieme && nA > 1 ? `<br>Per ${nA} strutture: <b>${x.qty} × ${nA} = ${x.qty * nA} pz</b> · ${_eur(_costoTubolare(x) * nA)}` : '')((currentAssiemi.find(A => A.codice_assieme === x.codice_assieme) || {}).qty || 1)}`
       : '<span class="err">Scegli il profilo e scrivi la lunghezza</span>';
     return x;
   };
@@ -7584,6 +7706,7 @@ async function wbTuboAMano(ti, codAss) {
   riempiProfili();
   if (t && tipo0 === 'L') { const m = String(t.profilo).match(/([\d.]+)x([\d.]+)x([\d.]+)/); if (m) { $('tb-a').value = m[1]; $('tb-b').value = m[2]; $('tb-s').value = m[3]; } }
   if (t && tipo0 === 'FLAT') { const m = String(t.profilo).match(/([\d.]+)x([\d.]+)/); if (m) { $('tb-a').value = m[1]; $('tb-s').value = m[2]; } }
+  if (daP && pr.tipo === 'ALTRO' && pr.kg_m) $('tb-kgm').value = num(pr.kg_m);
   aggiorna();
   const tasti = e => {
     if (!ov.contains(e.target)) return;
@@ -7603,14 +7726,33 @@ async function wbTuboAMano(ti, codAss) {
     const x = aggiorna();
     if (!x) { (profilo() ? $('tb-len') : ($('tb-prof').closest('label').hidden ? $('tb-a') : $('tb-prof'))).focus(); return; }
     if (t) { x.id = t.id; if (t.posizione) x.posizione = t.posizione; currentTubolari[ti] = x; }
+    else if (daP) {
+      // il codice del pezzo resta il riferimento della riga (ordine, Da procurare)
+      x.posizione = daP.codice || String(currentTubolari.filter(y => y.codice_assieme === x.codice_assieme).length + 1);
+      const k = currentArticoli.indexOf(daP);
+      if (k < 0) { wbSnack('Il pezzo non c\'è più nell\'elenco', 'err'); return; }
+      currentArticoli.splice(k, 1);
+      currentTubolari.push(x);
+      _splitSelectedIdx = null; _bulkSelected.clear();
+      renderArticoli(); segnaArticoliModificati(300);
+    }
     else { x.posizione = String(currentTubolari.filter(y => y.codice_assieme === x.codice_assieme).length + 1); currentTubolari.push(x); }
     dopo();
+    if (daP) {
+      const xt = x;
+      wbSnack(`${daP.codice}: ora è un tubo ${x.profilo} L ${x.lunghezza_pezzo_mm} mm, fuori dai pezzi laser`, '', 9000,
+        { l: 'Annulla', f: () => _wbRimettiPezzo(currentTubolari.indexOf(xt)) });
+      chiudi();
+      return;
+    }
     wbSnack(`${x.profilo}: ${x.qty} × ${x.lunghezza_pezzo_mm} mm, ${_eur(_costoTubolare(x))}`);
     if (altro) { $('tb-len').value = ''; $('tb-q').value = 1; $('tb-a1').value = ''; $('tb-a2').value = ''; $('tb-est').value = ''; aggiorna(); $('tb-len').focus(); }
     else chiudi();
   };
   ov.querySelector('[data-ok]').onclick = () => salva(false);
   const bA = ov.querySelector('[data-altro]'); if (bA) bA.onclick = () => salva(true);
+  const bP = ov.querySelector('[data-pezzo]');
+  if (bP) bP.onclick = () => { chiudi(); _wbRimettiPezzo(ti); };
   const bR = ov.querySelector('[data-rim]');
   if (bR) bR.onclick = async () => {
     if (!await appConfirm(`Togliere ${t.profilo} (${q0} × ${t.lunghezza_pezzo_mm || ''} mm) dall'assieme?`, { danger: true, okLabel: 'Rimuovi' })) return;
@@ -7618,6 +7760,120 @@ async function wbTuboAMano(ti, codAss) {
     chiudi(); dopo();
   };
   setTimeout(() => ($('tb-prof').closest('label').hidden ? $('tb-len') : $('tb-prof')).focus(), 50);
+}
+/** Il pezzo com'era, per "Rimetti come pezzo laser" (senza i campi di lavoro "_"). */
+function _wbFotoPezzo(a) {
+  const o = {};
+  for (const [k, v] of Object.entries(a || {})) if (!k.startsWith('_') && typeof v !== 'function') o[k] = v;
+  return o;
+}
+/** Annulla "È un tubo": il pezzo torna fra i pezzi laser, la riga tubo esce. */
+function _wbRimettiPezzo(ti) {
+  const t = currentTubolari[ti];
+  if (!t || !t.da_pezzo) return;
+  if (!currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') {
+    appAlert(`Il preventivo è ${currentPreventivo ? currentPreventivo.status : ''}: non si modifica più.`); return;
+  }
+  const a = Object.assign({}, t.da_pezzo);
+  a.codice_assieme = t.codice_assieme || null;      // l'assieme puo' essere stato cambiato nel pannello
+  currentTubolari.splice(ti, 1);
+  currentArticoli.push(a);
+  _bulkSelected.clear();
+  renderArticoli(); recalcTotali();
+  segnaArticoliModificati(300); scheduleSaveTubolari(300);
+  try { renderTubolari(); } catch (_) {}
+  try { renderSplitTree(); } catch (_) {}
+  if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
+  wbSnack(`${a.codice}: di nuovo pezzo laser`);
+}
+/** Profilo e lunghezza da una descrizione ("T.Quadro 50x 50x 3 L. 581",
+    "Tubo 40x20x2 Lg 600"): {tipo, a, b, s, lunghezza} o null. */
+function _wbProfiloDaTesto(txt) {
+  const u = String(txt || '').toUpperCase().replace(/,/g, '.');
+  const out = {};
+  const L = u.match(/\bL(?:G|UNG)?\s*\.?\s*(\d{2,5})\b(?!\s*[X×*]\s*\d)/);
+  if (L) out.lunghezza = parseFloat(L[1]);
+  const tre = u.match(/(\d+(?:\.\d+)?)\s*[X×*]\s*(\d+(?:\.\d+)?)\s*[X×*]\s*(\d+(?:\.\d+)?)/);
+  const due = u.match(/(?:Ø|DIAM\.?\s*)(\d+(?:\.\d+)?)\s*[X×*]\s*(\d+(?:\.\d+)?)/);
+  if (tre && /T\.?\s*QUADR|TUBO|T\.?\s*RETT|QUADRO|RETTANG|SHS|RHS|PROFIL/.test(u)) {
+    const a = parseFloat(tre[1]), b = parseFloat(tre[2]), s = parseFloat(tre[3]);
+    Object.assign(out, { tipo: a === b ? 'SHS' : 'RHS', a: Math.max(a, b), b: Math.min(a, b), s });
+  } else if (tre && /ANGOLAR/.test(u)) {
+    Object.assign(out, { tipo: 'L', a: parseFloat(tre[1]), b: parseFloat(tre[2]), s: parseFloat(tre[3]) });
+  } else if (due && /TOND|TUBO|CHS/.test(u)) {
+    Object.assign(out, { tipo: 'CHS', a: parseFloat(due[1]), s: parseFloat(due[2]) });
+  }
+  return (out.tipo || out.lunghezza) ? out : null;
+}
+/** Il profilo del catalogo per tipo e misure (null se non c'e'). */
+function _wbProfiloCatalogo(cat, tipo, a, b, s) {
+  const near = (x, y) => x != null && y != null && Math.abs(x - y) < 0.05;
+  return (cat[tipo] || []).find(p => tipo === 'CHS' ? (near(p.d_ext, a) && near(p.spessore, s))
+    : (near(Math.max(p.lato_a, p.lato_b), a) && near(Math.min(p.lato_a, p.lato_b), b) && near(p.spessore, s))) || null;
+}
+/** Proposta per "È un tubo": (1) la distinta del disegno del pezzo o la riga
+    dell'assieme ("Lg 581"), (2) le descrizioni del pezzo, (3) le misure del
+    DXF (la lunghezza e' il lato lungo). Solo una proposta: decide chi guarda. */
+async function _wbPropostaTubo(a) {
+  const cat = await _wbProfili();
+  const fonti = [], P = {};
+  const kr = _wbChiaveCod(a.codice || a.dxf_filename);
+  try {
+    const codici = [a.codice, a.codice_assieme].filter(Boolean).join(',');
+    const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/distinte?codici=${encodeURIComponent(codici)}`);
+    const D = ((await r.json()) || {}).distinte || {};
+    Object.assign(_wbDistinte, D);
+    const tubo = ((D[kr] || {}).righe || []).find(x => x.profilo && x.lunghezza_mm);
+    const kA = a.codice_assieme ? _wbChiaveCod(a.codice_assieme) : null;
+    const rigaAss = kA && ((D[kA] || {}).righe || []).find(x => _wbChiaveCod(x.codice) === kr);
+    if (tubo) {
+      Object.assign(P, { tipo: tubo.profilo.tipo, nome: tubo.profilo.nome, kg_m: tubo.profilo.kg_m, lunghezza: tubo.lunghezza_mm });
+      fonti.push(`distinta del disegno ${kr}: ${tubo.descrizione}`);
+    }
+    const mD = _wbMaterialeRigaTubo(tubo || { materiale: (D[kr] || {}).materiale }, D[kr], rigaAss, null);
+    if (mD) P.materiale = mD;
+    if (rigaAss && rigaAss.lunghezza_mm && !P.lunghezza) {
+      P.lunghezza = rigaAss.lunghezza_mm;
+      fonti.push(`distinta dell'assieme ${a.codice_assieme}: ${[rigaAss.descrizione, rigaAss.descrizione_agg].filter(Boolean).join(' ')}`);
+    }
+  } catch (e) { console.warn('distinta per il tubo non letta:', e); }
+  if (!P.tipo || !P.lunghezza) {
+    for (const [nome, txt] of [['descrizione dell\'ordine', a.ordine && a.ordine.descrizione],
+                               ['profilo letto sul disegno', a.verifica && a.verifica.profilo],
+                               ['descrizione', a._descrizione]]) {
+      const x = _wbProfiloDaTesto(txt);
+      if (!x) continue;
+      if (x.tipo && !P.tipo) {
+        const c = _wbProfiloCatalogo(cat, x.tipo, x.a, x.b, x.s);
+        if (c) Object.assign(P, { tipo: x.tipo, nome: c.nome, kg_m: c.peso_kg_m });
+        else if (x.tipo === 'L') Object.assign(P, { tipo: 'L' });
+        fonti.push(`${nome}: ${txt}`);
+      }
+      if (x.lunghezza && !P.lunghezza) { P.lunghezza = x.lunghezza; if (!fonti.some(f => f.startsWith(nome))) fonti.push(`${nome}: ${txt}`); }
+    }
+  }
+  if (!P.materiale) {
+    const mP = _tubMaterialeDaTesto(a.materiale, a.ordine && a.ordine.descrizione, a._descrizione);
+    if (mP) { P.materiale = Object.assign(mP, { da: 'pezzo' }); fonti.push(`materiale del pezzo: ${a.materiale || mP.testo}`); }
+  }
+  const w = parseFloat(a.bbox_w_mm) || 0, h = parseFloat(a.bbox_h_mm) || 0;
+  if (!P.lunghezza && w > 0 && h > 0) {
+    P.lunghezza = Math.round(Math.max(w, h));
+    fonti.push(`misure del disegno ${Math.round(w)}×${Math.round(h)} mm: lunghezza ${P.lunghezza}, lato ${Math.round(Math.min(w, h))}`);
+  }
+  P.fonti = fonti;
+  return P;
+}
+/** "È un tubo": il pezzo importato come DXF diventa una riga tubo. */
+async function wbETubo(i) {
+  const a = currentArticoli[i];
+  if (!a || !currentPreventivo) return;
+  if ((currentPreventivo.status || 'BOZZA') !== 'BOZZA') {
+    await appAlert(`Il preventivo è ${currentPreventivo.status}: non si modifica più. Per cambiarlo fanne una nuova versione.`);
+    return;
+  }
+  const proposta = await _wbPropostaTubo(a);
+  wbTuboAMano(null, a.codice_assieme || '', { daPezzo: a, proposta });
 }
 function saAggiungiPezzo() {
   const A = _splitAssIdx != null ? currentAssiemi[_splitAssIdx] : null;
@@ -7922,6 +8178,8 @@ async function wbLeggiOrdine(src) {
   if (!d || !d.success) { wbSnack('Ordine non letto: ' + ((d && d.error) || ''), 'err'); return; }
   const R = d.righe || {};
   const riga = x => R[_wbChiaveOrdine(x)];
+  const righeOrd = d.righe_ordine || [];
+  const mancanti = d.mancanti || [];
   // assiemi: la quantita' dell'ordine e' il numero di assiemi
   const assQ = [];
   for (const A of currentAssiemi) {
@@ -7929,7 +8187,12 @@ async function wbLeggiOrdine(src) {
     if (t && t.qta && Math.round(t.qta) !== (A.qty || 1)) assQ.push([A, Math.max(1, Math.round(t.qta))]);
   }
   const inAss = a => a.codice_assieme && currentAssiemi.some(A => A.codice_assieme === a.codice_assieme && riga(A.codice_assieme));
+  const codiciVeri = new Set(currentArticoli.map(a => String(a.codice || '').toUpperCase()));
   const prop = currentArticoli.map(a => {
+    // "_cleaned" accanto al disegno vero (lasciato da una lavorazione
+    // precedente): non e' la riga dell'ordine, sarebbe contata due volte
+    if (/_cleaned$/i.test(a.codice || '') && codiciVeri.has(String(a.codice).replace(/_cleaned$/i, '').toUpperCase()))
+      return { a, t: null, stato: 'non_trovato', q: null };
     const t = riga(a.codice || a.dxf_filename_originale || a.dxf_filename);
     if (t && t.qta) return { a, t, stato: t.dubbio ? 'dubbio' : 'ok', q: Math.max(1, Math.round(t.qta)) };
     if (t) return { a, t, stato: 'senza_qta', q: null };
@@ -7942,7 +8205,7 @@ async function wbLeggiOrdine(src) {
   const elenco = (arr, max = 8) => arr.slice(0, max).map(nome).join(', ') + (arr.length > max ? ` e altri ${arr.length - max}` : '');
   const senzaQ = prop.filter(p => p.stato === 'senza_qta'), dubbi = prop.filter(p => p.stato === 'dubbio');
   const fuori = prop.filter(p => p.stato === 'non_trovato'), comp = prop.filter(p => p.stato === 'componente');
-  if (!nOk && !nAss) {
+  if (!nOk && !nAss && !mancanti.length) {
     await appAlert(`Nell'ordine "${d.file}" non ho trovato i codici dei pezzi.\n\nIl PDF resta allegato e passerà all'ordine del laser; le quantità le scrivi a mano.`);
     return;
   }
@@ -7957,6 +8220,8 @@ async function wbLeggiOrdine(src) {
     dubbi.length ? `\nDa controllare, riga con più codici: ${elenco(dubbi)}` : '',
     comp.length ? `\nComponenti di assiemi dell'ordine (quantità dalla distinta): ${comp.length}` : '',
     fuori.length ? `\nNon presenti nell'ordine: ${elenco(fuori)}` : '',
+    mancanti.some(m => m.disegno) ? `\nRighe dell'ordine senza pezzo nel preventivo, il disegno c'è: tornano: ${mancanti.filter(m => m.disegno).map(m => m.codice).join(', ')}` : '',
+    mancanti.some(m => !m.disegno) ? `\nRighe dell'ordine SENZA DISEGNO (entrano come righe con prezzo da scrivere a mano): ${mancanti.filter(m => !m.disegno).map(m => m.codice + (m.descrizione ? ' «' + m.descrizione.slice(0, 40) + '»' : '')).join(', ')}` : '',
   ].filter(Boolean).join('\n');
   if (!await appConfirm(msg, { title: 'ORDINE DEL CLIENTE · quantità ordinate', okLabel: 'Applica le quantità', cancelLabel: 'Solo allega' })) {
     wbSnack(`Ordine allegato (${d.file}): passerà all'ordine del laser`);
@@ -7964,26 +8229,86 @@ async function wbLeggiOrdine(src) {
   }
   for (const p of prop) {
     if (p.q) p.a.quantita = p.q;
-    if (p.stato !== 'componente') p.a.ordine = { stato: p.stato, pos: p.t ? p.t.pos : null, qta: p.t ? p.t.qta : null, file: d.file,
+    if (p.stato === 'componente') { delete p.a.ordine; continue; }
+    p.a.ordine = { stato: p.stato, pos: p.t ? p.t.pos : null, qta: p.t ? p.t.qta : null, file: d.file,
       // righe dell'ordine una per una (commessa e quantita'): per DECA il PDF le riporta uguali
       righe: (p.t && p.t.dettaglio) || [] };
-    else delete p.a.ordine;
+    // codice come lo scrive il cliente (191700609-G-00 sul disegno 191700609-00)
+    if (p.t && p.t.codice && p.t.codice !== p.a.codice) p.a.ordine.codice = p.t.codice;
+    if (p.t && p.t.descrizione) p.a.ordine.descrizione = p.t.descrizione;
   }
   for (const [A, q] of assQ) A.qty = q;
+  // L'assieme prende il codice della sua riga d'ordine (cartella "46SA00597",
+  // riga 46SA00597-00): stesso codice a meno della revisione.
+  let rinominati = 0;
+  for (const A of currentAssiemi) {
+    const t = riga(A.codice_assieme);
+    if (!t || !t.codice || t.codice === A.codice_assieme || currentAssiemi.some(B => B.codice_assieme === t.codice)) continue;
+    rinominati++;
+    const vecchio = A.codice_assieme;
+    for (const a of currentArticoli) if (a.codice_assieme === vecchio) a.codice_assieme = t.codice;
+    for (const T of currentTubolari) if (T.codice_assieme === vecchio) T.codice_assieme = t.codice;
+    A.codice_assieme = t.codice;
+  }
+  // Righe dell'ordine che nel preventivo non ci sono: col disegno nella
+  // cartella (pezzo tolto) tornano col disegno; senza disegno (guide in
+  // plastica, commerciali) diventano righe da prezzare a mano.
+  const tornati = [], senzaDis = [];
+  for (const m of mancanti) {
+    let a = null;
+    if (m.disegno) {
+      try {
+        const fd2 = new FormData(); fd2.append('salvato', m.disegno);
+        const r2 = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/import-dxf`, { method: 'POST', body: fd2 });
+        const d2 = await r2.json();
+        _ultimoIdxDxf = -1;
+        if (d2 && d2.success && applyDxfResultToUI(d2, m.disegno) && _ultimoIdxDxf >= 0) a = currentArticoli[_ultimoIdxDxf];
+      } catch (e) { console.warn('disegno della riga non riletto:', e); }
+      if (a) tornati.push(m.codice);
+    }
+    if (!a) {
+      a = { id: 'tmp-' + Date.now() + '-' + Math.random(), codice: m.codice, quantita: 1, codice_assieme: null,
+            materiale: '', spessore_mm: null, area: 0, area_dm2: 0, perimetro_taglio_m: 0, n_forature: 0,
+            costo_materiale: 0, costo_base_stimato: 0, costo_base_override: null,
+            pieghe: 0, saldatura_ml: 0, filettatura_pz: 0, svasatura_pz: 0,
+            costo_piega: 0, costo_saldatura: 0, costo_filettatura: 0, costo_svasatura: 0, costo_apporto: 0, costo_pulizia: 0,
+            dxf_filename: null };
+      currentArticoli.push(a);
+      senzaDis.push(m.codice);
+    }
+    a.quantita = Math.max(1, Math.round(m.qta_totale || m.quantita || 1));
+    a.ordine = { stato: 'ok', pos: m.pos, qta: m.qta_totale || m.quantita, file: d.file, descrizione: m.descrizione || '',
+      righe: righeOrd.filter(r => _wbChiaveOrdine(r.codice) === _wbChiaveOrdine(m.codice)).map(r => ({ pos: r.pos, qta: r.quantita, commessa: r.commessa })) };
+    if (!a.dxf_filename) a.ordine.senza_disegno = true;
+    if (m.codice !== a.codice) a.ordine.codice = m.codice;
+  }
   // ordine delle righe dell'ordine; i pezzi non citati restano in fondo com'erano
   // i componenti di un assieme subito dopo la riga del loro assieme
   const posAss = a => { const t = a.codice_assieme && riga(a.codice_assieme); return t ? t.pos + 0.5 : null; };
-  const posiz = new Map(prop.map((p, i) => [p.a, p.t ? p.t.pos : (posAss(p.a) ?? 1e9 + i)]));
+  const posiz = new Map(currentArticoli.map((a, i) => [a,
+    (a.ordine && a.ordine.stato !== 'non_trovato' && a.ordine.pos != null) ? a.ordine.pos : (posAss(a) ?? 1e9 + i)]));
   currentArticoli.sort((x, y) => posiz.get(x) - posiz.get(y));
   _splitSelectedIdx = null;
+  // gli indici della selezione multipla non valgono piu' dopo il riordino:
+  // "Rimuovi" avrebbe tolto un altro pezzo
+  if (typeof _bulkSelected !== 'undefined') _bulkSelected.clear();
   const rif = document.getElementById('ed-numero-cliente');
   if (rif && !rif.value.trim() && d.numero_ordine) { rif.value = d.numero_ordine; rif.dispatchEvent(new Event('input')); }
   renderArticoli(); recalcTotali();
   segnaArticoliModificati(300);
-  if (assQ.length) scheduleSaveAssiemi(300);
+  if (assQ.length || rinominati) scheduleSaveAssiemi(300);
+  if (rinominati) scheduleSaveTubolari(300);
   try { renderSplitTree(); } catch (_) {}
-  const daVedere = senzaQ.length + dubbi.length + fuori.length;
-  wbSnack(`Ordine applicato: ${cambi.length} quantità cambiate` + (daVedere ? ` · ${daVedere} pezzi da controllare` : ''), daVedere ? 'warn' : '', 6000);
+  const daVedere = senzaQ.length + dubbi.length + fuori.length + senzaDis.length;
+  wbSnack(`Ordine applicato: ${cambi.length} quantità cambiate`
+    + (tornati.length ? ` · ${tornati.length} righe tornate col disegno (${tornati.join(', ')})` : '')
+    + (senzaDis.length ? ` · ${senzaDis.length} righe senza disegno da prezzare a mano (${senzaDis.join(', ')})` : '')
+    + (daVedere ? ` · ${daVedere} pezzi da controllare` : ''), daVedere ? 'warn' : '', 9000);
+  const daStimareOrd = currentArticoli.map((x, j) => j).filter(j => {
+    const x = currentArticoli[j];
+    return x.ordine && tornati.includes(x.ordine.codice || x.codice) && x.materiale && x.spessore_mm > 0 && x.area_dm2 > 0;
+  });
+  if (daStimareOrd.length) stimaTutti(daStimareOrd).catch(e => console.warn('stima righe tornate:', e));
 }
 /** Avviso sul pezzo dalla lettura dell'ordine (si toglie con "Va bene"). */
 function _wbProblemaOrdine(a) {
@@ -8011,28 +8336,113 @@ function _wbChiaveCod(s) {
   return String(s || '').split(/[\\/]/).pop().replace(/\.[^.]+$/, '').toUpperCase().trim()
     .replace(/\s*\(\d+\)$/, '').replace(/[-_]\d{2}$/, '');
 }
+// ── Materiale dei tubi (14/10/2026) ────────────────────────────────
+// Prima ogni tubo era prezzato con UN solo €/kg (quello del ferro), anche
+// i tubi inox (DECA 26T30SA0233: telaio AISI304). Ora ogni riga tubo ha il
+// suo materiale (letto da distinta, cartiglio, pezzo o scelto a mano):
+// peso = kg/m del catalogo (acciaio 7,85 kg/dm³) × densità del materiale /
+// 7,85; costo = peso × €/kg di quel materiale (Impostazioni → Tubolari).
+const _TUB_DENS_CATALOGO = 7.85;
+const _TUB_MATERIALI = {
+  acciaio:   { nome: 'Ferro',     dens: 7.85, cfg: 'tubolari_euro_kg',           def: 1.5 },
+  inox:      { nome: 'Inox',      dens: 7.93, cfg: 'tubolari_euro_kg_inox',      def: 4.5 },
+  alluminio: { nome: 'Alluminio', dens: 2.70, cfg: 'tubolari_euro_kg_alluminio', def: 0 },
+};
+/** Materiale di un tubo da un testo ("Aisi304", "INOX_304", "S235JR", "Fe360",
+    "ALU_6082"): {chiave, testo} o null se il testo non lo dice. */
+function _tubMaterialeDaTesto(...testi) {
+  for (const t0 of testi) {
+    const u = String(t0 || '').toUpperCase().replace(/_/g, ' ');
+    if (!u.trim()) continue;
+    let m = u.match(/AISI\s*\d{3}\s*L?|INOX(?:\s*\d{3}\s*L?)?|\b1\.4\d{3}\b|\bX\d{1,2}CRNI\w*/);
+    if (m) return { chiave: 'inox', testo: m[0].replace(/\s+/g, '') };
+    m = u.match(/ALLUMINI\w*|\bALU(?![A-Z])(?:\s*\d{4})?|\bEN\s*AW[\s-]*\d{4}|ANTICORODAL|\bAL\s*MG\w*/);
+    if (m) return { chiave: 'alluminio', testo: m[0].replace(/\s+/g, ' ').trim() };
+    m = u.match(/\bS\s?(?:235|275|355)\w*|\bFE\s*\d{3}\w*|\bFE\b|\bFERRO\b|\bACCIAIO\b|\bST\s?37\b|\bDC0\d\b|\bDD1\d\b|\bDX5\d\w*|\b1\.0\d{3}\b|ZINCAT\w*|ELETTROZ\w*/);
+    if (m) return { chiave: 'acciaio', testo: m[0].replace(/\s+/g, '') };
+  }
+  return null;
+}
 function _wbTariffeTubi() {
   const P = _prevCfg || {};
   const n = (v, d) => { const f = parseFloat(v); return f >= 0 ? f : d; };
-  return { kg: n(P.tubolari_euro_kg, 1.5), dritto: n(P.tubolari_taglio_dritto, 1), obliquo: n(P.tubolari_taglio_obliquo, 2.5) };
+  const mat = {};
+  for (const [k, M] of Object.entries(_TUB_MATERIALI)) mat[k] = n(P[M.cfg], M.def);
+  return { kg: mat.acciaio, mat, dritto: n(P.tubolari_taglio_dritto, 1), obliquo: n(P.tubolari_taglio_obliquo, 2.5) };
 }
-/** Riga tubo della distinta → tubolare dell'assieme (totali della riga, qty inclusa). */
-function _wbTuboDaRiga(r, codAss, sub, qAss, T) {
+/** Il materiale della riga e' certo? (letto o scelto; non "supposto ferro") */
+function _tubMaterialeNoto(t) {
+  return !!(t && _TUB_MATERIALI[t.materiale] && t.materiale_da && !['non letto', 'step'].includes(t.materiale_da));
+}
+/** Peso della riga se fosse acciaio (base del catalogo): per ricalcolare al cambio materiale. */
+function _tubPesoAcciaio(t) {
+  if (t.peso_kg_acciaio > 0) return t.peso_kg_acciaio;
+  // righe di prima con kg/m del catalogo e misura: dal kg/m (il peso salvato e' arrotondato)
+  if (t.kg_m > 0 && t.lunghezza_pezzo_mm > 0 && (!t.materiale || t.materiale === 'acciaio'))
+    return t.kg_m * t.lunghezza_pezzo_mm / 1000 * _qtaRiga(t);
+  const d = (_TUB_MATERIALI[t.materiale] || _TUB_MATERIALI.acciaio).dens;
+  return (t.peso_kg || 0) * _TUB_DENS_CATALOGO / d;
+}
+/** Applica materiale e €/kg alla riga tubo: peso con la densità, costo materiale. */
+function _tubApplicaMateriale(t, chiave, da, testo, T) {
+  T = T || _wbTariffeTubi();
+  const base = _tubPesoAcciaio(t);
+  const kgmBase = t.kg_m_acciaio > 0 ? t.kg_m_acciaio : (t.kg_m > 0 && !t.peso_kg_acciaio ? t.kg_m * _TUB_DENS_CATALOGO / (_TUB_MATERIALI[t.materiale] || _TUB_MATERIALI.acciaio).dens : 0);
+  const M = _TUB_MATERIALI[chiave] ? chiave : 'acciaio';
+  const f = _TUB_MATERIALI[M].dens / _TUB_DENS_CATALOGO;
+  t.materiale = M;
+  t.materiale_da = _TUB_MATERIALI[chiave] ? (da || 'a mano') : 'non letto';
+  if (testo) t.materiale_testo = String(testo).slice(0, 40); else delete t.materiale_testo;
+  t.peso_kg_acciaio = Math.round(base * 1000) / 1000;
+  if (kgmBase > 0) { t.kg_m_acciaio = Math.round(kgmBase * 1000) / 1000; t.kg_m = Math.round(kgmBase * f * 1000) / 1000; }
+  t.peso_kg = Math.round(base * f * 100) / 100;
+  t.euro_kg = T.mat[M];
+  t.costo_materiale = Math.round(base * f * t.euro_kg * 100) / 100;
+  return t;
+}
+/** "Inox · 3,2 kg × 4,50 €/kg = 14,40 €" e se va guardato (materiale non certo, €/kg a 0). */
+function _tubFormula(t) {
+  const M = _TUB_MATERIALI[t.materiale];
+  const f = v => (v || 0).toLocaleString('it-IT', { maximumFractionDigits: 2 });
+  const nome = M ? M.nome + (t.materiale_testo && M.nome.toUpperCase() !== String(t.materiale_testo).toUpperCase() ? ` ${t.materiale_testo}` : '') : (t.materiale || 'Materiale ?');
+  const ekg = t.euro_kg != null ? t.euro_kg : ((t.peso_kg || 0) > 0 ? (t.costo_materiale || 0) / t.peso_kg : 0);
+  const testo = `${nome} · ${f(t.peso_kg)} kg × ${ekg.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/kg = ${_eur(t.costo_materiale || 0)}`;
+  let avviso = '';
+  if (!_tubMaterialeNoto(t)) avviso = t.materiale_da ? 'materiale non letto: prezzato come ferro, sceglilo' : 'materiale mai controllato (riga di prima): rileggi la distinta o sceglilo';
+  else if (!(ekg > 0)) avviso = `€/kg ${M ? M.nome.toLowerCase() : ''} a 0: impostalo in Impostazioni → Tubolari`;
+  return { testo, avviso };
+}
+/** Riga tubo della distinta → tubolare dell'assieme (totali della riga, qty inclusa).
+    mat: {chiave, da, testo} (null = non letto: prezzato come ferro, da confermare). */
+function _wbTuboDaRiga(r, codAss, sub, qAss, T, mat) {
   const q = Math.max(1, (r.qta || 1) * qAss);
   const L = r.lunghezza_mm || 0, kgm = r.profilo.kg_m || 0;
   const peso = kgm * L / 1000 * q;
   const obl = [r.angolo_1, r.angolo_2].filter(a => a != null && Math.abs(a) > 0.01).length;
   const dritti = (2 - obl) * q, obliqui = obl * q;
-  return {
+  const t = {
     id: 'tmp-' + Date.now() + '-' + Math.random(), codice_assieme: codAss,
     profilo: r.profilo.nome, tipo: r.profilo.tipo, materiale: 'acciaio', qty: q,
-    lunghezza_m: L / 1000, lunghezza_pezzo_mm: L, angolo_1: r.angolo_1, angolo_2: r.angolo_2, kg_m: kgm,
-    peso_kg: Math.round(peso * 100) / 100,
-    costo_materiale: Math.round(peso * T.kg * 100) / 100,
+    lunghezza_m: L / 1000, lunghezza_pezzo_mm: L, angolo_1: r.angolo_1, angolo_2: r.angolo_2,
+    kg_m: kgm, kg_m_acciaio: kgm, peso_kg_acciaio: Math.round(peso * 1000) / 1000, peso_kg: Math.round(peso * 100) / 100,
     n_tagli_dritti: dritti, n_tagli_obliqui: obliqui,
     costo_taglio_totale: Math.round((dritti * T.dritto + obliqui * T.obliquo) * 100) / 100,
     costo_esterno: 0, origine: 'distinta', distinta: sub, posizione: r.pos,
   };
+  return _tubApplicaMateriale(t, mat && mat.chiave, mat && mat.da, mat && mat.testo, T);
+}
+/** Il materiale di una riga tubo della distinta: la riga stessa (colonna
+    Materiale, descrizione), poi il cartiglio del suo disegno, poi la riga
+    dell'assieme che lo cita. */
+function _wbMaterialeRigaTubo(x, subD, rigaAss, assD) {
+  let m = _tubMaterialeDaTesto(x.materiale, x.descrizione, x.descrizione_agg);
+  if (m) return Object.assign(m, { da: 'distinta' });
+  m = _tubMaterialeDaTesto(subD && subD.materiale);
+  if (m) return Object.assign(m, { da: 'disegno' });
+  m = rigaAss && _tubMaterialeDaTesto(rigaAss.materiale, rigaAss.descrizione, rigaAss.descrizione_agg);
+  if (m) return Object.assign(m, { da: 'assieme' });
+  m = _tubMaterialeDaTesto(assD && assD.materiale);
+  return m ? Object.assign(m, { da: 'disegno' }) : null;
 }
 /** Legge le distinte degli assiemi (tutti o uno) e propone le modifiche. */
 async function wbApplicaDistinte(codici, opts) {
@@ -8048,7 +8458,7 @@ async function wbApplicaDistinte(codici, opts) {
   const D = d.distinte || {};
   Object.assign(_wbDistinte, D);
   const T = _wbTariffeTubi();
-  const qty = [], tubi = [], togli = [], righe = [];
+  const qty = [], tubi = [], togli = [], righe = [], aggMat = [];
   for (const A of currentAssiemi) {
     const kA = _wbChiaveCod(A.codice_assieme);
     if (!cod.includes(A.codice_assieme) || !D[kA]) continue;
@@ -8058,13 +8468,30 @@ async function wbApplicaDistinte(codici, opts) {
       const sub = D[kr];
       const tubiSub = sub ? sub.righe.filter(x => x.profilo) : [];
       const art = currentArticoli.filter(a => _wbChiaveCod(a.codice || a.dxf_filename_originale || a.dxf_filename) === kr);
+      // gia' fatto tubo con "È un tubo": non si raddoppia; la distinta ne
+      // aggiorna solo il materiale (profilo e lunghezza restano quelli scelti)
+      const giaPezzo = tubiSub.length ? currentTubolari.filter(t => t.codice_pezzo && t.codice_assieme === A.codice_assieme
+        && _wbChiaveCod(t.codice_pezzo) === kr) : [];
+      if (giaPezzo.length) {
+        const m = _wbMaterialeRigaTubo(tubiSub[0], sub, r, D[kA]);
+        for (const t of giaPezzo) {
+          if (!m || (t.materiale_da === 'a mano' && _tubMaterialeNoto(t))) continue;
+          const prova = _tubApplicaMateriale(Object.assign({}, t), m.chiave, m.da, m.testo, T);
+          if (_tubMaterialeNoto(t) && t.materiale === prova.materiale && Math.abs((t.costo_materiale || 0) - prova.costo_materiale) < 0.01) continue;
+          aggMat.push([t, m]);
+          righe.push(`• ${t.codice_pezzo} (tubo ${t.profilo}): materiale ${_TUB_MATERIALI[m.chiave].nome} ${m.testo || ''} → ${_eur(t.costo_materiale || 0)} diventa ${_eur(prova.costo_materiale)}`);
+        }
+        continue;
+      }
       if (tubiSub.length) {
         // Sotto-assieme saldato di tubi (telaio): righe tubo nell'assieme,
         // il suo DXF non e' un pezzo da laser piano.
-        tubiSub.forEach(x => tubi.push(_wbTuboDaRiga(x, A.codice_assieme, kr, r.qta || 1, T)));
+        tubiSub.forEach(x => tubi.push(_wbTuboDaRiga(x, A.codice_assieme, kr, r.qta || 1, T, _wbMaterialeRigaTubo(x, sub, r, D[kA]))));
         art.forEach(a => togli.push(a));
-        const kg = tubiSub.reduce((s, x) => s + x.profilo.kg_m * x.lunghezza_mm / 1000 * x.qta, 0) * (r.qta || 1);
+        const nuovi = tubi.slice(-tubiSub.length);
+        const kg = nuovi.reduce((s, x) => s + x.peso_kg, 0);
         righe.push(`• ${r.codice}${r.qta > 1 ? ' ×' + r.qta : ''}: ${tubiSub.length} righe di tubo, ${kg.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kg`
+          + ` ${[...new Set(nuovi.map(x => _tubMaterialeNoto(x) ? _TUB_MATERIALI[x.materiale].nome + (x.materiale_testo ? ' ' + x.materiale_testo : '') : 'materiale non letto'))].join(', ')}`
           + (art.length ? ` — il suo DXF esce dai pezzi laser` : ''));
         // pezzi laser dentro il telaio (es. piastrine saldate): quantita' × telaio
         for (const x of sub.righe.filter(x => !x.profilo)) {
@@ -8074,7 +8501,7 @@ async function wbApplicaDistinte(codici, opts) {
             .forEach(a => qty.push([a, (x.qta || 1) * (r.qta || 1), A.codice_assieme]));
         }
       } else if (r.profilo) {
-        tubi.push(_wbTuboDaRiga(r, A.codice_assieme, kA, 1, T));
+        tubi.push(_wbTuboDaRiga(r, A.codice_assieme, kA, 1, T, _wbMaterialeRigaTubo(r, null, null, D[kA])));
         righe.push(`• ${r.codice}: ${r.profilo.nome} L ${r.lunghezza_mm} mm ×${r.qta}`);
       } else {
         art.forEach(a => qty.push([a, r.qta || 1, A.codice_assieme]));
@@ -8084,25 +8511,47 @@ async function wbApplicaDistinte(codici, opts) {
   const cambiQty = qty.filter(([a, q, c]) => (a.quantita || 1) !== q || a.codice_assieme !== c);
   // gia' applicata: stesse righe tubo, nessun DXF da togliere, quantita' uguali
   const giaTubi = currentTubolari.filter(t => t.origine === 'distinta');
+  // materiale scelto a mano su una riga gia' letta: resta (la rilettura non lo rimette)
+  for (const n of tubi) {
+    const v = giaTubi.find(g => g.codice_assieme === n.codice_assieme && g.distinta === n.distinta && g.posizione === n.posizione);
+    if (v && v.materiale_da === 'a mano' && _TUB_MATERIALI[v.materiale]) _tubApplicaMateriale(n, v.materiale, 'a mano', v.materiale_testo, T);
+  }
+  // stesse righe ma materiale o prezzo diversi (righe di prima, €/kg cambiato): si propone il ricalcolo
   const stessiTubi = giaTubi.length === tubi.length
-    && tubi.every(t => giaTubi.some(g => g.codice_assieme === t.codice_assieme && g.distinta === t.distinta && g.posizione === t.posizione && g.qty === t.qty));
-  if (!cambiQty.length && !togli.length && stessiTubi) {
+    && tubi.every(t => giaTubi.some(g => g.codice_assieme === t.codice_assieme && g.distinta === t.distinta && g.posizione === t.posizione && g.qty === t.qty
+      && g.materiale === t.materiale && (g.materiale_da || '') === t.materiale_da && Math.abs((g.costo_materiale || 0) - t.costo_materiale) < 0.01));
+  if (!cambiQty.length && !togli.length && stessiTubi && !aggMat.length) {
     if (!opts.auto) wbSnack(Object.keys(D).length ? 'Distinta già applicata: niente da cambiare' : 'Nessuna distinta leggibile nei PDF d\'assieme', Object.keys(D).length ? '' : 'warn');
     if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
     return false;
   }
   const kgTubi = tubi.reduce((s, t) => s + t.peso_kg, 0);
   const eurTubi = tubi.reduce((s, t) => s + t.costo_materiale + t.costo_taglio_totale, 0);
+  // materiale per materiale: "Inox 21,4 kg × 4,50 €/kg = 96,30 €"
+  const perMat = {};
+  for (const t of tubi) {
+    const k = _tubMaterialeNoto(t) ? t.materiale : '?';
+    const g = perMat[k] || (perMat[k] = { kg: 0, eur: 0, ekg: t.euro_kg });
+    g.kg += t.peso_kg; g.eur += t.costo_materiale;
+  }
+  const fKg = v => v.toLocaleString('it-IT', { maximumFractionDigits: 1 });
+  const vecchiEur = currentTubolari.filter(t => t.origine === 'distinta' && cod.includes(t.codice_assieme))
+    .reduce((s, t) => s + (t.costo_materiale || 0) + (t.costo_taglio_totale || 0), 0);
   const msg = [
     'Letto dai DISEGNI D\'ASSIEME (non dal tuo ordine): quanti pezzi servono per fare UN assieme.\n',
     ...cambiQty.map(([a, q]) => `• ${a.codice || a.dxf_filename}: ${a.quantita || 1} → ${q} per assieme`),
     ...righe,
-    tubi.length ? `\nTubi: ${kgTubi.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kg × ${_eur(T.kg)}/kg + tagli (${_eur(T.dritto)} dritto, ${_eur(T.obliquo)} obliquo) = ${_eur(eurTubi)}.`
+    tubi.length ? `\nTubi: ${fKg(kgTubi)} kg — ` + Object.entries(perMat).map(([k, g]) => k === '?'
+        ? `${fKg(g.kg)} kg con materiale NON letto, prezzati come ferro (${_eur(g.ekg)}/kg): sceglilo sulla riga`
+        : `${_TUB_MATERIALI[k].nome} ${fKg(g.kg)} kg × ${_eur(g.ekg)}/kg = ${_eur(g.eur)}`).join(' · ')
+      + ` + tagli (${_eur(T.dritto)} dritto, ${_eur(T.obliquo)} obliquo) = ${_eur(eurTubi)}`
+      + (vecchiEur > 0 && Math.abs(vecchiEur - eurTubi) >= 0.01 ? ` (prima ${_eur(vecchiEur)}).` : '.')
       + `\nIl taglio laser tubo fatto fuori lo scrivi sulla riga ("lavorazione esterna").` : '',
     `\nSaldatura e montaggio restano da inserire a mano.`,
   ].filter(Boolean).join('\n');
   if (!await appConfirm(msg, { title: 'ASSIEMI · componenti per ogni assieme', okLabel: 'Applica agli assiemi', cancelLabel: 'Non ora' })) return false;
   for (const [a, q, c] of cambiQty) { a.quantita = q; a.codice_assieme = c; }
+  for (const [t, m] of aggMat) _tubApplicaMateriale(t, m.chiave, m.da, m.testo, T);
   // rilettura: le righe tubo della distinta si rifanno, la lavorazione esterna scritta resta
   const vecchi = currentTubolari.filter(t => t.origine === 'distinta' && tubi.some(n => n.codice_assieme === t.codice_assieme && n.distinta === t.distinta));
   for (const n of tubi) {
@@ -8117,7 +8566,7 @@ async function wbApplicaDistinte(codici, opts) {
   scheduleSaveTubolari(300);
   try { renderSplitTree(); } catch (_) {}
   if (_splitAssIdx != null) wbRenderAssieme(_splitAssIdx);
-  wbSnack(`Distinta applicata${tubi.length ? ` · ${tubi.length} righe tubo` : ''}${togli.length ? ` · ${togli.length} DXF di telaio tolti dai pezzi` : ''}`);
+  wbSnack(`Distinta applicata${tubi.length ? ` · ${tubi.length} righe tubo` : ''}${togli.length ? ` · ${togli.length} DXF di telaio tolti dai pezzi` : ''}${aggMat.length ? ` · materiale aggiornato su ${aggMat.length} tubi` : ''}`);
   return true;
 }
 function saLeggiDistinta() {
@@ -10110,6 +10559,9 @@ async function stimaTutti(indici) {
   const lista = Array.isArray(indici) ? indici : currentArticoli.map((_, i) => i);
   let stimati = 0, errori = 0, fatti = 0;
   wbProg.apri(`Calcolo il costo di ${lista.length} pezzi`);
+  // pezzi in attesa della stima: le loro domande arrivano dopo, tutte insieme
+  const inAttesa = lista.map(i => currentArticoli[i]).filter(Boolean);
+  inAttesa.forEach(a => _wbInStima.add(a));
   try {
   for (const i of lista) {
     const a = currentArticoli[i];
@@ -10127,12 +10579,15 @@ async function stimaTutti(indici) {
       if (d.success) {
         _applicaStima(a, d.stima);
         recalcLavorazioniArt(a);
+        _wbInStima.delete(a);
         stimati++;
       } else errori++;
     } catch (e) { errori++; }
+    _wbInStima.delete(a);
   }
-  } finally { wbProg.chiudi(); }
+  } finally { wbProg.chiudi(); inAttesa.forEach(a => _wbInStima.delete(a)); }
   renderArticoli(); recalcTotali();
+  try { wbRenderCheck(); if (_splitSelectedIdx != null) wbPieceSync(_splitSelectedIdx); } catch (_) {}
   if (stimati) segnaArticoliModificati(300);
   showMsg('msg-import', `Stimati ${stimati} articoli, ${errori} saltati (manca materiale/spessore)`, errori ? 'var(--orange)' : 'var(--green)');
 }
@@ -10142,13 +10597,97 @@ async function stimaTutti(indici) {
     all'assieme via campo `codice_assieme`.
     ⚠ Il costo articoli figli è per-assieme (× articolo.quantita = pezzi per
     1 assieme). L'assieme.qty finale moltiplica poi l'intero pacchetto. */
-/** Quantita' di una riga tubolare/piastra (una riga STEP puo' valere N pezzi
-    uguali). Solo informativa: costi, peso e area della riga sono GIA' il totale
-    per N (cosi' li manda import-step e cosi' li somma il server), quindi non
-    si rimoltiplica. `qty` non e' salvato sul server: dopo la riapertura vale 1. */
+/** Pezzi di una riga tubolare/piastra (una riga STEP puo' valere N pezzi
+    uguali). Costi, peso e area della riga sono GIA' il totale per N, quindi
+    non si rimoltiplica per N. Una riga DENTRO un assieme vale per 1 assieme
+    (STEP, "Leggi distinta", "È un tubo", a mano: stessa regola): per tutte le
+    strutture si moltiplica per la quantita' dell'assieme, come fa il prezzo
+    (calcolo.py) e l'ordine. `qty` e' salvato (extra_campi). Vedi barre_tubi.py. */
 function _qtaRiga(r) { const n = parseInt(r && r.qty, 10); return n > 0 ? n : 1; }
 function _costoTubolare(t) { return (t.costo_materiale || 0) + (t.costo_taglio_totale || 0) + (parseFloat(t.costo_esterno) || 0); }
 function _costoPiastra(p) { return p.costo || 0; }
+
+// ── Barre da ordinare ─────────────────────────────────────────────
+// I tubi si comprano in barre (6 m): quante ne servono lo dice il piano di
+// taglio di "Da procurare" (backend procura.piano_barre), chiamato qui con i
+// tubi dell'editor (anche non ancora salvati). Niente copia del calcolo in JS.
+const _wbBarreCache = new Map();
+const _WB_CAMPI_BARRE = ['id', 'codice_assieme', 'profilo', 'materiale', 'materiale_testo', 'qty', 'lunghezza_m',
+  'lunghezza_pezzo_mm', 'peso_kg', 'kg_m', 'euro_kg', 'costo_materiale', 'costo_taglio_totale', 'costo_esterno',
+  'nota_esterno', 'codice_pezzo', 'posizione'];
+function _wbBarre(assieme) {
+  const tub = currentTubolari.filter(t => assieme == null || t.codice_assieme === assieme);
+  if (!tub.length || !currentPreventivo) return Promise.resolve(null);
+  const corpo = JSON.stringify({
+    tubolari: tub.map(t => Object.fromEntries(_WB_CAMPI_BARRE.filter(k => t[k] != null).map(k => [k, t[k]]))),
+    assiemi: currentAssiemi.map(A => ({ codice_assieme: A.codice_assieme, qty: A.qty || 1 })),
+    assieme: assieme == null ? null : assieme,
+  });
+  if (_wbBarreCache.has(corpo)) return _wbBarreCache.get(corpo);
+  if (_wbBarreCache.size > 40) _wbBarreCache.clear();
+  const pr = fetch(`${API_URL}/api/preventivi/barre-tubi`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo })
+    .then(r => r.json()).then(d => (d && d.success ? d : null)).catch(() => null);
+  _wbBarreCache.set(corpo, pr);
+  pr.then(d => { if (!d) _wbBarreCache.delete(corpo); });
+  return pr;
+}
+const _fNum = (v, d) => (v || 0).toLocaleString('it-IT', { minimumFractionDigits: d || 0, maximumFractionDigits: d == null ? 2 : d });
+/** "895 × 6 + 581": i tagli uguali di seguito raccolti. */
+function _wbTagliBarra(b) {
+  const out = [];
+  for (const x of b.tagli) {
+    const l = x.lunghezza_mm, u = out[out.length - 1];
+    if (u && u.l === l) u.n++; else out.push({ l, n: 1 });
+  }
+  return out.map(x => _fNum(x.l, 0) + (x.n > 1 ? ` × ${x.n}` : '')).join(' + ');
+}
+function _wbBarreHtml(d) {
+  const bm = _fNum((d.barra_mm || 6000) / 1000);
+  const righe = d.gruppi.map(g => {
+    const prof = `${escapeHtml(g.profilo)} ${escapeHtml(g.materiale_nome || '')}`.trim();
+    const oltre = (g.troppo_lunghi || []).length
+      ? `<small class="warn">${g.troppo_lunghi.length} pz più lunghi di una barra (${g.troppo_lunghi.map(x => _fNum(x.lunghezza_mm, 0) + ' mm').join(', ')}): da comprare a misura</small>` : '';
+    const senza = g.senza_lunghezza ? `<small class="warn">${g.senza_lunghezza} pz senza lunghezza: fuori dal conto</small>` : '';
+    const est = g.pz_esterni ? `<small>${g.pz_esterni === g.n_pezzi ? 'Tutti' : g.pz_esterni + ' pz'} tagliati al laser tubo: le barre le compri tu e le mandi al fornitore, che fa solo il taglio</small>` : '';
+    const piano = g.piano && g.piano.length ? `<details class="br-piano"><summary>Piano di taglio</summary><ol>${g.piano.map(b =>
+      `<li>${_wbTagliBarra(b)} mm · avanzo ${_fNum(b.sfrido_mm, 0)} mm</li>`).join('')}</ol></details>` : '';
+    return `<li data-chiave="${escapeHtml(g.chiave)}"><span class="br-prof">${prof}</span>: ${g.n_pezzi} pz, ${_fNum(g.metri)} m → <b class="br-n">${g.n_barre} ${g.n_barre === 1 ? 'barra' : 'barre'} da ${bm} m</b>
+      <small>Sfrido ${_fNum(g.sfrido_pct, 0)}% · pezzi ${_fNum(g.kg_usati, 1)} kg = ${_eur(g.eur_usati)} (in prezzo) · barre ${_fNum(g.kg_barre, 1)} kg = ${_eur(g.eur_barre)}</small>${est}${oltre}${senza}${piano}</li>`;
+  }).join('');
+  return `<ul class="br-list">${righe}</ul>`;
+}
+/** Barre nell'assieme: "Tubi per 3 strutture". */
+async function _saRenderBarre(A) {
+  const box = document.getElementById('sa-barre');
+  if (!box) return;
+  if (!A || !currentTubolari.some(t => t.codice_assieme === A.codice_assieme)) { box.innerHTML = ''; return; }
+  const cod = A.codice_assieme;
+  box.dataset.ass = cod;
+  const d = await _wbBarre(cod);
+  if (box.dataset.ass !== cod) return;           // nel frattempo aperto un altro assieme
+  if (!d || !d.gruppi.length) { box.innerHTML = ''; return; }
+  const n = A.qty || 1;
+  box.innerHTML = `<div class="pc-sec-head"><span>Tubi per ${n} ${n === 1 ? 'struttura' : 'strutture'}</span><span class="pc-sec-hint">barre da ordinare</span></div>
+    ${_wbBarreHtml(d)}`;
+}
+/** Scheda Prezzo: barre di tutto il preventivo (assiemi insieme: le barre si
+    dividono fra le strutture, quindi possono essere meno della somma per assieme). */
+let _wbBarreTimer = null;
+function wbRenderBarre() {
+  clearTimeout(_wbBarreTimer);
+  _wbBarreTimer = setTimeout(async () => {
+    const box = document.getElementById('wb-barre');
+    if (!box) return;
+    if (!currentTubolari.length) { box.innerHTML = ''; return; }
+    const d = await _wbBarre(null);
+    if (!d || !d.gruppi.length) { box.innerHTML = ''; return; }
+    const T = d.totali;
+    box.innerHTML = `<div class="rl-sec">Barre da ordinare <small>${T.n_barre} ${T.n_barre === 1 ? 'barra' : 'barre'} · ${T.n_pezzi} pz</small></div>
+      ${_wbBarreHtml(d)}
+      <div class="br-tot">Tubi in prezzo ${_eur(T.eur_usati)} (${_fNum(T.kg_usati, 1)} kg tagliati) · barre comprate ${_eur(T.eur_barre)} (${_fNum(T.kg_barre, 1)} kg)</div>
+      <div class="br-nota">Il prezzo conta i kg dei pezzi, non lo sfrido delle barre. Pezzi di tutte le strutture (pezzi per assieme × assiemi); lama ${_fNum(d.lama_mm)} mm.</div>`;
+  }, 250);
+}
 
 function computeAssiemeRollup(codice) {
   if (!codice) return { articoli:[], tubolari:[], piastre:[], peso_kg:0, costoBaseArticoli:0, costoLavArticoli:0, costoTubPia:0 };
@@ -11134,11 +11673,11 @@ function renderTubolari() {
       <td><code>${escapeHtml(t.profilo || '—')}</code>${_qtaRiga(t) > 1 ? ` <b title="Pezzi uguali: peso e costi della riga sono già il totale per ${_qtaRiga(t)} pezzi">× ${_qtaRiga(t)}</b>` : ''}${avvT}</td>
       <td><span class="badge gray">${escapeHtml(t.tipo || '—')}</span></td>
       <td>
-        <select class="cell-edit" onchange="updateTub(${i},'materiale',this.value)">
-          <option value="acciaio" ${t.materiale==='acciaio'?'selected':''}>acciaio</option>
-          <option value="inox" ${t.materiale==='inox'?'selected':''}>inox</option>
-          <option value="alluminio" ${t.materiale==='alluminio'?'selected':''}>alluminio</option>
+        <select class="cell-edit" onchange="cambiaMaterialeTub(${i},this.value)" title="Il costo materiale è peso × €/kg di questo materiale">
+          ${_tubMaterialeNoto(t) ? '' : '<option value="" selected>? da scegliere</option>'}
+          ${Object.entries(_TUB_MATERIALI).map(([k, M]) => `<option value="${k}" ${_tubMaterialeNoto(t) && t.materiale === k ? 'selected' : ''}>${M.nome.toLowerCase()}</option>`).join('')}
         </select>
+        ${(fm => `<div style="font-size:10px; ${fm.avviso ? 'color:#B45309;' : 'color:var(--gray-text);'}" title="${escapeHtml(fm.avviso || '')}">${escapeHtml(fm.testo)}${fm.avviso ? ' ⚠' : ''}</div>`)(_tubFormula(t))}
       </td>
       <td class="n">${(t.lunghezza_m||0).toFixed(3)}</td>
       <td class="n">${(t.peso_kg||0).toFixed(2)}</td>
@@ -11157,9 +11696,21 @@ function renderTubolari() {
   meta.textContent = `${n} tubolari • ${pesoTot.toFixed(1)} kg • ${formatEur(costoTot)} €`;
 }
 
+/** Materiale scelto sulla riga tubo: peso con la densità e €/kg di quel materiale. */
+function cambiaMaterialeTub(i, chiave) {
+  const t = currentTubolari[i];
+  if (!t || !_TUB_MATERIALI[chiave]) return;
+  _tubApplicaMateriale(t, chiave, 'a mano', null);
+  renderTubolari(); recalcTotali();
+  scheduleSaveTubolari();
+  if (_splitAssIdx != null) try { wbRenderAssieme(_splitAssIdx); } catch (_) {}
+}
+
 function updateTub(i, field, value, numeric) {
   if (!currentTubolari[i]) return;
   currentTubolari[i][field] = numeric ? parseFloat(value) || 0 : value;
+  // costo materiale scritto a mano: il €/kg mostrato si ricava dal costo
+  if (field === 'costo_materiale') delete currentTubolari[i].euro_kg;
   recalcTotali();
   scheduleSaveTubolari();
 }
@@ -11632,7 +12183,7 @@ async function uploadDxfBatch(files) {
     let ok = 0, err = 0, cached = 0;
     const toccati = new Set();   // indici degli articoli creati/aggiornati da QUESTO batch
     for (const result of (d.results || [])) {
-      if (!result.success) { err++; continue; }
+      if (!result.success) { if (!result.saltato) err++; continue; }
       _ultimoIdxDxf = -1;
       applyDxfResultToUI(result, result.filename || '');
       if (_ultimoIdxDxf >= 0) toccati.add(_ultimoIdxDxf);
@@ -13019,6 +13570,7 @@ function wbSync() {
   wbRenderFlow(K);
   wbRenderCheck();
   try { wbRenderSolidita(); } catch (e) { console.warn('solidita', e); }
+  try { wbRenderBarre(); } catch (e) { console.warn('barre', e); }
   wbRenderPareto(K);
   wbRenderPieceRail(K);
   wbRenderChips();
@@ -13160,11 +13712,32 @@ function _wbMm(v) { return String(Math.round(v * 100) / 100).replace('.', ','); 
 
 /** Problemi del pezzo come azioni guidate: cosa si e' rilevato, perche'
     c'e' incertezza, cosa si e' scelto, come si risolve. Livelli: err blocca
-    l'invio, warn va verificato, info e' solo da sapere. */
+    l'invio, warn va verificato, info e' solo da sapere.
+    Ogni problema ha una chiave stabile `k` (per il registro delle conferme)
+    e ogni azione dice se e' una RISPOSTA (`r`: chiude la domanda) o solo un
+    modo per andare a vedere (CAD, campo da scrivere). */
+const _WB_RISPOSTA = /^(Ho verificato|Va bene|Conferma|Usa |È corretto|Rimetti|Torna alla stima)/;
 function wbProblemi(a) {
+  _wbRipristinaIncerti(a);
+  const P = _wbProblemiCalcola(a);
+  for (const p of P) {
+    p.k = p.k || String(p.g || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    for (const z of (p.az || [])) if (z.r == null) z.r = _WB_RISPOSTA.test(z.l);
+  }
+  return P;
+}
+function _wbProblemiCalcola(a) {
   const P = [];
   if (!a) return P;
   const manuale = a.costo_base_override != null;
+  if (a.ordine && a.ordine.senza_disegno && !a.dxf_filename) {
+    // Riga dell'ordine senza disegno (guida in plastica, commerciale): non si
+    // taglia, niente materiale/spessore/contorno. Serve solo il prezzo.
+    if (!manuale) P.push({ l: 'err', g: 'Senza disegno', t: 'Riga dell\'ordine senza disegno: prezzo da scrivere a mano',
+      s: `${a.ordine.descrizione ? a.ordine.descrizione + ' — ' : ''}nel pacchetto non c'è il disegno: non è un pezzo laser (es. da procurare). Scrivi il costo per pezzo.`,
+      az: [{ l: 'Scrivi il prezzo', p: 1, f: i => wbCostoAMano(i) }] });
+    return P;
+  }
   if (!a.materiale) {
     const s = a._materiale_suggerito;
     P.push({ l: 'err', g: 'Materiale mancante', t: 'Materiale mancante',
@@ -13237,7 +13810,8 @@ function wbProblemi(a) {
   // del pezzo) dava un prezzo sbagliato senza nessun segnale.
   if (!manuale) {
     const ck = _wbControlliCoerenza(a);
-    if (ck.peso && !ck.peso.ok && !_wbVistoOk(a, 'peso')) {
+    const cadAMano = _wbCadAMano(a);
+    if (ck.peso && !ck.peso.ok && !_wbVistoOk(a, 'peso') && !cadAMano) {
       const q = ck.peso;
       P.push({ l: q.grave && !a.geometria_manuale_confermata ? 'err' : 'warn', g: 'Peso diverso dal cartiglio',
         t: `Peso ${_wbKg(q.app)} kg, nel cartiglio ${_wbKg(q.cartiglio)} kg`,
@@ -13253,7 +13827,7 @@ function wbProblemi(a) {
           .concat([{ l: 'Sviluppo guidato', f: () => wbSviluppo(true) },
                    { l: 'Ho verificato', f: i => wbVistoOk(i, 'peso') }]) });
     }
-    if (ck.quote && !ck.quote.ok && !_wbVistoOk(a, 'quote')) {
+    if (ck.quote && !ck.quote.ok && !_wbVistoOk(a, 'quote') && !cadAMano) {
       P.push({ l: 'warn', g: 'Ingombro senza riscontro nelle quote',
         t: `Ingombro ${_wbMm(ck.quote.w)} × ${_wbMm(ck.quote.h)} mm: nessuna quota del disegno corrisponde`,
         s: 'Il cartiglio non ha il peso, quindi si controlla con le quote: di solito lunghezza o larghezza del pezzo sono quotate. Il contorno preso potrebbe essere una vista, un dettaglio o la cornice.',
@@ -13297,13 +13871,13 @@ function wbProblemi(a) {
   }
   const conf = (v) => v != null && v < 0.7;
   if (a.materiale && conf(a._materiale_conf)) {
-    P.push({ l: 'warn', g: 'Materiale da confermare', t: `Materiale da confermare: ${String(a.materiale).replace(/_/g, ' ')}`,
+    P.push({ l: 'warn', g: 'Materiale da confermare', k: 'materiale_conf', t:`Materiale da confermare: ${String(a.materiale).replace(/_/g, ' ')}`,
       s: `Letto dal cartiglio con confidenza ${Math.round(a._materiale_conf * 100)}%.`,
       az: [{ l: `Conferma ${String(a.materiale).replace(/_/g, ' ')}`, p: 1, f: i => wbConferma(i, 'materiale') }, { l: 'Cambia', f: () => wbFocus('sd-materiale') }] });
   }
   const _discord = [].concat(a._spessore_warnings || [], a.avvisi_spessore || []).some(w => /discordante/i.test(w));
   if (a.spessore_mm > 0 && conf(a._spessore_conf) && !_discord) {
-    P.push({ l: 'warn', g: 'Spessore da confermare', t: `Spessore da confermare: ${_wbMm(a.spessore_mm)} mm`,
+    P.push({ l: 'warn', g: 'Spessore da confermare', k: 'spessore', t: `Spessore da confermare: ${_wbMm(a.spessore_mm)} mm`,
       s: `Ricavato con confidenza ${Math.round(a._spessore_conf * 100)}%.`,
       az: [{ l: `Conferma ${_wbMm(a.spessore_mm)} mm`, p: 1, f: i => wbConferma(i, 'spessore_mm') }, { l: 'Cambia', f: () => wbFocus('sd-spessore') }] });
   }
@@ -13318,16 +13892,30 @@ function wbProblemi(a) {
       const scelto = a.spessore_mm || v1;
       const altro = Math.abs(scelto - v1) < 0.01 ? v2 : v1;
       const fs = Math.abs(scelto - v1) < 0.01 ? m[2] : m[4], fa = Math.abs(scelto - v1) < 0.01 ? m[4] : m[2];
-      P.push({ l: 'warn', g: 'Spessore da confermare', t: `Spessore: ${_wbMm(scelto)} o ${_wbMm(altro)} mm?`,
-        s: `${_wbFonte(fs).replace(/^./, c => c.toUpperCase())} indica ${_wbMm(scelto)} mm, ${_wbFonte(fa)} fa pensare a ${_wbMm(altro)} mm. È stato scelto ${_wbMm(scelto)} mm.`,
+      // Cosa succede al peso con l'una o l'altra scelta: la conseguenza si
+      // vede PRIMA di rispondere (prima "Usa 4 mm" faceva comparire dopo
+      // "Peso diverso dal cartiglio" e "Contorno da verificare").
+      let conseguenza = '';
+      const pc = a.verifica && a.verifica.peso_cartiglio, pz = _pesoArticoloKg(a);
+      if (pc && pc.peso_kg > 0 && pz > 0 && scelto > 0 && altro > 0) {
+        const torna = v => Math.abs(v / pc.peso_kg - 1) <= 0.15 || Math.abs(v - pc.peso_kg) <= 0.015;
+        const pa = pz * altro / scelto;
+        conseguenza = ` Peso: con ${_wbMm(scelto)} mm ${_wbKg(pz)} kg${torna(pz) ? ' (torna col cartiglio)' : ''}, `
+          + `con ${_wbMm(altro)} mm ${_wbKg(pa)} kg${torna(pa) ? ' (torna col cartiglio)' : ''}; il cartiglio dice ${_wbKg(pc.peso_kg)} kg.`;
+      }
+      P.push({ l: 'warn', g: 'Spessore da confermare', k: 'spessore', t: `Spessore: ${_wbMm(scelto)} o ${_wbMm(altro)} mm?`,
+        s: `${_wbFonte(fs).replace(/^./, c => c.toUpperCase())} indica ${_wbMm(scelto)} mm, ${_wbFonte(fa)} fa pensare a ${_wbMm(altro)} mm. È stato scelto ${_wbMm(scelto)} mm.` + conseguenza,
         az: [{ l: `Conferma ${_wbMm(scelto)} mm`, p: 1, f: i => wbRisolviAvviso(i, w, 'spessore_mm', scelto) },
              { l: `Usa ${_wbMm(altro)} mm`, f: i => wbRisolviAvviso(i, w, 'spessore_mm', altro) }] });
       continue;
     }
+    // Un avviso gia' visto non torna: la stima riscrive avvisi_stima a ogni
+    // ricalcolo e "Ho verificato" si perdeva al primo cambio del pezzo.
+    if (_wbConfFatta(a, 'avviso:' + w)) continue;
     const breve = w.length > 110 ? w.slice(0, 107) + '…' : w;
-    P.push({ l: 'warn', g: /fuori tabella/i.test(w) ? 'Spessore fuori tabella' : 'Stima da verificare', t: breve,
+    P.push({ l: 'warn', g: /fuori tabella/i.test(w) ? 'Spessore fuori tabella' : 'Stima da verificare', k: 'avviso:' + w, t: breve,
       s: /fuori tabella/i.test(w) ? 'La velocità di taglio è quella dello spessore più vicino disponibile.' : '',
-      az: [{ l: 'Ho verificato', f: i => wbRisolviAvviso(i, w) }] });
+      az: [{ l: 'Ho verificato', p: 1, f: i => wbRisolviAvviso(i, w) }] });
   }
   if (a._sald_stima_metro) {
     P.push({ l: 'warn', g: 'Saldatura stimata a metro', t: 'Saldatura stimata a metro',
@@ -13336,11 +13924,216 @@ function wbProblemi(a) {
   }
   for (const x of wbAnomalie(a)) {
     const contorno = /ingombro/i.test(x.t);
-    P.push({ l: x.l, g: contorno ? 'Ingombro incoerente' : (x.l === 'info' ? 'Da sapere' : 'Da verificare'), t: x.t, s: '',
-      az: contorno ? [{ l: 'Rivedi contorno', p: 1, f: () => openCadEditor() }] : [] });
+    // Ogni domanda deve avere una risposta: prima "Spessore insolito" non
+    // si poteva chiudere e il pezzo restava "da fare" per sempre.
+    if (x.l !== 'info' && _wbConfFatta(a, 'anomalia:' + x.t)) continue;
+    const hv = x.l === 'info' ? [] : [{ l: 'Ho verificato', p: contorno ? 0 : 1, f: i => _wbDopoRisolto(i, 'Segnato come verificato') }];
+    P.push({ l: x.l, g: contorno ? 'Ingombro incoerente' : (x.l === 'info' ? 'Da sapere' : 'Da verificare'), k: 'anomalia:' + x.t, t: x.t, s: '',
+      az: (contorno ? [{ l: 'Rivedi contorno', p: 1, f: () => openCadEditor() }] : []).concat(hv) });
   }
   return P;
 }
+// ═════════════ CONFERME DEL PEZZO (registro) ═════════════
+/** Registro delle domande di ogni pezzo, salvato col pezzo (`conferme`).
+    Prima le domande si ricalcolavano a ogni clic dai dati del momento, e
+    il pezzo cambiava sotto gli occhi: una risposta ne faceva sparire altre
+    senza dirlo ("Ho verificato" sul peso chiudeva anche il contorno), ne
+    faceva nascere di nuove ("Usa 4 mm" → peso e contorno), i controlli in
+    sottofondo aggiungevano e toglievano domande nel primo minuto, e dopo la
+    riapertura le domande sul cartiglio incerto sparivano senza risposta
+    (la confidenza non si salvava). Ora:
+     - le domande del pezzo si mostrano TUTTE insieme, quando i controlli in
+       sottofondo del pezzo sono finiti (prima: "controllo in corso");
+     - una domanda chiusa da un'altra risposta resta scritta "risolta da …";
+     - una domanda nuova o riaperta dice perché (cosa e' cambiato);
+     - le risposte si salvano col pezzo e valgono dopo riapertura e ricalcoli. */
+const _WB_CAMPI_FIRMA = {
+  materiale: ['è cambiato il materiale', v => String(v || '—').replace(/_/g, ' ')],
+  spessore: ['è cambiato lo spessore', v => `${_wbMm(v || 0)} mm`],
+  area: ['è cambiato il contorno', v => `${_wbKg(v || 0)} dm²`],
+  taglio: ['è cambiato il taglio', v => `${_wbKg(v || 0)} m`],
+  inneschi: ['sono cambiati gli inneschi', v => String(v || 0)],
+  pieghe: ['sono cambiate le pieghe', v => String(v || 0)],
+  disegno: ['è cambiato il disegno', v => String(v || '—')],
+  costo: ['è cambiato il costo a mano', v => (v == null ? 'stima' : formatEurStr(v))],
+};
+/** I dati da cui dipendono le domande, per dire "riaperta perché …". */
+function _wbFirmaPezzo(a) {
+  const r = (v, d) => (v == null || v === '' || isNaN(parseFloat(v)) ? null : Math.round(parseFloat(v) * d) / d);
+  return { materiale: a.materiale || null, spessore: r(a.spessore_mm, 100), area: r(a.area_dm2, 100),
+           taglio: r(a.perimetro_taglio_m, 100), inneschi: a.n_forature || 0, pieghe: a.pieghe || 0,
+           disegno: a.dxf_filename || null, costo: a.costo_base_override != null ? a.costo_base_override : null };
+}
+/** "è cambiato lo spessore (5 → 4 mm)" fra due firme, o ''. */
+function _wbMotivoCambio(prima, ora) {
+  if (!prima || !ora) return '';
+  const diff = Object.keys(_WB_CAMPI_FIRMA)
+    .filter(c => c in prima && String(prima[c] == null ? '' : prima[c]) !== String(ora[c] == null ? '' : ora[c]));
+  return diff.slice(0, 2).map(c => {
+    const [frase, fmt] = _WB_CAMPI_FIRMA[c];
+    return `${frase} (${fmt(prima[c])} → ${fmt(ora[c])})`;
+  }).join(' e ');
+}
+function _wbRegistro(a) {
+  if (!a.conferme || typeof a.conferme !== 'object' || !a.conferme.d || typeof a.conferme.d !== 'object') {
+    a.conferme = Object.assign({}, a.conferme && typeof a.conferme === 'object' ? a.conferme : {}, { d: {} });
+  }
+  return a.conferme;
+}
+/** La domanda `k` ha avuto risposta (per gli avvisi che si riscrivono a ogni stima). */
+function _wbConfFatta(a, k) {
+  const e = a && a.conferme && a.conferme.d && a.conferme.d[k];
+  return !!(e && e.stato === 'fatta');
+}
+/** Confidenza di materiale e spessore letti dal cartiglio: i campi "_" non si
+    salvano, e alla riapertura "Materiale/Spessore da confermare" sparivano
+    senza risposta. Si tengono nel registro e si rimettono. */
+function _wbRipristinaIncerti(a) {
+  if (!a) return;
+  const R = a.conferme && a.conferme.incerti;
+  if (R) {
+    if (a._materiale_conf == null && R.materiale != null) a._materiale_conf = R.materiale;
+    if (a._spessore_conf == null && R.spessore != null) a._spessore_conf = R.spessore;
+    if (a._materiale_suggerito == null && R.suggerito && !a.materiale) a._materiale_suggerito = R.suggerito;
+  }
+  if (a._materiale_conf != null || a._spessore_conf != null || a._materiale_suggerito) {
+    const reg = _wbRegistro(a), inc = Object.assign({}, reg.incerti || {});
+    if (a._materiale_conf != null) inc.materiale = a._materiale_conf;
+    if (a._spessore_conf != null) inc.spessore = a._spessore_conf;
+    if (a._materiale_suggerito) inc.suggerito = a._materiale_suggerito; else delete inc.suggerito;
+    reg.incerti = inc;
+  }
+}
+/** Il pezzo e' ancora sotto controllo in sottofondo (peso del cartiglio,
+    STEP, correzione del contorno, stima): le sue domande non sono ancora
+    tutte note, e mostrarle a meta' le faceva comparire e sparire. */
+let _wbVerAttesa = false;
+const _wbInStima = new Set();
+function _wbInControllo(a) {
+  if (!a || !currentPreventivo || (currentPreventivo.status || 'BOZZA') !== 'BOZZA') return false;
+  if (_wbInStima.has(a)) return true;
+  if (_wbAutoGiro && _wbDaCorreggereAuto(a)) return true;
+  if (!(a.dxf_filename || a.codice)) return false;
+  return _wbDaVerificare(a) && !!(_wbVerAttesa || _wbVerGiro || _wbImportProf > 0);
+}
+/** Il pezzo aspetta ancora la verifica di coerenza: non fatta per questo
+    disegno e non ancora tentata. Un tentativo fallito (server, file mancante)
+    non si ripete a ogni ridisegno: prima la pagina riprogrammava la verifica
+    a ogni ridisegno, il giro finito ridisegnava, e il pezzo passava di
+    continuo da "controllo in corso" alle domande (ogni secondo). */
+const _wbVerTentati = new WeakMap();
+function _wbChiaveVer(a) { return `${a.dxf_filename || ''}|${a.codice || ''}`; }
+function _wbDaVerificare(a) {
+  if (!a || !(a.dxf_filename || a.codice)) return false;
+  const chiave = _wbChiaveVer(a);
+  if (a.verifica && a.verifica.versione === _WB_VERIFICA_VER && a.verifica._chiave === chiave) return false;
+  return _wbVerTentati.get(a) !== chiave;
+}
+/** Domande che non sono conferme ma dati da completare: chiuse, non si elencano. */
+const _WB_SOLO_DATI = new Set(['Costo non calcolato', 'Geometria mancante', 'Spessore mancante', 'Materiale mancante', 'Senza disegno']);
+/** Le domande del pezzo, tutte insieme, col registro aggiornato:
+    {aperte: [problema + stato/nuova/riaperta], chiuse: [voce registro], info, inControllo}. */
+function wbConferme(a) {
+  const out = { aperte: [], chiuse: [], info: [], inControllo: false };
+  if (!a) return out;
+  const P = wbProblemi(a);
+  out.info = P.filter(p => p.l === 'info');
+  const Q = P.filter(p => p.l !== 'info');
+  if (_wbInControllo(a)) { out.inControllo = true; out.aperte = Q; return out; }
+  const reg = _wbRegistro(a), D = reg.d, ora = _wbFirmaPezzo(a), adesso = Date.now();
+  const ult = reg.ultima && adesso - (reg.ultima.t || 0) < 15 * 60000 ? reg.ultima : null;
+  const perUltima = (k) => (ult && ult.k !== k ? `«${ult.l}»${ult.g ? ` su ${ult.g.toLowerCase()}` : ''}` : '');
+  const presenti = new Set(Q.map(p => p.k));
+  // Chiuse: c'erano, ora la condizione non c'e' piu'
+  for (const [k, e] of Object.entries(D)) {
+    if (presenti.has(k) || !e) continue;
+    if (e.stato === 'aperta') {
+      if (ult && ult.k === k) { e.stato = 'fatta'; e.risposta = ult.l; }
+      else {
+        e.stato = 'risolta';
+        const pu = perUltima(k);
+        e.da = pu ? `da ${pu}` : (_wbMotivoCambio(reg.firma, ora) ? `perché ${_wbMotivoCambio(reg.firma, ora)}` : 'dai dati aggiornati');
+      }
+      e.quando = adesso; e.firma = ora;
+      delete e.nuova; delete e.riaperta;
+    } else if (!e.firma) e.firma = ora;                       // risposta appena data: dati dopo la risposta
+  }
+  // Aperte: tutte, anche quelle nate da una risposta (con il perché)
+  for (const p of Q) {
+    let e = D[p.k];
+    if (!e) {
+      e = D[p.k] = { stato: 'aperta' };
+      if (reg.vista) {
+        const m = _wbMotivoCambio(reg.firma, ora), pu = perUltima(p.k);
+        e.nuova = m ? `perché ${m}` : (pu ? `dopo ${pu}` : 'da un nuovo controllo del disegno');
+      }
+    } else if ((e.stato === 'fatta' || e.stato === 'risolta') && e.firma) {
+      const m = _wbMotivoCambio(e.firma, ora), pu = perUltima(p.k);
+      e.riaperta = m ? `perché ${m}` : (pu ? `dopo ${pu}` : 'perché i dati del pezzo sono cambiati');
+      e.stato = 'aperta';
+      delete e.risposta; delete e.da; delete e.firma; delete e.nuova;
+    }
+    e.g = p.g; e.t = String(p.t || '').slice(0, 200); e.l = p.l;
+    out.aperte.push(Object.assign({}, p, { nuova: e.nuova || null, riaperta: e.riaperta || null }));
+  }
+  for (const [k, e] of Object.entries(D)) {
+    if (presenti.has(k) || !e || (e.stato !== 'fatta' && e.stato !== 'risolta')) continue;
+    if (e.stato === 'risolta' && _WB_SOLO_DATI.has(e.g)) continue;
+    out.chiuse.push(Object.assign({ k }, e));
+  }
+  out.chiuse.sort((x, y) => (y.quando || 0) - (x.quando || 0));
+  // Il registro non cresce senza fine: via le voci chiuse piu' vecchie
+  const chiavi = Object.keys(D);
+  if (chiavi.length > 50) {
+    chiavi.filter(k => !presenti.has(k) && D[k].stato !== 'fatta')
+      .sort((x, y) => (D[x].quando || 0) - (D[y].quando || 0)).slice(0, chiavi.length - 50).forEach(k => delete D[k]);
+  }
+  reg.vista = true; reg.firma = ora;
+  return out;
+}
+/** Prima di eseguire un'azione: si annota la risposta (o il "vado a vedere"),
+    cosi' le domande che si chiudono per effetto suo dicono "risolta da …". */
+function _wbAnnotaRisposta(a, z) {
+  if (!a || !z || !z.k) return;
+  const reg = _wbRegistro(a);
+  reg.ultima = { k: z.k, g: z.g || '', l: z.l, r: !!z.r, t: Date.now() };
+  if (z.r) {
+    const e = Object.assign({}, reg.d[z.k] || {}, { stato: 'fatta', risposta: z.l, quando: Date.now(), g: z.g, l: z.lv });
+    delete e.firma; delete e.nuova; delete e.riaperta; delete e.da;
+    reg.d[z.k] = e;
+  }
+}
+/** La risposta proposta di una domanda (il tasto principale, se e' una risposta). */
+function _wbProposta(p) { return (p.az || []).find(z => z.p && z.r) || null; }
+/** "Conferma tutto": applica, una alla volta, le risposte proposte delle
+    domande aperte del pezzo. Le domande che non hanno una proposta (peso
+    diverso, contorno incerto) restano: vanno guardate. */
+async function wbConfermaTutto(i) {
+  const a = currentArticoli[i];
+  if (!a || _wbInControllo(a)) return;
+  const tentate = new Set(), fatte = [];
+  for (let giro = 0; giro < 20; giro++) {
+    const p = wbConferme(a).aperte.find(q => !tentate.has(q.k) && _wbProposta(q));
+    if (!p) break;
+    tentate.add(p.k);
+    const z = _wbProposta(p);
+    _wbAnnotaRisposta(a, Object.assign({}, z, { k: p.k, g: p.g, lv: p.l }));
+    try { await z.f(i); } catch (e) { console.warn(e); }
+    fatte.push(z.l);
+  }
+  _wbDopoRisolto(i, fatte.length ? `Confermate ${fatte.length} proposte: ${fatte.join(', ')}` : 'Nessuna proposta da confermare');
+}
+/** Conteggio per il preventivo: domande aperte, pezzi da fare, pezzi in controllo. */
+function wbContaConferme() {
+  let domande = 0, pezzi = 0, inControllo = 0;
+  currentArticoli.forEach(a => {
+    const C = wbConferme(a);
+    if (C.inControllo) { inControllo++; return; }
+    if (C.aperte.length) { pezzi++; domande += C.aperte.length; }
+  });
+  return { domande, pezzi, inControllo, tot: currentArticoli.length };
+}
+
 // ═════════════ VERIFICA DI COERENZA (fonti indipendenti) ═════════════
 /** Peso del cartiglio e STEP dello stesso pezzo, letti dal server in sola
     lettura (/verifica-pezzo) e salvati sul pezzo in `verifica`. Il
@@ -13355,11 +14148,24 @@ function _wbKg(v) { return (v || 0).toLocaleString('it-IT', { maximumFractionDig
 function _wbFirmaGeo(a) {
   return [a.area_dm2, a.spessore_mm, a.materiale, a.perimetro_taglio_m, a.n_forature, a.pieghe].join('|');
 }
-function _wbVistoOk(a, k) { return !!(a && a.verifica_ok && a.verifica_ok[k] === _wbFirmaGeo(a)); }
+/** Solo i dati che QUEL controllo guarda: prima ogni "Ho verificato" valeva
+    per area, spessore, materiale, taglio, inneschi e pieghe insieme, e un
+    ricalcolo del taglio o delle lavorazioni faceva ricomparire il peso. */
+function _wbFirmaVisto(a, k) {
+  const r = v => (v == null || v === '' ? '' : String(Math.round(parseFloat(v) * 1000) / 1000));
+  if (k === 'peso' || k === 'materiale') return ['v2', r(a.area_dm2), r(a.spessore_mm), a.materiale || ''].join('|');
+  if (k === 'materiale_cartiglio') return ['v2', a.materiale || ''].join('|');
+  if (k === 'quote') return ['v2', r(a.area_dm2), r(a.bbox_w_mm), r(a.bbox_h_mm)].join('|');
+  return _wbFirmaGeo(a);
+}
+function _wbVistoOk(a, k) {
+  const v = a && a.verifica_ok && a.verifica_ok[k];
+  return !!v && (v === _wbFirmaVisto(a, k) || v === _wbFirmaGeo(a));   // anche i "visto" salvati prima
+}
 function wbVistoOk(i, k) {
   const a = currentArticoli[i];
   if (!a) return;
-  a.verifica_ok = Object.assign({}, a.verifica_ok || {}, { [k]: _wbFirmaGeo(a) });
+  a.verifica_ok = Object.assign({}, a.verifica_ok || {}, { [k]: _wbFirmaVisto(a, k) });
   _wbDopoRisolto(i, 'Segnato come verificato');
 }
 /** Esito dei controlli: {peso: {ok, grave, app, cartiglio}|null, step: {ok, grave, diff, file}|null}. */
@@ -13429,6 +14235,7 @@ async function wbVerifica(i, forza) {
   if (!forza && a.verifica && a.verifica.versione === _WB_VERIFICA_VER && a.verifica._chiave === chiave) return false;
   if (_wbVerInCorso.has(a)) return false;
   _wbVerInCorso.add(a);
+  _wbVerTentati.set(a, chiave);          // una volta per disegno, anche se non riesce
   try {
     const q = new URLSearchParams({ dxf: a.dxf_filename || '', codice: a.codice || '' });
     const r = await fetch(`${API_URL}/api/preventivi/${currentPreventivo.id}/verifica-pezzo?${q}`);
@@ -13443,14 +14250,20 @@ async function wbVerifica(i, forza) {
 /** Verifica in sottofondo i pezzi non ancora verificati (dopo apertura e import). */
 let _wbVerTimer = null, _wbVerGiro = false;
 function _wbVerificaProgramma() {
+  // Niente da verificare (il caso normale a pezzi gia' verificati): nessun
+  // giro, nessun ridisegno. Era il ciclo che faceva "lampeggiare" le domande.
+  if (!currentPreventivo || !currentArticoli.some(_wbDaVerificare)) return;
   clearTimeout(_wbVerTimer);
+  _wbVerAttesa = true;                 // i pezzi non ancora verificati sono "in controllo"
   _wbVerTimer = setTimeout(async () => {
-    if (_wbVerGiro || !currentPreventivo) return;
+    if (!currentPreventivo) { _wbVerAttesa = false; return; }
+    if (_wbVerGiro) { setTimeout(_wbVerificaProgramma, 1500); return; }   // finito il giro in corso, si riparte
     _wbVerGiro = true;
+    _wbVerAttesa = false;
     const pid = currentPreventivo.id;
     let cambiati = 0;
     try {
-      const lista = currentArticoli.map((_, i) => i);
+      const lista = currentArticoli.map((_, i) => i).filter(i => _wbDaVerificare(currentArticoli[i]));
       for (let k = 0; k < lista.length; k += 3) {
         const esiti = await Promise.all(lista.slice(k, k + 3).map(i => wbVerifica(i)));
         if (!currentPreventivo || currentPreventivo.id !== pid) return;   // aperto un altro preventivo
@@ -13462,8 +14275,15 @@ function _wbVerificaProgramma() {
       if (_splitSelectedIdx != null) { try { wbPieceSync(_splitSelectedIdx); } catch (_) {} }
       segnaArticoliModificati(1500);
     }
-    _wbCorreggiContorniAuto();
+    try { await _wbCorreggiContorniAuto(); } catch (_) {}
+    // Controlli finiti: le domande dei pezzi ora sono tutte note
+    if (currentPreventivo && currentPreventivo.id === pid) _wbRidisegnaConferme();
   }, 900);
+}
+function _wbRidisegnaConferme() {
+  try { renderSplitTree(); } catch (_) {}
+  if (_splitSelectedIdx != null) { try { wbPieceSync(_splitSelectedIdx); } catch (_) {} }
+  try { wbRenderCheck(); wbRenderChips(); } catch (_) {}
 }
 
 // ── Correzione automatica del contorno col peso del cartiglio ──
@@ -13475,7 +14295,16 @@ function _wbVerificaProgramma() {
 function _wbChiaveAuto(a) { return `${a.dxf_filename || ''}|${a.spessore_mm || ''}|${a.materiale || ''}`; }
 function _wbAutoDaConfermare(a) {
   return !!(a && a.contorno_auto && a.contorno_auto.stato === 'da_confermare'
-            && a.contorno_auto.chiave === _wbChiaveAuto(a));
+            && a.contorno_auto.chiave === _wbChiaveAuto(a) && !_wbCadAMano(a));
+}
+/** Contorno confermato a mano nel CAD (o scelto a mano sul disegno): e'
+    la parola dell'operatore. Niente piu' domande sul contorno e niente
+    correzione automatica, finche' non cambia il file del disegno. */
+function _wbCadAMano(a) {
+  if (!a || !a.dxf_filename) return false;
+  const ca = a.contorno_auto;
+  if (ca && ca.stato === 'confermato' && ca.chiave === 'cad|' + a.dxf_filename) return true;
+  return !!a.geometria_manuale_confermata && /^manual-/.test(String(a.geometry_source || ''));
 }
 function _wbDaCorreggereAuto(a) {
   // Anche i contorni gia' confermati: sul preventivo DECA 22 pezzi "confermati"
@@ -13484,6 +14313,7 @@ function _wbDaCorreggereAuto(a) {
   if (!a || !a.dxf_filename || a.costo_base_override != null) return false;
   if (a.geometry_source === 'sviluppo' || a.geometry_source === 'step') return false;   // scelte esplicite
   if (a.pezzo_manuale) return false;                                                    // misure scritte a mano
+  if (_wbCadAMano(a)) return false;                                                     // confermato a mano nel CAD
   if (!(a.spessore_mm > 0) || !_densitaMateriale(a.materiale)) return false;
   // Con materiale o spessore incerti il peso non dice nulla sul contorno: si
   // troverebbe il contorno sbagliato che "pesa giusto" con la densita' sbagliata.
@@ -13749,6 +14579,7 @@ function wbAz(n) {
   const x = _wbAz[n];
   if (!x) return;
   const i = _splitSelectedIdx;
+  _wbAnnotaRisposta(currentArticoli[i], x);
   try { x.f(i); } catch (e) { console.warn(e); }
 }
 function wbFocus(id) {
@@ -13763,6 +14594,13 @@ function _wbDopoRisolto(i, msg) {
   if (_splitSelectedIdx === i) wbPieceSync(i);
   recalcTotali();
   wbSnack(msg);
+  // Confermati materiale o spessore, la correzione del contorno col peso del
+  // cartiglio si puo' fare: subito, non alla prossima apertura (prima il
+  // pezzo "finito" tornava giorni dopo con una domanda nuova).
+  const a = currentArticoli[i];
+  if (a && _wbDaCorreggereAuto(a) && !_wbAutoGiro) {
+    setTimeout(async () => { try { await _wbCorreggiContorniAuto(); } catch (_) {} _wbRidisegnaConferme(); }, 0);
+  }
 }
 function wbSetCampo(i, campo, valore) {
   const idMap = { materiale: 'sd-materiale', spessore_mm: 'sd-spessore' };
@@ -13880,12 +14718,25 @@ function wbRenderCheck() {
       <span class="qc-n" id="wb-qc-n">${tot ? `${pronti}<small>/${tot} pronti</small>` : ''}</span>
     </div>
     <div class="qc-bar"><span style="width:${pct}%" class="${bloccanti ? '' : 'ok'}"></span></div>
+    ${_wbRigaConferme()}
     ${tuttoOk && !extra.length
       ? `<div class="rl-allok"><i data-lucide="check-circle-2"></i>Tutti i pezzi sono pronti per l'invio</div>`
       : `<ul>${righe}</ul>`}`;
   if (_wbQCPrima != null && pronti > _wbQCPrima) _wbFlash(document.getElementById('wb-qc-n'));
   _wbQCPrima = pronti;
   if (window.lucide) try { lucide.createIcons(); } catch (_) {}
+}
+/** "Conferme: 5 da fare in 3 pezzi (su 12)": si va pezzo per pezzo, e su
+    ogni pezzo si vedono tutte le sue domande insieme. */
+function _wbRigaConferme() {
+  if (!currentArticoli.length) return '';
+  const K = wbContaConferme();
+  const attesa = K.inControllo ? ` · controllo in corso su ${K.inControllo} ${K.inControllo === 1 ? 'pezzo' : 'pezzi'}` : '';
+  if (!K.domande) {
+    return `<div class="qc-conf">Conferme: <b>nessuna da fare</b>${attesa}</div>`;
+  }
+  return `<div class="qc-conf">Conferme: <b>${K.domande}</b> da fare in <b>${K.pezzi}</b> ${K.pezzi === 1 ? 'pezzo' : 'pezzi'} (su ${K.tot})${attesa}
+    <button type="button" onclick="wbNextIssue()" title="Un pezzo alla volta, con tutte le sue domande">Vai ›</button></div>`;
 }
 function wbQCVai(n) {
   const lista = _wbQC[n] || [];
@@ -13987,6 +14838,11 @@ function wbSetFiltro(f) {
   wbRenderChips();
 }
 function wbRenderChips() {
+  const pc = document.getElementById('wb-pl-conf');
+  if (pc) {
+    const bozza = currentPreventivo && (currentPreventivo.status || 'BOZZA') === 'BOZZA';
+    pc.innerHTML = bozza ? _wbRigaConferme() : '';
+  }
   const tot = currentArticoli.length;
   const daFare = currentArticoli.filter(wbNonPronto).length;
   const seg = document.getElementById('wb-filtri');
@@ -14112,25 +14968,53 @@ function wbPieceSync(idx) {
     if (cadLbl) cadLbl.textContent = c === 'incerto' ? 'Verifica nel CAD' : (c === 'confermato' ? 'Rivedi contorno' : 'Apri CAD');
   }
 
-  // Problemi: al massimo tre in vista, il resto a richiesta
+  // Conferme del pezzo: TUTTE in un posto solo, con la risposta proposta;
+  // sotto, quelle gia' chiuse (con chi le ha chiuse). Prima se ne vedevano
+  // tre e le altre comparivano man mano che si rispondeva.
   const box = document.getElementById('wb-pc-alerts');
   if (box) {
     _wbAz = [];
     const soloLettura = currentPreventivo && (currentPreventivo.status || 'BOZZA') !== 'BOZZA';
     const ico = { err: 'alert-circle', warn: 'alert-triangle', info: 'info' };
     const ordine = { err: 0, warn: 1, info: 2 };
-    const lista = soloLettura ? [] : P.slice().sort((x, y) => ordine[x.l] - ordine[y.l]);
     const card = (p) => {
-      const bott = (p.az || []).map(z => { _wbAz.push(z); return `<button type="button" class="${z.p ? 'pri' : ''}" onclick="wbAz(${_wbAz.length - 1})">${escapeHtml(z.l)}</button>`; }).join('');
-      return `<div class="pa ${p.l}"><i data-lucide="${ico[p.l]}"></i>
-        <div class="pa-main"><b>${escapeHtml(p.t)}</b>${p.s ? `<span>${escapeHtml(p.s)}</span>` : ''}</div>
+      const bott = (p.az || []).map(z => {
+        _wbAz.push(Object.assign({}, z, { k: p.k, g: p.g, lv: p.l }));
+        return `<button type="button" class="${z.p ? 'pri' : ''}" onclick="wbAz(${_wbAz.length - 1})">${escapeHtml(z.l)}</button>`;
+      }).join('');
+      const perche = p.riaperta ? `<em class="pa-tag">Riaperta ${escapeHtml(p.riaperta)}</em>`
+                   : p.nuova ? `<em class="pa-tag">Nuova: ${escapeHtml(p.nuova)}</em>` : '';
+      return `<div class="pa ${p.l}" data-k="${escapeHtml(p.k || '')}"><i data-lucide="${ico[p.l]}"></i>
+        <div class="pa-main">${perche}<b>${escapeHtml(p.t)}</b>${p.s ? `<span>${escapeHtml(p.s)}</span>` : ''}</div>
         ${bott ? `<div class="pa-act">${bott}</div>` : ''}</div>`;
     };
-    let html = soloLettura
-      ? `<div class="pa info"><i data-lucide="lock"></i><div class="pa-main"><b>Preventivo ${_statoLeggibile(currentPreventivo.status).toLowerCase()}: sola lettura</b><span>Duplicalo dal menu ⋯ per modificarlo.</span></div></div>`
-      : lista.slice(0, 3).map(card).join('');
-    if (lista.length > 3) {
-      html += `<details class="pa-more"><summary>Altri ${lista.length - 3} da vedere</summary>${lista.slice(3).map(card).join('')}</details>`;
+    const chiusa = (e) => `<div class="pa done" data-k="${escapeHtml(e.k || '')}"><i data-lucide="check-circle-2"></i>
+        <div class="pa-main"><b>${escapeHtml(e.t || e.g || '')}</b><span>${e.stato === 'fatta'
+          ? `Risposta: «${escapeHtml(e.risposta || 'fatto')}»` : `Risolta ${escapeHtml(e.da || '')}`}</span></div></div>`;
+    let html = '';
+    if (soloLettura) {
+      html = `<div class="pa info"><i data-lucide="lock"></i><div class="pa-main"><b>Preventivo ${_statoLeggibile(currentPreventivo.status).toLowerCase()}: sola lettura</b><span>Duplicalo dal menu ⋯ per modificarlo.</span></div></div>`;
+    } else {
+      const C = wbConferme(a);
+      const aperte = C.aperte.slice().sort((x, y) => ordine[x.l] - ordine[y.l]);
+      const info = C.info;
+      if (C.inControllo) {
+        html = `<div class="pa-head"><b>Conferme di questo disegno</b><span>controllo in corso</span></div>
+          <div class="pa info pa-wait"><i data-lucide="loader"></i><div class="pa-main"><b>Sto controllando il disegno (peso del cartiglio, STEP, costo)…</b>
+          <span>Le domande di questo pezzo arrivano tutte insieme fra poco: niente da confermare a metà.</span></div></div>`;
+      } else if (aperte.length || C.chiuse.length) {
+        const tot = aperte.length + C.chiuse.length;
+        const proposte = aperte.filter(p => _wbProposta(p));
+        const altri = wbDaDefinire().filter(j => j !== idx).length;
+        html = `<div class="pa-head"><b>Conferme di questo disegno</b>
+          <span>${aperte.length ? `<b>${aperte.length}</b> da fare su ${tot}` : `tutte fatte (${tot})`}</span>
+          ${proposte.length > 1 ? `<button type="button" class="pri" onclick="wbConfermaTutto(${idx})" title="${escapeHtml(proposte.map(p => _wbProposta(p).l).join(' · '))}">Conferma tutto (${proposte.length})</button>` : ''}
+          ${!aperte.length && altri ? `<button type="button" onclick="wbNextIssue()">Prossimo pezzo ›</button>` : ''}</div>`;
+        html += aperte.map(card).join('');
+        html += C.chiuse.slice(0, 8).map(chiusa).join('');
+        if (C.chiuse.length > 8) html += `<div class="pa-more-n">e altre ${C.chiuse.length - 8} già chiuse</div>`;
+      }
+      html += info.map(card).join('');
     }
     box.innerHTML = html;
   }
@@ -14397,7 +15281,10 @@ function wbVai(i) {
   document.body.classList.remove('wb-parts-open');
 }
 function wbNextIssue() {
-  const lista = wbDaDefinire();
+  // prima i pezzi con le domande gia' tutte note (non ancora in controllo)
+  const tutti = wbDaDefinire();
+  const pronti = tutti.filter(i => !_wbInControllo(currentArticoli[i]));
+  const lista = pronti.length ? pronti : tutti;
   if (!lista.length) { wbSnack('Tutti i pezzi sono definiti'); return; }
   const da = _splitSelectedIdx == null ? -1 : _splitSelectedIdx;
   const prossimo = lista.find(i => i > da);
@@ -14613,7 +15500,7 @@ function _mb(files) {
 // e si scartano, invece di comparire nel nuovo.
 let _wbGen = 0;
 
-function wbSnack(text, tono = '', ms = 3200) {
+function wbSnack(text, tono = '', ms = 3200, azione = null) {
   let el = document.getElementById('wb-snack');
   if (!el) {
     el = document.createElement('div');
@@ -14622,6 +15509,14 @@ function wbSnack(text, tono = '', ms = 3200) {
   }
   el.className = 'wb-snack ' + (tono || '');
   el.innerHTML = `<span class="dot"></span><span>${escapeHtml(String(text).replace(/^[✓⚠]\s*/, ''))}</span>`;
+  if (azione && azione.f) {
+    // un'azione sola (es. "Annulla" dopo "È un tubo")
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn-mini'; b.textContent = azione.l || 'Annulla';
+    b.style.marginLeft = '10px';
+    b.onclick = () => { el.classList.remove('show'); try { azione.f(); } catch (e) { console.warn(e); } };
+    el.appendChild(b);
+  }
   requestAnimationFrame(() => el.classList.add('show'));
   clearTimeout(_wbSnackT);
   _wbSnackT = setTimeout(() => el.classList.remove('show'), ms);

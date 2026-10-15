@@ -167,6 +167,7 @@
     {"nome": "Rett. 120x80 sp.4mm", "lato_a": 120, "lato_b": 80, "spessore": 4.0, "peso_kg_m": 12.0, "perimetro_mm": 400},
     {"nome": "Rett. 120x80 sp.5mm", "lato_a": 120, "lato_b": 80, "spessore": 5.0, "peso_kg_m": 14.8, "perimetro_mm": 400},
     {"nome": "Rett. 120x80 sp.6mm", "lato_a": 120, "lato_b": 80, "spessore": 6.0, "peso_kg_m": 17.5, "perimetro_mm": 400},
+    {"nome": "Rett. 150x50 sp.3mm", "lato_a": 150, "lato_b": 50, "spessore": 3.0, "peso_kg_m": 8.96, "perimetro_mm": 400},
     {"nome": "Rett. 150x50 sp.4mm", "lato_a": 150, "lato_b": 50, "spessore": 4.0, "peso_kg_m": 11.73, "perimetro_mm": 400},
     {"nome": "Rett. 150x50 sp.5mm", "lato_a": 150, "lato_b": 50, "spessore": 5.0, "peso_kg_m": 14.41, "perimetro_mm": 400},
     {"nome": "Rett. 150x100 sp.4mm", "lato_a": 150, "lato_b": 100, "spessore": 4.0, "peso_kg_m": 15.0, "perimetro_mm": 500},

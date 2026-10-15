@@ -1964,30 +1964,51 @@ def contorno_pezzo_mm(doc, cfg: dict | None = None):
     if cached is not False:
         return cached
     outer = None
+    viste = []
     try:
         base = _poligoni_documento(doc, cfg or {})
         candidati, _n = _separa_cartiglio(base['polys'], base.get('testi'))
         if candidati:
             idx, conf, _sc = _pick_outer_with_confidence(candidati, candidati, base['centri_cerchi'], base.get('quote'), base.get('testi'))
             outer = candidati[idx] if idx >= 0 and conf >= 0.5 else None
+            if idx >= 0:
+                best = candidati[idx]
+                best_buf = None
+                grandi = []
+                for c in candidati:
+                    if c is best or c.area < PEZZI_CONFRONTABILI_REL * best.area:
+                        continue
+                    if best_buf is None:
+                        best_buf = best.buffer(0.05)
+                    if not best_buf.contains(c):
+                        grandi.append(c)
+                viste = [best] + grandi
             if outer is None and idx >= 0:
                 # Scelta incerta solo perche' il pezzo e' disegnato piu' volte
                 # identico: per contare le lavorazioni una copia vale l'altra
                 # (18B4A3004-00: 64 filetti contati invece di 32).
-                best = candidati[idx]
-                grandi = [c for c in candidati if c is not best
-                          and c.area >= PEZZI_CONFRONTABILI_REL * best.area
-                          and not best.buffer(0.05).contains(c)]
                 if grandi and all(_copia_identica(best, c, candidati, base['centri_cerchi']) for c in grandi):
                     outer = best
     except Exception as e:
         logger.debug('contorno_pezzo_mm fallito: %s', e)
         outer = None
+        viste = []
     try:
         doc._ft_contorno_pezzo = outer
+        doc._ft_viste_pezzo = viste
     except Exception:
         pass
     return outer
+
+
+def viste_pezzo_mm(doc, cfg: dict | None = None) -> list:
+    """Contorni del pezzo nel foglio (mm), il piu' probabile per primo, anche
+    quando la scelta e' incerta: lo stesso pezzo disegnato in piu' viste
+    (sviluppo + vista piegata, 25CCPA0998-00). Per contare le lavorazioni
+    una vista alla volta, senza sommare le viste. Lista vuota se non ci sono
+    contorni candidati."""
+    contorno_pezzo_mm(doc, cfg)
+    return list(getattr(doc, '_ft_viste_pezzo', None) or [])
 
 
 # Spessori di lamiera a magazzino: la larghezza di una vista laterale vale

@@ -707,7 +707,10 @@ def valuta(regola: Regola, ident: Identita = None):
         if regola.admin:
             return _no(403, 'serve_pin_admin', 'Serve il PIN di un amministratore.')
         logger.warning('accesso negato: %s (%s) su %s %s', ident.nome, st, request.method, request.path)
-        return _no(403, 'stazione_non_ammessa', 'Questa postazione non può farlo.')
+        # Dire anche DOVE si fa: "non puo' farlo" da solo lasciava senza strada.
+        dove = ' o '.join(STAZIONI[x]['nome'] for x in sorted(regola.stazioni))
+        return _no(403, 'stazione_non_ammessa',
+                   f"Questa postazione ({STAZIONI[st]['nome']}) non può farlo: si fa dalla postazione {dove}.")
     if STAZIONI[st]['con_pin'] and ident.persona is None:
         transizione = modalita() == 'transizione'
         if ident.vecchio and transizione:

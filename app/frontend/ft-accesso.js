@@ -232,7 +232,8 @@
     if (r.status === 401 && (codice === 'serve_pin' || codice === 'non_registrato')) {
       vaiAllIngresso(codice);
     } else if (r.status === 403 && codice === 'stazione_non_ammessa') {
-      avviso('Questa postazione non può farlo.');
+      // il server dice anche da quale postazione si fa
+      avviso((d && d.error) || 'Questa postazione non può farlo.');
     }
     return r;
   }

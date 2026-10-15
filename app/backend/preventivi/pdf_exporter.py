@@ -256,6 +256,8 @@ class PDFPreventivo:
                 tubolari = dati.get("tubolari_per_assieme", {})
                 if tubolari:
                     self._build_tubular_section(elements, dati)
+                if (dati.get("barre_tubi") or {}).get("gruppi"):
+                    self._build_barre_section(elements, dati["barre_tubi"])
 
                 # Plate section
                 piastre = dati.get("piastre_per_assieme", {})
@@ -933,8 +935,14 @@ class PDFPreventivo:
                 idx += 1
 
             for t in bom_tub:
+                # la riga vale per 1 assieme: qty pezzi, costi gia' per quei
+                # pezzi (prima "Pz/ass" era sempre 1, anche per 2 pezzi)
+                try:
+                    q_t = max(1, int(t.get('qty') or 1))
+                except (TypeError, ValueError):
+                    q_t = 1
                 mat_c = float(t.get('costo_materiale') or 0)
-                lav_c = float(t.get('costo_taglio_totale') or 0)
+                lav_c = float(t.get('costo_taglio_totale') or 0) + float(t.get('costo_esterno') or 0)
                 totp = mat_c + lav_c
                 contrib_tot += totp
                 lung = f"{float(t.get('lunghezza_m') or 0):.2f}m"
@@ -942,13 +950,13 @@ class PDFPreventivo:
                     str(idx),
                     "TUB",
                     f"{t.get('profilo') or '—'} ({lung})",
-                    "1",
-                    (t.get('materiale') or "").upper() or "—",
+                    str(q_t),
+                    (t.get('materiale_testo') or t.get('materiale') or "").upper() or "—",
                     "—",
                     f"{float(t.get('peso_kg') or 0):.2f}",
-                    _eur_plain(mat_c),
-                    _eur_plain(lav_c),
-                    _eur_plain(totp),
+                    _eur_plain(mat_c / q_t),
+                    _eur_plain(lav_c / q_t),
+                    _eur_plain(totp / q_t),
                     _eur_plain(totp),
                 ])
                 idx += 1
@@ -1070,13 +1078,20 @@ class PDFPreventivo:
                 taglio = t1 if t1 == t2 else f"{t1}/{t2}"
                 key = (lun_mm, taglio)
 
-                # Costo singolo tubo (se disponibile dal dettaglio)
+                # Costo della riga (se disponibile dal dettaglio)
                 costo_mat = tubo.get("costo_materiale", 0)
-                costo_taglio = tubo.get("costo_taglio", 0)
+                costo_taglio = tubo.get("costo_taglio", 0) + tubo.get("costo_esterno", 0)
                 if i < len(dettaglio):
                     d = dettaglio[i]
                     costo_mat = d.get("costo_materiale", costo_mat)
                     costo_taglio = d.get("costo_taglio", costo_taglio)
+                # pezzi della riga (per 1 assieme) x strutture: peso e costi
+                # della riga sono per 1 assieme. Prima ogni riga contava 1 pz.
+                try:
+                    q_riga = max(1, int(tubo.get("qty") or 1))
+                    n_ass = max(1, int(tubo.get("n_assiemi") or 1))
+                except (TypeError, ValueError):
+                    q_riga, n_ass = 1, 1
 
                 inner = by_profilo.setdefault(profilo, {})
                 g = inner.setdefault(key, {
@@ -1086,9 +1101,9 @@ class PDFPreventivo:
                     "peso_tot": 0.0,
                     "costo_tot": 0.0,
                 })
-                g["qty"] += 1
-                g["peso_tot"] += tubo.get("peso_kg", 0)
-                g["costo_tot"] += (costo_mat + costo_taglio)
+                g["qty"] += q_riga * n_ass
+                g["peso_tot"] += tubo.get("peso_kg", 0) * n_ass
+                g["costo_tot"] += (costo_mat + costo_taglio) * n_ass
 
         profiles_list = []
         running_idx = 1
@@ -1140,6 +1155,9 @@ class PDFPreventivo:
                 self.style_heading,
             )
         )
+        elements.append(Paragraph(
+            "Pezzi per TUTTE le strutture: pezzi per assieme &times; quantit&agrave; dell'assieme.",
+            self.style_body))
 
         avail = _W - 2 * _MARGIN
 
@@ -1278,6 +1296,72 @@ class PDFPreventivo:
     # ------------------------------------------------------------------
     # Plate section
     # ------------------------------------------------------------------
+
+    def _build_barre_section(self, elements, barre: dict):
+        """Barre da ordinare: per profilo e materiale, barre intere dal piano
+        di taglio (procura.piano_barre), sfrido, kg ed euro usati e comprati."""
+        gruppi = barre.get("gruppi") or []
+        testa = []  # titolo + nota + tabella insieme sulla pagina
+        tot = barre.get("totali") or {}
+        barra_m = float(barre.get("barra_mm") or 6000) / 1000.0
+        testa.append(Paragraph(
+            f"Barre da ordinare &middot; {tot.get('n_barre', 0)} "
+            f"{'barra' if tot.get('n_barre') == 1 else 'barre'} da {barra_m:g} m",
+            self.style_heading))
+        testa.append(Paragraph(
+            "Piano di taglio come in \"Da procurare\" (dal pezzo pi&ugrave; lungo, lama "
+            f"{float(barre.get('lama_mm') or 0):g} mm). Il prezzo del preventivo conta i kg "
+            "dei pezzi tagliati; lo sfrido delle barre non &egrave; in prezzo.", self.style_body))
+        avail = _W - 2 * _MARGIN
+        data = [["Profilo", "Materiale", "Pz", "m usati", "Barre", "Sfrido",
+                 "kg usati", "kg barre", "\u20ac usati", "\u20ac barre"]]
+        for g in gruppi:
+            extra = f" + {len(g['troppo_lunghi'])} oltre" if g.get("troppo_lunghi") else ""
+            data.append([
+                Paragraph(f'<font size=7.5>{g["profilo"]}</font>', self.style_small),
+                Paragraph(f'<font size=7.5>{g["materiale_nome"]}</font>', self.style_small),
+                str(g["n_pezzi"]),
+                f'{g["metri"]:.2f}',
+                f'{g["n_barre"]}{extra}',
+                f'{g["sfrido_pct"]:.0f}%',
+                f'{g["kg_usati"]:.1f}',
+                f'{g["kg_barre"]:.1f}',
+                _eur_plain(g["eur_usati"]),
+                _eur_plain(g["eur_barre"]),
+            ])
+        data.append(["Totale", "", str(tot.get("n_pezzi", 0)), f'{tot.get("metri", 0):.2f}',
+                     str(tot.get("n_barre", 0)), "", f'{tot.get("kg_usati", 0):.1f}',
+                     f'{tot.get("kg_barre", 0):.1f}', _eur_plain(tot.get("eur_usati", 0)),
+                     _eur_plain(tot.get("eur_barre", 0))])
+        w = [0.22, 0.12, 0.06, 0.08, 0.10, 0.07, 0.08, 0.08, 0.095, 0.095]
+        t = Table(data, colWidths=[avail * x for x in w], repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.Color(71 / 255, 85 / 255, 105 / 255)),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("BACKGROUND", (0, -1), (-1, -1), self.COLOR_ROW_ALT),
+            ("FONTNAME", (4, 1), (4, -1), "Helvetica-Bold"),
+            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOX", (0, 0), (-1, -1), 0.3, self.COLOR_BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        testa.append(t)
+        elements.append(KeepTogether(testa))
+        # piano di taglio per barra (per chi prepara il materiale)
+        righe = []
+        for g in gruppi:
+            for i, b in enumerate(g.get("piano") or [], 1):
+                tagli = " + ".join(f'{x["lunghezza_mm"]:g}' for x in b["tagli"])
+                righe.append(f'{g["profilo"]} {g["materiale_nome"]} &middot; barra {i}: {tagli} mm '
+                             f'(avanzo {b["sfrido_mm"]:g} mm)')
+        if righe:
+            elements.append(Spacer(1, 2 * mm))
+            elements.append(Paragraph('<font size=7.5>' + '<br/>'.join(righe) + '</font>', self.style_small))
+        elements.append(Spacer(1, 4 * mm))
 
     def _build_plate_section(self, elements, dati):
         """Build plate section if present."""
@@ -1485,9 +1569,15 @@ class PDFPreventivo:
                 qty_str = str(int(qty)) if float(qty) == int(qty) else f"{qty}"
             except (TypeError, ValueError):
                 qty_str = str(qty)
+            desc = r.get("descrizione") or ""
+            if len(desc) > 30:
+                # descrizione lunga (riga dell'ordine senza disegno): va a capo
+                # invece di finire sopra le colonne dei numeri
+                from xml.sax.saxutils import escape as _esc
+                desc = Paragraph(_esc(desc), self.style_small)
             riga = [
                 r.get("codice") or "-",
-                r.get("descrizione") or "",
+                desc,
                 qty_str,
                 _eur_plain(r.get("prezzo_unitario") or 0),
                 _eur_plain(r.get("importo") or 0),

@@ -88,6 +88,13 @@ class RFQParseResult:
     pdf_filename: str | None = None                        # nome del PDF ordine
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
+    # Tutte le righe dell'ordine nel loro ordine ({pos, codice, descrizione,
+    # quantita, commessa}): il preventivo le segue. Vuoto se l'ordine non si
+    # e' letto (quantita' da scrivere a mano: nessuna posizione).
+    righe_ordine: list = field(default_factory=list)
+    # Righe dell'ordine senza disegno nel pacchetto (guide in plastica,
+    # commerciali): sono nel preventivo come righe da prezzare a mano.
+    senza_disegno: list = field(default_factory=list)
 
 
 class RFQParseError(Exception):
@@ -184,7 +191,7 @@ def match_dxf_to_articoli(articoli: list[dict], dxf_filenames: list[str]) -> tup
         if not codice:
             continue
         qta = int(a.get('quantita') or 1)
-        riga = {'pos': pos, 'qta': qta, 'commessa': a.get('commessa') or a.get('_commessa')}
+        riga = {'pos': pos + 1, 'qta': qta, 'commessa': a.get('commessa') or a.get('_commessa')}
         gia = per_codice.get(_normalize_code(codice))
         if gia is not None:
             gia.quantita += qta
@@ -224,13 +231,26 @@ def match_dxf_to_articoli(articoli: list[dict], dxf_filenames: list[str]) -> tup
         if len(cand) == 1:
             art.matched_dxf, art._matched_score, art.abbinamento = cand[0], 0.95, 'senza_revisione'
             used_dxf.add(cand[0])
-    # 3) cio' che avanza: il piu' simile, da confermare
+    # 2b) variante DECA "-G-" (grezzo): 191700609-G-00 e' il pezzo del disegno
+    #     191700609-00 (stesso disegno, stessa descrizione). Un solo candidato.
+    for art in matched:
+        if art.matched_dxf or not _RX_VARIANTE.search(_senza_revisione(art.codice)):
+            continue
+        base = _normalize_code(_RX_VARIANTE.sub('', _senza_revisione(art.codice)))
+        cand = [fn for fn, stem in dxf_stems.items() if fn not in used_dxf
+                and _normalize_code(_senza_revisione(stem)) == base]
+        if len(cand) == 1:
+            art.matched_dxf, art._matched_score, art.abbinamento = cand[0], 0.95, 'variante'
+            used_dxf.add(cand[0])
+    # 3) cio' che avanza: il piu' simile, da confermare. MAI un codice con un
+    #    numero diverso: 25CCPA1005-00 (guida in plastica, senza disegno)
+    #    prendeva il disegno di 25CCPA1000-00, componente di un assieme (LS 1153).
     for art in matched:
         if art.matched_dxf:
             continue
         best_fn, best_score = None, 0.0
         for fn, stem in dxf_stems.items():
-            if fn in used_dxf:
+            if fn in used_dxf or not _stessi_numeri(art.codice, stem):
                 continue
             score = _fuzzy_score(art.codice, stem)
             if score > best_score:
@@ -245,6 +265,26 @@ def match_dxf_to_articoli(articoli: list[dict], dxf_filenames: list[str]) -> tup
 
 
 _RX_REV = re.compile(r'-\d{2}$')
+_RX_VARIANTE = re.compile(r'-[A-Z]$')
+
+
+def _stessi_numeri(a: str, b: str) -> bool:
+    """I due codici hanno gli stessi numeri (a meno della revisione)? Due
+    codici con numeri diversi sono due pezzi diversi, per quanto simili."""
+    def num(s):
+        return re.findall(r'\d+', _senza_revisione((s or '').strip()).upper())
+    return num(a) == num(b)
+
+
+def e_copia_cleaned(nome: str, nomi: list) -> bool:
+    """'25NSIPA0015-00_cleaned.DXF' quando nel pacchetto c'e' anche
+    '25NSIPA0015-00.DXF': e' il disegno ripulito lasciato da una lavorazione
+    precedente, non un pezzo in piu' (LS 1153 ne aveva due)."""
+    stem = os.path.splitext(os.path.basename(nome or ''))[0]
+    if not re.search(r'_cleaned$', stem, re.I):
+        return False
+    orig = re.sub(r'_cleaned$', '', stem, flags=re.I).upper()
+    return any(os.path.splitext(os.path.basename(n))[0].upper() == orig for n in nomi)
 
 
 def _senza_revisione(codice: str) -> str:
@@ -363,6 +403,7 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
     assieme_of: dict[str, str | None] = {}
     step_map: dict[str, bytes] = {}
     masters: dict[str, str] = {}
+    altri_assiemi: dict[str, list] = {}
 
     try:
         with zipfile.ZipFile(BytesIO(zip_bytes), 'r') as zf:
@@ -381,6 +422,10 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
 
             dxf_entries = [(i, n, b) for (i, n, b) in valid
                            if os.path.splitext(b)[1].lower() in ('.dxf', '.dwg')]
+            # "_cleaned" lasciati da una lavorazione precedente accanto al
+            # disegno vero: non sono pezzi (LS 1153: due righe in piu')
+            _nomi_dxf = [b for _, _, b in dxf_entries]
+            dxf_entries = [(i, n, b) for (i, n, b) in dxf_entries if not e_copia_cleaned(b, _nomi_dxf)]
             pdf_entries = [(i, n, b) for (i, n, b) in valid
                            if os.path.splitext(b)[1].lower() == '.pdf']
             step_entries = [(i, n, b) for (i, n, b) in valid
@@ -397,6 +442,12 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
                 _dirs = _dirparts(n)[_clen:]
                 if _dirs and _e_disegno_cartella(os.path.splitext(b)[0], _dirs[0]):
                     masters[b] = _dirs[0]
+                elif _dirs:
+                    # lo stesso componente in piu' assiemi (191700043-00 in
+                    # quattro spalle di LS 1153): prima restava in uno solo
+                    altri = altri_assiemi.setdefault(b, [])
+                    if _dirs[0] not in altri:
+                        altri.append(_dirs[0])
 
             # Selezione PDF ORDINE: preferisci un PDF il cui nome NON corrisponde a
             # un DXF (i PDF-disegno dei componenti si chiamano come il loro DXF).
@@ -409,6 +460,20 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
                 return (0 if is_order else 1, depth)   # ordina: ordine-first, poi superficiale
             if pdf_entries:
                 best_pdf = min(pdf_entries, key=_pdf_score)
+                # Piu' PDF che non sono tavole di un DXF (LS 1176: la tavola
+                # 08PA04466-00.pdf senza DXF e l'ordine OAFA202601176.pdf): vince
+                # quello che si legge come "Ordine Fornitore".
+                cand = sorted((e for e in pdf_entries if _pdf_score(e)[0] == 0), key=_pdf_score)
+                if len(cand) > 1:
+                    from .ordine_testo import leggi_ordine_fornitore
+                    for e in sorted(cand, key=lambda e: (0 if re.match(r'(?i)(OAFA|ord)', e[2]) else 1,
+                                                         _pdf_score(e))):
+                        try:
+                            if leggi_ordine_fornitore(zf.read(e[0])):
+                                best_pdf = e
+                                break
+                        except Exception:
+                            continue
                 pdf_bytes = zf.read(best_pdf[0])
                 pdf_filename = best_pdf[2]
 
@@ -426,7 +491,11 @@ def extract_zip_package(zip_bytes: bytes) -> tuple[bytes | None, str | None, dic
     except Exception as e:
         raise ValueError(f'Errore estrazione ZIP: {e}')
 
-    return pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters
+    # solo le cartelle oltre a quella di assieme_of
+    altri_assiemi = {b: [f for f in ff if f != assieme_of.get(b)]
+                     for b, ff in altri_assiemi.items()}
+    altri_assiemi = {b: ff for b, ff in altri_assiemi.items() if ff}
+    return pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters, altri_assiemi
 
 
 # ─── Pipeline completo ────────────────────────────────────────────────────
@@ -447,7 +516,7 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
 
     # 1. Estrai ZIP (con riconoscimento assiemi dalle sottocartelle)
     try:
-        pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters = extract_zip_package(zip_bytes)
+        pdf_bytes, pdf_filename, dxf_map, assieme_of, step_map, masters, altri_assiemi = extract_zip_package(zip_bytes)
     except ValueError as e:
         result.error = str(e)
         return result
@@ -485,6 +554,13 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
             result.warnings.append(
                 f"Ordine letto cercando i codici dei disegni nel PDF ({pdf_filename}): "
                 f"{len(parsed['articoli'])} righe, senza AI")
+    if parsed:
+        # le righe dell'ordine nel loro ordine: il preventivo le segue
+        result.righe_ordine = [
+            {'pos': i + 1, 'codice': (a.get('codice') or '').strip(),
+             'descrizione': (a.get('descrizione') or '')[:200],
+             'quantita': a.get('quantita') or 1, 'commessa': a.get('_commessa')}
+            for i, a in enumerate(parsed.get('articoli') or []) if (a.get('codice') or '').strip()]
     if not parsed and tollerante:
         from .ordine_codici import intestazione
         try:
@@ -539,6 +615,13 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
                 codice=stem, quantita=1, matched_dxf=base, codice_assieme=folder,
                 descrizione='componente assieme (da cartella)', qta_fonte='per_assieme',
             ))
+    # lo stesso disegno anche negli altri assiemi che lo contengono
+    for base, cartelle in (altri_assiemi or {}).items():
+        for folder in cartelle:
+            componenti_aggiunti.append(ArticoloRFQ(
+                codice=os.path.splitext(base)[0], quantita=1, matched_dxf=base, codice_assieme=folder,
+                descrizione='componente assieme (da cartella)', qta_fonte='per_assieme',
+            ))
     articoli.extend(componenti_aggiunti)
     # i componenti aggiunti non sono più "orfani"
     dxf_no_match = [d for d in dxf_no_match if d not in {c.matched_dxf for c in componenti_aggiunti}]
@@ -578,6 +661,51 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
             articoli.append(ArticoloRFQ(
                 codice=os.path.splitext(base)[0], quantita=1, matched_dxf=base, codice_assieme=folder,
                 descrizione='componente assieme (da cartella)', qta_fonte='per_assieme'))
+
+    # L'assieme prende il codice della SUA riga d'ordine: la cartella
+    # "46SA00597" (senza -00) diventava un assieme "46SA00597" staccato dalla
+    # riga 46SA00597-00 (LS 1153). Stesso codice a meno della revisione.
+    rinomina = {}
+    for a in articoli:
+        if a.e_master and a.codice_assieme and a.codice != a.codice_assieme \
+                and a.codice_assieme not in rinomina and a.codice not in _assiemi_set:
+            rinomina[a.codice_assieme] = a.codice
+    if rinomina:
+        for a in articoli:
+            if a.codice_assieme in rinomina:
+                a.codice_assieme = rinomina[a.codice_assieme]
+        result.assiemi = sorted({rinomina.get(c, c) for c in result.assiemi})
+        result.qta_assiemi = {rinomina.get(c, c): q for c, q in result.qta_assiemi.items()}
+        result.desc_assiemi = {rinomina.get(c, c): d for c, d in result.desc_assiemi.items()}
+        result.master_dxf = {b: rinomina.get(c, c) for b, c in result.master_dxf.items()}
+
+    # Righe dell'ordine senza disegno (guide in plastica, commerciali): restano
+    # righe del preventivo, da prezzare a mano. L'ufficio le vede elencate.
+    result.senza_disegno = [a.codice for a in articoli
+                            if not a.matched_dxf and not a.e_master and a.righe_ordine]         if result.righe_ordine else []
+    if result.senza_disegno:
+        result.warnings.append(
+            f"{len(result.senza_disegno)} righe dell'ordine senza disegno (nel preventivo, prezzo da "
+            "scrivere a mano): " + ', '.join(result.senza_disegno[:8])
+            + ('…' if len(result.senza_disegno) > 8 else ''))
+
+    # Nell'ordine del PDF: ogni riga alla sua posizione, gli assiemi alla loro
+    # riga e i loro componenti subito sotto, i disegni che l'ordine non cita
+    # in fondo. Prima i componenti finivano tutti in coda.
+    if result.righe_ordine:
+        def _p(a):
+            return min(r['pos'] for r in a.righe_ordine) if a.righe_ordine else None
+        pos_ass = {}
+        for a in articoli:
+            if a.e_master and _p(a) is not None:
+                pos_ass.setdefault(a.codice_assieme, _p(a))
+        def _chiave(ia):
+            i, a = ia
+            p = _p(a)
+            if p is None and a.codice_assieme in pos_ass:
+                p = pos_ass[a.codice_assieme] + 0.5
+            return (0, p, i) if p is not None else (1, 0, i)
+        articoli = [a for _, a in sorted(enumerate(articoli), key=_chiave)]
     senza_master = [c for c in result.assiemi if c not in result.qta_assiemi]
     if senza_master:
         result.warnings.append(

@@ -103,11 +103,12 @@
   LZ.etichetta = function (o) {
     const st = LZ.statoLaser(o);
     const r = S.riep[o.id];
-    if (st === 'smistare') return { t: 'Da smistare', c: 'forte' };
-    if (st === 'tagliato') return { t: 'Tagliato', c: '' };
+    const W = window.FTStati.laser;        // le parole di tutte le pagine (backend/stati.py)
+    if (st === 'smistare') return { t: W.da_smistare, c: 'forte' };
+    if (st === 'tagliato') return { t: W.tagliato, c: '' };
     // codici "da correggere in Lantek": l'ordine non e' fatto finche' non sono a posto
     if (r && r.n_correggere) return { t: `${r.n_correggere} da correggere in Lantek`, corto: `Da correggere (${r.n_correggere})`, c: 'err' };
-    if (st === 'in_lantek') return { t: r && r.n_corretti ? `In Lantek · ${r.n_corretti} da mandare` : 'In Lantek', c: r && r.n_corretti ? 'forte' : '' };
+    if (st === 'in_lantek') return { t: r && r.n_corretti ? `${W.in_lantek} · ${r.n_corretti} da mandare` : W.in_lantek, c: r && r.n_corretti ? 'forte' : '' };
     if (!r) return { t: '', c: 'skel' };
     if (r.errore) return { t: 'Da ricontrollare', c: '' };
     if (r.n_abbinare) return { t: `Da abbinare (${r.n_abbinare})`, c: 'att' };
@@ -115,7 +116,7 @@
     if ((r.bloccati || []).length) return { t: 'Bloccato', c: 'err' };
     if (r.lantek && r.lantek.letto && !r.lantek.disponibile) return { t: 'Lantek non risponde', c: '' };
     if (r.tutto_in_lantek) return { t: 'Già in Lantek', c: '' };
-    return { t: 'Pronto per Lantek', c: 'forte' };
+    return { t: W.da_importare, c: 'forte' };
   };
   /** corto: nell'elenco, dove c'e' poco posto (il testo intero nel suggerimento). */
   LZ.chip = function (o, extra, corto) {
@@ -152,7 +153,7 @@
   };
   LZ.quando = o => quandoG(LZ.giorniA(o), 'ritardo ');
   /** Quanto manca al "taglia entro": oggi, tra 3 gg, in ritardo 2 gg (rosso). */
-  LZ.quandoEntro = o => quandoG(LZ.giorniEntro(o), 'in ritardo ');
+  LZ.quandoEntro = o => quandoG(LZ.giorniEntro(o), 'taglio in ritardo ');
   LZ.ore = function (min) {
     if (min == null) return '—';
     if (min < 60) return `${Math.max(1, Math.round(min))} min`;

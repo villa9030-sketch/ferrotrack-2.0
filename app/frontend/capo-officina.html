@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LS FerroTrack — Capo Officina</title>
 <script src="/ft-accesso.js" data-stazioni="ufficio,laser"></script>
+<script src="/ft-stati.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -641,11 +642,9 @@ async function loadOrdini() {
       const label = escapeHtml(o.numero_ordine || o.id.substring(0,8));
       // Stato del taglio, dall'ordine: e' l'unico avanzamento che FerroTrack
       // conosce (il resto lo dice l'officina a voce).
-      const taglio = o.taglio_completato
-        ? '<span class="badge green">Tagliato</span>'
-        : (o.taglio_richiesto === false
-          ? '<span class="badge gray" title="Il laser lo ha smistato: non passa dal taglio">Senza taglio</span>'
-          : '<span class="badge orange">Da tagliare</span>');
+      // le parole di tutte le pagine (backend/stati.py)
+      const fl = FTStati.faseLaser(o);
+      const taglio = `<span class="badge ${{ tagliato: 'green', non_serve: 'gray', in_lantek: 'purple' }[fl] || 'orange'}" title="${escapeHtml(FTStati.laserSpiega[fl])}">${escapeHtml(FTStati.laser[fl])}</span>`;
       const prevBadge = (o.origine === 'PREVENTIVO') ? ' <span class="badge purple" style="font-size:9px; padding:1px 6px;" title="Ordine creato da preventivo accettato">PREV</span>' : '';
       html += `<tr data-order-id="${o.id}" style="cursor:pointer;" onclick="openOrderDetailModal('${o.id}', '${label}')">
         <td><code>${label}</code>${prevBadge}</td>
@@ -810,14 +809,14 @@ function renderOrderDetail(ord) {
       <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Cliente</div><div style="font-weight:700; margin-top:2px;">${cliente}</div></div>
       <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Numero ordine</div><div style="margin-top:2px;"><code>${numero}</code></div></div>
       <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Consegna</div><div style="margin-top:2px;">${consStr}</div></div>
-      <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Stato</div><div style="margin-top:2px;"><span class="badge ${ord.status==='CHIUSO'?'gray':'green'}">${escapeHtml(ord.status||'')}</span></div></div>
+      <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Stato</div><div style="margin-top:2px;"><span class="badge ${ord.status==='CHIUSO'?'gray':'green'}">${escapeHtml(FTStati.passo[FTStati.daStatus[ord.status] || 'in_lavorazione'])}</span></div></div>
     </div>
     <div style="padding:16px 18px; display:flex; gap:16px; flex-wrap:wrap; border-bottom:1px solid var(--border);">
       <div>
         <div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Taglio laser</div>
         <div style="margin-top:4px;">${tagliato
-          ? `<span class="badge green">✓ Completato</span> <span style="color:var(--gray-text); font-size:12px;">${dataTaglio ? dataTaglio.toLocaleString('it-IT', {dateStyle:'short', timeStyle:'short'}) : ''}</span>`
-          : '<span class="badge orange">Da tagliare</span>'}</div>
+          ? `<span class="badge green">✓ ${escapeHtml(FTStati.laser.tagliato)}</span> <span style="color:var(--gray-text); font-size:12px;">${dataTaglio ? dataTaglio.toLocaleString('it-IT', {dateStyle:'short', timeStyle:'short'}) : ''}</span>`
+          : `<span class="badge orange">${escapeHtml(FTStati.laser[FTStati.faseLaser(ord)])}</span>`}</div>
       </div>
     </div>
   `;
@@ -828,7 +827,7 @@ function renderOrderDetail(ord) {
 // ---------- Lavoro finito (capo conferma fine lavorazione fisica) ----------
 // Sposta l'ordine in DA_FATTURARE → appare nella tab di Elena.
 async function closeOrder(orderId, label) {
-  if (!confirm(`Confermi che la lavorazione di "${label}" è finita?\n\nL'ordine passerà a "Da fatturare" e apparirà nella lista di Elena.`)) return;
+  if (!confirm(`Confermi che la lavorazione di "${label}" è finita?\n\nNell'ufficio l'ordine passa a "${FTStati.passo.attesa_ddt}".`)) return;
   try {
     const r = await fetch(`${API_URL}/api/orders/${orderId}/close`, {
       method: 'POST',
@@ -841,7 +840,7 @@ async function closeOrder(orderId, label) {
       alert('Era già segnato come finito (da un\'altra postazione): nessuna modifica.');
       loadOrdini();
     } else if (r.ok && data.success) {
-      alert(`✓ Lavoro finito, ordine mandato all'amministrazione per la fatturazione.`);
+      alert(`✓ Lavoro finito: nell'ufficio l'ordine è ora "${FTStati.passo.attesa_ddt}".`);
       loadOrdini();
     } else {
       alert('Errore: ' + (data.error || 'sconosciuto'));

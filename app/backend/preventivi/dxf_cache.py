@@ -96,7 +96,10 @@ _INITIALIZED = False
 #                  (sicurezza_import.decidi_sicuro); il resto va verificato.
 # v19 (2026-10-08): fori tondi sotto 2/3 dello spessore = al trapano, fuori
 #                  dal taglio (regola di Stefano; dxf_batch_worker.applica_fori_trapano).
-PARSER_VERSION = 19
+# v20 (2026-10-14): svasature/filettature dai callout dei fori (DXF, poi PDF
+#                  del pezzo; chiave con l'hash del PDF) e, senza callout,
+#                  dalla geometria di UNA vista del pezzo.
+PARSER_VERSION = 20
 
 
 def _init_db() -> None:

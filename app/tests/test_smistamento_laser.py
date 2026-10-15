@@ -106,7 +106,9 @@ with sync_playwright() as p:
 
     pg.goto(B + '/laser.html')
     pg.wait_for_selector('.lz-r[data-id]', timeout=20000)
-    pg.wait_for_timeout(2500)
+    # niente tempi fissi: si aspetta la condizione vera (col PC carico i
+    # tempi fissi facevano fallire la prova a caso)
+    pg.wait_for_function("LZ.s.ordini && LZ.s.ordini.length > 0 && !document.querySelector('.lz-r .lz-chip.skel')", timeout=30000)
     check('la pagina del laser si apre senza errori', not err, err[:1])
     check('nessun ordine si apre da solo', pg.evaluate('LZ.s.aperto') is None)
 
@@ -125,18 +127,18 @@ with sync_playwright() as p:
 
     # --- "non passa dal laser": chiede conferma, poi esce dalla coda ---
     pg.click(f'.lz-r[data-id="{ids[0]}"]')
-    pg.wait_for_timeout(1500)
+    pg.wait_for_function('id => LZ.s.aperto === id && !!document.querySelector("[data-az=smista-no]")', arg=ids[0], timeout=30000)
     check('il prossimo passo chiede "Passa dal laser?"', 'Passa dal laser?' in pg.locator('.lz-passo').inner_text())
     pg.locator('[data-az="smista-no"]').click()
-    pg.wait_for_timeout(400)
+    pg.wait_for_selector('.ft-modal-bg.open', timeout=15000)
     check('"No" chiede conferma', pg.locator('.ft-modal-bg.open').count() == 1)
     pg.locator('.ft-modal-bg.open button[data-v="0"]').click()     # ci ripenso
-    pg.wait_for_timeout(1500)
+    pg.wait_for_function('() => !document.querySelector(".ft-modal-bg.open")', timeout=15000)
     check('annullando la conferma non cambia niente', len(da_smistare()) == prima)
     pg.locator('[data-az="smista-no"]').click()
-    pg.wait_for_timeout(400)
+    pg.wait_for_selector('.ft-modal-bg.open button[data-v="1"]', timeout=15000)
     pg.locator('.ft-modal-bg.open button[data-v="1"]').click()
-    pg.wait_for_timeout(3000)
+    pg.wait_for_function('id => !LZ.ordiniLaser().some(o => o.id === id)', arg=ids[0], timeout=30000)
     check('scartandolo esce dall\'elenco', len(da_smistare()) == prima - 1 and ids[0] not in
           pg.evaluate("LZ.ordiniLaser().map(o => o.id)"), '%d -> %d' % (prima, len(da_smistare())))
     check('e non si apre da solo un altro ordine', pg.evaluate('LZ.s.aperto') in (None, ids[0]))
@@ -152,9 +154,14 @@ with sync_playwright() as p:
     # --- "va tagliato": entra nella coda (senza conferma, Invio) ---
     resto = da_smistare()
     pg.click(f'.lz-r[data-id="{resto[0]}"]')
-    pg.wait_for_timeout(1500)
+    # si aspetta l'ordine aperto e il suo passo, non un tempo fisso: col PC
+    # carico (prova notturna) 1,5 s non bastavano e Invio andava a vuoto
+    pg.wait_for_function('id => LZ.s.aperto === id && !!document.querySelector("[data-az=smista-si]")', arg=resto[0], timeout=30000)
     pg.keyboard.press('Enter')
-    pg.wait_for_timeout(3000)
+    try:
+        pg.wait_for_function('id => !document.querySelector(`.lz-r[data-id="${id}"]`).innerText.includes("Da smistare")', arg=resto[0], timeout=30000)
+    except Exception:
+        pass
     accettati = [o for o in ordini()
                  if o.get('taglio_richiesto') is True and not o.get('taglio_completato')]
     check('l\'altro entra nella coda di taglio', len(accettati) >= 1, len(accettati))
@@ -170,7 +177,7 @@ with sync_playwright() as p:
     pg2.on('pageerror', lambda e: err2.append(str(e)))
     pg2.goto(B + '/operaio-info.html')
     pg2.wait_for_load_state('networkidle')
-    pg2.wait_for_timeout(2500)
+    pg2.wait_for_function("document.body.innerText.includes('Lavorabile') || document.body.innerText.includes('In taglio')", timeout=30000)
     testo = pg2.inner_text('body')
     print()
     check('in officina compare "Lavorabile"', 'Lavorabile' in testo)

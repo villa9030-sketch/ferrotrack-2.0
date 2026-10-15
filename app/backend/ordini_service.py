@@ -58,14 +58,8 @@ ETICHETTE = {
 # cosa manca. "Pronti per DDT" contiene sia chi aspetta il DDT sia chi ce l'ha
 # gia' e aspetta la consegna; "consegnati" sia chi e' da fatturare sia chi ha
 # ancora un residuo da consegnare.
-ETICHETTE_PASSO = {
-    'in_lavorazione': 'In lavorazione',
-    'attesa_ddt': 'Pronto: da preparare il DDT',
-    'ddt_registrato': 'DDT registrato: da consegnare',
-    'consegna_parziale': 'Consegnato in parte: resta un residuo',
-    'da_fatturare': 'Consegnato: da fatturare',
-    'chiuso': 'Fatturato e chiuso',
-}
+# Le parole stanno in backend/stati.py (le stesse in ogni pagina).
+from .stati import PASSO_SPIEGA as ETICHETTE_PASSO  # noqa: E402
 
 # Stati storici che significano "pratica chiusa"
 _STATI_ARCHIVIO = ('CHIUSO', 'SPEDITO', 'ARCHIVIATO')
@@ -179,6 +173,43 @@ def filtro_consegnati(query):
         Order.data_consegna_effettiva.isnot(None),
         (Order.status.is_(None)) | (~Order.status.in_(_STATI_ARCHIVIO)),
     )
+
+
+# "Forse finiti": il ritorno dal laser all'ufficio. Quando il laser preme
+# "Taglio fatto" l'ufficio non sapeva niente; ora l'ordine tagliato, senza
+# altro in sospeso, compare come PROPOSTA nell'ufficio ("Finito -> DDT da
+# fare" / "Non ancora"). Decide sempre una persona: niente passa da solo.
+GIORNI_NON_ANCORA = 2
+
+
+def motivo_non_forse_finito(order, n_procura_aperti: int = 0, n_fasi_aperte: int = 0,
+                            rimandato_il=None, adesso=None):
+    """None se l'ordine e' "forse finito", altrimenti perche' no (per i test
+    e per chi legge il codice).
+
+    Forse finito = in lavorazione (vista 'aperto'), taglio laser fatto, niente
+    da procurare ancora da arrivare, nessuna fase di officina aperta, niente
+    lavorazione esterna dichiarata, e non rimandato con "Non ancora" negli
+    ultimi GIORNI_NON_ANCORA giorni (dopo il taglio)."""
+    from datetime import timedelta as _td
+    if getattr(order, 'is_deleted', False):
+        return 'eliminato'
+    if fase(order) != 'aperto':
+        return 'non in lavorazione'
+    if not getattr(order, 'taglio_completato', False):
+        return 'taglio non fatto'
+    if n_procura_aperti:
+        return 'da procurare non arrivato'
+    if n_fasi_aperte:
+        return "fase d'officina aperta"
+    if getattr(order, 'lavorazione_esterna', None) is True:
+        return 'lavorazione esterna'
+    if rimandato_il is not None:
+        adesso = adesso or datetime.utcnow()
+        tagliato = getattr(order, 'data_taglio_completato', None)
+        if (tagliato is None or rimandato_il >= tagliato) and adesso - rimandato_il < _td(days=GIORNI_NON_ANCORA):
+            return 'rimandato'
+    return None
 
 
 def fase_laser(order) -> str:

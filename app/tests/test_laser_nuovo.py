@@ -105,7 +105,7 @@ with sync_playwright() as p:
     check('elenco con gli ordini', pg.locator('.lz-r[data-id]').count() > 0)
     check('nessun ordine aperto da solo', pg.evaluate('LZ.s.aperto') is None and pg.locator('.lz-r.on').count() == 0)
     check('a destra: "Scegli un ordine"', 'Scegli un ordine' in pg.locator('#lz-dett').inner_text())
-    check('la riga della settimana', 'Questa settimana' in pg.locator('.lz-sat').inner_text())
+    check("la riga del carico (stesse parole dell'ufficio)", 'Laser, prossimi 5 giorni lavorativi' in pg.locator('.lz-sat').inner_text())
     check('niente calendario ne\' lamiere', pg.locator('text=Calendario').count() == 0 and pg.locator('text=Banco lamiere').count() == 0)
 
     riep = pg.evaluate('LZ.s.riep')

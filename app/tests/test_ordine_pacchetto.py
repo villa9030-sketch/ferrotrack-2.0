@@ -238,8 +238,12 @@ def main():
           and d.get('dxf_no_match') == ['EXTRA-900.dxf'], d)
     prev_vero = d.get('preventivo_id')
     arts = (PreventivoManager.get(prev_vero) or {}).get('articoli') or []
-    check('i pezzi del preventivo vero non hanno la riga-ordine del pacchetto',
-          arts and not any(a.get('ordine') for a in arts), arts[:1])
+    # dal 14/10/2026 il preventivatore tiene la riga del PDF (posizione 1, 2...)
+    # come quando la pagina legge l'ordine: niente stati dell'ufficio
+    check('i pezzi del preventivo vero hanno la riga del PDF, senza stati ufficio',
+          arts and all((a.get('ordine') or {}).get('stato') in (None, 'ok', 'senza_qta', 'dubbio', 'non_trovato')
+                       for a in arts)
+          and sorted((a.get('ordine') or {}).get('pos') or 99 for a in arts)[0] == 1, arts[:1])
     PreventivoManager.soft_delete(prev_vero)   # fuori dai piedi per i doppioni
 
     # =====================================================================
@@ -506,8 +510,21 @@ def main():
 
     # forza: un secondo ordine con lo stesso numero, se l'ufficio lo vuole
     d3 = analizza(c).get_json()
-    r = conferma(c, d3['pacchetto_id'], forza=True)
+    r = conferma(c, d3['pacchetto_id'], forza=True, al_laser=True)
     check('con forza si crea lo stesso', r.status_code == 201, r.get_json())
+    # "Va al laser" (proposta spuntata dall'ufficio): l'ordine nasce da
+    # tagliare, non "da smistare"; senza spunta resta da smistare come prima
+    oid3 = (r.get_json() or {}).get('order_id')
+    r4 = conferma(c, analizza(c).get_json()['pacchetto_id'], forza=True)
+    s = models.SessionLocal()
+    try:
+        o3 = s.query(Order).filter(Order.id == oid3).first()
+        o1 = s.query(Order).filter(Order.id == (r4.get_json() or {}).get('order_id')).first()
+        check('"Va al laser" spuntato: nasce fra quelli da tagliare', o3 is not None and o3.taglio_richiesto is True
+              and (r.get_json() or {}).get('al_laser') is True, (o3 and o3.taglio_richiesto, r.get_json().get('al_laser')))
+        check('senza spunta: resta da smistare', o1.taglio_richiesto is None, o1.taglio_richiesto)
+    finally:
+        s.close()
 
     # abbandonata da due giorni: sparisce alla prossima analisi
     d4 = analizza(c).get_json()
