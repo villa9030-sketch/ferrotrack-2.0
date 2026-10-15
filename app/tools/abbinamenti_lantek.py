@@ -5,6 +5,10 @@ Gli abbinamenti li fa Stefano una volta sola (es. articoli Poliform: quale pezzo
 Lantek e quanti per articolo) e servono per tutte le forniture dopo: non si
 devono perdere se il database viene ripulito o rifatto.
 
+Dal 15/10/2026 la copia la tiene aggiornata l'app da sola (backend/
+abbinamenti_backup.py: a ogni abbinamento e all'avvio) e il ripristino si fa
+da Admin -> Backup. Questo tool resta per farlo a mano, a server spento.
+
     python tools/abbinamenti_lantek.py esporta       -> dati_clienti/abbinamenti_lantek.json (+ .csv)
     python tools/abbinamenti_lantek.py importa FILE  -> rimette nel database quelli che mancano
                                                         (stesso codice + pezzo Lantek: non duplica)

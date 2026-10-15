@@ -200,6 +200,11 @@ if os.environ.get('FERROTRACK_SKIP_DB_INIT') != '1':
             logger.info('Registro invii a Lantek: %d righe dai file di prima', _n)
     except Exception:
         logger.warning('invii a Lantek di prima non letti', exc_info=True)
+    # Abbinamenti Lantek: copia in dati_clienti se manca o e' vecchia; se la
+    # tabella e' vuota ma la copia no, avviso all'amministrazione (niente
+    # sovrascritture in silenzio).
+    from . import abbinamenti_backup as _abb_avvio
+    _abb_avvio.avvio_sicuro()
 
 # ============ CHI STA AGENDO ============
 # I permessi li decide backend/accesso.py (@richiede su ogni rotta). Qui
@@ -3400,6 +3405,41 @@ def backup_list():
         return jsonify({'success': True, 'backups': backups, 'count': len(backups)}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/admin/abbinamenti-lantek', methods=['GET'])
+@richiede('ufficio', ADMIN)
+def api_admin_abbinamenti_lantek():
+    """Abbinamenti Lantek: quanti nel database e nella copia in dati_clienti
+    (backend/abbinamenti_backup.py), e se c'e' da ripristinare."""
+    try:
+        from . import abbinamenti_backup
+        return jsonify({'success': True, **abbinamenti_backup.stato()}), 200
+    except Exception as e:
+        logger.exception('stato abbinamenti Lantek')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/abbinamenti-lantek/ripristina', methods=['POST'])
+@richiede(ADMIN)
+def api_admin_abbinamenti_lantek_ripristina():
+    """Rimette nel database gli abbinamenti della copia che mancano (non
+    duplica, non cambia quelli che ci sono). Lo decide l'amministratore."""
+    try:
+        from . import abbinamenti_backup
+        n = abbinamenti_backup.ripristina(_chi_nome())
+        try:
+            AuditManager.log(user_id=_chi(), action='RIPRISTINO_ABBINAMENTI_LANTEK',
+                             entity_type='assiemi_lantek', entity_id='',
+                             detail=f'ripristinati {n} abbinamenti da {abbinamenti_backup.percorso_json()}')
+        except Exception:
+            pass
+        return jsonify({'success': True, 'ripristinati': n, **abbinamenti_backup.stato()}), 200
+    except FileNotFoundError:
+        return jsonify({'success': False, 'error': 'Copia degli abbinamenti non trovata'}), 404
+    except Exception as e:
+        logger.exception('ripristino abbinamenti Lantek')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/admin/audit', methods=['GET'])
 @richiede(ADMIN)

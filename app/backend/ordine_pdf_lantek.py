@@ -133,6 +133,9 @@ def salva_abbinamento(codice: str, pezzi: list, non_laser: bool, descrizione: st
         raise
     finally:
         s.close()
+    # copia fuori dal database (dati_clienti/abbinamenti_lantek.json/.csv)
+    from . import abbinamenti_backup
+    abbinamenti_backup.esporta_sicuro(f'abbinamento {chiave}')
 
 
 def dimentica_abbinamento(codice: str) -> int:
@@ -141,9 +144,12 @@ def dimentica_abbinamento(codice: str) -> int:
     try:
         n = s.query(AssiemeLantek).filter(AssiemeLantek.codice == _chiave(codice)).delete()
         s.commit()
-        return n
     finally:
         s.close()
+    if n:
+        from . import abbinamenti_backup
+        abbinamenti_backup.esporta_sicuro(f'abbinamento {_chiave(codice)} tolto')
+    return n
 
 
 # ---------------------------------------------------------------------------

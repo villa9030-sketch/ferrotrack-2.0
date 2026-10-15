@@ -203,6 +203,14 @@ body.ft { font-size: 14px; }
       <thead><tr><th>Copia</th><th>Quando</th><th class="r">Dimensione</th></tr></thead>
       <tbody id="bk-tb"><tr><td colspan="3" class="ft-muted">Caricamento…</td></tr></tbody>
     </table></div></div>
+    <div class="ft-card"><div class="ft-card-body">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px"><b>Abbinamenti Lantek</b>
+          <p class="ft-muted" id="abb-testo" style="margin:4px 0 0">Caricamento…</p></div>
+        <button class="ft-btn" id="abb-ripristina" hidden onclick="ripristinaAbbinamenti()">Ripristina gli abbinamenti</button>
+      </div>
+      <span class="adm-msg" id="abb-msg" role="status"></span>
+    </div></div>
   </div>
 </section>
 
@@ -508,6 +516,25 @@ async function caricaBackup() {
       : '<tr><td colspan="3" class="ft-muted">Nessuna copia.</td></tr>';
     if (b.length) entra('bk-tb');
   }
+  caricaAbbinamenti();
+}
+// Abbinamenti Lantek (righe dei clienti -> pezzi Lantek): la copia in
+// dati_clienti la tiene aggiornata l'app; se il database li ha persi si rimettono da qui.
+async function caricaAbbinamenti() {
+  const r = await api('/api/admin/abbinamenti-lantek');
+  if (!r.ok) { $('abb-testo').textContent = r.d.error || 'Non disponibile.'; return; }
+  const x = r.d;
+  $('abb-testo').textContent = `${x.n_tabella} nel database · ${x.n_file} nella copia`
+    + (x.file_aggiornato_il ? ` (aggiornata ${quando(x.file_aggiornato_il)})` : ' (copia non ancora fatta)')
+    + (x.n_mancanti ? ` · ${x.n_mancanti} della copia mancano nel database` : '');
+  $('abb-ripristina').hidden = !x.n_mancanti;
+}
+async function ripristinaAbbinamenti() {
+  if (!await FT.conferma({ titolo: 'Ripristinare gli abbinamenti?', testo: 'Rimetto nel database gli abbinamenti della copia che mancano. Quelli che ci sono restano come sono.', ok: 'Ripristina' })) return;
+  const r = await api('/api/admin/abbinamenti-lantek/ripristina', 'POST');
+  if (r.ok) { msg('abb-msg', ''); FT.toast(`Ripristinati ${r.d.ripristinati} abbinamenti`, 'ok'); }
+  else msg('abb-msg', r.d.error || 'Ripristino non riuscito.', 'err');
+  caricaAbbinamenti();
 }
 async function salvaBackup() {
   const r = await api('/api/admin/backup/settings', 'PUT', {
