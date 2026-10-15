@@ -1,8 +1,7 @@
 /* Pagina laser — ordini arrivati solo in PDF: le righe che in Lantek non ci
    sono col loro codice (di solito assiemi) si abbinano UNA volta ai pezzi di
    Lantek, o si segnano "non va al laser". FerroTrack se lo ricorda per le
-   forniture dopo (Stefano, 07/10/2026). Stessa logica di prima
-   (laser-guida.js), dentro la scheda Pezzi. Server: /lantek-abbina,
+   forniture dopo (Stefano, 07/10/2026), dentro la scheda Pezzi. Server: /lantek-abbina,
    /api/lantek/pezzi. */
 (function () {
   'use strict';

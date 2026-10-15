@@ -114,7 +114,7 @@ Tutte le pagine devono avere:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LS FerroTrack — [Role/Page]</title>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="/vendor/fonts/fonts.css" rel="stylesheet">
   <style>
     /* CSS da impiegata.html - IDENTICO */
   </style>

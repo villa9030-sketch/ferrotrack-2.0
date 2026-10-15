@@ -101,6 +101,10 @@ def _convert_dwg_to_dxf(dwg_path):
         shutil.rmtree(tmp_out, ignore_errors=True)
 
 app = Flask(__name__, static_folder=None)
+# Font locali (frontend/vendor/fonts): su Windows il registro puo' non
+# conoscere .woff2 e il file partirebbe come application/octet-stream.
+import mimetypes as _mimetypes
+_mimetypes.add_type('font/woff2', '.woff2')
 
 # Sottosistema DICHIARAZIONI ORE (blueprint isolato: la logica non sta qui).
 # I suoi endpoint vogliono un dispositivo registrato (vedi backend/accesso.py).
@@ -280,6 +284,9 @@ _LEGACY_REDIRECTS = {
     'laser-v2.html': '/capo-officina.html',
     'approva-ordine.html': '/capo-officina.html',
     'dettaglio-ordine.html': '/capo-officina.html',
+    # pagina laser di prima (tolta il 15/10/2026): un vecchio segnalibro
+    # porta alla pagina laser nuova
+    'laser-vecchio.html': '/laser.html',
 }
 
 
@@ -832,7 +839,7 @@ _CAL_DEFAULT = {'ore_turno': 8, 'ore_riserva': 2, 'giorni': [1, 2, 3, 4, 5],
                 # preventivatore. Dal 09/10/2026 i tempi del banco sono quelli
                 # tarati su Lantek, gia' col fattore foglio (~1,03): qui resta 1
                 # e non si cambia piu' a mano (le pagine moltiplicano ancora per
-                # questo numero: carico-laser.js, laser-vecchio.html).
+                # questo numero: carico-laser.js).
                 'fattore_tempo': 1.0,
                 # giorni speciali: {'2026-10-20': {'ore': 0, 'nota': 'manutenzione'}}
                 # (ore UTILI di quel giorno: 0 = laser fermo)
@@ -4082,6 +4089,33 @@ def _cartella_preventivo(pid) -> str:
     return cart
 
 
+def _preventivo_assente(pid):
+    """(risposta 404, codice) se il preventivo non esiste, altrimenti None.
+    Le GET di sola lettura sui file di un preventivo rispondevano 200 con
+    elenchi vuoti anche per un id inventato (stress test 12/10/2026)."""
+    from .models import Preventivo
+    session = get_session()
+    try:
+        trovato = session.query(Preventivo.id).filter(Preventivo.id == str(pid or '')).first()
+    finally:
+        session.close()
+    if trovato is None:
+        return jsonify({'success': False, 'error': 'Preventivo non trovato'}), 404
+    return None
+
+
+def _ordine_assente(order_id):
+    """(risposta 404, codice) se l'ordine non esiste, altrimenti None."""
+    session = get_session()
+    try:
+        trovato = session.query(Order.id).filter(Order.id == str(order_id or '')).first()
+    finally:
+        session.close()
+    if trovato is None:
+        return jsonify({'success': False, 'error': 'Ordine non trovato'}), 404
+    return None
+
+
 @app.before_request
 def _valida_id_preventivo():
     """Ogni rotta con <preventivo_id>/<pacchetto_id> accetta solo un UUID:
@@ -5700,6 +5734,9 @@ def _prewarm_dxf_cache(tasks):
 @richiede(*UFFICI)
 def api_preventivi_step_files_list(preventivo_id):
     """Elenca i file STEP (.step/.stp) caricati per il preventivo (in preventivi_tmp/<id>/)."""
+    assente = _preventivo_assente(preventivo_id)
+    if assente:
+        return assente
     try:
         prev_dir = _cartella_preventivo(preventivo_id)
         if not os.path.isdir(prev_dir):
@@ -5728,6 +5765,9 @@ def api_preventivi_verifica_pezzo(preventivo_id):
 
     Query: dxf=<nome file DXF>, codice=<codice pezzo>.
     """
+    assente = _preventivo_assente(preventivo_id)
+    if assente:
+        return assente
     try:
         from .preventivi.verifica_coerenza import verifica_pezzo
         prev_dir = _cartella_preventivo(preventivo_id)
@@ -5791,6 +5831,9 @@ def api_preventivi_distinte(preventivo_id):
     """Distinte base lette dai PDF d'insieme caricati (sola lettura).
     Query: codici=46SA00579-00,... (codici degli assiemi). Restituisce anche le
     distinte dei sotto-assiemi citati (es. il telaio di tubolari)."""
+    assente = _preventivo_assente(preventivo_id)
+    if assente:
+        return assente
     try:
         from .preventivi.distinte_pdf import distinte_per_codici
         prev_dir = _cartella_preventivo(preventivo_id)
@@ -5887,6 +5930,9 @@ def api_preventivi_file_disegni(preventivo_id):
     """Disegni salvati col preventivo (PDF e DXF originali, non i puliti).
     Servono alla scheda assieme: senza STEP si mostra il disegno d'insieme
     (13C050126-00: senza, non c'era modo di stimare la manodopera)."""
+    assente = _preventivo_assente(preventivo_id)
+    if assente:
+        return assente
     try:
         prev_dir = _cartella_preventivo(preventivo_id)
         pdf, dxf = [], []
@@ -7240,6 +7286,9 @@ def api_preventivi_ordine_cliente(preventivo_id):
 @richiede(*UFFICI)
 def api_preventivi_ordine_cliente_get(preventivo_id):
     """Nome del PDF d'ordine allegato (None se non c'e')."""
+    assente = _preventivo_assente(preventivo_id)
+    if assente:
+        return assente
     prev_dir = _cartella_preventivo(preventivo_id)
     nome = _ordine_cliente_segnato(prev_dir)
     return jsonify({'success': True, 'file': nome,
@@ -7305,6 +7354,9 @@ def api_orders_verify_files(order_id):
     Response: {success, files: [{filename, sha256_registrato, sha256_attuale,
                ok, stato}], all_ok}
     """
+    assente = _ordine_assente(order_id)
+    if assente:
+        return assente
     import hashlib
 
     def _sha256(path):
