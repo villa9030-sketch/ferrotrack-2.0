@@ -224,7 +224,7 @@
     st.amano = daFareAMano(ids);
     st.fase = 'fatto';
     disegna();
-    const c = document.querySelector('#lz-lantek [data-k="annulla"]');
+    const c = document.querySelector('#lz-lantek .lz-amano input:not(:checked)') || document.querySelector('#lz-lantek [data-k="annulla"]');
     if (c) c.focus();
   }
 
@@ -299,7 +299,7 @@
     const piu = new Set(st.amano.map(x => x.chi)).size > 1;
     return `<section class="lz-amano" aria-labelledby="lz-amano-t"><h3 id="lz-amano-t">Da mettere tu in Lantek, a mano</h3>
       <p>Queste righe non si possono mandare in automatico. Spuntale quando le hai fatte.</p>
-      ${st.amano.map(x => `<label class="${st.spunte.has(x.k) ? 'fatto' : ''}"><input type="checkbox" data-amano="${esc(x.k)}" ${st.spunte.has(x.k) ? 'checked' : ''}>
+      ${st.amano.map(x => `<label class="${st.spunte.has(x.k) ? 'fatto' : ''}"><input type="checkbox" data-amano="${esc(x.k)}" data-fuoco="amano-${esc(x.k)}" ${st.spunte.has(x.k) ? 'checked' : ''}>
         <span><b class="mono">${esc(x.t)}</b>${x.q ? `, ${esc(FT.numero(x.q))} pz` : ''}${piu ? ` <small style="display:inline">(${esc(x.chi)})</small>` : ''}<small>${esc(x.s)}</small></span></label>`).join('')}
     </section>`;
   }

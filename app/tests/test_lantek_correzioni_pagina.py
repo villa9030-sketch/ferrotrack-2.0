@@ -141,10 +141,10 @@ with sync_playwright() as p:
             pg.wait_for_selector('.lz-ricorda:not(.pronti)', timeout=30000)
             t = pg.locator('.lz-ricorda:not(.pronti)').inner_text()
             check('promemoria in testa: "1 codice da correggere in Lantek"', '1 codice da correggere in Lantek' in t, t)
-            chip = pg.locator(f'.lz-r[data-id="{x["id"]}"] .lz-chip')
+            # dal 15/10 l'etichetta sta sotto il cliente (.lz-sot)
+            chip = pg.locator(f'.lz-r[data-id="{x["id"]}"] .lz-sot')
             check("l'etichetta dell'ordine e' rossa", 'err' in (chip.get_attribute('class') or '')
-                  and 'Da correggere (1)' in chip.inner_text()
-                  and chip.get_attribute('title') == '1 da correggere in Lantek', chip.inner_text())
+                  and 'Da correggere (1)' in chip.inner_text(), chip.inner_text())
             pg.click('.lz-ricorda:not(.pronti)')
             pg.wait_for_function(f'LZ.s.aperto === "{x["id"]}"', timeout=10000)
             pg.wait_for_selector('.lz-correggi', timeout=30000)
@@ -168,7 +168,8 @@ with sync_playwright() as p:
             t = pg.locator('.lz-lista-testa').inner_text()
             check('promemoria: "1 codice corretto: da mandare", non piu\' rosso',
                   '1 codice corretto: da mandare' in t and pg.locator('.lz-ricorda:not(.pronti)').count() == 0, t)
-            check("l'etichetta non e' piu' rossa", 'err' not in (chip.get_attribute('class') or ''), chip.inner_text())
+            riga = pg.locator(f'.lz-r[data-id="{x["id"]}"]')
+            check("l'etichetta non e' piu' rossa", riga.locator('.lz-sot.err').count() == 0, riga.inner_text())
 
             print('\n3) Cambio idea: "Va bene Lantek"')
             stato['fase'] = 'da'
@@ -225,7 +226,8 @@ with sync_playwright() as p:
             eliminato = y['id']
             pg.wait_for_selector(f'.lz-r[data-id="{y["id"]}"]', state='detached', timeout=30000)
             check("eliminato: non e' piu' nell'elenco", stato['scritture'] == [f'DELETE {B}/api/orders/{y["id"]}'], stato['scritture'])
-            check('a destra torna "Scegli un ordine"', 'Scegli un ordine a sinistra' in pg.locator('#lz-dett').inner_text()
+            dx = pg.locator('#lz-dett').inner_text()
+            check('a destra torna "Il prossimo da fare"', ('Il prossimo da fare' in dx or 'Niente da fare' in dx)
                   and pg.evaluate('LZ.s.aperto') is None)
             toast = pg.locator('.ft-toast:has-text("eliminato")')
             check('avviso con "Annulla"', toast.count() >= 1 and 'Annulla' in toast.last.inner_text())

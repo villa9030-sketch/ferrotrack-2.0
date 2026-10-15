@@ -96,26 +96,31 @@ with sync_playwright() as p:
     check('ci sono ordini da tagliare', len(righe) > 0)
     chiavi = [(r['entro'] or '9999', r['cons'] or '9999') for r in righe]
     check('in fila per taglia entro, poi consegna', chiavi == sorted(chiavi), chiavi[:8])
+    # dal 15/10 l'elenco e' in gruppi (Da smistare, Da mandare, In Lantek):
+    # dentro ogni gruppo resta la fila per taglia entro
     dom = pg.evaluate(ORDINE_JS)
-    check("l'elenco a schermo e' in quell'ordine", dom[:len(righe)] == [r['id'] for r in righe])
+    visti = pg.evaluate("() => LZ.ordiniVisti().filter(o => LZ.statoLaser(o) !== 'tagliato').map(o => o.id)")
+    check("l'elenco a schermo e' in quell'ordine (per gruppi)", dom[:len(visti)] == visti)
+    for g in ('smistare', 'coda', 'in_lantek'):
+        ch = pg.evaluate(f"""() => LZ.ordiniVisti().filter(o => LZ.statoLaser(o) === '{g}').map(o => [LZ.entro(o) || '9999', LZ.giorno(o) || '9999'])""")
+        check(f'gruppo {g}: in fila per taglia entro', ch == sorted(ch), ch[:5])
     coerenti = [r for r in righe if r['server'] and not r['man']]
     check('il taglia entro e\' quello del server', all(r['entro'] == r['server'] for r in coerenti),
           [r for r in coerenti if r['entro'] != r['server']][:3])
     check('il taglia entro non e\' mai dopo la consegna (se calcolato)',
           all(not r['cons'] or r['entro'] <= r['cons'] for r in righe if not r['man']))
     primo = righe[0]
-    t = pg.locator(f'.lz-r[data-id="{primo["id"]}"] .lz-data').inner_text()
+    t = pg.locator(f'.lz-r[data-id="{primo["id"]}"] .lz-q').inner_text()
     gm = lambda iso: '%s/%s' % (iso[8:10], iso[5:7])  # noqa: E731
-    check('la riga: taglia entro grande e "cons." piccolo',
-          gm(primo['entro']) in t and ('cons. ' + gm(primo['cons']) if primo['cons'] else 'cons.') in t, t)
+    check('la riga: "entro" col taglia entro a destra', 'entro ' + gm(primo['entro']) in t, t)
     oggi = date.today().isoformat()
     rit = [r for r in righe if r['entro'] and r['entro'] < oggi]
     if rit:
-        tr = pg.locator(f'.lz-r[data-id="{rit[0]["id"]}"] .lz-data small.rit')
-        check('in ritardo: "in ritardo N gg" in rosso', tr.count() == 1 and 'in ritardo' in tr.inner_text())
+        tr = pg.locator(f'.lz-r[data-id="{rit[0]["id"]}"] .lz-q.indietro small')
+        check('taglia entro passato: "passato da N gg" in arancione', tr.count() == 1 and 'passato da' in tr.inner_text())
     nonrit = [r for r in righe if r['entro'] and r['entro'] >= oggi]
     if nonrit:
-        check('non in ritardo: niente rosso', pg.locator(f'.lz-r[data-id="{nonrit[0]["id"]}"] .lz-data small.rit').count() == 0)
+        check('non in ritardo: niente arancione', pg.locator(f'.lz-r[data-id="{nonrit[0]["id"]}"] .lz-q.indietro').count() == 0)
     testa = pg.locator('.lz-lista-testa').inner_text()
     # "Taglio in ritardo" (taglia entro passato) e' detto cosi', non "in ritardo":
     # "In ritardo" e' la consegna, come all'ufficio (backend/carico_laser.py)
@@ -145,7 +150,7 @@ with sync_playwright() as p:
         check('il server: a mano, con la data scelta', te['data'] == nuova and te['fonte'] == 'a mano', te)
         fatto = pg.locator('.lz-entro').inner_text()
         check('"(a mano)" e "Torna al calcolo"', '(a mano)' in fatto and pg.locator('[data-az="entro-calcolo"]').count() == 1, fatto)
-        check('la riga dice la data nuova', gm(nuova) in pg.locator(f'.lz-r[data-id="{oid}"] .lz-data').inner_text())
+        check('la riga dice la data nuova', gm(nuova) in pg.locator(f'.lz-r[data-id="{oid}"] .lz-q').inner_text())
         ids = pg.evaluate("""() => LZ.ordiniLaser().filter(o => LZ.statoLaser(o) !== 'tagliato').map(o => [LZ.entro(o) || '9999', LZ.giorno(o) || '9999'])""")
         check("l'elenco si rimette in fila", ids == sorted(ids))
         check("l'ordine resta aperto", pg.evaluate('LZ.s.aperto') == oid)

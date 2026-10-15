@@ -108,7 +108,7 @@ with sync_playwright() as p:
     pg.wait_for_selector('.lz-r[data-id]', timeout=20000)
     # niente tempi fissi: si aspetta la condizione vera (col PC carico i
     # tempi fissi facevano fallire la prova a caso)
-    pg.wait_for_function("LZ.s.ordini && LZ.s.ordini.length > 0 && !document.querySelector('.lz-r .lz-chip.skel')", timeout=30000)
+    pg.wait_for_function("LZ.s.ordini && LZ.s.ordini.length > 0 && !document.querySelector('.lz-r .lz-sotto .lz-skel')", timeout=30000)
     check('la pagina del laser si apre senza errori', not err, err[:1])
     check('nessun ordine si apre da solo', pg.evaluate('LZ.s.aperto') is None)
 
@@ -120,7 +120,9 @@ with sync_playwright() as p:
     prima = len(ids)
     print('  ordini da smistare: %d' % prima)
     check('c\'e\' qualcosa da smistare, con l\'etichetta "Da smistare"', prima > 0
-          and 'Da smistare' in pg.locator(f'.lz-r[data-id="{ids[0]}"]').inner_text())
+          # dal 15/10 "Da smistare" e' il nome del gruppo in cui stanno le righe
+          and 'Da smistare' in pg.locator('.lz-gruppo[data-gruppo="smistare"]').inner_text()
+          and pg.locator(f'.lz-gruppo[data-gruppo="smistare"] ~ .lz-r[data-id="{ids[0]}"]').count() == 1)
     # Le righe servono a scegliere: nessun pulsante (07/10/2026). Si apre
     # l'ordine e si decide nel prossimo passo.
     check('nelle righe della lista non ci sono pulsanti', pg.locator('.lz-r button').count() == 0)

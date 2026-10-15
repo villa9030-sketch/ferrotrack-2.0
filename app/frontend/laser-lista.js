@@ -49,14 +49,16 @@
     return `<span class="lz-q ${cls}"><b>entro ${g ? FT.fmtDataBreve(g) : '—'}</b><small>${esc(sotto)}</small></span>`;
   }
 
-  /** La riga sotto il cliente, UNA cosa: l'allarme rosso, o cosa c'e' da
-      fare, o la consegna (e le lamiere gia' tagliate). */
+  /** La riga sotto il cliente: cosa c'e' da fare e l'allarme rosso, o
+      la consegna (e le lamiere gia' tagliate). */
   function sotto(o, st) {
     const al = LZ.allarme(o);
     const e = LZ.etichetta(o);
     let h;
-    if (al && al.k === 'rischio') h = `<span class="lz-al rischio">${esc(al.t)}</span>`;
-    else if (e.c === 'att' || e.c === 'err') h = `<span class="lz-sot ${e.c}">${esc(e.corto || e.t)}</span>`;
+    const rischio = al && al.k === 'rischio' ? `<span class="lz-al rischio">${esc(al.t)}</span>` : '';
+    // cosa c'e' da fare viene prima; l'allarme rosso subito dopo
+    if (e.c === 'att' || e.c === 'err') h = `<span class="lz-sot ${e.c}">${esc(e.corto || e.t)}</span>` + rischio;
+    else if (rischio) h = rischio;
     else if (e.c === 'skel') h = '<span class="lz-skel" style="display:inline-block;height:10px;width:90px"></span>';
     else {
       const cons = LZ.giorno(o);
@@ -109,9 +111,9 @@
 
     const attivi = ordini.filter(o => LZ.statoLaser(o) !== 'tagliato');
     const nRischio = attivi.filter(o => (LZ.allarme(o) || {}).k === 'rischio').length;
-    const nIndietro = attivi.filter(o => (LZ.allarme(o) || {}).k === 'indietro').length;
-    const al = [nRischio ? `<span class="rischio">${LZ.plur(nRischio, 'consegna a rischio', 'consegne a rischio')}</span>` : '',
-      nIndietro ? `<span class="indietro">${nIndietro} con il taglia entro passato</span>` : ''].filter(Boolean);
+    // il "Taglio in ritardo" (taglia entro passato) lo dice la riga del carico,
+    // col conto del server uguale all'ufficio (laser-saturazione.js)
+    const al = [nRischio ? `<span class="rischio">${LZ.plur(nRischio, 'consegna a rischio', 'consegne a rischio')}</span>` : ''].filter(Boolean);
     LZ.metti(document.getElementById('lz-l-testa'), `<h1>Ordini al laser</h1>
       <p class="lz-riass">${LZ.plur(attivi.length, 'ordine', 'ordini')}${al.length ? '. ' + al.join(', ') : ''}</p>
       ${promemoria(attivi)}${LZ.sat.html()}`);

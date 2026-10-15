@@ -129,7 +129,7 @@ try:
               and gr.locator('.lz-pc-barre').inner_text() == '1', gr.all_inner_texts())
         pg.wait_for_timeout(600)
         pg.screenshot(path=os.path.join(os.environ.get('TEMP', '.'), 'ft_procura_ufficio.png'))
-        check('il pannello copre la pagina (opaco)', pg.evaluate("getComputedStyle(document.getElementById('lz-pc')).backgroundColor") == 'rgb(243, 244, 246)'
+        check('il pannello copre la pagina (opaco)', pg.evaluate("getComputedStyle(document.getElementById('lz-pc')).backgroundColor") == 'rgb(242, 244, 247)'   # dal 15/10 il fondo comune (--ft-canvas)
               and pg.evaluate("getComputedStyle(document.getElementById('lz-pc')).opacity") == '1')
         gr.locator('[data-pc-gruppo]').check()
         pg.wait_for_selector('#lz-pc .lz-pc-az', timeout=10000)

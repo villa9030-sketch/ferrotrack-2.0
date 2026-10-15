@@ -123,8 +123,8 @@
 
   /** I gruppi dell'elenco, nell'ordine in cui si vedono (anche per le frecce). */
   LZ.GRUPPI = [
-    { k: 'smistare', t: 'Da smistare' },
-    { k: 'coda', t: 'Da mandare a Lantek' },
+    { k: 'smistare', t: window.FTStati.laser.da_smistare },
+    { k: 'coda', t: window.FTStati.laser.da_importare },
     { k: 'in_lantek', t: 'In Lantek, da tagliare' },
     { k: 'tagliato', t: 'Tagliati nelle ultime 24 ore' },
   ];

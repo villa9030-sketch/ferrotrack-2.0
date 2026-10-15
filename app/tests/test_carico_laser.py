@@ -185,7 +185,7 @@ def pagine():
     check('carico-laser.js non dispone piu\' lamiere da se\'', 'function disponi' not in cl and 'riepilogo' in cl)
     check('ufficio: "In ritardo" dal riepilogo del server', 'CaricoLaser.riepilogo()' in leggi('impiegata.html'))
     check('laser: "Taglio in ritardo" e periodo dal riepilogo del server',
-          'CaricoLaser.riepilogo()' in leggi('laser-saturazione.js') and 'Taglio in ritardo' in leggi('laser-lista.js'))
+          'CaricoLaser.riepilogo()' in leggi('laser-saturazione.js') and 'Taglio in ritardo' in leggi('laser-saturazione.js'))   # dal 15/10 la dice la riga del carico
     check('niente piu\' "Questa settimana" al laser', 'Questa settimana' not in leggi('laser-saturazione.js'))
 
 

@@ -9,6 +9,10 @@ Ogni tests/test_*.py gira in un processo separato con:
     suo database non puo' scrivere su quello di lavoro
 I test che vogliono il server di prova (porta 5056) o Playwright si saltano,
 dicendolo, se non sono disponibili. Uscita 0 solo se nessuno fallisce.
+
+Server di prova su un'altra porta (es. una copia di lavoro su 5058):
+    set FERROTRACK_PROVA_URL=http://127.0.0.1:5058
+i test del server ricevono quell'indirizzo come primo argomento.
 """
 from __future__ import annotations
 
@@ -27,6 +31,8 @@ except Exception:
     pass
 TESTS = APP / 'tests'
 PY = sys.executable
+PROVA_URL = os.environ.get('FERROTRACK_PROVA_URL', '').rstrip('/')
+PROVA_PORTA = int(PROVA_URL.rsplit(':', 1)[1]) if PROVA_URL.count(':') == 2 else 5056
 
 
 def _porta(p: int) -> bool:
@@ -46,8 +52,8 @@ def _playwright() -> bool:
 
 
 def perche_saltare(testo: str) -> str | None:
-    if '5056' in testo and not _porta(5056):
-        return 'serve il server di prova sulla porta 5056 (tools/server_prova.py)'
+    if '5056' in testo and not _porta(PROVA_PORTA):
+        return f'serve il server di prova sulla porta {PROVA_PORTA} (tools/server_prova.py)'
     if 'playwright' in testo and not _playwright():
         return 'serve Playwright'
     return None
@@ -72,7 +78,8 @@ def main(filtri: list[str]) -> int:
                    PYTHONIOENCODING='utf-8', PYTHONWARNINGS='ignore')
         s = time.time()
         try:
-            r = subprocess.run([PY, str(f)], cwd=str(APP), env=env, capture_output=True,
+            arg = [PROVA_URL] if PROVA_URL and '5056' in testo else []
+            r = subprocess.run([PY, str(f)] + arg, cwd=str(APP), env=env, capture_output=True,
                                text=True, encoding='utf-8', errors='replace', timeout=900)
             ok = r.returncode == 0
             coda = (r.stdout + r.stderr).strip().splitlines()[-12:]
