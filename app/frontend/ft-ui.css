@@ -418,6 +418,9 @@ body.ft-touch { --ft-topbar-h: 64px; }
 .ftt-dove b { color: var(--ft-ink); font-weight: 600; }
 .ftt-ora { font: 600 20px var(--ft-font); color: var(--ft-ink); white-space: nowrap; }
 @media (max-width: 899px) { .ftt-dove { display: none; } }
+/* "Schermo intero" (ft-tablet.js): discreto, scompare quando lo schermo e' gia' intero */
+.ftt-pieno { height: 44px; padding: 0 16px; font-size: 14px; color: var(--ft-ink-2); }
+.ftt-pieno[hidden] { display: none; }
 
 /* ── Movimento: solo come risposta a un'azione ───────────────────────
    Niente entrate in sequenza, alzate al passaggio del mouse, numeri che

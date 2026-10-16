@@ -4,10 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#F1F2F5">
+<link rel="manifest" href="/manifest-cartellone.json">
 <title>FerroTrack — Schermo officina</title>
 <script src="/ft-accesso.js" data-pubblica></script>
 <link rel="stylesheet" href="/ft-ui.css">
 <script src="/ft-ui.js"></script>
+<script src="/ft-tablet.js" defer></script>
 <!--
   Schermo appeso in officina (TV 1920x1080, si legge da lontano): solo numeri
   anonimi da /api/dashboard-live, nessun nome ne' prezzo. Stessi token di
@@ -57,6 +59,7 @@ body.ft { font-size: 16px; }
   font-size: clamp(16px, 1.1vw, 20px); color: var(--ft-ink-3); }
 .dl-foot b { color: var(--ft-ink-2); font-weight: 600; }
 #live.off { color: var(--ft-err); font-weight: 600; }
+.dl-foot-dx { display: flex; align-items: center; gap: 16px; }
 #last-update { color: inherit; }
 
 @media (max-width: 1100px) {
@@ -110,7 +113,7 @@ body.ft { font-size: 16px; }
 
   <footer class="dl-foot">
     <div><b id="brand-anni">35 anni</b> di esperienza. UNI EN 1090, ISO 9001, EN ISO 3834.</div>
-    <div id="live">aggiornato alle <span id="last-update">—</span></div>
+    <div class="dl-foot-dx"><span id="live">aggiornato alle <span id="last-update">—</span></span><span data-schermo-intero></span></div>
   </footer>
 </div>
 

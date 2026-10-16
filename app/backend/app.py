@@ -1361,8 +1361,10 @@ def api_ordine_dxf_svg(order_id, filename):
             return jsonify({'success': False, 'codice': 'anteprima_non_disponibile',
                             'error': 'Anteprima disponibile solo per i file DXF'}), 415
         from flask import Response
-        resp = Response(_get_dxf_svg_cached(d['percorso']),
-                        mimetype='image/svg+xml; charset=utf-8')
+        svg = _get_dxf_svg_cached(d['percorso'])
+        if request.args.get('linee'):          # tablet dell'officina: linee spesse
+            svg = svg_linee_spesse(svg, request.args.get('linee'))
+        resp = Response(svg, mimetype='image/svg+xml; charset=utf-8')
         resp.headers['Cache-Control'] = 'private, max-age=3600'
         return resp
     except Exception as e:
@@ -6120,6 +6122,59 @@ def _get_dxf_svg_cached(dxf_path: str) -> str:
     svg = _dxf_scanner.dxf_to_svg_string(dxf_path)
     _SVG_CACHE.put(key, svg)
     return svg
+
+
+# Linee leggibili sul tablet dell'officina (16/10/2026, Stefano: "i disegni
+# hanno le righe finissime, si leggono poco su tablet"). ezdxf scrive lo
+# spessore in unita' del disegno (146 su un viewBox di 1.000.000): un pezzo
+# di un metro su uno schermo da 1200 px fa linee da 0,2 px. Con ?linee=...
+# si aggiunge in coda alle classi di ezdxf uno stile che:
+#  - fissa lo spessore in pixel dello schermo (vector-effect: non-scaling-
+#    stroke): ingrandendo col dito la linea resta della stessa grossezza;
+#  - tiene i rapporti fra le classi (la linea piu' fine resta la piu' fine);
+#  - scurisce i grigi e i colori chiari, tenendo la tinta (pieghe, segni).
+# Il disegno del PC (nessun parametro) resta com'e'.
+# Nelle miniature (un foglio A3 in 200 px) linee piu' grosse impastano il
+# cartiglio: li' bastano 1,1-1,6 px, comunque 5-8 volte quelle di prima.
+_LINEE_PX = {'tablet': (1.7, 2.4), 'miniatura': (1.1, 1.6)}
+_RX_CLASSE_SVG = None
+
+
+def _scurisci(hex6: str) -> str:
+    r, g, b = (int(hex6[i:i + 2], 16) for i in (0, 2, 4))
+    grigio = max(r, g, b) - min(r, g, b) < 24
+    tetto = 0x30 if grigio else 0x90     # nero quasi pieno; colori scuri ma riconoscibili
+    m = max(r, g, b)
+    if m > tetto:
+        k = tetto / m
+        r, g, b = int(r * k), int(g * k), int(b * k)
+    return '#%02x%02x%02x' % (r, g, b)
+
+
+def svg_linee_spesse(svg: str, modo: str) -> str:
+    """Stile "linee spesse" per l'SVG di ezdxf (vedi sopra). Modo sconosciuto
+    o SVG senza le classi di ezdxf: torna l'SVG com'era."""
+    import re
+    global _RX_CLASSE_SVG
+    if modo not in _LINEE_PX:
+        return svg
+    if _RX_CLASSE_SVG is None:
+        _RX_CLASSE_SVG = re.compile(
+            r'\.(C\d+)\s*\{\s*stroke:\s*#([0-9a-fA-F]{6});\s*stroke-width:\s*([0-9.]+);')
+    fine = svg.find('</defs>')
+    if fine < 0:
+        return svg
+    classi = [(c, col, float(w)) for c, col, w in _RX_CLASSE_SVG.findall(svg[:fine])]
+    if not classi:
+        return svg
+    lo, hi = _LINEE_PX[modo]
+    wmax = max(w for _, _, w in classi) or 1.0
+    regole = ['path,line,polyline,polygon,circle,ellipse,rect{vector-effect:non-scaling-stroke}']
+    for c, col, w in classi:
+        px = lo + (hi - lo) * (w / wmax)
+        regole.append('.%s{stroke:%s;stroke-width:%.2fpx}' % (c, _scurisci(col), px))
+    stile = '<style>/* linee spesse (%s) */%s</style>' % (modo, ''.join(regole))
+    return svg[:fine] + stile + svg[fine:]
 
 
 # Cache della geometria del CAD (geometry_json): è ciò che il CAD interno carica

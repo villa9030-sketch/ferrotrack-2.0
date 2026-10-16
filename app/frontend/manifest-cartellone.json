@@ -1,0 +1,21 @@
+{
+  "id": "/dashboard-live.html",
+  "name": "FerroTrack Cartellone",
+  "short_name": "Cartellone",
+  "description": "Schermo appeso in officina",
+  "start_url": "/dashboard-live.html",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "prefer_related_applications": false,
+  "lang": "it",
+  "background_color": "#F1F2F5",
+  "theme_color": "#3D3FB5",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

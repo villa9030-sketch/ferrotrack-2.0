@@ -4,11 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#F2F4F7">
-<link rel="manifest" href="/manifest.json">
+<link rel="manifest" href="/manifest-officina.json">
 <title>LS FerroTrack — Officina</title>
 <script src="/ft-accesso.js" data-stazioni="reparto,ufficio,laser"></script>
 <link rel="stylesheet" href="/ft-ui.css">
 <script src="/ft-ui.js"></script>
+<script src="/ft-tablet.js" defer></script>
 <style>
 /* Tablet dei ragazzi in officina: trovare un ordine (cliente o numero), vedere
    i pezzi da fare, i disegni e il foglio d'ordine. Si consulta e basta, salvo
@@ -230,6 +231,10 @@ button.pz-img:active { border-color: var(--ft-accent); }
    mostrano un PDF dentro un riquadro, ne' in Chrome ne' nell'app. */
 .foglio-pagine { flex: 1; overflow: auto; background: var(--ft-g4); padding: 12px; -webkit-overflow-scrolling: touch; }
 .foglio-pagine canvas { display: block; margin: 0 auto 12px; background: #fff; border: 1px solid var(--ft-line-3); }
+/* Linee spesse (16/10): un PDF di un disegno ha righe da 0,1 mm, sul tablet
+   quasi invisibili. Il filtro allarga tutto cio' che e' scuro. */
+.foglio-pagine.spesse canvas { filter: url(#ingrossa); }
+.pieno .testa .ft-btn.spesse[aria-pressed="true"] { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
 .foglio-pagine .caric { text-align: center; padding: 40px; font-size: 18px; color: var(--ft-ink-3); }
 /* Il disegno si muove con le dita: due dita ingrandiscono, uno sposta,
    doppio tocco ingrandisce li' (o torna intero). touch-action: none perche'
@@ -354,12 +359,15 @@ button.pz-img:active { border-color: var(--ft-accent); }
 <div class="pieno foglio-pieno" id="foglio" hidden>
   <div class="testa">
     <div class="titolo" id="foglio-titolo"></div>
+    <button class="ft-btn spesse" id="foglio-spesse" onclick="lineeSpesse()" aria-pressed="false" hidden>Linee spesse</button>
     <button class="ft-btn zoom" id="foglio-meno" onclick="zoomFoglio(-1)" aria-label="Rimpicciolisci" hidden>−</button>
     <button class="ft-btn zoom" id="foglio-piu" onclick="zoomFoglio(1)" aria-label="Ingrandisci" hidden>+</button>
     <button class="ft-btn chiudi" onclick="chiudiFoglio()">Chiudi</button>
   </div>
   <iframe id="foglio-pdf" title="Foglio d'ordine" hidden></iframe>
   <div class="foglio-pagine" id="foglio-pagine" hidden></div>
+  <!-- "Linee spesse": il nero si allarga di mezzo pixel per parte -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="ingrossa"><feMorphology operator="erode" radius="0.5"/></filter></svg>
 </div>
 
 <!-- Un disegno a schermo pieno: due dita per ingrandire, doppio tocco, frecce o scorri per il prossimo -->
@@ -895,7 +903,11 @@ function avvisoProcura(o) {
   return `<div class="ft-alert ${p.in_ritardo ? 'err' : 'warn'}">Mancano ${p.mancano} ${p.mancano === 1 ? 'pezzo' : 'pezzi'} da procurare: non è ancora pronto per il montaggio${p.in_ritardo ? ` (${p.in_ritardo} in ritardo)` : ''}.</div>`;
 }
 function disegniDi(o) {
-  return (o && o.disegni ? o.disegni : []).map(x => ({ nome: x.nome, svg: x.url_svg ? API + x.url_svg : null }));
+  // Linee spesse (16/10): il server fissa lo spessore in pixel dello schermo,
+  // un po' piu' sottile nelle miniature; il disegno del PC resta com'era.
+  return (o && o.disegni ? o.disegni : []).map(x => ({ nome: x.nome,
+    svg: x.url_svg ? API + x.url_svg + '?linee=tablet' : null,
+    mini: x.url_svg ? API + x.url_svg + '?linee=miniatura' : null }));
 }
 function mostraSchede(o) {
   const pezzi = o.pezzi || [], dis = disegniDi(o);
@@ -910,7 +922,7 @@ function mostraSchede(o) {
   const c = document.getElementById('oa-corpo');
   if (SCHEDA === 'disegni' && dis.length) {
     c.innerHTML = `<div class="griglia">${dis.map((d, i) => `<button class="dis" onclick="apriDisegno(${i})">
-      <div class="im">${d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'anteprima non disponibile'}</div><div class="n">${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}</div></button>`).join('')}</div>`;
+      <div class="im">${d.svg ? `<img src="${esc(d.mini)}" loading="lazy" alt="">` : 'anteprima non disponibile'}</div><div class="n">${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}</div></button>`).join('')}</div>`;
   } else if (pezzi.length) {
     const idx = new Map(dis.map((d, i) => [d.nome.toLowerCase(), i]));
     const riga = (p, spento) => rigaPezzo(o, p, idx, spento);
@@ -964,7 +976,7 @@ function rigaPezzo(o, p, idx, spento) {
     p.url_step ? `<button class="ft-btn d3" onclick="vediAssieme(${pi})">Vedi assieme in 3D</button>` : '',
   ].join('');
   return `<div class="pz${spento ? ' spento' : ''}">
-    ${d ? `<button class="pz-img${d.svg ? '' : ' no'}" onclick="apriDisegno(${i})" aria-label="Apri il disegno di ${esc(p.codice || '')}">${d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'disegno<br>senza anteprima'}</button>`
+    ${d ? `<button class="pz-img${d.svg ? '' : ' no'}" onclick="apriDisegno(${i})" aria-label="Apri il disegno di ${esc(p.codice || '')}">${d.svg ? `<img src="${esc(d.mini)}" loading="lazy" alt="">` : 'disegno<br>senza anteprima'}</button>`
         : `<div class="pz-img no">${p.tipo === 'assieme' ? 'assieme' : 'senza<br>disegno'}</div>`}
     <div style="min-width:0"><div class="pz-cod">${esc(p.codice || '—')}</div><div class="pz-mat">${mat}</div>
       <div class="pz-lav">${parole}</div>${az ? `<div class="pz-az">${az}</div>` : ''}</div>
@@ -1203,7 +1215,18 @@ function caricaPdfjs() {
     document.head.appendChild(s);
   });
 }
-function zoomBottoni(v) { document.getElementById('foglio-meno').hidden = !v; document.getElementById('foglio-piu').hidden = !v; }
+function zoomBottoni(v) {
+  ['foglio-meno', 'foglio-piu', 'foglio-spesse'].forEach(id => { document.getElementById(id).hidden = !v; });
+  if (v) lineeSpesse(lineeSpesseScelte());
+}
+/* Linee spesse sul foglio in PDF: la scelta resta sul tablet. */
+function lineeSpesseScelte() { try { return localStorage.getItem('off_linee_spesse') === '1'; } catch (_) { return false; } }
+function lineeSpesse(on) {
+  if (on === undefined) on = !lineeSpesseScelte();
+  try { localStorage.setItem('off_linee_spesse', on ? '1' : '0'); } catch (_) {}
+  document.getElementById('foglio-pagine').classList.toggle('spesse', on);
+  document.getElementById('foglio-spesse').setAttribute('aria-pressed', String(on));
+}
 async function disegnaFoglio(giro) {
   const box = document.getElementById('foglio-pagine'), doc = FOGLIO.doc;
   if (!doc) return;
