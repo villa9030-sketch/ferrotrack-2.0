@@ -20,11 +20,13 @@
 
   K.aperto = () => !!st;
 
-  K.apri = async function (ids) {
+  /** opz (pacco di taglio, laser-pacchi.js): {titolo, dopo(esiti)} — il
+      titolo della finestra e cosa fare quando si chiude dopo l'invio. */
+  K.apri = async function (ids, opz) {
     if (st || !ids.length) return;
     LZ.chiudiMenu();
     st = { ids: LZ.ordiniLaser().map(o => o.id).filter(id => ids.includes(id)), fase: 'carica', dati: {}, errori: {},
-           scelte: {}, esiti: {}, foto: LZ.fotografa(), amano: [], spunte: new Set() };
+           scelte: {}, esiti: {}, foto: LZ.fotografa(), amano: [], spunte: new Set(), opz: opz || {} };
     const v = document.createElement('div');
     v.className = 'lz-velo';
     v.id = 'lz-lantek';
@@ -62,12 +64,13 @@
       if (p) p.focus();
       return;
     }
-    const fatto = st.fase === 'fatto', ids = st.ids, foto = st.foto;
+    const fatto = st.fase === 'fatto', ids = st.ids, foto = st.foto, opz = st.opz, esiti = st.esiti;
     st = null;
     const v = document.getElementById('lz-lantek');
     if (v) v.remove();
     LZ.ripristina(foto);
     if (fatto) for (const id of ids) LZ.ordine.dopo(id);
+    if (fatto && opz.dopo) opz.dopo(esiti);
   };
 
   /** Scelte gia' fatte prima: i codici ancora "da correggere in Lantek"
@@ -183,7 +186,8 @@
         : `<span class="perche" style="color:${ko ? 'var(--lz-red)' : 'var(--lz-green)'}">${ko ? `${ok} riusciti, ${ko} non riusciti` : st.amano.length ? 'Tutto fatto, anche a mano. Adesso lanciali dal MES come al solito.' : 'Tutto fatto. Adesso lanciali dal MES come al solito.'}</span>
           <span class="sp"></span><button class="lz-btn pri grande" type="button" data-k="annulla">${st.amano.length ? 'Fatte, chiudi' : 'Chiudi'}${LZ.tasto('Invio')}</button>`;
     }
-    const tit = st.fase === 'fatto' ? 'Mandato a Lantek' : `Manda a Lantek${nOrd > 1 ? ` ${nOrd} ordini` : ''}`;
+    const tit = st.opz.titolo ? (st.fase === 'fatto' ? `${st.opz.titolo}: mandato a Lantek` : `Manda a Lantek ${st.opz.titolo.charAt(0).toLowerCase()}${st.opz.titolo.slice(1)}`)
+      : st.fase === 'fatto' ? 'Mandato a Lantek' : `Manda a Lantek${nOrd > 1 ? ` ${nOrd} ordini` : ''}`;
     const sotto = st.fase === 'carica' ? 'Guardo cosa c\'è già in Lantek…'
       : st.fase === 'fatto' ? 'Ho ricontrollato in Lantek cosa c\'è davvero.'
         : 'Controlla il riassunto: niente parte prima di «Manda a Lantek».';

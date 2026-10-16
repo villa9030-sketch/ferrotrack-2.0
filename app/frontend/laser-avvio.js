@@ -131,8 +131,9 @@
     if (t && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) && !/^(checkbox|radio)$/.test(t.type || '')) || (t && t.isContentEditable)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-    // Esc: chiude il pannello dell'ordine, la tabella torna a tutta larghezza
-    if (k === 'Escape' && S.aperto) { e.preventDefault(); LZ.lista.chiudi(); return; }
+    // Esc: chiude il pannello dell'ordine (si torna al pacco, se era aperto),
+    // poi il pacco: la tabella torna a tutta larghezza
+    if (k === 'Escape' && (S.aperto || S.pacco)) { e.preventDefault(); LZ.lista.chiudi(); return; }
     if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); LZ.lista.sposta(k === 'ArrowDown' ? 1 : -1); return; }
     if (k === ' ' && S.aperto && !(t && t.tagName === 'BUTTON')) {
       const o = LZ.trova(S.aperto);
@@ -145,13 +146,17 @@
       return;
     }
     if (k === 'l' && S.spuntati.size) { e.preventDefault(); LZ.lista.mandaSpuntati(); return; }
+    // P: crea il pacco con gli ordini spuntati (laser-pacchi.js)
+    if (k === 'p' && S.spuntati.size) { e.preventDefault(); LZ.lista.creaPacco(); return; }
     if (k === 'd') { e.preventDefault(); LZ.procura.apri(); return; }
     if (k === 'Enter') {
       // Invio sul pulsante col fuoco lo preme; altrimenti e' il passo principale
       if (t && t.tagName === 'BUTTON' && !t.closest('.lz-r')) return;
       const rr = t && t.closest && t.closest('.lz-r');
+      if (rr && rr.dataset.pacco && (rr.dataset.pacco !== S.pacco || S.aperto)) { e.preventDefault(); LZ.pacchi.apri(rr.dataset.pacco); return; }
       const rid = rr && (rr.dataset.id || rr.dataset.rif);
       if (rid && rid !== S.aperto) { e.preventDefault(); LZ.lista.apri(rid); return; }
+      if (LZ.pacchi.invio()) { e.preventDefault(); return; }   // il pacco aperto: il suo passo
       if (LZ.ordine.invio()) e.preventDefault();      // senza ordine aperto: apre il prossimo da fare
       return;
     }
@@ -176,6 +181,7 @@
       { t: 'Cambia postazione', ico: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>', fn: () => FTA.cambiaDispositivo() },
     ]);
     await A.caricaOrdini(true);
+    LZ.pacchi.avvia();
     S.primoCarico = false;
     LZ.ridisegna();
     LZ.sat.carica(true).then(() => LZ.ridisegna());

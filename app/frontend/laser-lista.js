@@ -32,7 +32,7 @@
     el.innerHTML = `<div class="lz-lista-testa" id="lz-l-testa"></div>
       <div class="lz-righe" id="lz-l-righe"></div>
       <div id="lz-l-az"></div>
-      <p class="lz-tasti-nota"><kbd>↑</kbd> <kbd>↓</kbd> scorri, <kbd>Spazio</kbd> spunta, <kbd>C</kbd> controlla i disegni, <kbd>Esc</kbd> chiudi l'ordine</p>`;
+      <p class="lz-tasti-nota"><kbd>↑</kbd> <kbd>↓</kbd> scorri, <kbd>Spazio</kbd> spunta, <kbd>P</kbd> crea il pacco, <kbd>C</kbd> controlla i disegni, <kbd>Esc</kbd> chiudi</p>`;
     el.addEventListener('click', clic);
     el.addEventListener('change', e => {
       const c = e.target.closest('input[data-sp]');
@@ -45,6 +45,8 @@
 
   /** Si possono spuntare gli ordini da mettere in Lantek. */
   L.spuntabile = o => LZ.statoLaser(o) === 'coda';
+  /** Gia' in un pacco aperto (laser-pacchi.js): "Seleziona i N" lo salta. */
+  L.inPacco = o => !!(LZ.pacchi && LZ.pacchi.diOrdine(o.id));
 
   // ── Date: giorni lavorativi e formati italiani (Intl) ─────────────────
   const fmtGiorno = new Intl.DateTimeFormat('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
@@ -160,7 +162,7 @@
       <td class="c-sp">${sp ? `<input type="checkbox" data-sp="${id}" ${S.spuntati.has(o.id) ? 'checked' : ''}
         aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">` : ''}</td>
       <td class="c-num"><span class="lz-num" title="${esc(LZ.numero(o))}">${esc(LZ.numeroBreve(o))}</span></td>
-      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${anche}${procura(o)}</div></td>
+      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${LZ.pacchi ? LZ.pacchi.nota(o.id) : ''}${anche}${procura(o)}</div></td>
       <td class="c-st">${stato(o)}</td>
       <td class="c-pz r">${pezzi != null ? esc(FT.numero(pezzi)) : '—'}</td>
       <td class="c-cons">${consegna(o, st)}</td>
@@ -172,7 +174,7 @@
     const n = new Set(g.righe.map(r => r.o.id)).size;
     let dx = '';
     if (g.lam) {
-      const daMandare = g.righe.filter(r => L.spuntabile(r.o)).map(r => r.o.id);
+      const daMandare = g.righe.filter(r => L.spuntabile(r.o) && !L.inPacco(r.o)).map(r => r.o.id);
       const tutti = daMandare.length && daMandare.every(id => S.spuntati.has(id));
       if (daMandare.length) dx = `<button class="lz-link" type="button" data-az="sel-lam" data-lam="${esc(g.k)}">${tutti ? 'Togli la selezione' : `Seleziona ${daMandare.length === 1 ? 'l’ordine' : `i ${daMandare.length}`} da mandare`}</button>`;
     }
@@ -246,7 +248,7 @@
     // le caselle restano solo sugli ordini ancora spuntabili
     for (const id of [...S.spuntati]) { const o = LZ.trova(id); if (!o || !L.spuntabile(o)) S.spuntati.delete(id); }
     const main = document.querySelector('.lz-main');
-    if (main) main.classList.toggle('con-ordine', !!S.aperto);
+    if (main) main.classList.toggle('con-ordine', !!(S.aperto || S.pacco));
 
     const attivi = tutti.filter(o => LZ.statoLaser(o) !== 'tagliato');
     const nRischio = attivi.filter(o => (LZ.allarme(o) || {}).k === 'rischio').length;
@@ -275,7 +277,8 @@
     } else if (!gruppi.length) {
       html = `<div class="lz-vuoto-lista"><b>Nessun ordine con questi filtri</b><button class="lz-link" type="button" data-az="via-filtri">Togli i filtri</button></div>`;
     } else {
-      html = `<table class="lz-tabella">${testa}<tbody>${gruppi.map(g => testaGruppo(g) + g.righe.map(r => riga(r, g)).join('')).join('')}</tbody></table>`;
+      // in cima i pacchi (laser-pacchi.js), poi le lamiere
+      html = `<table class="lz-tabella">${testa}<tbody>${LZ.pacchi ? LZ.pacchi.righeLista() : ''}${gruppi.map(g => testaGruppo(g) + g.righe.map(r => riga(r, g)).join('')).join('')}</tbody></table>`;
     }
     LZ.metti(righe, html, righe);
     disegnaAzione();
@@ -306,13 +309,20 @@
     const nCtl = sel.reduce((s, o) => s + ((S.riep[o.id] || {}).n_controllare || 0), 0);
     const pronti = sel.filter(o => (S.riep[o.id] || {}).pronto);
     const altri = sel.length - pronti.length;
+    // il pacco (laser-pacchi.js) e' il modo di lavorare: "Crea pacco" e' il
+    // pulsante principale; gli ordini gia' in un pacco aperto non rientrano
+    const liberi = sel.filter(o => !(LZ.pacchi && LZ.pacchi.diOrdine(o.id)));
+    const inPacco = sel.length - liberi.length;
     LZ.metti(box, `<div class="lz-azione">
       <div class="q"><span>${LZ.plur(sel.length, 'ordine selezionato', 'ordini selezionati')}</span>
         <button class="lz-link" type="button" data-az="sel-via">Togli la selezione</button></div>
-      <button class="lz-btn${nCtl ? ' pri' : ''}" type="button" data-az="ctl-multi" ${nCtl ? '' : 'disabled'}>
+      <button class="lz-btn${liberi.length ? ' pri' : ''}" type="button" data-az="crea-pacco" data-fuoco="crea-pacco" ${liberi.length ? '' : 'disabled'}>
+        <span>Crea pacco${liberi.length ? ` (${LZ.plur(liberi.length, 'ordine', 'ordini')})` : ''}</span>${liberi.length ? LZ.tasto('P') : ''}</button>
+      <button class="lz-btn" type="button" data-az="ctl-multi" ${nCtl ? '' : 'disabled'}>
         <span>Controlla ${LZ.plur(nCtl, 'disegno', 'disegni')}</span>${nCtl ? LZ.tasto('C') : ''}</button>
-      <button class="lz-btn${!nCtl && pronti.length ? ' pri' : ''}" type="button" data-az="lantek-multi" ${pronti.length ? '' : 'disabled'}>
+      <button class="lz-btn" type="button" data-az="lantek-multi" ${pronti.length ? '' : 'disabled'}>
         <span>Manda a Lantek${pronti.length ? ` (${LZ.plur(pronti.length, 'ordine', 'ordini')})` : ''}</span>${pronti.length ? LZ.tasto('L') : ''}</button>
+      ${inPacco ? `<span class="nota">${inPacco === 1 ? 'Uno è già' : `${inPacco} sono già`} in un pacco aperto: non entra${inPacco === 1 ? '' : 'no'} nel pacco nuovo.</span>` : ''}
       ${altri && pronti.length ? `<span class="nota">${altri === 1 ? 'Un altro ha' : `Gli altri ${altri} hanno`} ancora qualcosa da fare prima di Lantek.</span>`
         : !pronti.length ? '<span class="nota">Per mandarli a Lantek, prima controlla i disegni e sistema i blocchi.</span>' : ''}
     </div>`);
@@ -326,6 +336,7 @@
       else if (a === 'sel-via') { S.spuntati.clear(); LZ.ridisegna(); }
       else if (a === 'sel-lam') L.selezionaLamiera(az.dataset.lam);
       else if (a === 'ctl-multi') L.controllaSpuntati();
+      else if (a === 'crea-pacco') L.creaPacco();
       else if (a === 'lantek-multi') L.mandaSpuntati();
       else if (a === 'vai-correggere') L.apriCorrezione('n_correggere');
       else if (a === 'vai-corretti') L.apriCorrezione('n_corretti');
@@ -334,6 +345,8 @@
       return;
     }
     if (e.target.closest('input[data-sp], select, label')) return;
+    const rp = e.target.closest('.lz-r[data-pacco]');
+    if (rp) { LZ.pacchi.apri(rp.dataset.pacco); return; }
     const r = e.target.closest('.lz-r');
     const id = r && (r.dataset.id || r.dataset.rif);
     if (id) L.apri(id);
@@ -344,7 +357,7 @@
   L.selezionaLamiera = function (k) {
     const g = L.gruppi().find(x => x.k === k);
     if (!g) return;
-    const ids = g.righe.filter(r => L.spuntabile(r.o)).map(r => r.o.id);
+    const ids = g.righe.filter(r => L.spuntabile(r.o) && !L.inPacco(r.o)).map(r => r.o.id);
     const tutti = ids.every(id => S.spuntati.has(id));
     ids.forEach(id => (tutti ? S.spuntati.delete(id) : S.spuntati.add(id)));
     LZ.ridisegna();
@@ -388,6 +401,11 @@
     return sel.length ? sel : (S.aperto ? [S.aperto] : []);
   };
   L.controllaSpuntati = function () { LZ.controllo.inizia(L.bersaglio()); };
+  /** "Crea pacco" (P): gli ordini spuntati, nell'ordine dell'elenco. */
+  L.creaPacco = function () {
+    const ids = LZ.ordiniVisti().filter(o => S.spuntati.has(o.id)).map(o => o.id);
+    if (ids.length && LZ.pacchi) LZ.pacchi.crea(ids);
+  };
   /** Tutti i selezionati nella conferma: chi non parte dice perche'. */
   L.mandaSpuntati = function () {
     const ids = L.bersaglio();
@@ -407,9 +425,10 @@
     const r = document.querySelector(`.lz-r[data-id="${CSS.escape(id)}"]`);
     if (r) r.scrollIntoView({ block: 'nearest' });
   };
-  /** Chiude il pannello dell'ordine: la tabella torna a tutta larghezza. */
+  /** Chiude il pannello dell'ordine: la tabella torna a tutta larghezza
+      (o al pacco, se l'ordine era stato aperto dal pacco). */
   L.chiudi = function () {
-    if (!S.aperto) return false;
+    if (!S.aperto) return LZ.pacchi ? LZ.pacchi.chiudi() : false;
     const id = S.aperto;
     S.aperto = null;
     LZ.ridisegna();
@@ -441,10 +460,15 @@
     window.FTC.cerca = function (q) {
       const t = q.toLowerCase();
       const W = window.FTStati.laser;
-      return LZ.ordiniLaser().filter(o => [LZ.numero(o), o.numero_ordine, o.cliente].some(x => String(x || '').toLowerCase().includes(t)))
+      // i pacchi: "pacco 42", "42"
+      const nPacco = (t.match(/^\s*(?:pacco\s*)?(\d{1,5})\s*$/) || [])[1];
+      const pacchi = (S.pacchi || []).filter(p => (nPacco && String(p.numero) === nPacco) || (t.trim().length >= 3 && ('pacco ' + p.numero).startsWith(t.trim())))
+        .map(p => ({ t: p.nome, s: LZ.plur(p.ordini.length, 'ordine', 'ordini'), st: `<span class="lz-sot">${esc(p.parola)}</span>`,
+                     fn: () => { S.filtroCliente = ''; S.filtroStato = ''; LZ.pacchi.apri(p.id); } }));
+      return pacchi.concat(LZ.ordiniLaser().filter(o => [LZ.numero(o), o.numero_ordine, o.cliente].some(x => String(x || '').toLowerCase().includes(t)))
         .map(o => ({ t: `${LZ.numeroBreve(o)}  ${o.cliente || ''}`, s: `${LZ.numero(o)}, consegna ${LZ.giorno(o) ? FT.fmtData(LZ.giorno(o)) : '—'}`,
                      st: `<span class="lz-sot">${esc({ smistare: W.da_smistare, coda: W.da_importare, in_lantek: W.in_lantek, tagliato: W.tagliato }[LZ.statoLaser(o)] || '')}</span>`,
-                     fn: () => { S.filtroCliente = ''; S.filtroStato = ''; L.apri(o.id); } }));
+                     fn: () => { S.filtroCliente = ''; S.filtroStato = ''; L.apri(o.id); } })));
     };
   }
 })();

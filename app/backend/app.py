@@ -65,6 +65,9 @@ from .api_laser import bp_laser  # noqa: E402
 app.register_blueprint(bp_laser)
 from .api_pezzi_foglio import bp_pezzi_foglio  # noqa: E402
 app.register_blueprint(bp_pezzi_foglio)
+# Il pacco di taglio della pagina laser (backend/api_pacchi.py, 16/10/2026).
+from .api_pacchi import bp_pacchi  # noqa: E402
+app.register_blueprint(bp_pacchi)
 # Da procurare: tubi, laser tubo, meccanica, commerciali (backend/procura.py).
 from .api_procura import bp_procura  # noqa: E402
 app.register_blueprint(bp_procura)

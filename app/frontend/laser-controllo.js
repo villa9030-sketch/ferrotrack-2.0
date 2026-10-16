@@ -52,7 +52,10 @@
 
   // ── Apertura ────────────────────────────────────────────────────────
   /** Coda dei disegni da controllare degli ordini `ids` (nell'ordine dell'elenco). */
-  C.inizia = async function (ids) {
+  /** opz (pacco di taglio): {lamiere: [chiavi], dopo()} — i disegni LAMIERA
+      PER LAMIERA nell'ordine dato (come si importano in Lantek), e cosa fare
+      quando il controllo si chiude. */
+  C.inizia = async function (ids, opz) {
     if (st) return;
     const ordine = LZ.ordiniLaser().map(o => o.id).filter(id => ids.includes(id));
     const mancano = ordine.filter(id => !(S.dett[id] && S.dett[id].dati));
@@ -67,7 +70,16 @@
       }
     }
     if (!coda.length) { FT.toast('Niente da controllare', ''); return; }
-    apri(coda, false);
+    if (opz && opz.lamiere) {
+      const pos = k => { const i = opz.lamiere.indexOf(k); return i < 0 ? 999 : i; };
+      for (const x of coda) {
+        const p = (((S.dett[x.id] || {}).dati || {}).pezzi || []).find(y => String(y.articolo_id) === String(x.aid));
+        x.lam = (p && p.lamiera) || '';
+      }
+      coda.forEach((x, i) => { x.n = i; });
+      coda.sort((a, b) => pos(a.lam) - pos(b.lam) || a.n - b.n);
+    }
+    apri(coda, false, opz);
   };
   /** Un disegno solo (clic su una riga dei pezzi o su una miniatura). */
   C.vedi = function (id, aid, modo) {
@@ -77,9 +89,9 @@
     else if (modo === 'procura') entraProcura(); // "Non è da laser" dal menu della riga
   };
 
-  function apri(coda, solo) {
+  function apri(coda, solo, opz) {
     LZ.chiudiMenu();
-    st = { coda, i: 0, solo, foto: LZ.fotografa(), letture: {}, risposte: {}, modo: 'vedi', cand: [], sel: 0,
+    st = { coda, i: 0, solo, opz: opz || {}, perLam: !!(opz && opz.lamiere), foto: LZ.fotografa(), letture: {}, risposte: {}, modo: 'vedi', cand: [], sel: 0,
            attesa: false, vb: null, trascina: null, fatte: 0, procurati: {}, pr: null };
     const box = document.getElementById('lz-sopra');
     const el = document.createElement('div');
@@ -99,7 +111,7 @@
 
   C.chiudi = function () {
     if (!st) return;
-    const foto = st.foto, ids = [...new Set(st.coda.map(x => x.id))], fatte = st.fatte, solo = st.solo;
+    const foto = st.foto, ids = [...new Set(st.coda.map(x => x.id))], fatte = st.fatte, solo = st.solo, dopo = st.opz.dopo;
     st = null;
     const el = document.getElementById('lz-ctl');
     if (el) el.remove();
@@ -107,6 +119,7 @@
     if (fatte && !solo) FT.toast(`Controllo finito: ${LZ.plur(fatte, 'risposta salvata', 'risposte salvate')}`, 'ok');
     // gli ordini toccati si rileggono (stato e conteggi nuovi)
     if (fatte) codaSalva.then(() => { for (const id of ids) { LZ.avvio.caricaRiep(id); if (S.aperto === id) LZ.ordine.carica(id); } });
+    if (dopo) codaSalva.then(() => dopo());
   };
 
   // ── Dati del pezzo corrente ─────────────────────────────────────────
@@ -177,18 +190,26 @@
     let tacche = '';
     if (!st.solo) {
       st.coda.forEach((x, k) => {
-        if (k && x.id !== st.coda[k - 1].id) tacche += '<i class="sep"></i>';
+        if (k && (st.perLam ? x.lam !== st.coda[k - 1].lam : x.id !== st.coda[k - 1].id)) tacche += '<i class="sep"></i>';
         const r = st.risposte[chiave(x)];
         tacche += `<i class="${k === st.i ? 'c' : r ? 'f' : ''}" title="${esc((LZ.trova(x.id) || {}).cliente || '')}"></i>`;
       });
     }
     LZ.metti(document.getElementById('lz-ctl-barra'), `
       <span class="tit">${st.solo ? 'Disegno' : 'Controllo disegni'}</span>
-      <span class="dove" title="${esc(o.cliente || '')} ${esc(LZ.numero(o))}">${esc(o.cliente || '')} · <span class="mono">${esc(LZ.numero(o))}</span>${ordini.length > 1 ? ` <span>(ordine ${ordini.indexOf(v.id) + 1} di ${ordini.length})</span>` : ''}</span>
+      <span class="dove" title="${esc(o.cliente || '')} ${esc(LZ.numero(o))}">${st.perLam ? lamieraDove(v) : ''}${esc(o.cliente || '')} · <span class="mono">${esc(LZ.numero(o))}</span>${ordini.length > 1 && !st.perLam ? ` <span>(ordine ${ordini.indexOf(v.id) + 1} di ${ordini.length})</span>` : ''}</span>
       <span class="sp"></span>
       <span class="lz-salva" id="lz-ctl-salva" aria-live="polite">${salvaInCorso ? `Salvo ${salvaInCorso}…` : ''}</span>
       ${st.solo ? '' : `<span class="lz-prog"><span>${st.i + 1} di ${st.coda.length}</span><span class="tacche" aria-hidden="true">${tacche}</span></span>`}
       <button class="lz-btn" type="button" data-c="chiudi" data-fuoco="ctl-chiudi">Chiudi${LZ.tasto('Esc')}</button>`);
+  }
+
+  /** Nel controllo di un pacco: la lamiera del disegno, e quale di quante. */
+  function lamieraDove(v) {
+    const lams = [...new Set(st.coda.map(x => x.lam))];
+    const [m, s] = String(v.lam || '').split('|');
+    const nome = v.lam ? LZ.nomeLamiera({ materiale: m, spessore: s === '?' ? null : s }) : 'Lamiera non detta';
+    return `<b>${esc(nome)}</b>${lams.length > 1 ? ` <span>(lamiera ${lams.indexOf(v.lam) + 1} di ${lams.length})</span>` : ''}, `;
   }
 
   function lato() {

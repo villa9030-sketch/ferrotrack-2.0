@@ -85,7 +85,11 @@ for oid, r in (d.get('ordini') or {}).items():
     c, o = laser.get(f'/api/orders/{oid}/laser')
     if (o.get('procura_voci') or []):
         continue
-    p = next((x for x in o.get('pezzi') or [] if x.get('articolo_id') and not x.get('decisione') and not x.get('foglio')), None)
+    # al massimo 5 pezzi da 1,2 m: stanno in UNA barra da 6 m (il controllo
+    # "1 barra" sotto). Prima si prendeva il primo pezzo che capitava e coi
+    # dati inventati, in fila per id a caso, a volte erano 8 pezzi = 2 barre.
+    p = next((x for x in o.get('pezzi') or [] if x.get('articolo_id') and not x.get('decisione') and not x.get('foglio')
+              and int(x.get('quantita') or 1) <= 5), None)
     if p:
         scelto = (oid, p)
         break

@@ -428,6 +428,43 @@ class LamieraTagliata(Base):
     tagliata_da = Column(String, nullable=True)
 
 
+class PaccoTaglio(Base):
+    """Un PACCO DI TAGLIO (16/10/2026, "Design FerroTrack meno AI"): Stefano
+    al laser non lavora un ordine alla volta, mette insieme "tutti quelli che
+    posso" con gli stessi spessori, controlla i disegni mentre importa il
+    pacco in Lantek, taglia, e poi l'ufficio deve saperlo.
+
+    Stati: proposto -> confermato -> in_lantek -> tagliato (annullato = sciolto).
+    Aperto = proposto | confermato | in_lantek: un ordine sta in UN solo pacco
+    aperto (backend/api_pacchi.py). Si sta nel pacco per ORDINE intero, non
+    per lamiera: Lantek riceve l'ordine intero e il "taglio fatto" e' per
+    ordine; il pacco mostra tutte le lamiere dei suoi ordini."""
+    __tablename__ = 'pacchi_taglio'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    numero = Column(Integer, nullable=False, index=True)    # "Pacco 42"
+    stato = Column(String, nullable=False, default='proposto')
+    note = Column(Text, nullable=True)
+    creato_il = Column(DateTime, default=datetime.utcnow)
+    creato_da = Column(String, nullable=True)
+    aggiornato_il = Column(DateTime, default=datetime.utcnow)
+    aggiornato_da = Column(String, nullable=True)
+    confermato_il = Column(DateTime, nullable=True)
+    in_lantek_il = Column(DateTime, nullable=True)
+    tagliato_il = Column(DateTime, nullable=True)
+
+
+class PaccoOrdine(Base):
+    """Un ordine dentro un pacco di taglio (posizione = ordine di aggiunta)."""
+    __tablename__ = 'pacco_ordini'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    pacco_id = Column(String, nullable=False, index=True)
+    order_id = Column(String, nullable=False, index=True)
+    posizione = Column(Integer, nullable=False, default=0)
+    aggiunto_il = Column(DateTime, default=datetime.utcnow)
+    aggiunto_da = Column(String, nullable=True)
+    __table_args__ = (UniqueConstraint('pacco_id', 'order_id', name='uq_pacco_ordine'),)
+
+
 class LantekInvio(Base):
     """Un codice mandato a Lantek da "Manda a Lantek" (ordine di produzione
     via XML Importer): il registro di FerroTrack, che non dipende dal poter

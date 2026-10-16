@@ -186,6 +186,11 @@
     const el = document.getElementById('lz-dett');
     if (!el) return;
     const o = S.aperto && LZ.trova(S.aperto);
+    if (!o && S.pacco && LZ.pacchi) {          // il pacco aperto a destra (laser-pacchi.js)
+      costruitoPer = null;
+      LZ.pacchi.disegnaPannello(el);
+      return;
+    }
     if (!o) {
       costruitoPer = null;
       el.classList.remove('con-pdf', 'accanto');
@@ -243,7 +248,7 @@
     const al = LZ.allarme(o);
     return `<div class="lz-o-testa">
       <div class="lz-o-tit"><h2><span class="lz-o-num">${esc(LZ.numeroBreve(o))}</span><span class="lz-o-cli" title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</span></h2>
-        <div class="lz-o-sotto"><span>ordine del cliente <span class="mono">${esc(LZ.numero(o))}</span></span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}${LZ.procura.chip(o)}</div></div>
+        <div class="lz-o-sotto"><span>ordine del cliente <span class="mono">${esc(LZ.numero(o))}</span></span>${paccoDi(o)}${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}${LZ.procura.chip(o)}</div></div>
       <div class="lz-o-az"><button class="lz-btn ghost piccolo" type="button" data-az="chiudi" data-fuoco="chiudi-ordine" title="Chiudi l'ordine (Esc)">Chiudi</button><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
       <div class="lz-fatti">
         <div class="lz-entro"><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
@@ -254,6 +259,12 @@
         <div><span>Pezzi</span><b class="num">${info.n_pezzi != null ? FT.numero(info.n_pezzi) : '—'}</b><small>&nbsp;</small></div>
         <div><span>Ore laser</span>${ore}</div>
       </div></div>`;
+  }
+
+  /** "nel pacco 42": il link apre il pacco (laser-pacchi.js) */
+  function paccoDi(o) {
+    const p = LZ.pacchi && LZ.pacchi.diOrdine(o.id);
+    return p ? `<span>nel <button class="lz-link" type="button" data-az="apri-pacco" data-pacco="${esc(p.id)}" data-fuoco="apri-pacco">${esc(p.nome.toLowerCase())}</button>, ${esc(p.parola.toLowerCase())}</span>` : '';
   }
 
   /** "Lavorazione esterna" (zincatura, verniciatura...) dopo il laser: la
@@ -683,6 +694,8 @@
     const ap = e.target.closest('[data-az="apri-prossimo"]');
     if (ap) { LZ.lista.apri(ap.dataset.id); return; }
     if (e.target.closest('[data-az="chiudi"]')) { LZ.lista.chiudi(); return; }
+    const apc = e.target.closest('[data-az="apri-pacco"]');
+    if (apc) { LZ.pacchi.apri(apc.dataset.pacco); return; }
     const o = LZ.trova(S.aperto);
     if (!o) return;
     // pezzi per assieme / quanti assiemi: si scrive nel campo, non si apre il disegno
