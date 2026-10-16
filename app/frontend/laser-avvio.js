@@ -181,6 +181,7 @@
       { t: 'Cambia postazione', ico: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>', fn: () => FTA.cambiaDispositivo() },
     ]);
     await A.caricaOrdini(true);
+    await LZ.segn.carica();             // problemi dall'officina (laser-segnala.js)
     LZ.pacchi.avvia();
     S.primoCarico = false;
     LZ.ridisegna();
@@ -194,6 +195,7 @@
       A.caricaRiep();
     });
     setInterval(N.conta, 30000);
+    setInterval(() => { if (!document.hidden && !S.occupato) LZ.segn.carica(); }, 10000);
     setTimeout(N.conta, 1500);
     window.addEventListener('beforeunload', () => { clearInterval(t5); clearInterval(t60); });
   })();

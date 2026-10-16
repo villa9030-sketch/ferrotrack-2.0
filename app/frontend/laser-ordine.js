@@ -312,6 +312,7 @@
       const n = new Set(diffNuove.map(x => x.codice)).size;
       h += `<div class="lz-avviso att">${LZ.ico('scale')}<span>${LZ.plur(n, 'codice è diverso', 'codici sono diversi')} fra ordine e Lantek: lo scegli nella conferma prima di mandare.</span></div>`;
     }
+    if (LZ.segn) h += LZ.segn.sezione(o);          // problemi dal tablet dell'officina
     if (D.errore && D.dati) h += `<div class="lz-avviso">${LZ.ico('wifi-off')}<span>Ultimo aggiornamento non riuscito: ${esc(D.errore)}.</span></div>`;
     return h;
   }
@@ -527,7 +528,7 @@
         + (v.da_completare ? ` <span class="lz-st att">${LZ.ico('pencil')}${esc(v.da_completare)}</span>` : '');
     }
     return `<tr class="${vedi ? 'cl' : ''}${p.escluso || p.assieme_senza_disegno ? ' fuori' : ''}${ass ? ' comp' : ''}" ${vedi ? `data-vedi="${esc(vedi)}"` : ''} data-fuoco="pz-${i}">
-      <td class="cod">${esc(p.codice)}${p.codice_lantek ? `<small>in Lantek ${esc(p.codice_lantek)}</small>` : ''}${p.foglio ? `<small>pezzo ${esc(String(p.foglio.n))} del foglio ${esc(p.foglio.codice || '')}${p.foglio.qta_per_foglio > 1 ? ` (×${esc(String(p.foglio.qta_per_foglio))} nel foglio)` : ''}</small>` : ''}</td>
+      <td class="cod">${esc(p.codice)}${p.codice_lantek ? `<small>in Lantek ${esc(p.codice_lantek)}</small>` : ''}${p.foglio ? `<small>pezzo ${esc(String(p.foglio.n))} del foglio ${esc(p.foglio.codice || '')}${p.foglio.qta_per_foglio > 1 ? ` (×${esc(String(p.foglio.qta_per_foglio))} nel foglio)` : ''}</small>` : ''}${LZ.segn ? LZ.segn.pezzo(o.id, p.codice) : ''}</td>
       ${q}
       <td>${lamiera}</td>
       <td class="lav">${esc((p.lavorazioni || []).join(', ')) || '—'}</td>
@@ -547,7 +548,7 @@
       <span class="lz-ass-riga">
         <button class="lz-btn ghost lz-icona piccolo" type="button" data-ass-apri="${c}" aria-expanded="${!chiuso}"
           title="${chiuso ? 'Mostra' : 'Nascondi'} i pezzi dell'assieme" aria-label="${chiuso ? 'Mostra' : 'Nascondi'} i pezzi di ${c}">${LZ.ico(chiuso ? 'chevron-right' : 'chevron-down')}</button>
-        <span class="t">Assieme</span><b class="mono">${c}</b>
+        <span class="t">Assieme</span><b class="mono">${c}</b>${LZ.segn ? LZ.segn.pezzo(o.id, a.codice) : ''}
         ${a.descrizione ? `<span class="desc" title="${esc(a.descrizione)}">${esc(a.descrizione)}</span>` : ''}
         <label class="lz-assq" title="Quanti assiemi ordina il cliente (Invio salva)">×<input type="text" inputmode="numeric" maxlength="5"
           data-assq="${c}" data-v="${esc(String(a.quantita))}" value="${esc(String(a.quantita))}" data-fuoco="assq-${c}"
@@ -806,6 +807,8 @@
       case 'lamiera-annulla': return ancora && O.lamiera(id, ancora.dataset.chiave, true);
       case 'allarga-pdf': S.allarga = S.allarga === 'pdf' ? '' : 'pdf'; return O.disegna();
       case 'allarga-pezzi': S.allarga = S.allarga === 'pezzi' ? '' : 'pezzi'; return O.disegna();
+      case 'segn-visto': return ancora && LZ.segn.visto(ancora.dataset.segnId);
+      case 'segn-risolto': return ancora && LZ.segn.risolto(ancora.dataset.segnId);
       case 'usa-lantek': return ancora && O.usaLantek(id, ancora.dataset.codice);
       case 'qta-corretta': return ancora && O.qtaCorretta(id, ancora.dataset.codice, Number(ancora.dataset.q), Number(ancora.dataset.ql));
       case 'pdf-stampa': {

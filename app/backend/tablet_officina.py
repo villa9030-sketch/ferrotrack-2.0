@@ -204,3 +204,60 @@ def leggi_segnalazione(detail: str) -> dict | None:
         elif p.startswith('da:'):
             out['da'] = p[len('da:'):].strip()
     return out
+
+
+# ---------------------------------------------------------------------------
+# Le segnalazioni al laser: "Visto" e "Risolto" (16/10/2026)
+# ---------------------------------------------------------------------------
+# Stefano: "devono arrivare al laser". Il laser vede le segnalazioni non
+# ancora risolte (anche di ordini gia' tagliati: "pezzo da rifare" arriva
+# dopo il taglio) e le segna "Visto" o "Risolto". Ogni passo e' una riga
+# d'audit che punta alla riga della segnalazione: niente tabelle nuove, lo
+# storico e' completo e lo stato si ricava dall'ultima riga.
+AZIONE_GESTITA = 'SEGNALAZIONE_GESTITA'
+ESITI = {'visto': 'Visto', 'risolto': 'Risolto', 'riaperto': 'Riaperto'}
+# Rosso: il pezzo non va (da rifare, disegno sbagliato). Ambra: il resto.
+TIPI_GRAVI = ('da_rifare', 'disegno')
+# Le segnalazioni piu' vecchie non tornano fuori da sole.
+GIORNI_APERTE = 30
+MAX_QUANTI = 9999
+
+
+def dettaglio_gestione(segnalazione_id: str, esito: str, quanti: int | None, nota: str, da: str) -> str:
+    """Il testo della riga d'audit di "Visto"/"Risolto"/"Riaperto"."""
+    return (f"segnalazione: {segnalazione_id} | esito: {esito} | quanti: {quanti if quanti else '-'}"
+            f" | nota: {nota or '-'} | da: {da or '-'}")[:2000]
+
+
+def leggi_gestione(detail: str) -> dict | None:
+    """Il contrario di dettaglio_gestione: {segnalazione_id, esito, quanti, nota, da}."""
+    out = {'segnalazione_id': None, 'esito': None, 'quanti': None, 'nota': '', 'da': ''}
+    for p in (x.strip() for x in str(detail or '').split(' | ')):
+        k, _, v = p.partition(':')
+        v = v.strip()
+        if k == 'segnalazione':
+            out['segnalazione_id'] = v or None
+        elif k == 'esito':
+            out['esito'] = v if v in ESITI else None
+        elif k == 'quanti':
+            out['quanti'] = int(v) if v.isdigit() else None
+        elif k in ('nota', 'da'):
+            out[k] = '' if v == '-' else v
+    return out if out['segnalazione_id'] and out['esito'] else None
+
+
+def stato_segnalazione(gestioni: list) -> dict:
+    """Dalle gestioni di UNA segnalazione (in ordine di tempo) allo stato:
+    {stato: nuova|vista|risolta, visto_da, visto_il, risolto_da, risolto_il, quanti}.
+    Conta l'ultima: "Riaperto" la rimette nuova."""
+    st = {'stato': 'nuova', 'visto_da': None, 'visto_il': None,
+          'risolto_da': None, 'risolto_il': None, 'quanti': None}
+    for g in gestioni:
+        if g['esito'] == 'visto':
+            if st['stato'] == 'nuova':
+                st.update(stato='vista', visto_da=g.get('da'), visto_il=g.get('quando'))
+        elif g['esito'] == 'risolto':
+            st.update(stato='risolta', risolto_da=g.get('da'), risolto_il=g.get('quando'), quanti=g.get('quanti'))
+        elif g['esito'] == 'riaperto':
+            st.update(stato='nuova', visto_da=None, visto_il=None, risolto_da=None, risolto_il=None, quanti=None)
+    return st
