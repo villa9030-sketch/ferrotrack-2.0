@@ -1150,6 +1150,9 @@ def api_pezzo_lettura(order_id, articolo_id):
         except Exception:
             logger.warning('riga dell\'ordine non letta per %s', art.get('codice'), exc_info=True)
             riga = None
+        if not tuo and _serve_pulito_per_pagina(order_id, articolo_id) is not False:
+            # se il laser dira' "giusto", il lavoro e' gia' fatto
+            prepara_giusto(order, art, percorso)
         return jsonify({'riga_ordine': riga,'success': True, 'codice': art.get('codice'), 'svg': f['svg'], 'vista': f['vista'],
                         'ha_contorno': bool(f['contorno']), 'contorno_tuo': bool(tuo), 'perche': perche[:3],
                         'suggerimento': f.get('suggerimento'),
@@ -1210,20 +1213,150 @@ def _contorno_preciso(percorso: str, det: dict, gj: dict):
     """Il contorno del motore con i fori, preciso (non i 200 punti del
     disegno): si "clicca" sul suo bordo con lo stesso strumento del CAD e si
     prende il contorno che ha la stessa area. None se non torna."""
-    from .preventivi.pick_part import pick_candidates
+    from .preventivi.analisi_isolata import contorno_preciso_isolato
     sel = next((c for c in det.get('candidates') or [] if c.get('is_selected')), None)
     if not sel or not sel.get('geometry'):
         return None
     k = float(gj.get('scala_unita_mm') or 1.0)
     area = float(sel.get('area_dm2') or 0)
-    punti = sel['geometry']
-    for i in (0, len(punti) // 3, (2 * len(punti)) // 3):
-        x, y = float(punti[i][0]) * k, float(punti[i][1]) * k
-        r = pick_candidates(percorso, x, y, _cfg_riconoscimento())
-        for c in (r or {}).get('candidates') or []:
-            lorda = float(c.get('area_lorda_dm2') or c.get('area_dm2') or 0)
-            if area > 0 and abs(lorda - area) / area < 0.02:
-                return c.get('outer_xy'), c.get('holes_xy') or []
+    # la geometria (pick_part) nel lavoratore, fuori dal server
+    return contorno_preciso_isolato(percorso, sel['geometry'], area, k, _cfg_riconoscimento())
+
+
+# ---------------------------------------------------------------------------
+# "Giusto" preparato in anticipo
+# ---------------------------------------------------------------------------
+# Sul pezzo nuovo senza DXF pulito, "giusto" deve ricostruire il contorno coi
+# fori (_contorno_preciso: 1-4 s di geometria) e scrivere il pulito: 7 s sotto
+# carico nella prova notturna, e la pagina salva le risposte una dopo l'altra.
+# Il calcolo dipende solo dal disegno: si fa in sottofondo quando la pagina
+# apre il disegno (/lettura, che prepara anche i 3 dopo), e "giusto" trova
+# tutto pronto e scrive soltanto. Stesso calcolo, stesso risultato; se la
+# preparazione non c'e' o non e' riuscita, "giusto" fa come prima.
+_PREP: dict = {}            # (percorso, data, cfg) -> {'fatto': Event, 'esito': dict | None}
+_PREP_LOCK = threading.Lock()
+_PREP_MAX = 64
+_PREP_ATTESA_S = 120        # "giusto" aspetta una preparazione gia' in corso
+_prep_pool = None
+
+
+class _PulitoPronto(Exception):
+    pass
+
+
+def _chiave_prep(percorso: str):
+    try:
+        mt = os.path.getmtime(percorso)
+    except OSError:
+        mt = 0
+    return (percorso, mt, json.dumps(_cfg_riconoscimento(), sort_keys=True, default=str))
+
+
+def _calcola_prep(percorso: str) -> dict:
+    """Quello che "giusto" calcola sul disegno, nello stesso ordine:
+    {'preciso': (outer, holes) | None, 'ha_contorno': bool,
+     'preparato': prepara_contorno(...) | None}. Le eccezioni passano."""
+    A = _app()
+    f = _foglio(percorso)
+    gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+    preciso = _contorno_preciso(percorso, _lettura_motore(percorso), gj)
+    if preciso and preciso[0]:
+        from .api_contorno_ordine import prepara_contorno
+        return {'preciso': preciso, 'ha_contorno': bool(f.get('contorno')),
+                'preparato': prepara_contorno(percorso, preciso[0], preciso[1])}
+    return {'preciso': None, 'ha_contorno': bool(f.get('contorno')), 'preparato': None}
+
+
+def _prendi_voce(voce) -> bool:
+    """True a chi tocca fare il calcolo (una volta sola per voce)."""
+    with _PREP_LOCK:
+        if voce['iniziata']:
+            return False
+        voce['iniziata'] = True
+        return True
+
+
+def _esegui_prep(chiave, voce, percorso, se_manca_pulito=None):
+    if not _prendi_voce(voce):
+        return                    # l'ha gia' presa "giusto" (o un altro giro)
+    try:
+        if se_manca_pulito and _disegno_pulito_pronto(*se_manca_pulito):
+            # c'e' gia' il pulito: "giusto" sara' la conferma di sempre
+            raise _PulitoPronto()
+        voce['esito'] = _calcola_prep(percorso)
+    except _PulitoPronto:
+        voce['esito'] = None
+        with _PREP_LOCK:
+            if _PREP.get(chiave) is voce:
+                _PREP.pop(chiave, None)
+    except Exception:
+        logger.warning('preparazione del "giusto" non riuscita per %s', percorso, exc_info=True)
+        voce['esito'] = None
+        with _PREP_LOCK:
+            if _PREP.get(chiave) is voce:
+                _PREP.pop(chiave, None)
+    finally:
+        voce['fatto'].set()
+
+
+def _nuova_voce_prep(chiave):
+    """(voce, nuova?) sotto _PREP_LOCK."""
+    voce = _PREP.get(chiave)
+    if voce is not None:
+        return voce, False
+    while len(_PREP) >= _PREP_MAX:
+        _PREP.pop(next(iter(_PREP)))
+    voce = {'fatto': threading.Event(), 'esito': None, 'iniziata': False}
+    _PREP[chiave] = voce
+    return voce, True
+
+
+def prepara_giusto(order, art, percorso) -> None:
+    """In sottofondo (un thread solo, a turno): prepara il "giusto" di un pezzo
+    che non ha ancora il DXF pulito. Non fa niente se e' gia' pronto o in
+    corso. Mai eccezioni."""
+    global _prep_pool
+    try:
+        if not percorso or _pezzi_foglio_confermati(art):
+            return
+        chiave = _chiave_prep(percorso)
+        with _PREP_LOCK:
+            voce, nuova = _nuova_voce_prep(chiave)
+            if not nuova:
+                return
+            if _prep_pool is None:
+                from concurrent.futures import ThreadPoolExecutor
+                _prep_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='prepara-giusto')
+        _prep_pool.submit(_esegui_prep, chiave, voce, percorso, (order, art))
+    except Exception:
+        logger.warning('preparazione del "giusto" non avviata', exc_info=True)
+
+
+def _prep_per_giusto(percorso):
+    """La preparazione per "giusto": quella pronta, quella in corso (si
+    aspetta) o, se non c'e', la si fa qui. None se non riesce (allora "giusto"
+    fa come prima, e mostra lo stesso errore)."""
+    chiave = _chiave_prep(percorso)
+    with _PREP_LOCK:
+        voce, _nuova = _nuova_voce_prep(chiave)
+    # non ancora iniziata (nuova, o in coda dietro i disegni dopo): si fa qui
+    _esegui_prep(chiave, voce, percorso)
+    if not voce['fatto'].wait(_PREP_ATTESA_S):
+        return None
+    with _PREP_LOCK:
+        if _PREP.get(chiave) is voce:
+            _PREP.pop(chiave, None)       # usata: il pezzo ora cambia
+    return voce['esito']
+
+
+def _serve_pulito_per_pagina(order_id, articolo_id):
+    """Il pezzo e' "nuovo"/"sconosciuto" per Lantek nell'ultima analisi
+    dell'ordine (quella che manda la pagina)? None se non si sa."""
+    with _LOCK:
+        c = _CACHE.get(order_id)
+    for p in ((c[1] if c else None) or {}).get('pezzi') or []:
+        if str(p.get('articolo_id')) == str(articolo_id):
+            return p.get('lantek') in ('nuovo', 'sconosciuto')
     return None
 
 
@@ -1246,6 +1379,20 @@ def api_pezzo_giusto(order_id, articolo_id):
             return _errore_pezzi_foglio()
         corpo = request.get_json(silent=True) or {}
         if corpo.get('serve_pulito') and percorso and not _disegno_pulito_pronto(order, art):
+            prep = _prep_per_giusto(percorso)
+            if prep is not None:
+                if prep['preciso']:
+                    from .api_contorno_ordine import salva_contorno
+                    pr = prep['preparato']
+                    esito, stato = salva_contorno(order_id, articolo_id, pr['outer'], pr['holes'],
+                                                  dal_motore=True, pagina='laser', preparato=pr)
+                    return jsonify({**esito, 'modo': 'contorno'}), stato
+                if not prep['ha_contorno']:
+                    return jsonify({'success': False, 'codice': 'senza_contorno',
+                                    'error': 'Il motore non ha un contorno da confermare: sceglilo tu sul disegno (S)'}), 409
+                return jsonify({'success': False, 'codice': 'contorno_non_preciso',
+                                'error': 'Non riesco a ricostruire il contorno con i fori: sceglilo tu sul disegno (S)'}), 409
+            # preparazione non riuscita: come prima (stessi errori)
             f = _foglio(percorso)
             gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
             preciso = _contorno_preciso(percorso, _lettura_motore(percorso), gj)
