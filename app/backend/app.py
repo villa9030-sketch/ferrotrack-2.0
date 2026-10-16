@@ -3802,9 +3802,39 @@ def _transizione(funzione, order_id, **extra):
 @app.route('/api/ordini/<order_id>/completamento', methods=['POST'])
 @richiede('ufficio')
 def api_ordine_completamento(order_id):
-    """L'officina ha comunicato che ha finito: passa alla preparazione del DDT."""
+    """L'officina ha comunicato che ha finito: passa alla preparazione del DDT.
+
+    Corpo facoltativo: {nota: "Marco, mancano 2 pezzi"}. Risposta con
+    `restano` (cosa risulta ancora aperto: avviso, non blocco) e `gia_fatto`
+    se era gia' finito (niente cambia, niente "Annulla")."""
     from .ordini_service import registra_completamento
-    return _transizione(registra_completamento, order_id)
+    dati = request.get_json(silent=True) or {}
+    return _transizione(registra_completamento, order_id, nota=dati.get('nota'))
+
+
+@app.route('/api/ordini/completamento-multiplo', methods=['POST'])
+@richiede('ufficio')
+def api_ordini_completamento_multiplo():
+    """"Segna finiti": piu' ordini finiti insieme. Corpo: {ids: [...]}.
+    Ognuno come uno solo (atomico, gia' finito = nessuna modifica)."""
+    from .ordini_service import registra_completamento_multiplo
+    dati = request.get_json(silent=True) or {}
+    ids = dati.get('ids')
+    if not isinstance(ids, list):
+        return jsonify({'success': False, 'error': 'Manca l\'elenco degli ordini (ids).', 'codice': 'vuoto'}), 400
+    res = registra_completamento_multiplo(ids, _chi())
+    if res.get('error'):
+        return jsonify({'success': False, **res}), 400
+    return jsonify(res), 200
+
+
+@app.route('/api/ordini/<order_id>/completamento/nota', methods=['POST'])
+@richiede('ufficio')
+def api_ordine_completamento_nota(order_id):
+    """Chi l'ha detto / note sul lavoro finito. Corpo: {nota} (vuota = togli)."""
+    from .ordini_service import salva_nota_completamento
+    dati = request.get_json(silent=True) or {}
+    return _transizione(salva_nota_completamento, order_id, nota=dati.get('nota'))
 
 
 @app.route('/api/ordini/<order_id>/completamento', methods=['DELETE'])

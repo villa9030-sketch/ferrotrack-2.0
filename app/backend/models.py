@@ -147,6 +147,9 @@ class Order(Base):
     # migrations_ore._migra_colonne_ordini.
     data_completamento_operativo = Column(DateTime, nullable=True)
     completato_operativo_da = Column(String, nullable=True)
+    # Chi l'ha detto / note sul "Lavoro finito" (es. "Marco, mancano 2 pezzi"):
+    # la scrive l'ufficio subito dopo averlo segnato. Vuota = niente da dire.
+    nota_completamento = Column(Text, nullable=True)
     data_consegna_effettiva = Column(DateTime, nullable=True)
     consegna_registrata_da = Column(String, nullable=True)
     # DDT emesso da un altro sistema: qui si registra solo il riferimento.

@@ -35,6 +35,8 @@ _ORDER_COLS = {
     'ddt_data': 'DATETIME',
     'consegna_parziale': 'BOOLEAN',
     'note_consegna': 'TEXT',
+    # "Lavoro finito": chi l'ha detto all'ufficio e cosa manca (16/10/2026)
+    'nota_completamento': 'TEXT',
 }
 
 # Colonne aggiunte a tabelle del sottosistema DOPO la loro prima creazione.

@@ -296,6 +296,7 @@ def _riga(order, nomi: dict, numcli: dict | None = None) -> dict:
         'completamento': iso_utc(getattr(order, 'data_completamento_operativo', None)),
         'completato_da_id': completato_da,
         'completato_da': nomi.get(completato_da or '', completato_da),
+        'nota_completamento': getattr(order, 'nota_completamento', None) or '',
         # DDT unificato: stesso valore con i due nomi, perche' le schermate
         # vecchie leggono ancora numero_ddt/data_ddt.
         'ddt_numero': ddt,
@@ -402,12 +403,78 @@ def _leggi_data(valore, cosa):
                       'codice': 'data_non_valida'}
 
 
-def registra_completamento(order_id: str, user_id: str, quando=None) -> dict:
+_MAX_NOTA = 300
+
+
+def cosa_resta(order_ids) -> dict:
+    """{order_id: [{codice, testo}]}: cosa risulta ancora aperto su ordini
+    che l'officina dice finiti. NON blocca il "Lavoro finito" (l'officina vede
+    i pezzi, FerroTrack no): e' un avviso da leggere nel messaggio.
+
+      taglio     il laser doveva tagliarlo e non ha segnato il taglio
+      procura    voci da procurare non ancora arrivate (tubi, meccanica...)
+      fasi       fasi d'officina avviate e mai chiuse
+    """
+    from .models import ProcessingStep
+    ids = [i for i in (order_ids or []) if i]
+    out = {i: [] for i in ids}
+    if not ids:
+        return out
+    session = get_session()
+    try:
+        for o in session.query(Order).filter(Order.id.in_(ids)).all():
+            if getattr(o, 'taglio_richiesto', None) is True and not getattr(o, 'taglio_completato', False):
+                out[o.id].append({'codice': 'taglio', 'testo': 'il laser non ha segnato il taglio'})
+        fasi = {}
+        for st in session.query(ProcessingStep).filter(
+                ProcessingStep.order_id.in_(ids), ProcessingStep.timestamp_inizio.isnot(None),
+                ProcessingStep.timestamp_fine.is_(None)).all():
+            fasi[st.order_id] = fasi.get(st.order_id, 0) + 1
+    finally:
+        session.close()
+    try:
+        from . import procura as _pc
+        proc = _pc.riassunto_per_ordini(ids)
+    except Exception:
+        logger.warning('da procurare non letto per il lavoro finito', exc_info=True)
+        proc = {}
+    for i in ids:
+        n = (proc.get(i) or {}).get('n', 0)
+        if n:
+            out[i].append({'codice': 'procura', 'testo': ('1 voce da procurare non arrivata' if n == 1
+                                                          else f'{n} voci da procurare non arrivate')})
+        if fasi.get(i):
+            out[i].append({'codice': 'fasi', 'testo': ("1 fase d'officina ancora aperta" if fasi[i] == 1
+                                                       else f"{fasi[i]} fasi d'officina ancora aperte")})
+    return out
+
+
+def _pulisci_nota(nota):
+    """(testo o None, errore o None)."""
+    t = ' '.join(str(nota or '').split())
+    if len(t) > _MAX_NOTA:
+        return None, {'error': f'Nota troppo lunga: al massimo {_MAX_NOTA} caratteri.', 'codice': 'nota_lunga'}
+    return (t or None), None
+
+
+def registra_completamento(order_id: str, user_id: str, quando=None, nota=None) -> dict:
     """L'officina ha finito: l'ordine passa alla preparazione del DDT.
 
     Ripetere l'operazione non cambia nulla (idempotente): il primo che la
     registra resta l'autore, e `gia_registrato` lo dice a chi chiama.
+    `nota` (facoltativa): chi l'ha detto, cosa manca. `restano` nella
+    risposta: cosa risulta ancora aperto (avviso, non blocco).
     """
+    nota, errore = _pulisci_nota(nota)
+    if errore:
+        return errore
+    res = _registra_completamento(order_id, user_id, quando, nota)
+    if res.get('success'):
+        res['restano'] = cosa_resta([order_id]).get(order_id, [])
+    return res
+
+
+def _registra_completamento(order_id: str, user_id: str, quando, nota, audit=True) -> dict:
     session = get_session()
     try:
         o = _carica(session, order_id)
@@ -427,7 +494,8 @@ def registra_completamento(order_id: str, user_id: str, quando=None) -> dict:
         n = session.query(Order).filter(
             Order.id == order_id, Order.data_completamento_operativo.is_(None),
         ).update({Order.data_completamento_operativo: adesso,
-                  Order.completato_operativo_da: user_id or None},
+                  Order.completato_operativo_da: user_id or None,
+                  Order.nota_completamento: nota},
                  synchronize_session=False)
         if n != 1:
             session.rollback()
@@ -437,6 +505,7 @@ def registra_completamento(order_id: str, user_id: str, quando=None) -> dict:
                     'ordine': _riga(o, _nomi(session)) if o else {}}
         o.data_completamento_operativo = adesso
         o.completato_operativo_da = user_id or None
+        o.nota_completamento = nota
         # Lo stato storico resta allineato: chi legge `status` vede quello che
         # vedeva prima quando l'officina dichiarava finito.
         if (o.status or '') not in _STATI_ARCHIVIO:
@@ -451,7 +520,65 @@ def registra_completamento(order_id: str, user_id: str, quando=None) -> dict:
                 'codice': 'errore_interno'}
     finally:
         session.close()
-    _audit(user_id, 'ORDINE_COMPLETAMENTO', order_id, 'Lavorazione completata')
+    if audit:
+        _audit(user_id, 'ORDINE_COMPLETAMENTO', order_id,
+               'Lavorazione completata' + (f' ({nota})' if nota else ''))
+    return {'success': True, 'ordine': out}
+
+
+def registra_completamento_multiplo(order_ids, user_id: str) -> dict:
+    """"Segna finiti": piu' ordini che l'officina ha finito insieme. Ognuno
+    passa dalla stessa registrazione atomica di uno solo, quindi un ordine
+    gia' finito resta com'era (`gia_fatto`) e non ferma gli altri."""
+    ids = []
+    for i in order_ids or []:
+        i = str(i or '').strip()
+        if i and i not in ids:
+            ids.append(i)
+    if not ids:
+        return {'error': 'Nessun ordine scelto.', 'codice': 'vuoto'}
+    if len(ids) > 200:
+        return {'error': 'Troppi ordini insieme: al massimo 200.', 'codice': 'troppi'}
+    risultati = []
+    for i in ids:
+        r = _registra_completamento(i, user_id, None, None, audit=False)
+        risultati.append({'id': i, 'success': bool(r.get('success')), 'gia_fatto': bool(r.get('gia_fatto')),
+                          'error': r.get('error'), 'codice': r.get('codice'), 'ordine': r.get('ordine')})
+    fatti = [r['id'] for r in risultati if r['success'] and not r['gia_fatto']]
+    restano = cosa_resta(fatti)
+    for r in risultati:
+        r['restano'] = restano.get(r['id'], [])
+    for i in fatti:
+        _audit(user_id, 'ORDINE_COMPLETAMENTO', i, f'Lavorazione completata (insieme ad altri {len(fatti) - 1})')
+    return {'success': True, 'risultati': risultati,
+            'n_fatti': len(fatti), 'n_gia': sum(1 for r in risultati if r['gia_fatto']),
+            'n_errori': sum(1 for r in risultati if not r['success'])}
+
+
+def salva_nota_completamento(order_id: str, user_id: str, nota=None) -> dict:
+    """La nota del "Lavoro finito" scritta dopo (chi l'ha detto, cosa manca).
+    Solo su un ordine finito; vuota la toglie. Lo storico tiene ogni versione."""
+    nota, errore = _pulisci_nota(nota)
+    if errore:
+        return errore
+    session = get_session()
+    try:
+        o = _carica(session, order_id)
+        if not o:
+            return {'error': 'Ordine non trovato', 'codice': 'non_trovato'}
+        if not _lavoro_finito(o):
+            return {'error': 'Segna prima il lavoro finito: la nota va con quello.', 'codice': 'sequenza'}
+        o.nota_completamento = nota
+        session.commit()
+        session.refresh(o)
+        out = _riga(o, _nomi(session))
+    except Exception as e:
+        session.rollback()
+        logger.exception('salva_nota_completamento fallita: %s', e)
+        return {'error': 'Errore interno. Riprova.', 'codice': 'errore_interno'}
+    finally:
+        session.close()
+    _audit(user_id, 'ORDINE_COMPLETAMENTO_NOTA', order_id, 'Nota sul lavoro finito: ' + (nota or '(tolta)'))
     return {'success': True, 'ordine': out}
 
 
@@ -469,6 +596,7 @@ def annulla_completamento(order_id: str, user_id: str) -> dict:
                              'annulla prima quelli.', 'codice': 'sequenza'}
         o.data_completamento_operativo = None
         o.completato_operativo_da = None
+        o.nota_completamento = None
         if (o.status or '') == _STATO_LAVORO_FINITO:
             o.status = 'RICEVUTO'
         session.commit()
