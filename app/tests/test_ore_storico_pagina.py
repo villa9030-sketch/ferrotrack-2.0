@@ -47,6 +47,10 @@ uff.post('/api/ore/operai', {'nome': 'Prova Storico'})
 _c, d = uff.get('/api/ore/operai')
 op = next(o for o in d['operai'] if o['nome'] == 'Prova Storico')
 _c, cl = uff.get('/api/ore/clienti')
+if not cl.get('clienti'):
+    # un'istanza senza clienti delle ore (es. dati inventati): niente da provare
+    print('Nessun cliente delle ore su questo server: test saltato.')
+    sys.exit(0)
 cliente = cl['clienti'][0]['nome'] if isinstance(cl['clienti'][0], dict) else cl['clienti'][0]
 _c, ctxo = uff.get('/api/ore/contesto')
 from datetime import date, timedelta  # noqa: E402
