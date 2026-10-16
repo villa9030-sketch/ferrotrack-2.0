@@ -518,6 +518,65 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
 .imp-table td.act .ft-btn { border-color: transparent; background: transparent; color: var(--ft-ink-3); font-weight: 400; }
 .imp-table tr:hover td.act .ft-btn, .imp-table tr.sel td.act .ft-btn, .imp-table td.act .ft-btn:focus-visible { border-color: var(--ft-line-3); background: var(--ft-panel); color: var(--ft-ink); font-weight: 600; }
 #vista-hint { display: none; }
+
+/* ═══ Lavoro finito veloce (16/10/2026) ═══
+   Ricerca: ogni riga dice lo stato a parole e, se in lavorazione, ha
+   "Segna finito" con la sua lettera. Il messaggio dopo: scuro come i toast
+   (sta sopra la pagina: ombra), l'avviso in ambra solo se resta qualcosa. */
+.imp-cerca-res { width: 600px; max-height: 520px; }
+.imp-cerca-res .cr-r { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 2px 16px;
+  padding: 8px 12px; border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
+.imp-cerca-res .cr-r:hover, .imp-cerca-res .cr-r.on { background: var(--ft-hover); }
+.imp-cerca-res .cr-r.on { box-shadow: inset 2px 0 0 var(--ft-accent); }
+.imp-cerca-res .cr-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.imp-cerca-res .cr-t b { font-weight: 600; }
+.imp-cerca-res .cr-t code { font-size: 13px; color: var(--ft-ink-2); margin-left: 4px; }
+.imp-cerca-res .cr-st { grid-column: 2; grid-row: 1 / span 2; font-size: 13px; color: var(--ft-ink-2); white-space: nowrap; }
+.imp-cerca-res .cr-r small { grid-column: 1; }
+.imp-cerca-res .cr-a { grid-column: 3; grid-row: 1 / span 2; min-width: 128px; text-align: right; }
+.imp-cerca-res .cr-az { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 12px; border: 1px solid var(--ft-line-3);
+  border-radius: 6px; background: var(--ft-panel); font: 600 13px var(--ft-font); color: var(--ft-ink); cursor: pointer; }
+.imp-cerca-res .cr-az:hover { border-color: var(--ft-ink-4); }
+.imp-cerca-res .cr-az:focus-visible, .imp-cerca-res .cr-az:focus { outline: 2px solid var(--ft-accent); outline-offset: 1px; border-color: var(--ft-accent); }
+body.ft .imp-cerca-res .cr-az kbd, body.ft .imp-cerca-res .cr-piede kbd { position: static; transform: none; pointer-events: none; font: 400 12px var(--ft-font); color: var(--ft-ink-3); border: 1px solid var(--ft-line);
+  border-radius: 4px; padding: 0 4px; background: var(--ft-g2); }
+.imp-cerca-res .cr-gia { font-size: 12px; color: var(--ft-ink-3); }
+.imp-cerca-res .cr-piede { display: flex; gap: 20px; padding: 8px 12px; font-size: 12px; color: var(--ft-ink-3); background: var(--ft-g2); }
+.imp-fin { pointer-events: auto; width: 480px; max-width: calc(100vw - 32px); padding: 12px 16px; border-radius: var(--ft-r-m);
+  background: var(--ft-g12); color: #fff; box-shadow: var(--ft-elev-3); font-size: 13px; display: grid; gap: 8px; }
+.imp-fin .fin-testa { display: flex; align-items: center; gap: 12px; }
+.imp-fin .fin-t { font-weight: 600; font-size: 14px; }
+.imp-fin .ft-check { width: 16px; height: 16px; flex-shrink: 0; }
+.imp-fin .ft-check circle { fill: var(--ft-ok-dot); }
+.imp-fin .ft-check path { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.imp-fin .fin-annulla { margin-left: auto; background: none; border: 0; color: #fff; font: 600 13px var(--ft-font); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px; padding: 4px 0; }
+.imp-fin .fin-elenco { color: #C9CCD3; padding-left: 28px; }
+.imp-fin .fin-avviso { color: #F6CF7E; padding-left: 28px; line-height: 1.45; }
+.imp-fin .fin-avviso b { font-weight: 600; }
+.imp-fin .fin-avviso span { display: block; color: #C9CCD3; }
+.imp-fin .fin-gia { color: #C9CCD3; padding-left: 28px; }
+.imp-fin .fin-nota { display: flex; gap: 8px; padding-left: 28px; }
+.imp-fin .fin-nota input { flex: 1; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid #4A4F59; border-radius: 4px;
+  background: #2A2F37; color: #fff; font: 13px var(--ft-font); }
+.imp-fin .fin-nota input::placeholder { color: #9A9EA8; }
+.imp-fin .fin-nota input:focus { outline: 2px solid #8E90E6; outline-offset: 0; border-color: transparent; }
+.imp-fin .fin-salva { height: 32px; padding: 0 12px; border: 1px solid #4A4F59; border-radius: 6px; background: none; color: #fff; font: 600 13px var(--ft-font); cursor: pointer; }
+.imp-fin .fin-salva:hover { background: #2A2F37; }
+.imp-table td.sel, .imp-table th:first-child:has(.imp-sel) { width: 36px; padding-right: 0; }
+.imp-sel { width: 16px; height: 16px; margin: 0; accent-color: var(--ft-accent); cursor: pointer; vertical-align: middle; }
+.imp-table tr.scelto td { background: var(--ft-accent-bg); }
+.imp-selbar { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.imp-selbar[hidden] { display: none; }
+.ft-toolbar.imp-scegliendo > :not(.ft-search):not(.imp-selbar) { display: none; }
+.imp-selbar b { font-weight: 600; font-size: 13px; }
+.imp-selbar ~ .ft-toolbar-meta { margin-left: 0; }
+.imp-nota-fin { display: block; margin-top: 2px; font-size: 12px; font-style: normal; color: var(--ft-ink-2); }
+em.imp-nota-fin { color: var(--ft-ink); }
+.imp-nota-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; width: 100%; align-items: center; }
+.imp-nota-form label { grid-column: 1 / -1; font-size: 12px; color: var(--ft-ink-3); }
+.imp-nota-form input { height: 32px; }
+@media (max-width: 700px) { .imp-cerca-res { width: calc(100vw - 32px); } .imp-cerca-res .cr-a { min-width: 0; } }
 </style>
 </head>
 <body class="ft ftc" data-stazione="ufficio">
@@ -780,6 +839,9 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
       <label class="imp-filtro">Cliente <select id="vista-cliente" onchange="renderVista()" aria-label="Filtra per cliente"><option value="">Tutti</option></select></label>
       <label class="imp-filtro"><input type="checkbox" id="vista-percliente" onchange="renderVista()"> Raggruppa per cliente</label>
       <span class="imp-kpi-hint" id="vista-hint"></span>
+      <span class="imp-selbar" id="vista-sel" hidden><b id="vista-sel-n"></b>
+        <button class="ft-btn sm primary" type="button" id="btn-segna-finiti" onclick="segnaFiniti()" title="L’officina li ha finiti insieme: passano a «DDT da fare». Si può annullare">Segna finiti</button>
+        <button class="ft-btn sm ghost" type="button" onclick="scegliNessuno()">Togli la scelta</button></span>
       <span class="ft-toolbar-meta" id="vista-count">—</span>
       <button class="ft-btn sm" onclick="esportaVista()" title="Scarica l'elenco di questa vista per Excel (es. da confrontare col gestionale a fine mese)"><i data-lucide="file-spreadsheet"></i> Esporta per Excel</button>
       <button class="ft-btn sm ghost" onclick="apriEliminati()" title="Ordini eliminati qui o dal laser: si possono ripristinare"><i data-lucide="trash-2"></i> Eliminati</button>
@@ -2187,7 +2249,7 @@ let CONSEGNA_TARGET = null, DDT_TARGET = null, CHIUDI_TARGET = null;
 
 const FASI_ORDINE = ['aperto', 'pronto_ddt', 'consegnato', 'archivio'];
 const FASI_INFO = {
-  aperto:     { lbl: 'In lavorazione', dot: 'var(--ft-info-dot)', hint: 'Quando l\u2019officina ti dice che ha finito, premi «Lavorazione finita».' },
+  aperto:     { lbl: 'In lavorazione', dot: 'var(--ft-info-dot)', hint: 'Quando l\u2019officina ti dice che ha finito, premi «Segna finito» (o Ctrl K, il numero, Tab e F).' },
   pronto_ddt: { lbl: 'Pronti per DDT', dot: 'var(--ft-accent)', hint: 'Prepara il DDT nel gestionale e annotane il numero; quando la merce parte, registra la consegna.' },
   consegnato: { lbl: 'Consegnati da fatturare', dot: 'var(--ft-warn-dot)', hint: 'Emessa la fattura, chiudi la pratica con numero e data.' },
   archivio:   { lbl: 'Fatturati e chiusi', dot: 'var(--ft-ok-dot)', hint: 'Pratiche chiuse. Se c\u2019è un errore puoi riaprirle.' },
@@ -2335,18 +2397,16 @@ function rigaForseFinito(f) {
   const stato = `${esc(FTStati.laser.tagliato)} ${f.tagliato_il ? FT.fmtRelativo(f.tagliato_il) : ''}<small>${dopo.length
     ? 'dopo il laser: ' + esc(dopo.join(', ')) + '. Chiedi all’officina se è fatto' : 'dopo il laser non risulta altro'}</small>`;
   const az = btn('Non ancora', `forseFinitoNonAncora('${id}')`, 'ghost', '', 'Lo richiede fra due giorni')
-    + ' ' + btn('Finito: ' + FTStati.passo.attesa_ddt, `forseFinitoSi('${id}')`, '', '',
-      'L’officina ha finito: l’ordine passa fra i pronti per il DDT');
+    + ' ' + btn('Segna finito', `forseFinitoSi('${id}')`, '', '',
+      'L’officina ha finito: passa a «DDT da fare». Si può annullare');
   return rigaOggi({ id: f.id, cliente: f.cliente, numero_ordine: f.numero_ordine, numero_ordine_cliente: f.numero_ordine_cliente,
                     data_consegna: f.data_consegna }, stato, az);
 }
 async function forseFinitoSi(id) {
   const f = FORSE_FINITI.find(x => x.id === id) || {};
-  const r = await chiamaAzione(`/api/ordini/${id}/completamento`, 'POST', {},
-    `${f.numero_ordine_cliente || f.numero_ordine || 'Ordine'}: ${FTStati.passo.attesa_ddt}`, { testo: 'Annulla', fn: () => annullaCompletamento(id) });
-  if (!r.ok) { FT.toast(r.errore, 'err'); return; }
-  FORSE_FINITI = FORSE_FINITI.filter(x => x.id !== id);
-  caricaOggi(true);
+  // la stessa azione di ogni altro "Segna finito"
+  const ok = await segnaFinito(id, { num: f.numero_ordine_cliente || f.numero_ordine, fase: 'aperto' });
+  if (ok) FORSE_FINITI = FORSE_FINITI.filter(x => x.id !== id);
 }
 async function forseFinitoNonAncora(id) {
   const res = await inviaJson(`/api/ordini/${id}/forse-finito/non-ancora`, {});
@@ -2396,7 +2456,7 @@ function rigaOggi(o, stato, azioni) {
 }
 function azioneDi(o) {
   const id = esc(o.id);
-  if (o.fase === 'aperto') return btn('Lavorazione finita', `azCompletamento('${id}')`, '', 'check');
+  if (o.fase === 'aperto') return btn('Segna finito', `azCompletamento('${id}')`, '', 'check', 'L\u2019officina ha finito: passa a «DDT da fare». Si può annullare');
   if (o.passo === 'attesa_ddt') return btn('Registra DDT', `azDdt('${id}')`, 'primary', 'file-text');
   if (o.passo === 'ddt_registrato' || o.passo === 'consegna_parziale') return btn('Registra consegna', `apriModalConsegna('${id}')`, 'primary', 'truck');
   if (o.fase === 'consegnato') return btn('Chiudi pratica', `azChiudi('${id}')`, 'primary', 'receipt');
@@ -2537,40 +2597,294 @@ function usaDataComoda(ds) {
 }
 
 // ═══ Ricerca di un ordine (Ctrl+K) ═══
-let _cercaSel = 0;
+// Ogni riga ha lo stato e, se l'ordine e' in lavorazione, "Segna finito":
+//   frecce   scegli la riga        Invio   apri l'ordine
+//   Tab      vai su "Segna finito" (poi F o Invio)
+//   Ctrl+Invio  segna finito la riga scelta senza lasciare la casella
+let _cercaSel = 0, _cercaTrovati = [];
 function cercaGlobale() {
   const q = ($('cerca-globale').value || '').trim().toLowerCase();
   const box = $('cerca-res');
-  if (!q) { box.classList.remove('open'); return; }
+  if (!q) { box.classList.remove('open'); _cercaTrovati = []; return; }
   if (!VISTE_CARICATE) caricaViste(true).then(() => cercaGlobale());
   const tutti = VISTE_DATI.ordini || [];
   const trovati = tutti.filter(o => [o.cliente, o.numero_ordine, o.numero_ordine_cliente, o.ddt_numero, o.numero_fattura]
     .some(v => (v || '').toString().toLowerCase().includes(q)))
-    .sort((a, b) => (a.fase === 'archivio') - (b.fase === 'archivio') || String(b.data_consegna || '').localeCompare(String(a.data_consegna || '')))
+    // prima gli ordini in lavorazione (quelli da segnare finiti), poi gli altri, l'archivio in fondo
+    .sort((a, b) => (a.fase === 'archivio') - (b.fase === 'archivio') || (a.fase !== 'aperto') - (b.fase !== 'aperto')
+      || String(a.data_consegna || '9').localeCompare(String(b.data_consegna || '9')))
     .slice(0, 12);
-  _cercaSel = 0;
-  box.innerHTML = trovati.length ? trovati.map((o, i) => `<button type="button" class="${i === 0 ? 'on' : ''}" data-id="${esc(o.id)}" onclick="apriDaRicerca('${esc(o.id)}')">
-      <b>${esc(o.cliente || '—')} · #${esc(numOrd(o))}</b><span class="st">${stepsHtml(o, true)}</span>
-      <small>consegna ${o.data_consegna ? fmtGiorno(o.data_consegna) : '—'}${o.fase === 'aperto' && etichettaLaser(o) ? ' · ' + esc(etichettaLaser(o)) : ''}</small></button>`).join('')
+  _cercaTrovati = trovati;
+  _cercaSel = Math.min(_cercaSel, Math.max(0, trovati.length - 1));
+  if (!trovati.length) _cercaSel = 0;
+  box.innerHTML = trovati.length ? trovati.map(rigaRicerca).join('')
+      + `<div class="cr-piede"><span><kbd>Invio</kbd> apri</span><span><kbd>Tab</kbd> poi <kbd>F</kbd> segna finito</span></div>`
     : `<div class="vuoto">Nessun ordine con «${esc(q)}»</div>`;
   box.classList.add('open');
-  FT.icone();
+  segnaRicerca();
+}
+function rigaRicerca(o, i) {
+  const id = esc(o.id);
+  const stato = esc((PASSI[o.passo] || {}).lbl || o.passo_etichetta || etichettaFase(o.fase));
+  const laser = o.fase === 'aperto' && etichettaLaser(o) ? esc(etichettaLaser(o)) : '';
+  const az = o.fase === 'aperto'
+    ? `<button type="button" class="cr-az" tabindex="-1" data-az="${id}" onclick="event.stopPropagation(); finitoDaRicerca('${id}')" onkeydown="tastiAzione(event, ${i})">Segna finito <kbd>F</kbd></button>`
+    : `<span class="cr-gia">Già finito${o.completamento ? ' il ' + esc(giornoCorto(o.completamento)) : ''}</span>`;
+  return `<div class="cr-r" role="option" id="cr-${i}" data-i="${i}" data-id="${id}" onclick="apriDaRicerca('${id}')">
+      <span class="cr-t"><b>${esc(o.cliente || '—')}</b> <code class="ft-code">${esc(numOrd(o))}</code></span>
+      <span class="cr-st${o.fase === 'aperto' ? '' : ' fin'}">${stato}</span>
+      <small>consegna ${o.data_consegna ? esc(giornoCorto(o.data_consegna)) : '—'}${laser ? '. ' + laser : ''}</small>
+      <span class="cr-a">${az}</span></div>`;
+}
+function segnaRicerca() {
+  const righe = Array.from($('cerca-res').querySelectorAll('.cr-r'));
+  righe.forEach((r, i) => r.classList.toggle('on', i === _cercaSel));
+  const inp = $('cerca-globale');
+  if (righe[_cercaSel]) { inp.setAttribute('aria-activedescendant', 'cr-' + _cercaSel); righe[_cercaSel].scrollIntoView({ block: 'nearest' }); }
+  else inp.removeAttribute('aria-activedescendant');
 }
 function cercaTasti(e) {
-  const voci = Array.from($('cerca-res').querySelectorAll('button'));
+  const n = _cercaTrovati.length;
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
-    if (!voci.length) return;
-    _cercaSel = (_cercaSel + (e.key === 'ArrowDown' ? 1 : -1) + voci.length) % voci.length;
-    voci.forEach((b, i) => b.classList.toggle('on', i === _cercaSel));
-  } else if (e.key === 'Enter' && voci[_cercaSel]) { e.preventDefault(); apriDaRicerca(voci[_cercaSel].dataset.id); }
-  else if (e.key === 'Escape') { $('cerca-res').classList.remove('open'); e.target.blur(); }
+    if (!n) return;
+    _cercaSel = (_cercaSel + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+    segnaRicerca();
+  } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && _cercaTrovati[_cercaSel]) {
+    e.preventDefault(); finitoDaRicerca(_cercaTrovati[_cercaSel].id);
+  } else if (e.key === 'Enter' && _cercaTrovati[_cercaSel]) {
+    e.preventDefault(); apriDaRicerca(_cercaTrovati[_cercaSel].id);
+  } else if (e.key === 'Tab' && !e.shiftKey && n && $('cerca-res').classList.contains('open')) {
+    const b = $('cerca-res').querySelector(`.cr-r[data-i="${_cercaSel}"] .cr-az`);
+    e.preventDefault();
+    if (b) b.focus();
+    else FT.toast(`${numOrd(_cercaTrovati[_cercaSel])}: già finito, niente da segnare.`, 'warn');
+  } else if (e.key === 'Escape') { $('cerca-res').classList.remove('open'); e.target.blur(); }
 }
-function apriDaRicerca(id) {
+/** Tasti sul pulsante "Segna finito" di una riga della ricerca. */
+function tastiAzione(e, i) {
+  const k = (e.key || '').toLowerCase();
+  if (k === 'f' || k === 'enter' || k === ' ') { e.preventDefault(); e.stopPropagation(); finitoDaRicerca(_cercaTrovati[i].id); }
+  else if (k === 'escape' || (k === 'tab' && e.shiftKey)) { e.preventDefault(); $('cerca-globale').focus(); }
+  else if (k === 'arrowdown' || k === 'arrowup') {
+    e.preventDefault();
+    _cercaSel = (i + (k === 'arrowdown' ? 1 : -1) + _cercaTrovati.length) % _cercaTrovati.length;
+    segnaRicerca();
+    const b = $('cerca-res').querySelector(`.cr-r[data-i="${_cercaSel}"] .cr-az`);
+    if (b) b.focus(); else $('cerca-globale').focus();
+  }
+}
+function chiudiRicerca() {
   $('cerca-res').classList.remove('open');
   $('cerca-globale').value = '';
+  _cercaTrovati = [];
+}
+function apriDaRicerca(id) {
+  chiudiRicerca();
   apriOrdine(id);
 }
+function finitoDaRicerca(id) {
+  const o = _cercaTrovati.find(x => x.id === id) || rigaDi(id);
+  chiudiRicerca();
+  segnaFinito(id, { tastiera: true, num: numOrd(o), fase: o && o.fase });
+}
+
+// ═══ Lavoro finito veloce (16/10/2026) ═══
+// I ragazzi dell'officina non segnano niente sul tablet: quando finiscono lo
+// DICONO all'ufficio. Qui lo si registra in un passo, senza finestra di
+// conferma: il messaggio dice cosa e' successo, cosa risulta ancora aperto
+// (avviso, non blocco) e ha "Annulla" e la nota "chi l'ha detto".
+let FIN = null;            // il messaggio aperto: {ids, nums, timer}
+const FIN_DURATA = 12000;
+
+/** Un ordine. Torna true se e' stato segnato adesso. */
+async function segnaFinito(id, opz) {
+  opz = opz || {};
+  const o = rigaDi(id) || {};
+  const num = opz.num || numOrd(o) || 'Ordine';
+  const fase = opz.fase || o.fase;
+  if (fase && fase !== 'aperto') {
+    FT.toast(`${num} è già finito: ${(PASSI[o.passo] || {}).lbl || FTStati.passo.attesa_ddt}. Nessuna modifica.`, 'warn');
+    return false;
+  }
+  const res = await inviaJson(`/api/ordini/${id}/completamento`, {});
+  if (!riuscita(res)) { FT.toast(`${num} non segnato: ${msgErrore(res)}`, 'err', null, 8000); return false; }
+  const d = res.data || {};
+  if (d.gia_fatto) FT.toast(`${num} era già finito (da un’altra postazione): nessuna modifica.`, 'warn');
+  else mostraFinito([{ id, num, restano: d.restano || [] }], opz);
+  await dopoFinito();
+  return !d.gia_fatto;
+}
+
+/** "Segna finiti": gli ordini scelti nella vista In lavorazione. */
+async function segnaFiniti(ids) {
+  ids = ids || Array.from(SCELTI);
+  if (!ids.length) return;
+  const b = $('btn-segna-finiti'); if (b) b.disabled = true;
+  const res = await inviaJson('/api/ordini/completamento-multiplo', { ids });
+  if (b) b.disabled = false;
+  if (!riuscita(res)) { FT.toast('Non segnati: ' + msgErrore(res), 'err', null, 8000); return; }
+  const r = (res.data || {}).risultati || [];
+  const fatti = r.filter(x => x.success && !x.gia_fatto)
+    .map(x => ({ id: x.id, num: numOrd(x.ordine) || numOrd(rigaDi(x.id)), restano: x.restano || [] }));
+  const gia = r.filter(x => x.gia_fatto).map(x => numOrd(x.ordine) || numOrd(rigaDi(x.id)));
+  const ko = r.filter(x => !x.success);
+  SCELTI.clear();
+  if (fatti.length) mostraFinito(fatti, { gia });
+  else if (gia.length) FT.toast(`${gia.length === 1 ? gia[0] + ' era già finito' : 'Erano già finiti'}: nessuna modifica.`, 'warn');
+  if (ko.length) FT.toast(`${ko.length === 1 ? '1 ordine non segnato' : ko.length + ' ordini non segnati'}: ${ko[0].error || 'errore'}`, 'err', null, 9000);
+  await dopoFinito();
+}
+
+async function dopoFinito() {
+  await caricaViste(true);
+  updateFattBadge();
+  if (drawerId) renderDrawer();
+  if (TAB === 'oggi') caricaOggi(true);
+}
+
+function testoRestano(f) {
+  if (!f.restano || !f.restano.length) return '';
+  return f.restano.map(x => x.testo).join('; ');
+}
+
+/** Il messaggio del lavoro finito, in basso a destra (sopra ai toast). */
+function mostraFinito(fatti, opz) {
+  opz = opz || {};
+  chiudiFinito();
+  let box = document.querySelector('.ft-toasts');
+  if (!box) { box = document.createElement('div'); box.className = 'ft-toasts'; document.body.appendChild(box); }
+  const el = document.createElement('div');
+  el.id = 'fin-box';
+  el.className = 'imp-fin';
+  el.setAttribute('role', 'status');
+  const uno = fatti.length === 1;
+  const titolo = uno
+    ? `Lavoro finito: ${esc(fatti[0].num)} → ${esc(FTStati.passo.attesa_ddt)}`
+    : `${fatti.length} lavori finiti → ${esc(FTStati.passo.attesa_ddt)}`;
+  const elenco = uno ? '' : `<div class="fin-elenco">${fatti.map(f => esc(f.num)).join(', ')}</div>`;
+  const avvisi = fatti.filter(f => f.restano && f.restano.length);
+  const avviso = !avvisi.length ? '' : `<div class="fin-avviso"><b>Da controllare:</b> ${uno
+    ? esc(testoRestano(fatti[0]))
+    : avvisi.map(f => `${esc(f.num)}: ${esc(testoRestano(f))}`).join('<br>')}.</div>`;
+  const gia = (opz.gia || []).length ? `<div class="fin-gia">${(opz.gia.length === 1 ? opz.gia[0] + ' era già finito' : 'Già finiti: ' + opz.gia.join(', '))}: non cambiato.</div>` : '';
+  el.innerHTML = `
+    <div class="fin-testa"><svg class="ft-check" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="9"/><path d="M5.2 9.3l2.5 2.5 5-5.2"/></svg>
+      <span class="fin-t">${titolo}</span>
+      <button type="button" class="fin-annulla" onclick="annullaFinito()" title="Ctrl+Z">Annulla</button></div>
+    ${elenco}${avviso}${gia}
+    ${uno ? `<form class="fin-nota" onsubmit="event.preventDefault(); salvaNotaFinito()">
+      <input type="text" id="fin-nota" maxlength="300" autocomplete="off" placeholder="Chi l’ha detto, note: Marco, mancano 2 pezzi" aria-label="Chi l’ha detto, note"
+        onkeydown="if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); chiudiFinito(); }">
+      <button type="submit" class="fin-salva">Salva nota</button></form>` : ''}`;
+  box.appendChild(el);
+  FIN = { ids: fatti.map(f => f.id), nums: fatti.map(f => f.num), el, timer: null };
+  // si ferma mentre lo guardi o scrivi la nota
+  const ferma = () => { clearTimeout(FIN && FIN.timer); };
+  const riparti = () => { if (FIN && FIN.el === el && !el.contains(document.activeElement)) avviaTimerFinito(); };
+  el.addEventListener('mouseenter', ferma);
+  el.addEventListener('focusin', ferma);
+  el.addEventListener('mouseleave', riparti);
+  el.addEventListener('focusout', () => setTimeout(riparti, 0));
+  avviaTimerFinito();
+  // dalla tastiera (Ctrl K): il cursore va sulla nota, Invio la salva, Esc chiude
+  if (opz.tastiera && uno) setTimeout(() => { const n = $('fin-nota'); if (n) n.focus(); }, 0);
+}
+function avviaTimerFinito() {
+  if (!FIN) return;
+  clearTimeout(FIN.timer);
+  const el = FIN.el;
+  FIN.timer = setTimeout(() => { if (FIN && FIN.el === el) chiudiFinito(); }, FIN_DURATA);
+}
+function chiudiFinito() {
+  if (!FIN) return;
+  clearTimeout(FIN.timer);
+  if (FIN.el) FIN.el.remove();
+  FIN = null;
+}
+async function annullaFinito() {
+  if (!FIN) return;
+  const { ids, nums } = FIN;
+  chiudiFinito();
+  const esiti = await Promise.all(ids.map(id => api(`/api/ordini/${id}/completamento`, { method: 'DELETE' })));
+  const ko = esiti.map((r, i) => [r, i]).filter(([r]) => !riuscita(r));
+  if (!ko.length) FT.toast(ids.length === 1 ? `Annullato: ${nums[0]} torna in lavorazione` : `Annullato: ${ids.length} ordini tornano in lavorazione`, 'ok');
+  else FT.toast(`${nums[ko[0][1]]} non annullato: ${msgErrore(ko[0][0])}`, 'err', null, 9000);
+  await dopoFinito();
+}
+async function salvaNotaFinito() {
+  if (!FIN) return;
+  const inp = $('fin-nota');
+  const nota = (inp && inp.value || '').trim();
+  const id = FIN.ids[0], num = FIN.nums[0];
+  if (!nota) { chiudiFinito(); return; }
+  const res = await inviaJson(`/api/ordini/${id}/completamento/nota`, { nota });
+  if (!riuscita(res)) { FT.toast('Nota non salvata: ' + msgErrore(res), 'err', null, 8000); return; }
+  chiudiFinito();
+  FT.toast(`Nota salvata su ${num}`, 'ok');
+  await caricaViste(true);
+  if (drawerId === id) renderDrawer();
+}
+/** Nota dal pannello dell'ordine (dopo, se non l'hai scritta subito):
+    la casella compare al posto della riga "Pronto: prepara il DDT". */
+function notaDaPannello(id) {
+  const o = rigaDi(id) || {};
+  const box = document.querySelector('#ord-drawer .imp-next');
+  if (!box) return;
+  box.innerHTML = `<form class="imp-nota-form" onsubmit="event.preventDefault(); salvaNotaPannello('${esc(id)}')">
+      <label for="dr-nota">Chi l’ha detto, note</label>
+      <input type="text" id="dr-nota" class="ft-input" maxlength="300" autocomplete="off" placeholder="Marco, mancano 2 pezzi" value="${esc(o.nota_completamento || '')}"
+        onkeydown="if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); renderDrawer(); }">
+      <div class="ft-actions"><button type="button" class="ft-btn sm ghost" onclick="renderDrawer()">Lascia stare</button>
+        <button type="submit" class="ft-btn sm primary">Salva nota</button></div></form>`;
+  const i = $('dr-nota'); if (i) { i.focus(); i.select(); }
+}
+async function salvaNotaPannello(id) {
+  const o = rigaDi(id) || {};
+  const v = ($('dr-nota') || {}).value || '';
+  const res = await inviaJson(`/api/ordini/${id}/completamento/nota`, { nota: v });
+  if (!riuscita(res)) { FT.toast('Nota non salvata: ' + msgErrore(res), 'err', null, 8000); return; }
+  FT.toast(v.trim() ? `Nota salvata su ${numOrd(o)}` : `Nota tolta da ${numOrd(o)}`, 'ok');
+  await caricaViste(true);
+  if (drawerId) renderDrawer();
+}
+
+// ── Scelta di piu' ordini (vista In lavorazione) ──
+const SCELTI = new Set();
+function scegli(id, si) {
+  if (si) SCELTI.add(id); else SCELTI.delete(id);
+  aggiornaScelta();
+}
+function scegliTutti(si) {
+  document.querySelectorAll('#vista-tbody input[data-sel]').forEach(c => { c.checked = si; if (si) SCELTI.add(c.dataset.sel); else SCELTI.delete(c.dataset.sel); });
+  aggiornaScelta();
+}
+function scegliNessuno() { SCELTI.clear(); document.querySelectorAll('#vista-tbody input[data-sel]').forEach(c => { c.checked = false; }); aggiornaScelta(); }
+function aggiornaScelta() {
+  // solo gli ordini ancora in lavorazione e visibili restano scelti
+  const visibili = new Set(Array.from(document.querySelectorAll('#vista-tbody input[data-sel]')).map(c => c.dataset.sel));
+  for (const id of Array.from(SCELTI)) if (!visibili.has(id)) SCELTI.delete(id);
+  const n = SCELTI.size, bar = $('vista-sel');
+  if (bar) {
+    bar.hidden = VISTA !== 'aperto' || !n;
+    // mentre scegli, la barra mostra solo la ricerca e cosa fare coi scelti
+    const tb = bar.closest('.ft-toolbar'); if (tb) tb.classList.toggle('imp-scegliendo', !bar.hidden);
+  }
+  if ($('vista-sel-n')) $('vista-sel-n').textContent = n === 1 ? '1 scelto' : `${n} scelti`;
+  if ($('btn-segna-finiti')) $('btn-segna-finiti').textContent = n > 1 ? `Segna finiti (${n})` : 'Segna finito';
+  const tutti = $('sel-tutti');
+  if (tutti) { tutti.checked = !!n && n === visibili.size; tutti.indeterminate = !!n && n < visibili.size; }
+  document.querySelectorAll('#vista-tbody tr[data-id]').forEach(r => r.classList.toggle('scelto', SCELTI.has(r.dataset.id)));
+}
+
+// Ctrl+Z col messaggio del lavoro finito aperto (non mentre scrivi): Annulla
+window.addEventListener('keydown', e => {
+  if (!FIN || !(e.ctrlKey || e.metaKey) || (e.key || '').toLowerCase() !== 'z') return;
+  const t = e.target;
+  if (t && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || t.isContentEditable)) return;
+  e.preventDefault();
+  annullaFinito();
+});
 
 /** Storia dell'ordine con le date: dove si trova e da quando. */
 function storiaHtml(o, d, complet, dd, f) {
@@ -2581,7 +2895,7 @@ function storiaHtml(o, d, complet, dd, f) {
     ['Smistato al laser', o.smistato_il, senzaLaser ? 'non passa dal laser' : 'va tagliato', senzaLaser],
     [FTStati.laser.in_lantek, o.importato_lantek_il, 'disegni importati, pronto da tagliare', senzaLaser],
     [FTStati.laser.tagliato, o.taglio_il || o.data_taglio_completato, o.data_taglio_pianificata && !o.taglio_il ? 'previsto il ' + FT.fmtData(o.data_taglio_pianificata) : 'taglio laser fatto', senzaLaser],
-    ['Lavorazione finita', complet, o.completato_da ? esc(o.completato_da) : 'officina'],
+    ['Lavoro finito', complet, (o.completato_da ? esc(o.completato_da) : 'officina') + (o.nota_completamento ? ': ' + esc(o.nota_completamento) : '')],
     ['DDT', dd.num ? (dd.data || true) : null, dd.num ? 'DDT ' + esc(dd.num) : 'da fare'],
     ['Consegnato', o.consegna, o.consegna_parziale ? 'consegna parziale' : ''],
     ['Fatturato', f.num ? (f.data || true) : null, f.num ? 'fattura ' + esc(f.num) : ''],
@@ -2692,15 +3006,15 @@ function cambiaVista(fase) {
 }
 
 const COLONNE = {
-  aperto:     ['Cliente', 'Ordine', 'Taglia entro', 'Stato', 'Data di taglio', 'Consegna', ''],
-  pronto_ddt: ['Cliente', 'Ordine', 'Consegna prevista', 'Lavorazione finita', 'DDT', 'Stato', ''],
+  aperto:     ['<input type="checkbox" id="sel-tutti" class="imp-sel" aria-label="Scegli tutti gli ordini della vista" onclick="event.stopPropagation()" onchange="scegliTutti(this.checked)">', 'Cliente', 'Ordine', 'Taglia entro', 'Stato', 'Data di taglio', 'Consegna', ''],
+  pronto_ddt: ['Cliente', 'Ordine', 'Consegna prevista', 'Lavoro finito', 'DDT', 'Stato', ''],
   consegnato: ['Cliente', 'Ordine', 'DDT', 'Consegna', 'Stato', ''],
   archivio:   ['Cliente', 'Ordine', 'DDT', 'Consegnata', 'Fattura', ''],
   _:          ['Cliente', 'Ordine', 'Consegna prevista', 'Stato', ''],
 };
 const VUOTI = {
   aperto: ['package-open', 'Nessun ordine in lavorazione', 'Gli ordini caricati o confermati dai preventivi stanno qui finché l\u2019officina non ha finito.'],
-  pronto_ddt: ['file-check-2', 'Nessun DDT da preparare', 'Quando registri «Lavorazione finita» su un ordine, lo ritrovi qui.'],
+  pronto_ddt: ['file-check-2', 'Nessun DDT da preparare', 'Quando segni «Lavoro finito» su un ordine, lo ritrovi qui.'],
   consegnato: ['receipt', 'Niente da fatturare', 'Gli ordini consegnati compaiono qui finché non registri la fattura.'],
   archivio: ['archive', 'Nessuna pratica chiusa', 'Le pratiche fatturate e chiuse finiscono qui.'],
 };
@@ -2733,6 +3047,7 @@ function renderVista() {
     effettiRighe(tb);
   }
   $('vista-count').textContent = righe.length === 1 ? '1 ordine' : `${righe.length} ordini`;
+  aggiornaScelta();
   FT.icone();
 }
 
@@ -2786,11 +3101,12 @@ function rigaVista(o) {
   const d = ddtDi(o);
   switch (o.fase) {
     case 'aperto':
-      return tr(`<td>${ordine}</td><td>${tagliaEntroHtml(o)}</td><td>${laserHtml(o)}</td><td>${dataTaglioHtml(o)}</td><td>${dueHtml(o.data_consegna)}</td>
-        <td class="act">${btn('Lavorazione finita', `azCompletamento('${id}')`, '', '', 'L\u2019officina ha finito: l\u2019ordine passa a «Pronti per DDT»')}</td>`);
+      return tr(`<td class="sel" onclick="event.stopPropagation()"><input type="checkbox" class="imp-sel" data-sel="${id}" aria-label="Scegli ${esc(numOrd(o))}"${SCELTI.has(o.id) ? ' checked' : ''} onchange="scegli('${id}', this.checked)"></td>
+        <td>${ordine}</td><td>${tagliaEntroHtml(o)}</td><td>${laserHtml(o)}</td><td>${dataTaglioHtml(o)}</td><td>${dueHtml(o.data_consegna)}</td>
+        <td class="act">${btn('Segna finito', `azCompletamento('${id}')`, '', '', 'L\u2019officina ha finito: passa a «DDT da fare». Si può annullare')}</td>`);
     case 'pronto_ddt': {
       const quando = o.completamento
-        ? `<div class="ft-due">${FT.fmtData(o.completamento)}<small>${esc(o.completato_da || '')}</small></div>`
+        ? `<div class="ft-due">${FT.fmtData(o.completamento)}<small>${esc(o.completato_da || '')}</small></div>${o.nota_completamento ? `<div class="imp-nota-fin" title="Nota sul lavoro finito">${esc(o.nota_completamento)}</div>` : ''}`
         : '<span class="ft-muted" style="font-size:12px;">prima di FerroTrack</span>';
       const az = d.num
         ? btn('Modifica DDT', `azDdt('${id}')`, 'ghost', '', 'Correggi numero o data del DDT') + btn('Registra consegna', `apriModalConsegna('${id}')`, 'primary', 'truck')
@@ -2837,18 +3153,9 @@ function nomeOrdine(o) { return o ? `${numOrd(o)} — ${o.cliente || ''}` : ''; 
 /** Il numero che conosce il cliente (1252); quello interno (PREV-...) se manca. */
 function numOrd(o) { return (o && (o.numero_ordine_cliente || o.numero_ordine)) || ''; }
 
-async function azCompletamento(id) {
-  const o = rigaDi(id) || {};
-  const ok = await FT.conferma({
-    titolo: 'Lavorazione finita?',
-    testo: `${nomeOrdine(o)}: l'ordine passa fra i «Pronti per DDT». Registralo solo quando l'officina ti ha detto che ha finito.`,
-    ok: 'Sì, prepara il DDT'
-  });
-  if (!ok) return;
-  const r = await chiamaAzione(`/api/ordini/${id}/completamento`, 'POST', {},
-    `${o.numero_ordine || 'Ordine'}: pronto per il DDT`, { testo: 'Annulla', fn: () => annullaCompletamento(id) });
-  if (!r.ok) FT.toast(r.errore, 'err');
-}
+/** "Segna finito" dalla riga, dal pannello o da Oggi: subito, senza
+    finestra di conferma. Il messaggio ha "Annulla" e la nota. */
+function azCompletamento(id) { return segnaFinito(id); }
 async function annullaCompletamento(id) {
   const r = await chiamaAzione(`/api/ordini/${id}/completamento`, 'DELETE', null, 'Riportato fra gli ordini in lavorazione');
   if (!r.ok) FT.toast(r.errore, 'err');
@@ -3072,8 +3379,13 @@ function prossimoPassoHtml(o) {
   const t = tappa(o);
   const d = ddtDi(o);
   let testo, sotto, azione = '', cls = '';
-  if (t === 0) { testo = 'In lavorazione'; sotto = 'Quando l\u2019officina ti dice che ha finito, registralo qui.'; azione = btn('Lavorazione finita', `azCompletamento('${id}')`, 'primary', 'check'); }
-  else if (t === 1) { testo = 'Pronto: prepara il DDT'; sotto = o.completamento ? `Lavorazione finita il ${FT.fmtData(o.completamento)}${o.completato_da ? ' · ' + esc(o.completato_da) : ''}` : 'Lavorazione finita prima di FerroTrack'; azione = btn('Annulla', `azAnnullaCompletamento('${id}')`, 'ghost') + ' ' + btn('Registra DDT', `azDdt('${id}')`, 'primary', 'file-text'); }
+  if (t === 0) { testo = 'In lavorazione'; sotto = 'Quando l\u2019officina ti dice che ha finito, segnalo qui.'; azione = btn('Segna finito', `azCompletamento('${id}')`, 'primary', 'check', 'Passa a «DDT da fare». Si può annullare'); }
+  else if (t === 1) {
+    testo = 'Pronto: prepara il DDT';
+    sotto = (o.completamento ? `Lavoro finito il ${FT.fmtData(o.completamento)}${o.completato_da ? ', segnato da ' + esc(o.completato_da) : ''}` : 'Lavoro finito prima di FerroTrack')
+      + (o.nota_completamento ? `<em class="imp-nota-fin">${esc(o.nota_completamento)}</em>` : '');
+    azione = btn('Annulla', `azAnnullaCompletamento('${id}')`, 'ghost') + ' ' + btn(o.nota_completamento ? 'Modifica nota' : 'Aggiungi nota', `notaDaPannello('${id}')`, 'ghost', '', 'Chi l\u2019ha detto, cosa manca') + ' ' + btn('Registra DDT', `azDdt('${id}')`, 'primary', 'file-text');
+  }
   else if (t === 2) { testo = 'DDT registrato: da consegnare'; sotto = `DDT ${esc(d.num)}${d.data ? ' del ' + fmtGiorno(d.data) : ''}`; azione = btn('Modifica DDT', `azDdt('${id}')`, 'ghost') + ' ' + btn('Registra consegna', `apriModalConsegna('${id}')`, 'primary', 'truck'); }
   else if (t === 3 && o.consegna_parziale) { testo = 'Consegna parziale'; sotto = 'Resta da consegnare: ' + esc(o.note_consegna || '—'); azione = btn('Completa consegna', `apriModalConsegna('${id}')`, 'primary', 'truck'); cls = ''; }
   else if (t === 3) { testo = 'Consegnato: da fatturare'; sotto = `Consegnato il ${FT.fmtData(o.consegna)}. Emessa la fattura, chiudi la pratica.`; azione = (d.num ? '' : btn('Registra DDT', `azDdt('${id}')`, '', 'file-text') + ' ') + btn('Chiudi pratica', `azChiudi('${id}')`, 'primary', 'receipt'); }
@@ -3134,7 +3446,7 @@ function riepilogoHtml() {
         <div><dt>Consegna prevista</dt><dd>${prev ? FT.fmtData(prev) : '—'}<small class="${s.classe}">${s.testo}</small></dd></div>
         <div><dt>Laser</dt><dd>${laserHtml(o)}<small>${o.taglio_il ? 'il ' + FT.fmtDataOra(o.taglio_il) : ''}</small></dd></div>
         ${d.lavorazione_esterna != null ? `<div><dt>Lavorazione esterna</dt><dd>${d.lavorazione_esterna ? 'Sì' : 'No'}<small>${d.lavorazione_esterna ? esc(d.lavorazione_esterna_nota || 'dopo il laser') : 'niente fuori dopo il laser'}</small></dd></div>` : ''}
-        <div><dt>Lavorazione finita</dt><dd>${complet ? FT.fmtData(complet) : (tappa(o) >= 1 ? 'prima di FerroTrack' : '—')}<small>${o.completato_da ? esc(o.completato_da) : ''}</small></dd></div>
+        <div><dt>Lavoro finito</dt><dd>${complet ? FT.fmtData(complet) : (tappa(o) >= 1 ? 'prima di FerroTrack' : '—')}<small>${o.completato_da ? esc(o.completato_da) : ''}${o.nota_completamento ? ': ' + esc(o.nota_completamento) : ''}</small></dd></div>
         <div><dt>DDT</dt><dd>${dd.num ? `<span class="ft-mono">${esc(dd.num)}</span>` : '—'}<small>${dd.data ? fmtGiorno(dd.data) : ''}</small></dd></div>
         <div><dt>Consegnato il</dt><dd>${consegnaEff}</dd></div>
         <div><dt>Fattura</dt><dd>${f.num ? `<span class="ft-mono">${esc(f.num)}</span>` : '—'}<small>${f.data ? fmtGiorno(f.data) : ''}${o.data_chiusura_amministrativa ? ' · chiusa il ' + FT.fmtData(o.data_chiusura_amministrativa) + (o.chiuso_da ? ' da ' + esc(o.chiuso_da) : '') : ''}</small></dd></div>
@@ -3686,7 +3998,8 @@ function showBackupStatus(msg, tipo) {
   document.addEventListener('click', e => { if (!e.target.closest('#imp-cerca')) $('cerca-res').classList.remove('open'); });
   // Esc chiude il pannello dell'ordine, ma solo se sopra non c'e' una finestra.
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && drawerId && !document.querySelector('.ft-modal-bg.open')) chiudiOrdine();
+    if (e.key === 'Escape' && drawerId && !document.querySelector('.ft-modal-bg.open')
+        && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#fin-box, #imp-cerca, .imp-nota-form'))) chiudiOrdine();
     if (e.key === '/' && TAB === 'ordini' && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '')) {
       e.preventDefault(); $('vista-cerca').focus();
     }
