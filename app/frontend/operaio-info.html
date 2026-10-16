@@ -1256,7 +1256,7 @@ function chiudiFoglio() {
 }
 
 /* ---------- segnala un problema ----------
-   Quattro scelte grandi, il pezzo e una nota se si vuole: arriva all'ufficio
+   Quattro scelte grandi, il pezzo e una nota se si vuole: arriva al laser e all'ufficio
    come notifica (POST /api/orders/<id>/segnalazioni). */
 const TIPI = [['manca_materiale', 'Manca materiale'], ['disegno', 'Disegno sbagliato o poco chiaro'], ['da_rifare', 'Pezzo da rifare'], ['altro', 'Altro']];
 let SG = null;
@@ -1272,7 +1272,7 @@ function disegnaSegnala() {
   const codici = [...new Set((o.pezzi || []).map(p => p.codice).filter(Boolean))];
   document.getElementById('sg-box').innerHTML = `
     <h3 id="sg-t">Segnala un problema</h3>
-    <p class="sotto">${esc(o.cliente || '')}, ordine ${esc(numero(o))}. Arriva subito all'ufficio.</p>
+    <p class="sotto">${esc(o.cliente || '')}, ordine ${esc(numero(o))}. Arriva subito al laser e all'ufficio.</p>
     <div class="scelte">${TIPI.map(([k, t]) => `<button class="scelta${SG.tipo === k ? ' on' : ''}" onclick="sgTipo('${k}')">${t}</button>`).join('')}</div>
     ${codici.length ? `<div class="tit2">Quale pezzo? (se riguarda un pezzo)</div>
       <div class="pezzi-sc"><button class="tutto${SG.pezzo ? '' : ' on'}" onclick="sgPezzo('')">Tutto l'ordine</button>${codici.map(c => `<button class="${SG.pezzo === c ? 'on' : ''}" onclick="sgPezzo(${esc(JSON.stringify(c))})">${esc(c)}</button>`).join('')}</div>` : ''}
@@ -1281,7 +1281,7 @@ function disegnaSegnala() {
     <div class="conta-car" id="sg-car">${SG.nota.length} / 300</div>
     ${SG.errore ? `<div class="ft-alert err errore">${esc(SG.errore)}</div>` : ''}
     <div class="dlg-az"><button class="ft-btn" onclick="chiudiSegnala()">Annulla</button>
-      <button class="ft-btn primary si" id="sg-invia" onclick="inviaSegnala()" ${SG.tipo && !SG.invio ? '' : 'disabled'}>${SG.invio ? 'Invio…' : 'Invia all’ufficio'}</button></div>`;
+      <button class="ft-btn primary si" id="sg-invia" onclick="inviaSegnala()" ${SG.tipo && !SG.invio ? '' : 'disabled'}>${SG.invio ? 'Invio…' : 'Invia al laser e all’ufficio'}</button></div>`;
 }
 function sgTipo(k) { SG.tipo = k; SG.errore = ''; disegnaSegnala(); }
 function sgPezzo(c) { SG.pezzo = c; disegnaSegnala(); }
@@ -1303,8 +1303,8 @@ async function inviaSegnala() {
     disegnaSegnala(); return;
   }
   document.getElementById('sg-box').innerHTML = `<div class="fatto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>
-    <b>${d.gia_segnalato ? 'Già segnalato' : 'Segnalato all’ufficio'}</b>
-    <p>${d.gia_segnalato ? 'Lo stesso problema è arrivato pochi minuti fa: l’ufficio lo sa già.' : 'L’ufficio ha ricevuto l’avviso.'}</p>
+    <b>${d.gia_segnalato ? 'Già segnalato' : 'Segnalato al laser e all’ufficio'}</b>
+    <p>${d.gia_segnalato ? 'Lo stesso problema è arrivato pochi minuti fa: laser e ufficio lo sanno già.' : 'Laser e ufficio hanno ricevuto l’avviso.'}</p>
     <div class="dlg-az" style="justify-content:center"><button class="ft-btn" onclick="chiudiSegnala()">Chiudi</button></div></div>`;
   setTimeout(() => { if (SG && !document.getElementById('dlg-segnala').hidden) chiudiSegnala(); }, 5000);
   carica();     // compare subito fra le segnalazioni di oggi
