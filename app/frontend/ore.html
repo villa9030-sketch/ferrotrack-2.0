@@ -715,7 +715,7 @@ function chiediConferma() {
   const tot = totaleMinuti();
   const diff = tot - minutiAttesi;
   document.getElementById('chiedi-titolo').textContent =
-    tot === 0 ? 'Nessuna ora inserita' : `Confermi ${oreTesto(tot)} ore?`;
+    tot === 0 ? 'Nessuna ora inserita' : `Vuoi salvare ${oreTesto(tot)} ore?`;
   document.getElementById('chiedi-testo').textContent =
     tot === 0
       ? `Oggi risultano dovute ${oreTesto(minutiAttesi)} ore e non hai inserito niente. ` +

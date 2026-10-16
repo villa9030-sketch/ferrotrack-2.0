@@ -795,3 +795,10 @@ body.lz .lz-pr-tasti kbd, body.lz .lz-pr-card kbd { font: 400 12px var(--lz-font
 .lz-tab th, .lz-tab td { padding-left: 8px; padding-right: 8px; }
 .lz-tab th:first-child, .lz-tab td:first-child { padding-left: 12px; }
 .lz-tab .lav { max-width: 150px; }
+/* il nome del cliente prima di "anche in": si accorcia la nota, non il nome */
+.lz-cli b { flex: 0 0 auto; max-width: 100%; }
+.lz-anche { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lz-tabella .c-st { width: 168px; }
+.lz-tabella .c-cons { width: 144px; }
+.lz-tabella .c-entro { width: 184px; }
+.lz-tabella .c-entro { width: 200px; }

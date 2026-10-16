@@ -514,6 +514,9 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
 .imp-gruppo.oggi td { color: var(--ft-ok); }
 .ft-table .ft-due small { display: inline; margin-left: 8px; }
 .ft-steps.compact { display: none; }
+/* il pulsante della riga si vede pieno solo sulla riga che stai guardando */
+.imp-table td.act .ft-btn { border-color: transparent; background: transparent; color: var(--ft-ink-3); font-weight: 400; }
+.imp-table tr:hover td.act .ft-btn, .imp-table tr.sel td.act .ft-btn, .imp-table td.act .ft-btn:focus-visible { border-color: var(--ft-line-3); background: var(--ft-panel); color: var(--ft-ink); font-weight: 600; }
 #vista-hint { display: none; }
 </style>
 </head>
@@ -1296,7 +1299,7 @@ function rimuoviPdf() {
 function aggiornaHintData() {
   const v = $('mod-data').value;
   const s = v ? FT.scadenza(v) : null;
-  $('hint-data').textContent = s && s.testo ? (s.classe === 'late' ? 'Attenzione: ' + s.testo : 'Consegna ' + s.testo) : '';
+  $('hint-data').textContent = s && s.testo ? (s.classe === 'late' ? 'Data già passata: ' + s.testo : 'Consegna ' + s.testo) : '';
   $('hint-data').style.color = s && s.classe === 'late' ? 'var(--ft-err)' : '';
   $('hint-laser').innerHTML = hintCaricoLaser(v);
 }
@@ -1709,7 +1712,7 @@ function pkgAggiorna() {
   // Data: stesso suggerimento del modulo col solo PDF
   const s = PKG.testa.data ? FT.scadenza(PKG.testa.data) : null;
   const hd = $('pkg-hint-data');
-  if (hd) { hd.textContent = s && s.testo ? (s.classe === 'late' ? 'Attenzione: ' + s.testo : 'Consegna ' + s.testo) : ''; hd.style.color = s && s.classe === 'late' ? 'var(--ft-err)' : ''; }
+  if (hd) { hd.textContent = s && s.testo ? (s.classe === 'late' ? 'Data già passata: ' + s.testo : 'Consegna ' + s.testo) : ''; hd.style.color = s && s.classe === 'late' ? 'var(--ft-err)' : ''; }
   const nTagliare = R.dentro.filter(r => r.disegno).length;
   const subL = $('pkg-al-laser-sub');
   if (subL) subL.textContent = PKG.alLaser
@@ -2384,10 +2387,10 @@ function rigaOggi(o, stato, azioni) {
   const id = esc(o.id);
   const cons = giorno(o.data_consegna);
   const g = cons ? FT.giorniDa(cons) : null;
-  const quando = cons ? `<div class="ft-due ${g < 0 ? 'late' : g <= 1 ? 'soon' : ''}">${FT.fmtData(cons)}<small>${g == null ? '' : g < 0 ? `scaduta da ${-g} gg` : g === 0 ? 'oggi' : g === 1 ? 'domani' : `tra ${g} gg`}</small></div>` : '<span class="ft-muted">senza data</span>';
+  const quando = cons ? `<div class="ft-due ${g < 0 ? 'late' : g <= 1 ? 'soon' : ''}" title="${FT.fmtData(cons)}">${giornoCorto(cons)}<small>${g == null ? '' : g < 0 ? `scaduta da ${-g} gg` : g === 0 ? 'oggi' : g === 1 ? 'domani' : `tra ${g} gg`}</small></div>` : '<span class="ft-muted">senza data</span>';
   return `<div class="og-r" onclick="apriOrdine('${id}')" role="button" tabindex="0" onkeydown="if (event.key === 'Enter') apriOrdine('${id}')">
     ${quando}
-    <div class="c"><b>${esc(o.cliente || '—')}</b><small>#${esc(numOrd(o))}</small></div>
+    <div class="c"><b>${esc(o.cliente || '—')}</b><small>${esc(numOrd(o))}</small></div>
     <div class="s">${stato}</div>
     <div class="a" onclick="event.stopPropagation()">${azioni || ''}</div></div>`;
 }

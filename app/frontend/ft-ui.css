@@ -521,6 +521,8 @@ body.ftc .ft-topbar .lz-procura-btn .n { color: var(--ft-warn); font-weight: 600
 body.ftc .ft-topbar .lz-procura-btn svg { width: 16px; height: 16px; }
 body.ftc .ft-topbar .ft-live { font-size: 12px; color: var(--ft-ink-3); margin-right: 4px; }
 body.ftc .ft-topbar .ft-live.off { color: var(--ft-err); }
+/* collegato: non c'e' niente da dire (lo stato normale non si mostra) */
+body.ftc .ft-topbar .ft-live:not(.off) { display: none; }
 
 /* Cerca (Ctrl K): la stessa casella in ogni stazione */
 .ftc-cerca { position: relative; flex: 0 1 480px; min-width: 200px; }
