@@ -1363,7 +1363,7 @@ def api_ordine_dxf_svg(order_id, filename):
         from flask import Response
         svg = _get_dxf_svg_cached(d['percorso'])
         if request.args.get('linee'):          # tablet dell'officina: linee spesse
-            svg = svg_linee_spesse(svg, request.args.get('linee'))
+            svg = svg_linee_spesse(svg, request.args.get('linee'), _fattore_linee(request.args.get('lw')))
         resp = Response(svg, mimetype='image/svg+xml; charset=utf-8')
         resp.headers['Cache-Control'] = 'private, max-age=3600'
         return resp
@@ -6137,6 +6137,16 @@ def _get_dxf_svg_cached(dxf_path: str) -> str:
 # Nelle miniature (un foglio A3 in 200 px) linee piu' grosse impastano il
 # cartiglio: li' bastano 1,1-1,6 px, comunque 5-8 volte quelle di prima.
 _LINEE_PX = {'tablet': (1.0, 1.5), 'miniatura': (0.8, 1.2)}
+
+# Il tablet chiede le linee piu' fini quando mostra la tavola intera e piu'
+# spesse quando ingrandisce (?lw=0.45 ... 1): Stefano 16/10, "quando zoomo
+# al massimo e' perfetta, quando vedo tutta la tavola sono troppo grosse".
+def _fattore_linee(v) -> float:
+    try:
+        return min(2.0, max(0.2, float(v)))
+    except (TypeError, ValueError):
+        return 1.0
+
 _RX_CLASSE_SVG = None
 
 
@@ -6151,7 +6161,7 @@ def _scurisci(hex6: str) -> str:
     return '#%02x%02x%02x' % (r, g, b)
 
 
-def svg_linee_spesse(svg: str, modo: str) -> str:
+def svg_linee_spesse(svg: str, modo: str, fattore: float = 1.0) -> str:
     """Stile "linee spesse" per l'SVG di ezdxf (vedi sopra). Modo sconosciuto
     o SVG senza le classi di ezdxf: torna l'SVG com'era."""
     import re
@@ -6171,7 +6181,7 @@ def svg_linee_spesse(svg: str, modo: str) -> str:
     wmax = max(w for _, _, w in classi) or 1.0
     regole = ['path,line,polyline,polygon,circle,ellipse,rect{vector-effect:non-scaling-stroke}']
     for c, col, w in classi:
-        px = lo + (hi - lo) * (w / wmax)
+        px = (lo + (hi - lo) * (w / wmax)) * fattore
         regole.append('.%s{stroke:%s;stroke-width:%.2fpx}' % (c, _scurisci(col), px))
     stile = '<style>/* linee spesse (%s) */%s</style>' % (modo, ''.join(regole))
     return svg[:fine] + stile + svg[fine:]

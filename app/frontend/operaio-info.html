@@ -1017,8 +1017,11 @@ function mostraDisegno() {
   const d = VIS.lista[VIS.i];
   const img = document.getElementById('vis-img');
   img.style.visibility = 'hidden';
-  img.onload = () => { adattaDisegno(); img.style.visibility = ''; };
-  if (d.svg) img.src = d.svg; else img.removeAttribute('src');
+  // al primo caricamento si adatta allo schermo; i cambi di spessore delle
+  // linee (vedi lineeZoom) rimettono solo l'immagine, senza toccare lo zoom
+  V.lw = LW_LIVELLI[0]; V.base = d.svg;
+  img.onload = () => { if (img.dataset.base !== d.svg) { img.dataset.base = d.svg; adattaDisegno(); } img.style.visibility = ''; };
+  if (d.svg) img.src = d.svg + '&lw=' + V.lw; else img.removeAttribute('src');
   img.alt = 'Disegno ' + d.nome;
   document.getElementById('vis-titolo').innerHTML = `${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}<small>disegno ${VIS.i + 1} di ${VIS.lista.length}</small>`;
   document.getElementById('vis-prec').disabled = VIS.i <= 0;
@@ -1042,8 +1045,22 @@ function applicaVista() {
   V.y = h <= H ? (H - h) / 2 : Math.min(0, Math.max(H - h, V.y));
   img.style.width = w + 'px'; img.style.height = h + 'px';
   img.style.left = V.x + 'px'; img.style.top = V.y + 'px';
+  lineeZoom();
   document.getElementById('vis-zoom').textContent = V.s > 1.01 ? 'Intero' : 'Ingrandisci';
   document.getElementById('visore').classList.toggle('zoomato', V.s > 1.01);
+}
+// Linee che crescono con lo zoom (Stefano 16/10: al massimo dello zoom sono
+// perfette, a tavola intera troppo grosse). Tre gradini, per non ricaricare
+// il disegno a ogni movimento delle dita; ogni gradino resta nella cache.
+const LW_LIVELLI = [0.45, 0.7, 1];
+function lineeZoom() {
+  if (!V.base) return;
+  const lw = V.s < 2 ? LW_LIVELLI[0] : (V.s < 4.5 ? LW_LIVELLI[1] : LW_LIVELLI[2]);
+  if (lw === V.lw) return;
+  V.lw = lw;
+  const url = V.base + '&lw=' + lw, pre = new Image();
+  pre.onload = () => { if (V.lw === lw) document.getElementById('vis-img').src = url; };
+  pre.src = url;
 }
 /** Ingrandisce di k volte tenendo fermo il punto (cx, cy) dello schermo. */
 function zoomIn(k, cx, cy) {
@@ -1124,7 +1141,7 @@ function spostaDisegno(d) {
 }
 function chiudiVisore() {
   document.getElementById('visore').hidden = true;
-  document.getElementById('vis-img').removeAttribute('src');   // il tablet resta acceso tutto il giorno
+  document.getElementById('vis-img').removeAttribute('src'); delete document.getElementById('vis-img').dataset.base;   // il tablet resta acceso tutto il giorno
 }
 
 /* ---------- 3D: pezzo piegato e assieme ----------

@@ -10,7 +10,7 @@ leggono poco su tablet".
     installata apre direttamente quella pagina, senza barre di Android;
   - il manifest del PC non ha piu' il verde vecchio;
   - aperta in Chrome (non installata) la pagina offre "Schermo intero";
-  - il disegno sul tablet ha linee di almeno 1,5 px dello schermo a qualunque
+  - il disegno sul tablet ha linee fini a tavola intera e di almeno 1 px ingrandito, a qualunque
     ingrandimento (vector-effect: non-scaling-stroke); quello del PC no.
 
 Serve il server di prova in ascolto (porta 5056 o FERROTRACK_PROVA_URL).
@@ -114,12 +114,16 @@ with sync_playwright() as p:
                 larg = [float(x) for x in re.findall(r'stroke-width:([0-9.]+)px', testo)]
                 check('linee a spessore fisso sullo schermo (non-scaling-stroke)',
                       'non-scaling-stroke' in testo)
-                check('nessuna linea sotto 1 px', larg and min(larg) >= 1.0, larg)
-                # ingrandito 4 volte la linea non si assottiglia: lo spessore e' in px
-                pg.evaluate("zoomIn(4)")
-                pg.wait_for_timeout(300)
-                check('ingrandito resta lo stesso SVG (stesse linee in px)',
-                      pg.evaluate("document.getElementById('vis-img').src") == svg_url)
+                # tavola intera: linee fini ma visibili (Stefano 16/10: a tavola intera
+                # quelle da 1-1,5 px erano troppo grosse, al massimo zoom perfette)
+                check('tavola intera: linee fini (0,4-0,8 px)', larg and 0.4 <= min(larg) and max(larg) <= 0.8, larg)
+                # ingrandendo il tablet chiede le linee piu' spesse, senza perdere lo zoom
+                pg.evaluate("zoomIn(6)")
+                pg.wait_for_function("document.getElementById('vis-img').src.includes('lw=1')", timeout=20000)
+                check('ingrandito: lo zoom resta', pg.evaluate('V.s') > 4.5)
+                testo2 = pg.evaluate("fetch(document.getElementById('vis-img').src).then(r => r.text())")
+                larg2 = [float(x) for x in re.findall(r'stroke-width:([0-9.]+)px', testo2)]
+                check('ingrandito al massimo: linee di almeno 1 px', larg2 and min(larg2) >= 1.0, larg2)
                 pc_svg = pg.evaluate("u => fetch(u).then(r => r.text())", svg_url.split('?')[0])
                 check('il disegno del PC resta com\'era', 'non-scaling-stroke' not in pc_svg)
                 pg.evaluate("chiudiVisore()")
