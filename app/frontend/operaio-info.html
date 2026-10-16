@@ -12,352 +12,275 @@
 <style>
 /* Tablet dei ragazzi in officina: trovare un ordine (cliente o numero), vedere
    i pezzi da fare, i disegni e il foglio d'ordine. Si consulta e basta, salvo
-   "Segnala un problema", che avvisa l'ufficio.
-   Pensato per le dita, in piedi, con le mani sporche: bersagli di almeno
-   48 px, testo grande, niente cose piccole da centrare. E quando nessuno lo
-   tocca e' un cartellone: "Cosa c'e' da fare", leggibile da due o tre metri.
+   "Segnala un problema", che avvisa l'ufficio. Quando nessuno lo tocca e' un
+   cartellone: "Cosa c'e' da fare", leggibile da due o tre metri.
 
-   La base (colori, caratteri, testata, effetti) e' ft-ui.css, la stessa del
-   preventivatore; qui ci sono solo le misure grandi del tablet. */
+   16/10/2026, regole "meno AI" (reports/Design FerroTrack meno AI.md):
+   - stessi token di ft-ui.css delle stazioni, base 16 (rapporti 14/16/18/24);
+   - righe al posto delle card, niente strisce colorate ne' pillole: lo stato
+     e' una parola, colorata solo se e' un problema (ritardo, nota, segnalato);
+   - in cima una riga sola "Adesso" con l'unico pulsante indaco (Apri);
+   - bersagli di almeno 44 px, 56 per le cose che si premono di piu';
+   - niente entrate in sequenza, numeri che scorrono, ombre sotto i pannelli.
+   La barra in alto e' quella comune dei tablet (.ftt-barra in ft-ui.css). */
 :where(body.ft *) { margin: 0; padding: 0; }
-body.ft { --ft-topbar-h: 68px; font-size: 15px; -webkit-tap-highlight-color: transparent; }
+body.ft { -webkit-tap-highlight-color: transparent; }
 html, body.ft { height: 100%; }
 body.ft { display: flex; flex-direction: column; overflow: hidden; }
 :where(body.ft button) { font: inherit; color: inherit; cursor: pointer; }
 
-/* ── testata ── */
-.ft-topbar.of-topbar { position: relative; flex: none; gap: 18px; background: var(--ft-panel); }
-.of-topbar .ft-brand-name { font-size: 16px; }
-.of-topbar .ft-brand-area { font-size: 12.5px; }
+/* ── barra ── */
+.ft-topbar.ftt-barra { position: relative; flex: none; }
 /* Il logo e' anche l'uscita nascosta del chiosco: si tiene premuto 2 secondi.
-   L'anello che si riempie dice a chi lo sta facendo che sta succedendo qualcosa. */
-.of-logo { position: relative; width: 44px; height: 44px; border-radius: 11px; font-size: 16px; cursor: default;
-  user-select: none; -webkit-user-select: none; touch-action: none; -webkit-touch-callout: none; }
-.of-logo::after { content: ''; position: absolute; inset: -5px; border-radius: 15px; border: 3px solid var(--ft-accent); opacity: 0;
-  clip-path: inset(0 100% 0 0); }
-.of-logo.premuto::after { opacity: 1; animation: riempi 2s linear forwards; }
-@keyframes riempi { to { clip-path: inset(0 0 0 0); } }
-.of-chi { min-width: 0; padding-left: 18px; border-left: 1px solid var(--ft-line); }
-.of-chi h1 { font: 800 clamp(19px, 1.45vw, 24px)/1.15 var(--ft-display); letter-spacing: -.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.of-ruolo { font-size: 13px; font-weight: 500; color: var(--ft-ink-3); }
-.of-testa-dx { gap: 20px; }
-.of-testa-dx .ft-live { font-size: 14px; font-weight: 500; }
-.of-testa-dx .ft-live:empty { display: none; }
-.of-ora { font: 800 clamp(26px, 2vw, 34px)/1 var(--ft-display); letter-spacing: -.8px; color: var(--ft-ink); }
-.ore-cta { flex: none; display: block; margin: 12px 18px 0; padding: 14px 18px; border-radius: var(--ft-r-l); background: var(--ft-accent); color: #fff;
-  text-decoration: none; box-shadow: 0 6px 20px rgba(79, 70, 229, .24); transition: background .15s; }
-.ore-cta:hover { background: var(--ft-accent-hover); }
-.ore-cta .t { font: 800 17px var(--ft-display); letter-spacing: -.2px; } .ore-cta .s { font-size: 13.5px; opacity: .85; }
-.attiva { margin: 48px auto; max-width: 560px; padding: 32px; border-radius: 16px; background: var(--ft-panel); border: 1px solid var(--ft-line);
-  box-shadow: var(--ft-elev-2); text-align: center; }
-.attiva h2 { font: 800 24px var(--ft-display); letter-spacing: -.4px; margin-bottom: 10px; }
+   La linea che si riempie sotto dice che sta succedendo qualcosa. */
+.of-logo { position: relative; cursor: default; touch-action: none; -webkit-touch-callout: none; }
+.of-logo::after { content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 3px; background: var(--ft-accent);
+  transform: scaleX(0); transform-origin: left; }
+.of-logo.premuto::after { animation: riempi 2s linear forwards; }
+@keyframes riempi { to { transform: scaleX(1); } }
+.of-testa-dx { gap: 16px; }
+.of-testa-dx .ft-live:not(.off) { display: none; }
+.of-testa-dx .ft-live { font-size: 14px; }
+
+/* ── avvisi a tutta larghezza ── */
+/* Dati vecchi: si deve vedere dall'altra parte dell'officina */
+.fuori-linea { flex: none; padding: 12px 24px; background: var(--ft-err); color: #fff; }
+.fuori-linea b { display: block; font: 600 24px/1.2 var(--ft-font); }
+.fuori-linea span { font-size: 16px; }
+.ore-cta { flex: none; display: flex; align-items: center; gap: 16px; padding: 8px 16px; background: var(--ft-panel); border-bottom: 1px solid var(--ft-line);
+  font-size: 16px; color: var(--ft-ink-2); text-decoration: none; }
+.ore-cta .t { margin-left: auto; display: inline-flex; align-items: center; height: 48px; padding: 0 20px; border-radius: var(--ft-r-m);
+  background: var(--ft-accent); color: #fff; font-weight: 600; }
+.attiva { margin: 48px auto; max-width: 560px; padding: 32px; border-radius: var(--ft-r-l); background: var(--ft-panel); border: 1px solid var(--ft-line); }
+.attiva h2 { font: 600 24px var(--ft-font); margin-bottom: 8px; }
 .attiva p { color: var(--ft-ink-2); line-height: 1.5; font-size: 16px; }
 
-/* ── dati vecchi: si deve vedere dall'altra parte dell'officina ── */
-.fuori-linea { flex: none; display: flex; align-items: center; gap: 18px; padding: 14px 24px; background: var(--ft-err); color: #fff; animation: ftIn .22s var(--ft-ease); }
-.fuori-linea .icona { flex: none; width: 52px; height: 52px; border-radius: 50%; background: #fff; color: var(--ft-err); display: grid; place-items: center;
-  font: 900 32px var(--ft-display); }
-.fuori-linea b { display: block; font: 800 clamp(22px, 2.3vw, 34px)/1.1 var(--ft-display); letter-spacing: -.4px; }
-.fuori-linea span { font-size: clamp(14px, 1.2vw, 18px); opacity: .92; }
-
-/* ── corpo: elenco + ordine aperto ── */
-.corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 440px) minmax(0, 1fr); }
+/* ── corpo: elenco a sinistra, ordine (o cartellone) a destra ── */
+.corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); }
 .lista { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ft-line); background: var(--ft-canvas); }
-.cerca-box { padding: 14px 16px 10px; display: grid; gap: 10px; }
-.cerca-w { position: relative; }
-.cerca-ico { position: absolute; left: 17px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--ft-ink-4); pointer-events: none;
-  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
-.cerca { width: 100%; height: 56px; border: 1px solid var(--ft-line); border-radius: 12px; padding: 0 56px 0 48px; font: 500 17px var(--ft-font);
-  background: var(--ft-panel); color: var(--ft-ink); box-shadow: var(--ft-elev-1); outline: 0; transition: border-color .15s, box-shadow .15s; }
-.cerca:focus { border-color: var(--ft-accent); box-shadow: 0 0 0 4px var(--ft-accent-glow); }
-.cerca::placeholder { color: var(--ft-ink-4); }
+.cerca-box { padding: 16px 16px 8px; display: grid; gap: 8px; }
+.cerca-w { display: flex; gap: 8px; }
+.cerca-campo { position: relative; flex: 1; min-width: 0; }
+.cerca-ico { position: absolute; left: 16px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--ft-ink-3); pointer-events: none;
+  fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.cerca { width: 100%; height: 56px; border: 1px solid var(--ft-line-3); border-radius: var(--ft-r-m); padding: 0 56px 0 48px; font: 400 18px var(--ft-font);
+  background: var(--ft-panel); color: var(--ft-ink); outline: 0; }
+.cerca:focus { border-color: var(--ft-accent); outline: 1px solid var(--ft-accent); }
+.cerca::placeholder { color: var(--ft-ink-3); }
 .cerca::-webkit-search-cancel-button { display: none; }
-.svuota { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 9px; background: var(--ft-line-2);
-  font-size: 22px; line-height: 1; color: var(--ft-ink-2); }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { flex: none; min-height: 46px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel);
-  font: 600 15px var(--ft-font); color: var(--ft-ink-2); display: inline-flex; align-items: center; gap: 8px; box-shadow: var(--ft-elev-1);
-  transition: background .15s, border-color .15s, color .15s; }
-.chip b { font: 700 14px var(--ft-display); color: var(--ft-ink-4); }
-.chip.on { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; }
-.chip.on b { color: rgba(255, 255, 255, .7); }
-.chip.zero { opacity: .5; }
-/* i clienti su una riga sola che scorre: l'elenco degli ordini resta alto */
-#clienti { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 2px 16px; }
+.svuota { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; border: 0; border-radius: var(--ft-r-s); background: var(--ft-g3);
+  font-size: 24px; line-height: 1; color: var(--ft-ink-2); }
+/* 123: la tastiera coi numeri, per cercare un numero d'ordine */
+.tasti { flex: none; width: 64px; height: 56px; border: 1px solid var(--ft-line-3); border-radius: var(--ft-r-m); background: var(--ft-panel);
+  font: 600 16px var(--ft-font); color: var(--ft-ink-2); }
+.tasti[aria-pressed="true"] { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
+/* reparto: a segmenti come nelle stazioni; clienti: una riga che scorre */
+#filtri.ft-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
+#filtri.ft-seg button { justify-content: center; height: 44px; padding: 0 8px; font-size: 15px; }
+#filtri.ft-seg button.zero { color: var(--ft-ink-4); }
+#clienti { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
 #clienti::-webkit-scrollbar { display: none; }
-.chip.cli { min-height: 44px; font-size: 14px; }
-.chip.cli.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); box-shadow: inset 0 0 0 1px var(--ft-accent); }
-.chip.cli.on b { color: var(--ft-accent-ink); }
-.meta { display: flex; justify-content: space-between; align-items: center; padding: 2px 18px 8px;
-  font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ft-ink-3); }
-.elenco { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 16px 24px; display: grid; gap: 10px; align-content: start; -webkit-overflow-scrolling: touch; }
-.vuoto { padding: 48px 20px; text-align: center; color: var(--ft-ink-3); font-size: 15px; }
+#clienti:empty { display: none; }
+.cli { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border: 1px solid var(--ft-line-3);
+  border-radius: var(--ft-r-m); background: var(--ft-panel); font-size: 15px; color: var(--ft-ink-2); white-space: nowrap; }
+.cli b { font-weight: 400; color: var(--ft-ink-3); }
+.cli.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); font-weight: 600; }
+.meta { padding: 8px 16px; font-size: 14px; color: var(--ft-ink-3); }
+.elenco { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--ft-panel); border-top: 1px solid var(--ft-line); }
+.vuoto { padding: 48px 20px; text-align: center; color: var(--ft-ink-3); font-size: 16px; }
 
-/* card ordine */
-.ordine { position: relative; display: grid; gap: 9px; padding: 14px 16px 14px 22px; border-radius: var(--ft-r-xl); background: var(--ft-panel);
-  border: 1px solid var(--ft-line); box-shadow: var(--ft-elev-1); cursor: pointer;
-  transition: border-color .15s, box-shadow .2s, transform .12s var(--ft-ease); }
-.ordine::before { content: ''; position: absolute; left: 0; top: 12px; bottom: 12px; width: 5px; border-radius: 0 5px 5px 0; background: var(--ft-line); }
-.ordine.scaduto::before, .ordine.oggi::before { background: var(--ft-err-dot); }
-.ordine.presto::before { background: var(--ft-warn-dot); }
-.ordine.futuro::before { background: #CBD2DC; }
-@media (hover: hover) { .ordine:hover { border-color: #CBD2DC; box-shadow: var(--ft-elev-2); } }
-.ordine.sel { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
-.ordine:active { transform: scale(.99); }
-.o-top { display: flex; gap: 12px; align-items: flex-start; }
-.o-cli { min-width: 0; flex: 1; }
-.o-cli .cli { font: 800 19px/1.2 var(--ft-display); letter-spacing: -.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.o-cli .num { font: 600 15px var(--ft-mono); color: var(--ft-ink-2); margin-top: 3px; display: flex; align-items: center; gap: 8px; }
-.consegna { text-align: right; flex: none; }
-.consegna .d { font: 800 22px/1.1 var(--ft-display); letter-spacing: -.5px; }
-.consegna .e { font-size: 13px; font-weight: 600; color: var(--ft-ink-3); margin-top: 2px; }
-.scaduto .consegna .e, .oggi .consegna .e { color: var(--ft-err); }
-.presto .consegna .e { color: var(--ft-warn); }
-.o-lav { display: flex; flex-wrap: wrap; gap: 6px; }
-.o-bot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.tag { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 7px; font-size: 13px; font-weight: 600;
-  background: var(--ft-line-2); color: var(--ft-ink-2); border: 1px solid transparent; }
-.tag.lavorabile { background: var(--ft-ok-bg); color: var(--ft-ok); border-color: var(--ft-ok-line); }
-.tag.in-taglio { background: var(--ft-info-bg); color: var(--ft-info); border-color: var(--ft-info-line); }
-.tag.da-smistare, .tag.nota-flag { background: var(--ft-warn-bg); color: var(--ft-warn); border-color: var(--ft-warn-line); }
-.tag.nota-flag { font-weight: 700; }
-.tag.segnalato { background: var(--ft-err-bg); color: var(--ft-err); border-color: var(--ft-err-line); }
-/* Pezzi "da procurare" (tubi, laser tubo, meccanica, commerciali) non ancora
-   arrivati: l'ordine non e' pronto per il montaggio */
-.tag.procura { background: var(--ft-warn-bg); color: var(--ft-warn); border-color: var(--ft-warn-line); }
-.tag.procura.rit { background: var(--ft-err-bg); color: var(--ft-err); border-color: var(--ft-err-line); }
-.avviso-procura { margin-top: 12px; padding: 9px 12px; border-radius: 9px; background: var(--ft-warn-bg); border: 1px solid var(--ft-warn-line);
-  color: var(--ft-warn); font-weight: 600; font-size: 14px; }
-.avviso-procura.rit { background: var(--ft-err-bg); border-color: var(--ft-err-line); color: var(--ft-err); }
-.lav { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 7px; background: var(--ft-accent-bg); color: var(--ft-accent-ink);
-  font-size: 14px; font-weight: 700; }
-.lav.on { background: var(--ft-accent); color: #fff; }
-.lav.solo { background: none; color: var(--ft-ink-4); font-weight: 500; padding-left: 0; }
-.conta { margin-left: auto; font-size: 13px; color: var(--ft-ink-3); font-weight: 600; }
+/* riga ordine: cliente e consegna, numero e lavorazioni, poi solo le anomalie */
+.ordine { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 12px 16px; min-height: 72px;
+  border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
+.ordine:active { background: var(--ft-g2); }
+.ordine.sel { background: var(--ft-accent-bg); }
+.o-cli { font: 600 17px/1.3 var(--ft-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o-data { font: 600 17px/1.3 var(--ft-font); text-align: right; }
+.o-sotto { display: flex; gap: 12px; min-width: 0; font-size: 14px; color: var(--ft-ink-3); overflow: hidden; white-space: nowrap; }
+.o-sotto .ft-code { font-size: 14px; color: var(--ft-ink-2); }
+.o-sotto .lv { overflow: hidden; text-overflow: ellipsis; }
+.o-quando { font-size: 14px; color: var(--ft-ink-3); text-align: right; white-space: nowrap; }
+.o-stato { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; color: var(--ft-ink-3); }
+.scaduto .o-quando, .oggi .o-quando { color: var(--ft-err); font-weight: 600; }
+.presto .o-quando { color: var(--ft-warn); font-weight: 600; }
+/* le parole di stato: normale senza colore, il problema con il suo */
+.w-warn { color: var(--ft-warn); font-weight: 600; }
+.w-err { color: var(--ft-err); font-weight: 600; }
+.w-ok { color: var(--ft-ok); font-weight: 600; }
 
 /* ── ordine aperto ── */
 .ordine-aperto { display: flex; flex-direction: column; min-height: 0; background: var(--ft-panel); container-type: inline-size; }
-/* aprendo un ordine (o tornando al cartellone) entra in dissolvenza; gli
-   aggiornamenti automatici no: chi sta guardando non deve vedere movimenti */
-.ordine-aperto[data-entra="1"] > * { animation: ftIn .24s var(--ft-ease) both; }
-.oa-testa { padding: 16px 24px 14px; border-bottom: 1px solid var(--ft-line); }
+.oa-testa { padding: 16px 24px; border-bottom: 1px solid var(--ft-line); }
 .oa-r1 { display: flex; align-items: flex-start; gap: 16px; }
-.indietro { min-height: 52px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 15px;
-  display: inline-flex; align-items: center; flex: none; box-shadow: var(--ft-elev-1); }
+.indietro { flex: none; }
 .oa-tit { min-width: 0; flex: 1; }
-.oa-tit h2 { font: 800 30px/1.12 var(--ft-display); letter-spacing: -.8px; }
-.oa-tit .num { font: 600 19px var(--ft-mono); color: var(--ft-ink-2); margin-top: 4px; }
-.oa-tit .num small { font: 500 13px var(--ft-font); color: var(--ft-ink-4); margin-left: 8px; }
+.oa-tit h2 { font: 600 24px/1.2 var(--ft-font); }
+.oa-tit .num { font: 400 16px var(--ft-mono); color: var(--ft-ink-2); margin-top: 4px; }
+.oa-tit .num small { font: 400 14px var(--ft-font); color: var(--ft-ink-3); margin-left: 8px; }
 .oa-cons { text-align: right; flex: none; }
-.oa-cons small { display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ft-ink-3); }
-.oa-cons b { font: 800 28px/1.15 var(--ft-display); letter-spacing: -.6px; }
-.oa-cons em { display: block; font-style: normal; font-weight: 600; font-size: 14px; color: var(--ft-ink-3); }
-.oa-cons.scaduto em, .oa-cons.oggi em { color: var(--ft-err); } .oa-cons.presto em { color: var(--ft-warn); }
-.oa-r2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.oa-cons small { display: block; font-size: 14px; color: var(--ft-ink-3); }
+.oa-cons b { display: block; font: 600 24px/1.2 var(--ft-font); }
+.oa-cons em { display: block; font-style: normal; font-size: 15px; color: var(--ft-ink-3); }
+.oa-cons.scaduto em, .oa-cons.oggi em { color: var(--ft-err); font-weight: 600; } .oa-cons.presto em { color: var(--ft-warn); font-weight: 600; }
+.oa-r2 { display: flex; flex-wrap: wrap; gap: 4px 24px; align-items: center; margin-top: 12px; font-size: 16px; color: var(--ft-ink-2); }
+.taglio-ord { display: inline-flex; align-items: center; gap: 8px; }
+.barra { flex: none; width: clamp(80px, 12cqi, 180px); height: 6px; border-radius: 3px; background: var(--ft-g4); overflow: hidden; }
+.barra i { display: block; height: 100%; background: var(--ft-ok-dot); }
+.taglio-ord small { font-size: 14px; color: var(--ft-ink-3); }
 /* Le note dell'ufficio sono la prima cosa da leggere: fascia ambra, testo grande */
-.nota { padding: 14px 24px 14px 28px; background: var(--ft-warn-bg); border-bottom: 1px solid var(--ft-warn-line); box-shadow: inset 5px 0 0 var(--ft-warn-dot);
-  font: 600 19px/1.4 var(--ft-font); color: #7A2E0E; white-space: pre-wrap; }
-.nota b { display: block; font: 700 12px var(--ft-font); letter-spacing: .06em; text-transform: uppercase; color: var(--ft-warn); margin-bottom: 3px; }
-.segnala-btn { margin-left: auto; min-height: 50px; padding: 0 20px; border-radius: 10px; border: 1px solid var(--ft-warn-line); background: var(--ft-warn-bg);
-  color: var(--ft-warn); font-weight: 700; font-size: 15.5px; transition: box-shadow .15s, transform .08s; }
-.segnala-btn:hover { box-shadow: 0 6px 18px rgba(245, 158, 11, .2); }
-.segnala-btn:active { transform: translateY(1px); }
-.avvisi-oggi { display: grid; gap: 6px; margin-top: 12px; }
-.avvisi-oggi div { padding: 9px 12px; border-radius: 9px; background: var(--ft-err-bg); border: 1px solid var(--ft-err-line); color: var(--ft-err); font-weight: 600; font-size: 14px; }
-.taglio-ord { display: inline-flex; align-items: center; gap: 10px; margin-left: 6px; font-weight: 600; font-size: 15px; color: var(--ft-ink-2); }
-.barra { flex: none; width: clamp(90px, 12cqi, 220px); height: 10px; border-radius: 5px; background: var(--ft-line-2); overflow: hidden; }
-.barra i { display: block; height: 100%; background: var(--ft-ok-dot); border-radius: 5px; }
-.taglio-ord small { font-weight: 500; font-size: 13px; color: var(--ft-ink-3); }
-.schede { display: flex; align-items: center; gap: 8px; padding: 10px 24px; border-bottom: 1px solid var(--ft-line); background: var(--ft-well); }
-.scheda { min-height: 50px; padding: 0 20px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 15.5px;
-  color: var(--ft-ink-2); display: inline-flex; align-items: center; gap: 9px; box-shadow: var(--ft-elev-1); transition: background .15s, border-color .15s, color .15s; }
-.scheda b { font: 700 15px var(--ft-display); color: var(--ft-ink-4); }
-.scheda.on { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; } .scheda.on b { color: rgba(255, 255, 255, .7); }
-.scheda:disabled { opacity: .4; cursor: default; }
-.apri-pdf { margin-left: 8px; }
+.nota { padding: 12px 24px; background: var(--ft-warn-bg); border-bottom: 1px solid var(--ft-warn-line);
+  font: 400 18px/1.4 var(--ft-font); color: #6E4205; white-space: pre-wrap; }
+.nota b { display: block; font: 600 14px var(--ft-font); color: var(--ft-warn); margin-bottom: 2px; }
+.avvisi { display: grid; gap: 8px; margin-top: 12px; }
+.avvisi .ft-alert { font-size: 15px; }
+.schede { display: flex; align-items: center; gap: 8px; padding: 8px 24px; border-bottom: 1px solid var(--ft-line); background: var(--ft-g2); flex-wrap: wrap; }
+.schede .ft-seg { background: var(--ft-g4); }
+.schede .ft-seg button { height: 44px; padding: 0 16px; font-size: 16px; }
+.schede .ft-seg button:disabled { color: var(--ft-ink-4); cursor: default; }
+.schede .ft-btn { height: 48px; }
+.segnala-btn { margin-left: auto; }
 .oa-corpo { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .caric { padding: 40px 30px; text-align: center; color: var(--ft-ink-3); font-size: 16px; }
 
-/* pezzi */
-.gr { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 10px; padding: 10px 24px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line);
-  font: 800 17px var(--ft-display); letter-spacing: -.2px; }
-.gr span { margin-left: auto; font: 500 13px var(--ft-font); color: var(--ft-ink-3); letter-spacing: 0; }
-.gr.rep { background: var(--ft-accent); border-bottom-color: var(--ft-accent); color: #fff; } .gr.rep span { color: rgba(255, 255, 255, .78); }
-.pz { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 12px 24px; border-bottom: 1px solid var(--ft-line-2); }
-.pz.spento > * { opacity: .5; }   /* sui figli: la riga puo' entrare in sequenza senza scatti */
-.pz-img { width: 150px; height: 104px; border-radius: 10px; border: 1px solid var(--ft-line); background: #fff; display: grid; place-items: center; overflow: hidden; padding: 0;
-  transition: border-color .15s, box-shadow .15s; }
-button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
+/* pezzi: il codice prima (e' quello che c'e' sul pezzo), quantita' a destra */
+.gr { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 12px; padding: 8px 24px; background: var(--ft-g2);
+  border-bottom: 1px solid var(--ft-line); font: 600 16px var(--ft-font); color: var(--ft-ink); }
+.gr span { margin-left: auto; font-weight: 400; font-size: 14px; color: var(--ft-ink-3); }
+.gr.altri { color: var(--ft-ink-3); }
+.pz { display: grid; grid-template-columns: 136px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 8px 24px; min-height: 104px;
+  border-bottom: 1px solid var(--ft-line-2); }
+.pz.spento > * { opacity: .5; }
+.pz-img { width: 136px; height: 88px; border-radius: var(--ft-r-s); border: 1px solid var(--ft-line); background: #fff; display: grid; place-items: center;
+  overflow: hidden; padding: 0; }
+button.pz-img:active { border-color: var(--ft-accent); }
 .pz-img img { max-width: 92%; max-height: 92%; object-fit: contain; }
-.pz-img.no { font-size: 12px; color: var(--ft-ink-4); text-align: center; background: var(--ft-well); }
-.pz-mat { font: 800 21px/1.15 var(--ft-display); letter-spacing: -.3px; }
-.pz-mat small { font: 500 14px var(--ft-font); color: var(--ft-ink-3); margin-left: 6px; }
-.pz-cod { font: 600 16px var(--ft-mono); color: var(--ft-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
-.pz-lav { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
-.pz-lav .pieghe { background: var(--ft-ink); color: #fff; }
-.tg { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 7px; font-size: 13.5px; font-weight: 700; border: 1px solid transparent; }
-.tg.tagliato { background: var(--ft-ok-bg); color: var(--ft-ok); border-color: var(--ft-ok-line); }
-.tg.parziale { background: var(--ft-warn-bg); color: var(--ft-warn); border-color: var(--ft-warn-line); }
-.tg.in_lantek { background: var(--ft-info-bg); color: var(--ft-info); border-color: var(--ft-info-line); }
-.tg.da_tagliare { background: var(--ft-line-2); color: var(--ft-ink-2); }
-.pz-az { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.pz-az button { min-height: 48px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 15px;
-  color: var(--ft-ink); box-shadow: var(--ft-elev-1); transition: background .12s, border-color .12s; }
-.pz-az button.d3 { border-color: #C7D2FE; color: var(--ft-accent-ink); background: var(--ft-accent-bg); }
-.pz-az button:active { background: var(--ft-line-2); }
-.pz-q { text-align: right; font: 800 36px/1 var(--ft-display); letter-spacing: -1px; }
-.pz-q small { font: 600 16px var(--ft-font); color: var(--ft-ink-4); margin-right: 2px; letter-spacing: 0; }
-.pz-q em { display: block; margin-top: 3px; font: 500 12.5px var(--ft-font); color: var(--ft-ink-3); font-style: normal; letter-spacing: 0; }
+.pz-img.no { font-size: 13px; color: var(--ft-ink-3); text-align: center; background: var(--ft-g2); }
+.pz-cod { font: 600 18px var(--ft-mono); color: var(--ft-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pz-mat { margin-top: 2px; font-size: 15px; color: var(--ft-ink-3); }
+.pz-lav { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; font-size: 15px; color: var(--ft-ink-2); }
+.pz-lav .on { color: var(--ft-ink); font-weight: 600; }
+.pz-lav .solo { color: var(--ft-ink-3); }
+.pz-az { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pz-q { text-align: right; font: 600 28px/1 var(--ft-font); min-width: 72px; }
+.pz-q em { display: block; margin-top: 4px; font: 400 14px var(--ft-font); color: var(--ft-ink-3); font-style: normal; }
 /* disegni */
-.griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; padding: 18px 24px 26px; }
-.dis { display: grid; border-radius: var(--ft-r-xl); border: 1px solid var(--ft-line); background: #fff; overflow: hidden; text-align: left; padding: 0; box-shadow: var(--ft-elev-1); }
-.dis:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
-.dis .im { height: 170px; display: grid; place-items: center; padding: 10px; border-bottom: 1px solid var(--ft-line-2); }
+.griglia { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; padding: 16px 24px 24px; }
+.dis { display: grid; border-radius: var(--ft-r-l); border: 1px solid var(--ft-line); background: #fff; overflow: hidden; text-align: left; padding: 0; }
+.dis:active { border-color: var(--ft-accent); }
+.dis .im { height: 160px; display: grid; place-items: center; padding: 8px; border-bottom: 1px solid var(--ft-line-2); }
 .dis .im img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.dis .n { padding: 10px 12px; font: 600 14px var(--ft-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #FAFBFC; }
-/* pannello largo (TV): disegni dei pezzi piu' grandi, si riconoscono da lontano */
-@container (min-width: 1150px) {
-  .pz { grid-template-columns: 210px minmax(0, 1fr) auto; }
-  .pz-img { width: 210px; height: 140px; }
-}
-@container (max-width: 700px) {
-  .pz { grid-template-columns: 110px minmax(0, 1fr) auto; gap: 12px; padding: 10px 14px; }
-  .pz-img { width: 110px; height: 80px; }
-  .oa-tit h2 { font-size: 24px; }
+.dis .n { padding: 12px; font: 400 15px var(--ft-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--ft-g2); }
+@container (max-width: 640px) {
+  .pz { grid-template-columns: 104px minmax(0, 1fr) auto; gap: 12px; padding: 8px 16px; }
+  .pz-img { width: 104px; height: 72px; }
+  .oa-testa, .schede { padding-left: 16px; padding-right: 16px; }
+  .gr { padding-left: 16px; padding-right: 16px; }
 }
 
 /* ── cartellone "Cosa c'e' da fare" (nessun ordine aperto) ── */
-.pano { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ft-canvas); color: var(--ft-ink); }
-.pano-testa { flex: none; display: flex; align-items: baseline; gap: 16px; padding: clamp(16px, 1.6vw, 26px) clamp(18px, 2vw, 34px) 8px; }
-.pano-testa h2 { font: 800 clamp(26px, 2.6vw, 44px)/1.05 var(--ft-display); letter-spacing: -1px; }
-.pano-testa h2 em { font-style: normal; color: var(--ft-accent); }
-.pano-testa span { margin-left: auto; font-size: clamp(15px, 1.2vw, 20px); color: var(--ft-ink-3); font-weight: 600; }
-.pano-testa span::first-letter { text-transform: uppercase; }
-.pano-conti { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(8px, .8vw, 14px); padding: 8px clamp(18px, 2vw, 34px) 12px; }
-.conto { padding: clamp(12px, 1vw, 16px) clamp(14px, 1.2vw, 20px); border-radius: var(--ft-r-l); background: var(--ft-panel); border: 1px solid var(--ft-line); box-shadow: var(--ft-elev-1); }
-.conto b { display: block; font: 800 clamp(34px, 3.6vw, 60px)/1 var(--ft-display); letter-spacing: -1.5px; }
-.conto span { display: block; margin-top: 4px; font-size: clamp(14px, 1.15vw, 18px); font-weight: 600; color: var(--ft-ink-3); }
-.conto.rosso { background: var(--ft-err-bg); border-color: var(--ft-err-line); } .conto.rosso b, .conto.rosso span { color: var(--ft-err); }
-.conto.zero b { color: var(--ft-ink-4); }
-.pano-lista { flex: 1; min-height: 0; overflow-y: auto; padding: 4px clamp(18px, 2vw, 34px) 24px; display: grid; gap: clamp(8px, .7vw, 12px); align-content: start; }
-.sez { display: flex; align-items: baseline; gap: 12px; margin-top: clamp(8px, .9vw, 16px); font: 700 clamp(14px, 1.1vw, 18px) var(--ft-font); letter-spacing: .06em;
-  text-transform: uppercase; color: var(--ft-ink-3); }
+.pano { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ft-canvas); }
+.pano-testa { flex: none; display: flex; align-items: baseline; gap: 16px; padding: 20px 24px 12px; }
+.pano-testa h2 { font: 600 24px/1.2 var(--ft-font); }
+.pano-testa span { margin-left: auto; font-size: 16px; color: var(--ft-ink-3); }
+.pano-adesso { flex: none; margin: 0 24px 16px; min-height: 72px; padding: 8px 8px 8px 20px; font-size: 18px; }
+.pano-adesso .ft-btn { height: 56px; padding: 0 28px; font-size: 18px; }
+.ft-adesso .ft-code { font-size: 16px; color: var(--ft-ink-2); }
+/* sul tablet in verticale il cartellone non c'e': la riga Adesso sta sopra l'elenco */
+#adesso-stretto { display: none; }
+#adesso-stretto .pano-adesso { margin: 0 16px 8px; }
+.pano-lista { flex: 1; min-height: 0; overflow-y: auto; margin: 0 24px 0; background: var(--ft-panel); border: 1px solid var(--ft-line);
+  border-bottom: 0; border-radius: var(--ft-r-l) var(--ft-r-l) 0 0; -webkit-overflow-scrolling: touch; }
+.sez { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; padding: 8px 20px; background: var(--ft-g2);
+  border-bottom: 1px solid var(--ft-line); font: 600 16px var(--ft-font); color: var(--ft-ink-2); }
 .sez.rosso { color: var(--ft-err); }
-.sez span { font-weight: 600; letter-spacing: 0; text-transform: none; }
-.pr { display: grid; grid-template-columns: clamp(118px, 9.5vw, 180px) minmax(0, 1.25fr) minmax(0, 1fr) clamp(160px, 13vw, 250px); gap: clamp(12px, 1.3vw, 24px);
-  align-items: center; padding: clamp(12px, 1.1vw, 20px) clamp(14px, 1.4vw, 24px) clamp(12px, 1.1vw, 20px) clamp(18px, 1.6vw, 28px); border-radius: var(--ft-r-xl);
-  background: var(--ft-panel); border: 1px solid var(--ft-line); box-shadow: inset 5px 0 0 var(--ft-line), var(--ft-elev-1); text-align: left; color: inherit; width: 100%;
-  transition: border-color .15s, box-shadow .2s, background .12s; }
-@media (hover: hover) { .pr:hover { border-color: #CBD2DC; } }
-.pr:active { background: var(--ft-hover); }
-.pr.tardi { box-shadow: inset 6px 0 0 var(--ft-err-dot), var(--ft-elev-1); border-color: var(--ft-err-line); background: #FFFCFB; }
-.pr.oggi { box-shadow: inset 6px 0 0 var(--ft-warn-dot), var(--ft-elev-1); }
-.pr-data b { display: block; font: 800 clamp(28px, 2.5vw, 44px)/1 var(--ft-display); letter-spacing: -1px; }
-.pr-data small { display: block; margin-top: 5px; font-size: clamp(14px, 1.05vw, 18px); font-weight: 600; color: var(--ft-ink-3); }
-.tardi .pr-data small { color: var(--ft-err); }
-.oggi .pr-data small { color: var(--ft-warn); }
+.sez span { font-weight: 400; color: var(--ft-ink-3); }
+.pr { display: grid; grid-template-columns: 112px minmax(0, 1.3fr) minmax(0, 1fr) minmax(150px, .8fr); gap: 16px; align-items: center;
+  width: 100%; min-height: 80px; padding: 12px 20px; border: 0; border-bottom: 1px solid var(--ft-line-2); background: transparent; text-align: left; color: inherit; }
+.pr:active { background: var(--ft-g2); }
+.pr-data b { display: block; font: 600 24px/1.1 var(--ft-font); }
+.pr-data small { display: block; margin-top: 2px; font-size: 15px; color: var(--ft-ink-3); }
+.pr.tardi .pr-data small { color: var(--ft-err); font-weight: 600; }
+.pr.oggi .pr-data small { color: var(--ft-warn); font-weight: 600; }
 .pr-cli { min-width: 0; }
-.pr-cli b { display: block; font: 800 clamp(22px, 1.9vw, 34px)/1.15 var(--ft-display); letter-spacing: -.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pr-cli small { display: flex; align-items: center; gap: 10px; margin-top: 4px; font: 600 clamp(16px, 1.2vw, 21px) var(--ft-mono); color: var(--ft-ink-2); }
-.pr-cli .notina { font: 700 clamp(12px, .9vw, 14px) var(--ft-font); padding: 2px 8px; border-radius: 6px; background: var(--ft-warn-bg); color: var(--ft-warn);
-  border: 1px solid var(--ft-warn-line); letter-spacing: .04em; }
-.pr-lav { display: flex; flex-wrap: wrap; gap: 6px; }
-.pr-lav span { padding: 4px 10px; border-radius: 7px; background: var(--ft-accent-bg); color: var(--ft-accent-ink); font-size: clamp(14px, 1.1vw, 18px); font-weight: 700; }
-.pr-lav span.on { background: var(--ft-accent); color: #fff; }
-.pr-lav span.solo { background: none; color: var(--ft-ink-4); font-weight: 500; padding-left: 0; }
-.pr-taglio { font-size: clamp(14px, 1.05vw, 18px); font-weight: 600; color: var(--ft-ink-2); }
-.pr-taglio .seg { display: flex; gap: 4px; margin-bottom: 7px; }
-.pr-taglio .seg i { flex: 1; height: 10px; border-radius: 3px; background: var(--ft-line); }
-.pr-taglio .seg i.f { background: var(--ft-ok-dot); }
-.pr-taglio .seg i.l { background: var(--ft-info-dot); }
-.pr-taglio.tagliato { color: var(--ft-ok); } .pr-taglio.in_lantek { color: var(--ft-info); }
-.pano-vuoto { margin: auto; text-align: center; color: var(--ft-ink-3); font-size: clamp(18px, 1.6vw, 24px); padding: 40px; }
-.pano-vuoto b { display: block; font: 800 clamp(28px, 2.6vw, 42px) var(--ft-display); letter-spacing: -.8px; color: var(--ft-ink); margin-bottom: 8px; }
-.pano-piede { flex: none; padding: 8px clamp(18px, 2vw, 34px) 12px; font-size: clamp(13px, 1vw, 16px); color: var(--ft-ink-3); }
-/* pannello stretto (tablet 1280): data e cliente sopra, lavorazioni e taglio sotto */
-@container (max-width: 980px) {
-  .pr { grid-template-columns: clamp(110px, 15cqi, 150px) minmax(0, 1fr) minmax(150px, 30cqi); grid-template-areas: 'data cli taglio' 'data lav taglio'; row-gap: 8px; }
+.pr-cli b { display: block; font: 600 20px/1.25 var(--ft-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-cli small { display: flex; align-items: baseline; gap: 12px; margin-top: 2px; font: 400 16px var(--ft-mono); color: var(--ft-ink-2); }
+.pr-cli .notina { font: 600 14px var(--ft-font); color: var(--ft-warn); }
+.pr-lav { font-size: 16px; color: var(--ft-ink-2); }
+.pr-lav .solo { color: var(--ft-ink-3); }
+.pr-taglio { font-size: 16px; color: var(--ft-ink-2); text-align: right; }
+.pr-taglio.tagliato { color: var(--ft-ok); font-weight: 600; }
+.pr-taglio.parziale { color: var(--ft-warn); font-weight: 600; }
+.pano-vuoto { padding: 48px 24px; text-align: center; color: var(--ft-ink-3); font-size: 18px; }
+.pano-vuoto b { display: block; font: 600 24px var(--ft-font); color: var(--ft-ink); margin-bottom: 8px; }
+@container (max-width: 860px) {
+  .pr { grid-template-columns: 96px minmax(0, 1fr) auto; grid-template-areas: 'data cli taglio' 'data lav taglio'; row-gap: 4px; }
   .pr-data { grid-area: data; } .pr-cli { grid-area: cli; } .pr-lav { grid-area: lav; } .pr-taglio { grid-area: taglio; }
 }
 
 /* ── visori a schermo pieno: disegno, foglio d'ordine, 3D ── */
-.pieno { position: fixed; inset: 0; z-index: 1500; display: flex; flex-direction: column; background: var(--ft-panel); animation: ftFade .18s ease-out; }
-.pieno .testa { flex: none; display: flex; align-items: center; gap: 10px; min-height: 72px; padding: 10px 16px 10px 22px; background: var(--ft-panel);
+.pieno { position: fixed; inset: 0; z-index: 1500; display: flex; flex-direction: column; background: var(--ft-panel); }
+.pieno .testa { flex: none; display: flex; align-items: center; gap: 8px; min-height: 72px; padding: 8px 16px 8px 24px; background: var(--ft-panel);
   border-bottom: 1px solid var(--ft-line); }
-.pieno .titolo { flex: 1; min-width: 0; font: 800 20px var(--ft-display); letter-spacing: -.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pieno .titolo small { font: 500 14px var(--ft-font); color: var(--ft-ink-3); margin-left: 10px; letter-spacing: 0; }
-.chiudi { min-height: 52px; min-width: 120px; padding: 0 22px; border-radius: 10px; border: 1px solid var(--ft-ink); background: var(--ft-ink); color: #fff;
-  font-weight: 700; font-size: 16px; transition: background .15s, box-shadow .15s; }
-.chiudi:hover { background: #1E293B; box-shadow: 0 6px 18px rgba(15, 23, 42, .18); }
+.pieno .titolo { flex: 1; min-width: 0; font: 600 18px var(--ft-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pieno .titolo small { font: 400 16px var(--ft-font); color: var(--ft-ink-3); margin-left: 12px; }
+.pieno .testa .ft-btn { height: 56px; min-width: 56px; font-size: 18px; }
+.pieno .testa .chiudi { min-width: 120px; }
 .pieno iframe { flex: 1; width: 100%; border: 0; }
 /* Foglio d'ordine in PDF disegnato dalla pagina (pdf.js): i tablet Android non
    mostrano un PDF dentro un riquadro, ne' in Chrome ne' nell'app. */
-.foglio-pagine { flex: 1; overflow: auto; background: #E5E7EB; padding: 12px; -webkit-overflow-scrolling: touch; }
-.foglio-pagine canvas { display: block; margin: 0 auto 12px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+.foglio-pagine { flex: 1; overflow: auto; background: var(--ft-g4); padding: 12px; -webkit-overflow-scrolling: touch; }
+.foglio-pagine canvas { display: block; margin: 0 auto 12px; background: #fff; border: 1px solid var(--ft-line-3); }
 .foglio-pagine .caric { text-align: center; padding: 40px; font-size: 18px; color: var(--ft-ink-3); }
-.zoom { min-height: 52px; min-width: 56px; border-radius: 10px; border: 1px solid var(--ft-line, #D0D5DD); background: #fff; font: 700 24px var(--ft-font); cursor: pointer; }
 /* Il disegno si muove con le dita: due dita ingrandiscono, uno sposta,
    doppio tocco ingrandisce li' (o torna intero). touch-action: none perche'
    il browser non zoomi la pagina intera al posto del disegno. */
 .vis-area { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #fff; touch-action: none; user-select: none; -webkit-user-select: none; }
 .vis-area img { position: absolute; left: 0; top: 0; max-width: none; max-height: none; transform-origin: 0 0; pointer-events: none; -webkit-user-drag: none; }
-.freccia { position: absolute; top: 50%; transform: translateY(-50%); width: 64px; height: 96px; padding: 0; border-radius: 14px; border: 0; background: rgba(11, 18, 32, .72);
-  color: #fff; font-size: 34px; z-index: 2; transition: opacity .15s, background .15s; }
-.freccia:active { background: rgba(11, 18, 32, .88); }
-.freccia.sx { left: 14px; } .freccia.dx { right: 14px; }
-.freccia:disabled { opacity: .15; }
+.freccia { position: absolute; top: 50%; transform: translateY(-50%); width: 64px; height: 96px; padding: 0; border-radius: var(--ft-r-l);
+  border: 1px solid var(--ft-line-3); background: var(--ft-panel); color: var(--ft-ink); z-index: 2; display: grid; place-items: center; }
+.freccia svg { width: 28px; height: 28px; }
+.freccia:active { background: var(--ft-g3); }
+.freccia.sx { left: 16px; } .freccia.dx { right: 16px; }
+.freccia:disabled { opacity: .25; }
 #visore.zoomato .freccia { display: none; }   /* ingrandito: le frecce coprirebbero il disegno */
-.zoom-btn { min-height: 52px; min-width: 56px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700;
-  font-size: 17px; box-shadow: var(--ft-elev-1); }
-.zoom-btn:active { background: var(--ft-line-2); }
-.vis-aiuto { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 9px 16px; border-radius: 20px; background: rgba(11, 18, 32, .72); color: #fff;
-  font-size: 14px; font-weight: 500; pointer-events: none; z-index: 2; white-space: nowrap; }
-.d3-msg { margin: auto; max-width: 560px; padding: 30px; text-align: center; color: var(--ft-ink-2); font-size: 18px; line-height: 1.45; }
-.d3-msg b { display: block; font: 800 24px var(--ft-display); letter-spacing: -.4px; color: var(--ft-ink); margin-bottom: 8px; }
-.d3-msg button { margin-top: 18px; min-height: 52px; padding: 0 22px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700;
-  font-size: 16px; box-shadow: var(--ft-elev-1); }
-.giro { width: 42px; height: 42px; margin: 0 auto 14px; border: 4px solid var(--ft-line); border-top-color: var(--ft-accent); border-radius: 50%; animation: gira .8s linear infinite; }
+.vis-aiuto { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 8px 16px; border-radius: var(--ft-r-m);
+  background: var(--ft-panel); border: 1px solid var(--ft-line); color: var(--ft-ink-2); font-size: 15px; pointer-events: none; z-index: 2; white-space: nowrap; }
+.d3-msg { margin: auto; max-width: 560px; padding: 32px; text-align: center; color: var(--ft-ink-2); font-size: 18px; line-height: 1.45; }
+.d3-msg b { display: block; font: 600 24px var(--ft-font); color: var(--ft-ink); margin-bottom: 8px; }
+.d3-msg .ft-btn { margin-top: 16px; height: 56px; }
+.giro { width: 40px; height: 40px; margin: 0 auto 16px; border: 4px solid var(--ft-g4); border-top-color: var(--ft-ink-3); border-radius: 50%; animation: gira .8s linear infinite; }
 @keyframes gira { to { transform: rotate(360deg); } }
 
 /* ── finestre dentro la pagina (niente confirm(): sul tablet in chiosco non si vede bene) ── */
-.velo { position: fixed; inset: 0; z-index: 1600; display: grid; place-items: center; padding: 24px; background: rgba(11, 18, 32, .42);
-  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); animation: ftFade .16s ease-out; }
-.dlg { width: min(720px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; border-radius: 18px; background: var(--ft-panel); padding: 26px 28px;
-  box-shadow: var(--ft-elev-3); animation: ftPop .22s var(--ft-ease); }
-.dlg h3 { font: 800 26px/1.15 var(--ft-display); letter-spacing: -.5px; }
-.dlg .sotto { margin-top: 6px; color: var(--ft-ink-3); font-size: 15px; }
-.dlg .tit2 { margin: 20px 0 8px; font-weight: 700; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--ft-ink-3); }
-.scelte { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
-.scelta { min-height: 84px; padding: 14px 18px; border-radius: 14px; border: 1px solid var(--ft-line); background: var(--ft-panel); font: 700 18px/1.25 var(--ft-display);
-  letter-spacing: -.2px; text-align: left; box-shadow: var(--ft-elev-1); transition: border-color .15s, background .15s, color .15s, box-shadow .15s; }
-.scelta.on { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; box-shadow: var(--ft-elev-2); }
+.velo { position: fixed; inset: 0; z-index: 1600; display: grid; place-items: center; padding: 24px; background: rgba(28, 32, 38, .4); }
+.dlg { width: min(680px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; border-radius: var(--ft-r-l); background: var(--ft-panel); padding: 24px;
+  box-shadow: var(--ft-elev-3); }
+.dlg h3 { font: 600 24px/1.2 var(--ft-font); }
+.dlg .sotto { margin-top: 4px; color: var(--ft-ink-3); font-size: 16px; }
+.dlg .tit2 { margin: 20px 0 8px; font-weight: 600; font-size: 15px; color: var(--ft-ink-2); }
+.scelte { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+.scelta { min-height: 72px; padding: 12px 16px; border-radius: var(--ft-r-m); border: 1px solid var(--ft-line-3); background: var(--ft-panel);
+  font: 600 18px/1.25 var(--ft-font); text-align: left; }
+.scelta.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); outline: 1px solid var(--ft-accent); }
 .pezzi-sc { display: flex; flex-wrap: wrap; gap: 8px; max-height: 168px; overflow-y: auto; }
-.pezzi-sc button { min-height: 48px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--ft-line); background: var(--ft-panel); font: 600 15px var(--ft-mono); }
-.pezzi-sc button.on { border-color: var(--ft-accent); background: var(--ft-accent); color: #fff; }
-.dlg textarea { width: 100%; min-height: 84px; padding: 12px 14px; border: 1px solid var(--ft-line); border-radius: 12px; font: 500 18px/1.35 var(--ft-font); color: var(--ft-ink);
-  resize: none; outline: 0; transition: border-color .15s, box-shadow .15s; }
-.dlg textarea:focus { border-color: var(--ft-accent); box-shadow: 0 0 0 4px var(--ft-accent-glow); }
-.dlg textarea::placeholder { color: var(--ft-ink-4); }
-.dlg .conta-car { text-align: right; font-size: 12px; color: var(--ft-ink-4); margin-top: 3px; }
-.dlg .errore { margin-top: 12px; padding: 11px 14px; border-radius: 10px; background: var(--ft-err-bg); border: 1px solid var(--ft-err-line); color: var(--ft-err); font-weight: 600; }
-.dlg-az { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
-.dlg-az button { min-height: 56px; padding: 0 26px; border-radius: 12px; border: 1px solid var(--ft-line); background: var(--ft-panel); font-weight: 700; font-size: 16.5px;
-  transition: background .15s, box-shadow .15s; }
-.dlg-az .si { border-color: var(--ft-ink); background: var(--ft-ink); color: #fff; }
-.dlg-az .si:not(:disabled):hover { background: #1E293B; box-shadow: 0 6px 18px rgba(15, 23, 42, .18); }
-.dlg-az .rosso { border-color: var(--ft-err); background: var(--ft-err); color: #fff; }
-.dlg-az button:disabled { opacity: .45; cursor: not-allowed; }
-/* inviato: il cerchio verde entra e la spunta si disegna */
-.fatto { text-align: center; padding: 26px 10px 10px; }
-.fatto .ok { width: 96px; height: 96px; margin: 0 auto 18px; border-radius: 50%; background: var(--ft-ok-dot); display: grid; place-items: center;
-  animation: ftPop .3s var(--ft-ease) both, ftOk 1.4s ease-out .2s; }
-.fatto .ok svg { width: 52px; height: 52px; }
-.fatto .ok path { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40;
-  animation: ftTraccia .4s var(--ft-ease) .18s forwards; }
-.fatto b { display: block; font: 800 30px var(--ft-display); letter-spacing: -.6px; }
-.fatto p { margin-top: 6px; color: var(--ft-ink-2); font-size: 17px; }
+.pezzi-sc button { min-height: 48px; padding: 0 12px; border-radius: var(--ft-r-m); border: 1px solid var(--ft-line-3); background: var(--ft-panel); font: 400 15px var(--ft-mono); }
+.pezzi-sc button.tutto { font-family: var(--ft-font); }
+.pezzi-sc button.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); font-weight: 600; }
+.dlg textarea { width: 100%; min-height: 84px; padding: 12px; border: 1px solid var(--ft-line-3); border-radius: var(--ft-r-s); font: 400 18px/1.35 var(--ft-font);
+  color: var(--ft-ink); resize: none; outline: 0; }
+.dlg textarea:focus { border-color: var(--ft-accent); outline: 1px solid var(--ft-accent); }
+.dlg textarea::placeholder { color: var(--ft-ink-3); }
+.dlg .conta-car { text-align: right; font-size: 13px; color: var(--ft-ink-3); margin-top: 4px; }
+.dlg .errore { margin-top: 12px; }
+.dlg-az { display: flex; gap: 8px; justify-content: flex-end; margin-top: 24px; }
+.dlg-az .ft-btn { height: 56px; padding: 0 24px; font-size: 18px; }
+.dlg-az .rosso { background: var(--ft-err); border-color: var(--ft-err); color: #fff; }
+.fatto { text-align: center; padding: 16px 8px 0; }
+.fatto svg { width: 56px; height: 56px; color: var(--ft-ok); }
+.fatto b { display: block; margin-top: 8px; font: 600 24px var(--ft-font); }
+.fatto p { margin-top: 4px; color: var(--ft-ink-2); font-size: 18px; }
 
-.solalettura { flex: none; padding: 7px 18px; font-size: 12.5px; color: var(--ft-ink-3); background: var(--ft-panel); border-top: 1px solid var(--ft-line); }
+.solalettura { flex: none; padding: 8px 16px; font-size: 14px; color: var(--ft-ink-3); background: var(--ft-panel); border-top: 1px solid var(--ft-line); }
 
 /* tablet in verticale o stretto: elenco e ordine uno alla volta */
 @media (max-width: 899px) {
@@ -365,43 +288,35 @@ button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var
   .corpo.dettaglio .lista { display: none; }
   .corpo:not(.dettaglio) .ordine-aperto { display: none; }
   .scelte { grid-template-columns: 1fr; }
-  .of-testa-dx .ft-live { display: none; }
+  .solalettura { display: none; }
+  #adesso-stretto { display: block; }
 }
-@media (min-width: 900px) { .indietro { display: none; } }
+@media (min-width: 900px) { .indietro { display: none !important; } }
 </style>
 </head>
 <body class="ft ft-touch">
 
-<header class="ft-topbar of-topbar">
-  <div class="ft-brand">
-    <div class="ft-logo of-logo" id="logo" title="Tieni premuto per uscire">LS</div>
-    <span>
-      <div class="ft-brand-name">FerroTrack</div>
-      <div class="ft-brand-area">Officina</div>
-    </span>
-  </div>
-  <div class="of-chi">
-    <h1 id="hello">Ordini in officina</h1>
-    <div class="of-ruolo" id="role">Reparto</div>
-  </div>
+<header class="ft-topbar ftt-barra">
+  <div class="ftt-logo of-logo" id="logo" title="Tieni premuto per uscire">LS</div>
+  <div class="ftt-stazione"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M11 18h2"/></svg><b>Officina</b></div>
+  <div class="ftt-dove"><b id="hello"></b> <span id="role">Reparto</span></div>
   <div class="ft-topbar-end of-testa-dx">
     <span class="ft-live" id="aggiornato"></span>
-    <span class="of-ora" id="ora"></span>
+    <span class="ftt-ora" id="ora"></span>
   </div>
 </header>
 
 <!-- Dati vecchi o server irraggiungibile: grande, rosso, da lontano. Un tablet
      che mostra ordini di ieri come se fossero di adesso fa piu' danni di uno spento. -->
 <div class="fuori-linea" id="fuori-linea" role="alert" hidden>
-  <div class="icona">!</div>
-  <div><b id="fl-titolo">Non aggiornato</b><span id="fl-testo">Controlla la rete: riprovo da solo.</span></div>
+  <b id="fl-titolo">Non aggiornato</b><span id="fl-testo">Controlla la rete: riprovo da solo.</span>
 </div>
 
 <!-- Il richiamo alle ore compare SOLO se un operaio ha fatto login da un PC.
      Sul tablet fisso di reparto no: le ore si registrano alla timbratrice. -->
 <a class="ore-cta" id="ore-cta" href="/ore.html" hidden>
-  <div class="t">Dichiara le tue ore</div>
-  <div class="s">Chi sei, per quale cliente hai lavorato, quante ore. Nient'altro.</div>
+  <span class="s">Chi sei, per quale cliente hai lavorato, quante ore. Nient'altro.</span>
+  <span class="t">Dichiara le tue ore</span>
 </a>
 
 <!-- Schermata di abilitazione, mostrata una volta sola su un tablet nuovo -->
@@ -415,13 +330,17 @@ button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var
   <section class="lista" aria-label="Ordini">
     <div class="cerca-box">
       <div class="cerca-w">
-        <svg class="cerca-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        <input class="cerca" id="cerca" type="search" inputmode="search" placeholder="Cerca cliente o numero d'ordine" autocomplete="off">
-        <button class="svuota" id="svuota" onclick="svuotaCerca()" aria-label="Svuota la ricerca" hidden>×</button>
+        <div class="cerca-campo">
+          <svg class="cerca-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input class="cerca" id="cerca" type="search" inputmode="search" placeholder="Cliente o numero" autocomplete="off" aria-label="Cerca un ordine">
+          <button class="svuota" id="svuota" onclick="svuotaCerca()" aria-label="Svuota la ricerca" hidden>×</button>
+        </div>
+        <button class="tasti" id="tasti" type="button" aria-pressed="false" onclick="tastieraNumeri()" title="Tastiera coi numeri">123</button>
       </div>
-      <div class="chips" id="filtri" aria-label="Reparto"></div>
-      <div class="chips" id="clienti"></div>
+      <div class="ft-seg" id="filtri" aria-label="Reparto"></div>
+      <div id="clienti" aria-label="Cliente"></div>
     </div>
+    <div id="adesso-stretto"></div>
     <div class="meta"><span id="conteggio">—</span></div>
     <div class="elenco" id="elenco"></div>
   </section>
@@ -435,9 +354,9 @@ button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var
 <div class="pieno foglio-pieno" id="foglio" hidden>
   <div class="testa">
     <div class="titolo" id="foglio-titolo"></div>
-    <button class="zoom" id="foglio-meno" onclick="zoomFoglio(-1)" aria-label="Rimpicciolisci" hidden>−</button>
-    <button class="zoom" id="foglio-piu" onclick="zoomFoglio(1)" aria-label="Ingrandisci" hidden>+</button>
-    <button class="chiudi" onclick="chiudiFoglio()">Chiudi</button>
+    <button class="ft-btn zoom" id="foglio-meno" onclick="zoomFoglio(-1)" aria-label="Rimpicciolisci" hidden>−</button>
+    <button class="ft-btn zoom" id="foglio-piu" onclick="zoomFoglio(1)" aria-label="Ingrandisci" hidden>+</button>
+    <button class="ft-btn chiudi" onclick="chiudiFoglio()">Chiudi</button>
   </div>
   <iframe id="foglio-pdf" title="Foglio d'ordine" hidden></iframe>
   <div class="foglio-pagine" id="foglio-pagine" hidden></div>
@@ -447,24 +366,24 @@ button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var
 <div class="pieno" id="visore" hidden>
   <div class="testa">
     <div class="titolo" id="vis-titolo"></div>
-    <button class="zoom-btn" onclick="zoomPasso(1 / 1.6)" aria-label="Rimpicciolisci">−</button>
-    <button class="zoom-btn" onclick="zoomPasso(1.6)" aria-label="Ingrandisci">+</button>
-    <button class="zoom-btn" id="vis-zoom" onclick="zoomDisegno()">Ingrandisci</button>
-    <button class="chiudi" onclick="chiudiVisore()">Chiudi</button>
+    <button class="ft-btn zoom-btn" onclick="zoomPasso(1 / 1.6)" aria-label="Rimpicciolisci">−</button>
+    <button class="ft-btn zoom-btn" onclick="zoomPasso(1.6)" aria-label="Ingrandisci">+</button>
+    <button class="ft-btn zoom-btn" id="vis-zoom" onclick="zoomDisegno()">Ingrandisci</button>
+    <button class="ft-btn chiudi" onclick="chiudiVisore()">Chiudi</button>
   </div>
   <div class="vis-area" id="vis-area">
     <img id="vis-img" alt="">
-    <div class="vis-aiuto" id="vis-aiuto">Due dita per ingrandire · doppio tocco · scorri per il prossimo</div>
+    <div class="vis-aiuto" id="vis-aiuto">Due dita per ingrandire, doppio tocco, scorri per il prossimo</div>
   </div>
-  <button class="freccia sx" id="vis-prec" onclick="spostaDisegno(-1)" aria-label="Disegno precedente">‹</button>
-  <button class="freccia dx" id="vis-succ" onclick="spostaDisegno(1)" aria-label="Disegno successivo">›</button>
+  <button class="freccia sx" id="vis-prec" onclick="spostaDisegno(-1)" aria-label="Disegno precedente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <button class="freccia dx" id="vis-succ" onclick="spostaDisegno(1)" aria-label="Disegno successivo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
 </div>
 
 <!-- Il pezzo piegato o l'assieme in 3D, dentro la pagina come il disegno -->
 <div class="pieno" id="vis3d" hidden>
   <div class="testa">
     <div class="titolo" id="d3-titolo"></div>
-    <button class="chiudi" onclick="chiudi3d()">Chiudi</button>
+    <button class="ft-btn chiudi" onclick="chiudi3d()">Chiudi</button>
   </div>
   <div class="d3-msg" id="d3-msg"></div>
   <iframe id="d3-frame" title="Vista 3D" hidden></iframe>
@@ -473,11 +392,11 @@ button.pz-img:active { border-color: var(--ft-accent); box-shadow: 0 0 0 3px var
 <!-- Uscita dal chiosco: si arriva solo tenendo premuto il logo -->
 <div class="velo" id="dlg-esci" hidden>
   <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="esci-t">
-    <h3 id="esci-t">Cambiare cosa fa questo tablet?</h3>
+    <h3 id="esci-t">Vuoi cambiare cosa fa questo tablet?</h3>
     <p class="sotto">Serve solo per la manutenzione e vuole il PIN dell’amministratore.</p>
     <div class="dlg-az">
-      <button onclick="chiudiEsci()">Annulla</button>
-      <button class="rosso" onclick="logout()">Continua</button>
+      <button class="ft-btn" onclick="chiudiEsci()">Annulla</button>
+      <button class="ft-btn rosso" onclick="logout()">Cambia</button>
     </div>
   </div>
 </div>
@@ -548,7 +467,7 @@ function avvioPersona() {
   // Una POSTAZIONE non e' una persona: non si saluta e non le si chiedono le ore
   // (si contano gia' alla timbratrice, altrimenti si contano due volte).
   const eUnaPostazione = UTENTE.role === 'Visione' || UTENTE.role === 'Timbratrice' || UTENTE.e_postazione === true;
-  document.getElementById('hello').textContent = eUnaPostazione ? 'Ordini in officina' : 'Ciao ' + (UTENTE.name || '').split(' ')[0];
+  document.getElementById('hello').textContent = eUnaPostazione ? '' : 'Ciao ' + (UTENTE.name || '').split(' ')[0];
   document.getElementById('role').textContent = eUnaPostazione ? (UTENTE.name || 'Reparto') : (UTENTE.role || 'Operaio');
   document.getElementById('ore-cta').hidden = eUnaPostazione;
   partiElenco();
@@ -625,18 +544,13 @@ async function carica() {
   } catch (e) {
     ERRORE_RETE = true;   // non si svuota la lista: meglio i dati di poco fa che una pagina bianca
   }
-  // Primo elenco: entra in sequenza. Dopo: gli ordini appena arrivati si illuminano.
-  const primo = !ERRORE_RETE && NOTI === null;
+  // Gli ordini appena arrivati si illuminano un attimo (dal secondo giro in poi).
   const nuovi = !ERRORE_RETE && NOTI ? ORDINI.filter(x => !NOTI.has(x.id)).map(x => x.id) : [];
   if (!ERRORE_RETE) NOTI = new Set(ORDINI.map(x => x.id));
   disegna();
   const o = ORDINI.find(x => x.id === APERTO);
   if (o) mostraOrdine(o, false); else if (APERTO) mostraPanoramica(); else disegnaPanoramica();
   aggiornaFuoriLinea();
-  if (primo) {
-    FT.sequenza(document.getElementById('elenco'));
-    FT.sequenza(document.querySelector('#pano .pano-lista'));
-  }
   nuovi.forEach(id => document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`).forEach(el => FT.evidenzia(el)));
   // ogni minuto; se il server non risponde si riprova piu' spesso
   TIMER_CARICA = setTimeout(carica, ERRORE_RETE ? 15000 : 60000);
@@ -651,14 +565,15 @@ function aggiornaFuoriLinea() {
   if (vecchio) {
     const min = eta != null ? Math.max(1, Math.floor(eta / 60000)) : null;
     document.getElementById('fl-titolo').textContent = min == null
-      ? 'Nessun dato: il server non risponde — controlla la rete'
-      : `Non aggiornato da ${min} ${min === 1 ? 'minuto' : 'minuti'} — controlla la rete`;
+      ? 'Nessun dato: il server non risponde. Controlla la rete.'
+      : `Non aggiornato da ${min} ${min === 1 ? 'minuto' : 'minuti'}: controlla la rete.`;
     document.getElementById('fl-testo').textContent = ULTIMO_OK
       ? `Quello che vedi è com'era alle ${hhmm(ULTIMO_OK)}. Riprovo da solo.`
       : 'Riprovo da solo ogni 15 secondi.';
   }
   const agg = document.getElementById('aggiornato');
-  agg.textContent = ULTIMO_OK ? 'aggiornato alle ' + hhmm(ULTIMO_OK) : '';
+  // collegato: non c'e' niente da dire; la parola rossa solo se i dati sono vecchi
+  agg.textContent = vecchio ? (ULTIMO_OK ? 'fermo alle ' + hhmm(ULTIMO_OK) : 'non collegato') : '';
   agg.classList.toggle('off', vecchio);
 }
 
@@ -691,26 +606,27 @@ function dataBreve(iso, anno) {
 /** A che punto e' l'ordine rispetto al laser: un'informazione, non piu' il
     filtro principale (quello e' il reparto). */
 function statoLaser(o) {
-  if (o.taglio_completato) return '<span class="tag lavorabile">Lavorabile · tagliato</span>';
-  if (o.taglio_richiesto === false) return '<span class="tag lavorabile">Lavorabile · non passa dal laser</span>';
-  if (o.taglio_richiesto === true) return `<span class="tag in-taglio">In taglio${o.importato_lantek_il ? ' · in Lantek' : ''}</span>`;
-  return '<span class="tag da-smistare">Da smistare</span>';
+  if (o.taglio_completato) return '<span>Lavorabile, tagliato</span>';
+  if (o.taglio_richiesto === false) return '<span>Lavorabile, non passa dal laser</span>';
+  if (o.taglio_richiesto === true) return `<span>In taglio${o.importato_lantek_il ? ', in Lantek' : ''}</span>`;
+  return '<span class="w-warn">Da smistare</span>';
 }
 const haReparto = (o, k) => k === 'tutti' || (o.reparti || []).some(r => r.reparto === k);
-/** "Piega ×12 · Saldatura · Filettatura ×4": le lavorazioni dell'ordine in
-    breve. ×N = pezzi da lavorare; saldatura e montaggio senza numero, perche'
-    si contano a metri e ad assiemi, non a pezzi. */
-function chipsReparti(o, cls) {
+/** "Piega 12 pz, saldatura, filettatura 4 pz": le lavorazioni dell'ordine
+    in breve, come si direbbero. I pezzi solo per piega e filettatura:
+    saldatura e montaggio si contano a metri e ad assiemi, non a pezzi. */
+function testoReparti(o) {
   const rr = o.reparti || [];
   if (!rr.length) {
-    if (!(o.pezzi || []).length) return `<span class="${cls} solo">${o.has_pdf ? 'vedi foglio d’ordine' : 'nessuna distinta'}</span>`;
-    return `<span class="${cls} solo">solo taglio</span>`;
+    if (!(o.pezzi || []).length) return `<span class="solo">${o.has_pdf ? 'vedi il foglio d’ordine' : 'nessuna distinta'}</span>`;
+    return '<span class="solo">solo taglio</span>';
   }
-  return rr.map(r => {
+  return rr.map((r, i) => {
     let nome = r.reparto === 'filettatura' ? nomeFilettatura(o) : r.etichetta;
-    const n = (r.reparto === 'piega' || r.reparto === 'filettatura') && r.pezzi > 1 ? ' ×' + r.pezzi : '';
-    return `<span class="${cls}${REPARTO === r.reparto ? ' on' : ''}">${esc(nome + n)}</span>`;
-  }).join('');
+    if (i) nome = nome.toLowerCase();
+    const n = (r.reparto === 'piega' || r.reparto === 'filettatura') && r.pezzi > 1 ? ' ' + r.pezzi + ' pz' : '';
+    return esc(nome + n);
+  }).join(', ');
 }
 function nomeFilettatura(o) {
   const t = (o.pezzi || []).flatMap(p => p.lavorazioni || []).join(' ').toLowerCase();
@@ -719,6 +635,13 @@ function nomeFilettatura(o) {
 }
 const testoSpessore = sp => sp ? String(sp).replace('.', ',') + ' mm' : '';
 const testoMateriale = m => String(m || '').replace(/_/g, ' ');
+/** "FERRO" -> "Ferro": in officina il materiale si legge, non si grida.
+    Le sigle con numeri (AISI 304, S235) restano come sono. */
+function nomeMateriale(m) {
+  const t = testoMateriale(m).trim();
+  if (!t) return 'Materiale ?';
+  return /\d/.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+}
 
 /* ---------- taglio ----------
    Il server da' lo stato del taglio di ogni pezzo (p.taglio) e il riepilogo
@@ -729,25 +652,23 @@ const testoMateriale = m => String(m || '').replace(/_/g, ' ');
    backend/tablet_officina.py, qui non cambia niente. */
 function chipTaglio(t) {
   if (!t || t.stato === 'non_laser') return '';
-  if (t.stato === 'tagliato') return '<span class="tg tagliato">tagliato</span>';
-  if (t.stato === 'parziale') return `<span class="tg parziale">tagliati ${t.tagliati} su ${t.totale}</span>`;
-  if (t.stato === 'in_lantek') return '<span class="tg in_lantek">in Lantek</span>';
-  return '<span class="tg da_tagliare">da tagliare</span>';
+  if (t.stato === 'tagliato') return '<span class="w-ok">tagliato</span>';
+  if (t.stato === 'parziale') return `<span class="w-warn">tagliati ${t.tagliati} su ${t.totale}</span>`;
+  if (t.stato === 'in_lantek') return '<span>in Lantek</span>';
+  return '<span>da tagliare</span>';
 }
 function riepilogoTaglio(o) {
   const t = o.taglio || {};
-  if (o.stato_taglio === 'non_serve') return { cls: 'non_serve', txt: 'non passa dal laser', seg: '' };
+  if (o.stato_taglio === 'non_serve') return { cls: 'non_serve', txt: 'non passa dal laser' };
   if (!t.totale) {
-    if (o.stato_taglio === 'tagliato') return { cls: 'tagliato', txt: 'tagliato', seg: '' };
-    return { cls: o.stato_taglio === 'da_smistare' ? 'da_smistare' : 'da_tagliare', txt: o.stato_taglio === 'da_smistare' ? 'da smistare al laser' : (o.importato_lantek_il ? 'in Lantek' : 'da tagliare'), seg: '' };
+    if (o.stato_taglio === 'tagliato') return { cls: 'tagliato', txt: 'tagliato' };
+    return { cls: o.stato_taglio === 'da_smistare' ? 'da_smistare' : 'da_tagliare', txt: o.stato_taglio === 'da_smistare' ? 'da smistare al laser' : (o.importato_lantek_il ? 'in Lantek' : 'da tagliare') };
   }
-  const n = 8, pieni = Math.round(n * t.tagliati / t.totale);
-  const lantek = !pieni && o.importato_lantek_il;
-  const seg = Array.from({ length: n }, (_, i) => `<i class="${i < pieni ? 'f' : lantek ? 'l' : ''}"></i>`).join('');
-  if (t.tagliati >= t.totale) return { cls: 'tagliato', txt: `tagliato · ${t.totale} pz`, seg };
-  if (t.tagliati > 0) return { cls: 'parziale', txt: `${t.tagliati} su ${t.totale} pz tagliati`, seg };
-  if (o.stato_taglio === 'da_smistare') return { cls: 'da_smistare', txt: `da smistare · ${t.totale} pz`, seg };
-  return { cls: lantek ? 'in_lantek' : 'da_tagliare', txt: `${lantek ? 'in Lantek' : 'da tagliare'} · ${t.totale} pz`, seg };
+  const lantek = !t.tagliati && o.importato_lantek_il;
+  if (t.tagliati >= t.totale) return { cls: 'tagliato', txt: `tagliato, ${t.totale} pz` };
+  if (t.tagliati > 0) return { cls: 'parziale', txt: `${t.tagliati} su ${t.totale} pz tagliati` };
+  if (o.stato_taglio === 'da_smistare') return { cls: 'da_smistare', txt: `da smistare, ${t.totale} pz` };
+  return { cls: lantek ? 'in_lantek' : 'da_tagliare', txt: `${lantek ? 'in Lantek' : 'da tagliare'}, ${t.totale} pz` };
 }
 
 /* ---------- elenco ---------- */
@@ -764,19 +685,31 @@ function setReparto(f) {
 }
 function setCliente(c) { CLIENTE = CLIENTE === c ? '' : c; disegna(); }
 function svuotaCerca() { const c = document.getElementById('cerca'); c.value = ''; document.getElementById('svuota').hidden = true; disegna(); c.focus(); }
+/** 123: la tastiera del tablet coi numeri grandi, per chi cerca il numero
+    d'ordine (1302) invece del cliente. Un altro tocco torna alle lettere. */
+function tastieraNumeri() {
+  const c = document.getElementById('cerca'), b = document.getElementById('tasti');
+  const numeri = c.getAttribute('inputmode') !== 'numeric';
+  c.setAttribute('inputmode', numeri ? 'numeric' : 'search');
+  b.setAttribute('aria-pressed', String(numeri));
+  b.textContent = numeri ? 'ABC' : '123';
+  b.title = numeri ? 'Tastiera con le lettere' : 'Tastiera coi numeri';
+  c.blur(); c.focus();            // la tastiera cambia solo se il campo riprende il fuoco
+}
 const perConsegna = (a, b) => String(a.data_consegna || '9999').localeCompare(String(b.data_consegna || '9999'));
 
 function disegna() {
   const base = filtrati();
   const conta = k => base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && haReparto(o, k)).length;
+  // "Filettatura e svasatura" sta stretto: sul pulsante basta "Filettatura"
   document.getElementById('filtri').innerHTML = [['tutti', 'Tutti'], ...REPARTI]
-    .map(([k, t]) => { const n = conta(k); return `<button class="chip${REPARTO === k ? ' on' : ''}${n ? '' : ' zero'}" onclick="setReparto('${k}')">${t} <b>${n}</b></button>`; }).join('');
+    .map(([k, t]) => { const n = conta(k); return `<button class="${REPARTO === k ? 'on' : ''}${n ? '' : ' zero'}" aria-pressed="${REPARTO === k}" onclick="setReparto('${k}')">${t.split(' ')[0]} <b>${n}</b></button>`; }).join('');
   // clienti con piu' ordini aperti, per filtrare con un tocco
   const perCli = new Map();
   base.forEach(o => { const c = o.cliente || '—'; perCli.set(c, (perCli.get(c) || 0) + 1); });
   const clienti = [...perCli].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
   document.getElementById('clienti').innerHTML = clienti.length > 1 || CLIENTE
-    ? clienti.map(([c, n]) => `<button class="chip cli${CLIENTE === c ? ' on' : ''}" onclick="setCliente(${esc(JSON.stringify(c))})">${esc(c)} <b>${n}</b></button>`).join('')
+    ? clienti.map(([c, n]) => `<button class="cli${CLIENTE === c ? ' on' : ''}" aria-pressed="${CLIENTE === c}" onclick="setCliente(${esc(JSON.stringify(c))})">${esc(c)} <b>${n}</b></button>`).join('')
     : '';
 
   const lista = base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && haReparto(o, REPARTO)).sort(perConsegna);
@@ -786,13 +719,11 @@ function disegna() {
     const u = urgenza(giorniA(o.data_consegna));
     const segn = (o.segnalazioni_oggi || []).length;
     return `<div class="ordine ${u.cls}${APERTO === o.id ? ' sel' : ''}" data-id="${esc(o.id)}" onclick="apri('${o.id}')" role="button" tabindex="0">
-      <div class="o-top">
-        <div class="o-cli"><div class="cli">${esc(o.cliente || 'Cliente non indicato')}</div>
-          <div class="num">#${esc(numero(o))}${o.note ? '<span class="tag nota-flag" title="Note dell’ufficio">! Nota</span>' : ''}</div></div>
-        <div class="consegna"><div class="d">${dataBreve(o.data_consegna)}</div><div class="e">${u.txt}</div></div>
-      </div>
-      <div class="o-lav">${chipsReparti(o, 'lav')}</div>
-      <div class="o-bot">${statoLaser(o)}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}</span>` : ''}${segn ? `<span class="tag segnalato">Segnalato oggi</span>` : ''}${tagProcura(o)}<span class="conta">${o.pezzi_totali ? o.pezzi_totali + ' pz' : ''}</span></div>
+      <div class="o-cli">${esc(o.cliente || 'Cliente non indicato')}</div>
+      <div class="o-data">${dataBreve(o.data_consegna)}</div>
+      <div class="o-sotto"><span class="ft-code">${esc(numero(o))}</span><span class="lv">${testoReparti(o)}</span></div>
+      <div class="o-quando">${u.txt}</div>
+      <div class="o-stato">${statoLaser(o)}${o.pezzi_totali ? `<span>${o.pezzi_totali} pz</span>` : ''}${o.lotto_numero ? `<span>Lotto ${o.lotto_numero}</span>` : ''}${o.note ? '<span class="w-warn">Nota dell’ufficio</span>' : ''}${segn ? '<span class="w-err">Segnalato oggi</span>' : ''}${tagProcura(o)}</div>
     </div>`;
   }).join('') : `<div class="vuoto">${ORDINI.length ? 'Nessun ordine con questi filtri.' : (ULTIMO_OK ? 'Nessun ordine aperto.' : 'Carico gli ordini…')}</div>`;
 }
@@ -811,7 +742,6 @@ function mostraPanoramica() {
 }
 function disegnaPanoramica() {
   const box = document.getElementById('pano');
-  if (!box) return;
   const tutti = ORDINI.filter(o => haReparto(o, REPARTO)).sort(perConsegna);
   const gr = { tardi: [], oggi: [], domani: [], sett: [], poi: [] };
   for (const o of tutti) {
@@ -823,9 +753,10 @@ function disegnaPanoramica() {
     else if (g <= 7) gr.sett.push(o);
     else gr.poi.push(o);
   }
+  document.getElementById('adesso-stretto').innerHTML = rigaAdesso(gr);
+  if (!box) return;
   const rep = REPARTI.find(r => r[0] === REPARTO);
   const oggi = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
-  const conto = (n, t, rosso, k) => `<div class="conto${rosso && n ? ' rosso' : ''}${n ? '' : ' zero'}"><b data-k="${k}" data-n="${n}">${n}</b><span>${t}</span></div>`;
   // I ritardi e la settimana sempre; "piu' avanti" solo per riempire, cosi'
   // sulla TV grande non resta un buco nero quando la settimana e' tranquilla.
   const sezioni = [['tardi', 'In ritardo', true], ['oggi', 'Oggi'], ['domani', 'Domani'], ['sett', 'Entro 7 giorni']];
@@ -837,14 +768,28 @@ function disegnaPanoramica() {
     righe += `<div class="sez">Più avanti <span>${gr.poi.length}</span></div>` + gr.poi.slice(0, riempi).map(o => rigaPanoramica(o, 'poi')).join('');
   }
   if (!ULTIMO_OK && !ORDINI.length) righe = '<div class="pano-vuoto"><b>Carico gli ordini…</b></div>';
-  else if (!tutti.length) righe = `<div class="pano-vuoto"><b>Niente da fare${rep ? ' per ' + rep[1].toLowerCase() : ''}</b>${ORDINI.length ? 'Nessun ordine aperto con questa lavorazione.' : 'Nessun ordine aperto.'}</div>`;
+  else if (!tutti.length) righe = `<div class="pano-vuoto"><b>${rep ? 'Niente ' + DA_FARE[REPARTO].toLowerCase() : 'Niente da fare'}</b>${ORDINI.length ? 'Nessun ordine aperto con questa lavorazione. Scegli «Tutti» per vederli tutti.' : 'Nessun ordine aperto.'}</div>`;
   box.innerHTML = `
-    <div class="pano-testa"><h2>Cosa c'è da fare${rep ? `<em> · ${esc(rep[1])}</em>` : ''}</h2><span>${esc(oggi)}</span></div>
-    <div class="pano-conti">${conto(gr.tardi.length, 'in ritardo', true, 'tardi')}${conto(gr.oggi.length, 'oggi', false, 'oggi')}${conto(gr.domani.length, 'domani', false, 'domani')}${conto(gr.sett.length, 'entro 7 giorni', false, 'sett')}</div>
-    <div class="pano-lista">${righe}</div>
-    <div class="pano-piede">Tocca un ordine per i pezzi, i disegni e il foglio d'ordine.</div>`;
-  // i conti scorrono fino al valore (la prima volta da zero, poi dal valore di prima)
-  box.querySelectorAll('.conto b[data-k]').forEach(b => FT.contaDa('pano-' + b.dataset.k, b, Number(b.dataset.n)));
+    <div class="pano-testa"><h2>${rep ? esc(DA_FARE[REPARTO]) : "Cosa c'è da fare"}</h2><span>${esc(oggi)}</span></div>
+    ${rigaAdesso(gr)}
+    <div class="pano-lista">${righe}</div>`;
+}
+/** Una riga sola, in cima: cosa faccio adesso e c'e' qualcosa che non va.
+    Al posto dei quattro riquadri coi numeri. L'unico pulsante indaco. */
+function rigaAdesso(gr) {
+  const primo = gr.tardi[0] || gr.oggi[0] || gr.domani[0] || gr.sett[0] || gr.poi[0];
+  if (!primo) return '';
+  const chi = `<b>${esc(primo.cliente || 'Cliente non indicato')}</b> <span class="ft-code">${esc(numero(primo))}</span>`;
+  let frase;
+  if (gr.tardi.length) {
+    const n = gr.tardi.length;
+    frase = `<span class="err">${n === 1 ? '1 ordine in ritardo' : n + ' ordini in ritardo'}.</span> Il primo è ${chi}, da consegnare il ${dataBreve(primo.data_consegna)}.`;
+  } else {
+    const g = giorniA(primo.data_consegna);
+    const quando = g === null ? 'senza data di consegna' : g === 0 ? 'da consegnare oggi' : g === 1 ? 'da consegnare domani' : `da consegnare il ${dataBreve(primo.data_consegna)}`;
+    frase = `Niente in ritardo. Il prossimo è ${chi}, ${quando}.`;
+  }
+  return `<div class="ft-adesso pano-adesso"><span>${frase}</span><span class="sp"></span><button class="ft-btn primary" onclick="apri('${primo.id}')">Apri</button></div>`;
 }
 function rigaPanoramica(o, k) {
   const g = giorniA(o.data_consegna);
@@ -853,9 +798,9 @@ function rigaPanoramica(o, k) {
   const t = riepilogoTaglio(o);
   return `<button class="pr${k === 'tardi' ? ' tardi' : k === 'oggi' ? ' oggi' : ''}" data-id="${esc(o.id)}" onclick="apri('${o.id}')">
     <div class="pr-data"><b>${dataBreve(o.data_consegna)}</b><small>${sotto}</small></div>
-    <div class="pr-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><small>#${esc(numero(o))}${o.note ? '<span class="notina">NOTA</span>' : ''}</small></div>
-    <div class="pr-lav">${chipsReparti(o, '')}</div>
-    <div class="pr-taglio ${t.cls}">${t.seg ? `<div class="seg">${t.seg}</div>` : ''}${esc(t.txt)}</div>
+    <div class="pr-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><small>${esc(numero(o))}${o.note ? '<span class="notina">Nota dell’ufficio</span>' : ''}</small></div>
+    <div class="pr-lav">${testoReparti(o)}</div>
+    <div class="pr-taglio ${t.cls}">${esc(t.txt)}</div>
   </button>`;
 }
 
@@ -918,38 +863,36 @@ function mostraOrdine(o, forza) {
   // Entra in dissolvenza solo aprendo un altro ordine, non agli aggiornamenti.
   box.dataset.entra = forza && ENTRATA ? '1' : '';
   ENTRATA = false;
+  const avvisi = [avvisoProcura(o), ...segn.map(s => `<div class="ft-alert err">Segnalato oggi alle ${hhmm(new Date(s.quando))}: ${esc(s.etichetta)}${s.codice_pezzo ? ', pezzo ' + esc(s.codice_pezzo) : ''}${s.nota ? '. ' + esc(s.nota) : ''}</div>`)].filter(Boolean);
   box.innerHTML = `
-    ${o.note ? `<div class="nota"><b>Note dell'ufficio</b>${esc(o.note)}</div>` : ''}
+    ${o.note ? `<div class="nota"><b>Nota dell'ufficio</b>${esc(o.note)}</div>` : ''}
     <div class="oa-testa">
       <div class="oa-r1">
-        <button class="indietro" onclick="indietro()">‹ Ordini</button>
-        <div class="oa-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2><div class="num">Ordine #${esc(numero(o))}${interno}</div></div>
+        <button class="ft-btn indietro" onclick="indietro()">Torna agli ordini</button>
+        <div class="oa-tit"><h2>${esc(o.cliente || 'Cliente non indicato')}</h2><div class="num">Ordine ${esc(numero(o))}${interno}</div></div>
         <div class="oa-cons ${u.cls}"><small>Consegna</small><b>${dataBreve(o.data_consegna, true)}</b><em>${u.txt}</em></div>
       </div>
-      <div class="oa-r2">${statoLaser(o)}${o.lotto_numero ? `<span class="tag">Lotto ${o.lotto_numero}${o.lotto_nome ? ' — ' + esc(o.lotto_nome) : ''}</span>` : ''}${chipsReparti(o, 'lav')}
-        ${tt.totale ? `<span class="taglio-ord"><span>${tt.tagliati} ${tt.tagliati === 1 ? 'pezzo' : 'pezzi'} su ${tt.totale} tagliati</span><span class="barra"><i style="width:${Math.round(100 * tt.tagliati / tt.totale)}%"></i></span>${tt.fonte === 'lantek' ? '<small>dalla lista di Lantek</small>' : ''}</span>` : ''}
-</div>
-      ${avvisoProcura(o)}
-      ${segn.length ? `<div class="avvisi-oggi">${segn.map(s => `<div>Segnalato oggi alle ${hhmm(new Date(s.quando))}: ${esc(s.etichetta)}${s.codice_pezzo ? ' · pezzo ' + esc(s.codice_pezzo) : ''}${s.nota ? ' — ' + esc(s.nota) : ''}</div>`).join('')}</div>` : ''}
+      <div class="oa-r2">${statoLaser(o)}<span>${testoReparti(o)}</span>${o.lotto_numero ? `<span>Lotto ${o.lotto_numero}${o.lotto_nome ? ', ' + esc(o.lotto_nome) : ''}</span>` : ''}
+        ${tt.totale ? `<span class="taglio-ord"><span>${tt.tagliati} su ${tt.totale} pz tagliati</span><span class="barra"><i style="width:${Math.round(100 * tt.tagliati / tt.totale)}%"></i></span>${tt.fonte === 'lantek' ? '<small>dalla lista di Lantek</small>' : ''}</span>` : ''}
+      </div>
+      ${avvisi.length ? `<div class="avvisi">${avvisi.join('')}</div>` : ''}
     </div>
     <div class="schede" id="schede"></div>
     <div class="oa-corpo" id="oa-corpo"></div>`;
   mostraSchede(o);
   if (pos) document.getElementById('oa-corpo').scrollTop = pos;
-  // Aprendo l'ordine o cambiando scheda i pezzi (o i disegni) entrano in sequenza.
-  if (forza) { const c = document.getElementById('oa-corpo'); FT.sequenza(c.querySelector('.griglia') || c); }
 }
 /* Pezzi da procurare non ancora arrivati (backend/procura.py): finche'
    mancano l'ordine non e' pronto per il montaggio. Rosso se qualcuno e' in
    ritardo sulla data prevista. */
 function tagProcura(o) {
   const p = o.da_procurare || {};
-  return p.mancano ? `<span class="tag procura${p.in_ritardo ? ' rit' : ''}">Mancano ${p.mancano} da procurare</span>` : '';
+  return p.mancano ? `<span class="${p.in_ritardo ? 'w-err' : 'w-warn'}">Mancano ${p.mancano} da procurare</span>` : '';
 }
 function avvisoProcura(o) {
   const p = o.da_procurare || {};
   if (!p.mancano) return '';
-  return `<div class="avviso-procura${p.in_ritardo ? ' rit' : ''}">Mancano ${p.mancano} ${p.mancano === 1 ? 'pezzo' : 'pezzi'} da procurare: non è ancora pronto per il montaggio${p.in_ritardo ? ` (${p.in_ritardo} in ritardo)` : ''}.</div>`;
+  return `<div class="ft-alert ${p.in_ritardo ? 'err' : 'warn'}">Mancano ${p.mancano} ${p.mancano === 1 ? 'pezzo' : 'pezzi'} da procurare: non è ancora pronto per il montaggio${p.in_ritardo ? ` (${p.in_ritardo} in ritardo)` : ''}.</div>`;
 }
 function disegniDi(o) {
   return (o && o.disegni ? o.disegni : []).map(x => ({ nome: x.nome, svg: x.url_svg ? API + x.url_svg : null }));
@@ -958,10 +901,12 @@ function mostraSchede(o) {
   const pezzi = o.pezzi || [], dis = disegniDi(o);
   if (!SCHEDA) SCHEDA = pezzi.length ? 'pezzi' : dis.length ? 'disegni' : 'pezzi';
   document.getElementById('schede').innerHTML = `
-    <button class="scheda${SCHEDA === 'pezzi' ? ' on' : ''}" onclick="vaiScheda('pezzi')" ${pezzi.length ? '' : 'disabled'}>Pezzi <b>${pezzi.length}</b></button>
-    <button class="scheda${SCHEDA === 'disegni' ? ' on' : ''}" onclick="vaiScheda('disegni')" ${dis.length ? '' : 'disabled'}>Disegni <b>${dis.length}</b></button>
-    ${o.has_pdf || (o.pezzi || []).length ? `<button class="scheda apri-pdf" onclick="vediFoglio('${o.id}', ${esc(JSON.stringify(numero(o)))})">Foglio d'ordine</button>` : ''}
-    <button class="segnala-btn" onclick="apriSegnala()">Segnala un problema</button>`;
+    <div class="ft-seg" role="group" aria-label="Cosa vedere">
+      <button class="${SCHEDA === 'pezzi' ? 'on' : ''}" aria-pressed="${SCHEDA === 'pezzi'}" onclick="vaiScheda('pezzi')" ${pezzi.length ? '' : 'disabled'}>Pezzi <b>${pezzi.length}</b></button>
+      <button class="${SCHEDA === 'disegni' ? 'on' : ''}" aria-pressed="${SCHEDA === 'disegni'}" onclick="vaiScheda('disegni')" ${dis.length ? '' : 'disabled'}>Disegni <b>${dis.length}</b></button>
+    </div>
+    ${o.has_pdf || (o.pezzi || []).length ? `<button class="ft-btn apri-pdf" onclick="vediFoglio('${o.id}', ${esc(JSON.stringify(numero(o)))})">Foglio d'ordine</button>` : ''}
+    <button class="ft-btn segnala-btn" onclick="apriSegnala()">Segnala un problema</button>`;
   const c = document.getElementById('oa-corpo');
   if (SCHEDA === 'disegni' && dis.length) {
     c.innerHTML = `<div class="griglia">${dis.map((d, i) => `<button class="dis" onclick="apriDisegno(${i})">
@@ -977,13 +922,13 @@ function mostraSchede(o) {
       resto = pezzi.filter(p => !(p.reparti || []).includes(REPARTO));
       if (miei.length) {
         const tot = miei.reduce((s, p) => s + (Number(p.quantita) || 0), 0);
-        blocchi.push(`<div class="gr rep">${DA_FARE[REPARTO]}<span>${miei.length} ${miei.length === 1 ? 'codice' : 'codici'} · ${tot} pz</span></div>` + miei.map(p => riga(p, false)).join(''));
+        blocchi.push(`<div class="gr rep">${DA_FARE[REPARTO]}<span>${miei.length} ${miei.length === 1 ? 'codice' : 'codici'}, ${tot} pz</span></div>` + miei.map(p => riga(p, false)).join(''));
       }
     }
     // per lamiera (materiale + spessore), poi tubi e assiemi: come si lavorano
     const gr = new Map();
     for (const p of resto) {
-      const k = p.tipo === 'assieme' ? '3|Assiemi' : p.tipo === 'tubolare' ? '2|Tubi' : `1|${testoMateriale(p.materiale) || 'Materiale ?'}${p.spessore_mm ? ' · ' + testoSpessore(p.spessore_mm) : ''}`;
+      const k = p.tipo === 'assieme' ? '3|Assiemi' : p.tipo === 'tubolare' ? '2|Tubi' : `1|${nomeMateriale(p.materiale)}${p.spessore_mm ? ' ' + testoSpessore(p.spessore_mm) : ''}`;
       if (!gr.has(k)) gr.set(k, []);
       gr.get(k).push(p);
     }
@@ -991,8 +936,8 @@ function mostraSchede(o) {
     [...gr.keys()].sort((a, b) => a.localeCompare(b, 'it', { numeric: true })).forEach(k => {
       const rr = gr.get(k);
       const tot = rr.reduce((s, p) => s + (Number(p.quantita) || 0), 0);
-      const tit = (spento ? 'Altri pezzi · ' : '') + k.split('|')[1];
-      blocchi.push(`<div class="gr">${esc(tit)}<span>${rr.length} ${rr.length === 1 ? 'codice' : 'codici'} · ${tot} pz</span></div>` + rr.map(p => riga(p, spento)).join(''));
+      const tit = (spento ? 'Altri pezzi: ' : '') + k.split('|')[1];
+      blocchi.push(`<div class="gr${spento ? ' altri' : ''}">${esc(tit)}<span>${rr.length} ${rr.length === 1 ? 'codice' : 'codici'}, ${tot} pz</span></div>` + rr.map(p => riga(p, spento)).join(''));
     });
     c.innerHTML = blocchi.join('');
   } else {
@@ -1004,26 +949,26 @@ function rigaPezzo(o, p, idx, spento) {
   const d = i != null ? disegniDi(o)[i] : null;
   const pi = (o.pezzi || []).indexOf(p);
   const mat = p.tipo === 'assieme' ? 'Assieme' : p.tipo === 'tubolare' ? esc(p.descrizione || 'Tubo')
-    : `${esc(testoMateriale(p.materiale) || 'Materiale ?')}${p.spessore_mm ? ' · ' + testoSpessore(p.spessore_mm) : ''}`;
+    : `${esc(nomeMateriale(p.materiale))}${p.spessore_mm ? ' ' + testoSpessore(p.spessore_mm) : ''}`;
   const lav = (p.lavorazioni || []).filter(l => !/^piegatura\b/i.test(l));
-  const chips = [
-    p.pieghe ? `<span class="lav pieghe">${p.pieghe} ${p.pieghe === 1 ? 'piega' : 'pieghe'}</span>` : '',
-    ...lav.map(l => `<span class="lav${(p.reparti || []).includes(REPARTO) && repartoDi(l) === REPARTO ? ' on' : ''}">${esc(testoLav(l))}</span>`),
-    !p.pieghe && !lav.length && p.tipo !== 'assieme' ? '<span class="lav solo">solo taglio</span>' : '',
+  const mio = l => (p.reparti || []).includes(REPARTO) && repartoDi(l) === REPARTO;
+  const parole = [
+    p.pieghe ? `<span class="${REPARTO === 'piega' ? 'on' : ''}">${p.pieghe} ${p.pieghe === 1 ? 'piega' : 'pieghe'}</span>` : '',
+    ...lav.map(l => `<span class="${mio(l) ? 'on' : ''}">${esc(testoLav(l))}</span>`),
+    !p.pieghe && !lav.length && p.tipo !== 'assieme' ? '<span class="solo">solo taglio</span>' : '',
     chipTaglio(p.taglio),
-    p.assieme ? `<span class="lav solo">· ${esc(p.assieme)}</span>` : '',
+    p.assieme ? `<span class="solo">assieme ${esc(p.assieme)}</span>` : '',
   ].join('');
   const az = [
-    d ? `<button onclick="apriDisegno(${i})">Disegno</button>` : '',
-    p.url_piega_3d ? `<button class="d3" onclick="vediPiega(${pi})">Vedi piegato in 3D</button>` : '',
-    p.url_step ? `<button class="d3" onclick="vediAssieme(${pi})">Vedi assieme in 3D</button>` : '',
+    p.url_piega_3d ? `<button class="ft-btn d3" onclick="vediPiega(${pi})">Vedi piegato in 3D</button>` : '',
+    p.url_step ? `<button class="ft-btn d3" onclick="vediAssieme(${pi})">Vedi assieme in 3D</button>` : '',
   ].join('');
   return `<div class="pz${spento ? ' spento' : ''}">
-    ${d ? `<button class="pz-img${d.svg ? '' : ' no'}" onclick="apriDisegno(${i})" aria-label="Apri il disegno">${d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'disegno<br>senza anteprima'}</button>`
+    ${d ? `<button class="pz-img${d.svg ? '' : ' no'}" onclick="apriDisegno(${i})" aria-label="Apri il disegno di ${esc(p.codice || '')}">${d.svg ? `<img src="${esc(d.svg)}" loading="lazy" alt="">` : 'disegno<br>senza anteprima'}</button>`
         : `<div class="pz-img no">${p.tipo === 'assieme' ? 'assieme' : 'senza<br>disegno'}</div>`}
-    <div style="min-width:0"><div class="pz-mat">${mat}</div><div class="pz-cod">${esc(p.codice || '—')}</div>
-      <div class="pz-lav">${chips}</div>${az ? `<div class="pz-az">${az}</div>` : ''}</div>
-    <div class="pz-q"><small>×</small>${esc(p.quantita ?? '?')}<em>${p.tipo === 'assieme' ? 'assiemi' : 'pezzi'}</em></div></div>`;
+    <div style="min-width:0"><div class="pz-cod">${esc(p.codice || '—')}</div><div class="pz-mat">${mat}</div>
+      <div class="pz-lav">${parole}</div>${az ? `<div class="pz-az">${az}</div>` : ''}</div>
+    <div class="pz-q">${esc(p.quantita ?? '?')}<em>${p.tipo === 'assieme' ? 'assiemi' : 'pezzi'}</em></div></div>`;
 }
 /** "Filettatura (4)" -> "4 filettature": sul pezzo il numero conta le
     lavorazioni, mentre il ×N sulle schede degli ordini conta i pezzi. */
@@ -1063,7 +1008,7 @@ function mostraDisegno() {
   img.onload = () => { adattaDisegno(); img.style.visibility = ''; };
   if (d.svg) img.src = d.svg; else img.removeAttribute('src');
   img.alt = 'Disegno ' + d.nome;
-  document.getElementById('vis-titolo').innerHTML = `${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}<small>${VIS.i + 1} di ${VIS.lista.length}</small>`;
+  document.getElementById('vis-titolo').innerHTML = `${esc(d.nome.replace(/\.(dxf|dwg)$/i, ''))}<small>disegno ${VIS.i + 1} di ${VIS.lista.length}</small>`;
   document.getElementById('vis-prec').disabled = VIS.i <= 0;
   document.getElementById('vis-succ').disabled = VIS.i >= VIS.lista.length - 1;
   document.getElementById('vis-aiuto').hidden = false;
@@ -1177,7 +1122,7 @@ async function vediPiega(i) {
   const o = ORDINI.find(x => x.id === APERTO);
   const p = o && (o.pezzi || [])[i];
   if (!p || !p.url_piega_3d) return;
-  apri3d(`${p.codice} · piegato`, '<div class="giro"></div><b>Costruisco il pezzo piegato…</b>Può volerci qualche secondo.');
+  apri3d(`${p.codice}, piegato`, '<div class="giro"></div><b>Costruisco il pezzo piegato…</b>Può volerci qualche secondo.');
   let m = null;
   try { const r = await fetch(API + p.url_piega_3d, { cache: 'no-store' }); m = r.ok ? await r.json() : null; } catch (_) { m = null; }
   if (document.getElementById('vis3d').hidden) return;      // chiuso nel frattempo
@@ -1185,7 +1130,7 @@ async function vediPiega(i) {
   // sbagliato in officina e' peggio di nessun piegato.
   if (!m || !m.success || !m.clean) {
     const idx = disegniDi(o).findIndex(d => d.nome.toLowerCase() === String(p.disegno || '').toLowerCase());
-    document.getElementById('d3-msg').innerHTML = `<b>Il 3D di questo pezzo non è affidabile</b>Le pieghe del disegno non si ricostruiscono bene in automatico: fa fede il disegno.${idx >= 0 ? `<br><button onclick="chiudi3d(); apriDisegno(${idx})">Apri il disegno</button>` : ''}`;
+    document.getElementById('d3-msg').innerHTML = `<b>Il 3D di questo pezzo non è affidabile</b>Le pieghe del disegno non si ricostruiscono bene in automatico: fa fede il disegno.${idx >= 0 ? `<br><button class="ft-btn" onclick="chiudi3d(); apriDisegno(${idx})">Apri il disegno</button>` : ''}`;
     return;
   }
   mostraFrame3d('/fold3d.html?' + new URLSearchParams({ embed: '1', src: p.url_piega_3d }).toString());
@@ -1194,7 +1139,7 @@ function vediAssieme(i) {
   const o = ORDINI.find(x => x.id === APERTO);
   const p = o && (o.pezzi || [])[i];
   if (!p || !p.url_step) return;
-  apri3d(`${p.codice} · assieme`, '');
+  apri3d(`${p.codice}, assieme`, '');
   mostraFrame3d('/preview-step.html?' + new URLSearchParams({ url: API + p.url_step, name: p.codice, embed: '1' }).toString());
 }
 function apri3d(titolo, msg) {
@@ -1312,16 +1257,16 @@ function disegnaSegnala() {
   const codici = [...new Set((o.pezzi || []).map(p => p.codice).filter(Boolean))];
   document.getElementById('sg-box').innerHTML = `
     <h3 id="sg-t">Segnala un problema</h3>
-    <p class="sotto">${esc(o.cliente || '')} · ordine #${esc(numero(o))} — arriva subito all'ufficio.</p>
+    <p class="sotto">${esc(o.cliente || '')}, ordine ${esc(numero(o))}. Arriva subito all'ufficio.</p>
     <div class="scelte">${TIPI.map(([k, t]) => `<button class="scelta${SG.tipo === k ? ' on' : ''}" onclick="sgTipo('${k}')">${t}</button>`).join('')}</div>
     ${codici.length ? `<div class="tit2">Quale pezzo? (se riguarda un pezzo)</div>
-      <div class="pezzi-sc"><button class="${SG.pezzo ? '' : 'on'}" onclick="sgPezzo('')">Tutto l'ordine</button>${codici.map(c => `<button class="${SG.pezzo === c ? 'on' : ''}" onclick="sgPezzo(${esc(JSON.stringify(c))})">${esc(c)}</button>`).join('')}</div>` : ''}
+      <div class="pezzi-sc"><button class="tutto${SG.pezzo ? '' : ' on'}" onclick="sgPezzo('')">Tutto l'ordine</button>${codici.map(c => `<button class="${SG.pezzo === c ? 'on' : ''}" onclick="sgPezzo(${esc(JSON.stringify(c))})">${esc(c)}</button>`).join('')}</div>` : ''}
     <div class="tit2">Nota ${SG.tipo === 'altro' ? '(scrivi cosa succede)' : '(facoltativa)'}</div>
     <textarea id="sg-nota" maxlength="300" placeholder="Due parole per l'ufficio" oninput="SG.nota = this.value; document.getElementById('sg-car').textContent = this.value.length + ' / 300'">${esc(SG.nota)}</textarea>
     <div class="conta-car" id="sg-car">${SG.nota.length} / 300</div>
-    ${SG.errore ? `<div class="errore">${esc(SG.errore)}</div>` : ''}
-    <div class="dlg-az"><button onclick="chiudiSegnala()">Annulla</button>
-      <button class="si" id="sg-invia" onclick="inviaSegnala()" ${SG.tipo && !SG.invio ? '' : 'disabled'}>${SG.invio ? 'Invio…' : 'Invia all’ufficio'}</button></div>`;
+    ${SG.errore ? `<div class="ft-alert err errore">${esc(SG.errore)}</div>` : ''}
+    <div class="dlg-az"><button class="ft-btn" onclick="chiudiSegnala()">Annulla</button>
+      <button class="ft-btn primary si" id="sg-invia" onclick="inviaSegnala()" ${SG.tipo && !SG.invio ? '' : 'disabled'}>${SG.invio ? 'Invio…' : 'Invia all’ufficio'}</button></div>`;
 }
 function sgTipo(k) { SG.tipo = k; SG.errore = ''; disegnaSegnala(); }
 function sgPezzo(c) { SG.pezzo = c; disegnaSegnala(); }
@@ -1342,10 +1287,10 @@ async function inviaSegnala() {
     SG.errore = r ? (d.error || 'Non sono riuscito a inviarlo.') : 'Il server non risponde: controlla la rete e riprova.';
     disegnaSegnala(); return;
   }
-  document.getElementById('sg-box').innerHTML = `<div class="fatto"><div class="ok"><svg viewBox="0 0 52 52" aria-hidden="true"><path d="M15 27.5l7.5 7.5L38 18.5"/></svg></div>
+  document.getElementById('sg-box').innerHTML = `<div class="fatto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>
     <b>${d.gia_segnalato ? 'Già segnalato' : 'Segnalato all’ufficio'}</b>
     <p>${d.gia_segnalato ? 'Lo stesso problema è arrivato pochi minuti fa: l’ufficio lo sa già.' : 'L’ufficio ha ricevuto l’avviso.'}</p>
-    <div class="dlg-az" style="justify-content:center"><button onclick="chiudiSegnala()">Chiudi</button></div></div>`;
+    <div class="dlg-az" style="justify-content:center"><button class="ft-btn" onclick="chiudiSegnala()">Chiudi</button></div></div>`;
   setTimeout(() => { if (SG && !document.getElementById('dlg-segnala').hidden) chiudiSegnala(); }, 5000);
   carica();     // compare subito fra le segnalazioni di oggi
 }

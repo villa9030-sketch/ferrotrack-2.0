@@ -9,250 +9,138 @@
 <script src="/ft-ui.js"></script>
 <style>
   /* Timbratrice: il tablet dove ognuno dichiara le sue ore.
-     La base (colori, caratteri, testata, effetti) e' ft-ui.css, la stessa del
-     preventivatore; qui ci sono solo le misure grandi per le dita e per
-     leggere da un paio di metri. */
-  body.ft{
-    --ft-topbar-h:68px; --touch:64px;
-    font-size:16px; line-height:1.45;
-    -webkit-tap-highlight-color:transparent;
-    -webkit-user-select:none; user-select:none;
-  }
+     16/10/2026, regole "meno AI" (reports/Design FerroTrack meno AI.md):
+     stessi token delle stazioni (ft-ui.css), base 16, barra comune dei
+     tablet (.ftt-barra). Un processo per schermata: 1) tocca il tuo nome,
+     2) metti le ore e Salva. Righe in un pannello al posto delle card;
+     lo stato normale ("Giornata completa") non ha colore, l'ambra dice solo
+     cosa manca. Bersagli da 56 px: si usa coi guanti. Niente entrate in
+     sequenza, numeri che scorrono, vetro smerigliato, ombre sotto i pannelli. */
+  body.ft{ --touch:56px; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
   .wrap{max-width:1200px; margin:0 auto; padding:calc(var(--ft-topbar-h) + 24px) 24px 132px}
-  section[id^="vista-"]{animation:ftIn .24s var(--ft-ease)}
 
-  /* ---- Testata ---- */
-  .or-topbar{gap:18px}
-  .or-topbar .ft-brand-name{font-size:16px}
-  .or-topbar .ft-brand-area{font-size:12px}
-  .or-logo{width:44px; height:44px; border-radius:11px; font-size:16px}
-  .or-titolo{margin:0; padding-left:18px; border-left:1px solid var(--ft-line);
-    font:600 20px var(--ft-font); white-space:nowrap}
-  .or-oggi{font:600 20px var(--ft-font); color:var(--ft-ink-2); white-space:nowrap}
-  .chip-persona{
-    display:inline-flex; align-items:center; height:46px; padding:0 20px; border-radius:999px;
-    background:var(--ft-accent); color:#fff; font-weight:600; font-size:16px; white-space:nowrap;
-    box-shadow:0 6px 18px rgba(79,70,229,.24); animation:ftPop .22s var(--ft-ease);
-  }
+  /* ---- Barra ---- */
+  .chip-persona{font:600 18px var(--ft-font); color:var(--ft-ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:280px}
+  .or-oggi{font:600 18px var(--ft-font); color:var(--ft-ink-2); white-space:nowrap}
 
-  h2{font:600 20px/1.15 var(--ft-font); margin:28px 0 6px; color:var(--ft-ink)}
+  h2{font:600 24px/1.2 var(--ft-font); margin:32px 0 8px; color:var(--ft-ink)}
   section > h2:first-child, .msg[hidden] + h2, .testa-bacheca h2{margin-top:0}
-  .hint{color:var(--ft-ink-3); font-size:16px; margin:4px 0 20px}
+  .hint{color:var(--ft-ink-3); font-size:16px; margin:8px 0 16px}
   .hint a{color:var(--ft-accent); font-weight:600}
 
-  /* ---- Pulsanti grandi (clienti) ---- */
-  .griglia{display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
-  .btn-grande{
-    min-height:84px; background:var(--ft-panel); border:1px solid var(--ft-line);
-    border-radius:var(--ft-r-xl); font:600 20px/1.25 var(--ft-font); color:var(--ft-ink);
-    cursor:pointer; padding:16px; display:flex; align-items:center; justify-content:center;
-    text-align:center; box-shadow:var(--ft-elev-1);
-    transition:border-color .15s, box-shadow .2s, transform .1s var(--ft-ease);
-  }
-  .btn-grande:hover{border-color:#CBD2DC; box-shadow:var(--ft-elev-2)}
-  .btn-grande:active{transform:scale(.985); background:var(--ft-hover)}
-  .btn-grande.interna{background:var(--ft-accent-bg); border-color:#C7D2FE; color:var(--ft-accent-ink); font-weight:600}
+  /* ---- Bacheca della giornata (schermata fissa della timbratrice) ---- */
+  .testa-bacheca{display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:12px}
+  .testa-bacheca .agg{font-size:14px; color:var(--ft-ink-3)}
+  .adesso-ore{margin-bottom:16px; font-size:18px; min-height:56px}
+  /* le persone: righe in un pannello solo, due colonne se c'e' posto */
+  .bacheca{display:grid; grid-template-columns:repeat(auto-fill,minmax(440px,1fr)); background:var(--ft-panel);
+    border:1px solid var(--ft-line); border-radius:var(--ft-r-l); overflow:hidden}
+  .persona{display:grid; grid-template-columns:40px minmax(0,1fr) auto; gap:4px 12px; align-items:center; align-content:center; width:100%; min-height:80px;
+    padding:12px 20px; border:0; border-bottom:1px solid var(--ft-line-2); border-right:1px solid var(--ft-line-2);
+    background:var(--ft-panel); text-align:left; cursor:pointer; font:inherit; color:inherit}
+  .persona:active{background:var(--ft-g2)}
+  .persona .av{grid-row:1 / span 2; width:40px; height:40px; border-radius:50%; display:grid; place-items:center;
+    background:var(--ft-g4); color:var(--ft-ink-2); font:600 14px var(--ft-font)}
+  .persona .nome{min-width:0; font:600 18px/1.25 var(--ft-font); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .persona .ore{font:600 20px var(--ft-font); color:var(--ft-ink); white-space:nowrap; text-align:right}
+  .persona .stato{grid-column:2 / -1; font-size:15px; color:var(--ft-ink-3)}
+  .persona .stato.corta, .persona.mancante .stato{color:var(--ft-warn); font-weight:600}
+  .persona .clienti{grid-column:2 / -1; font-size:15px; color:var(--ft-ink-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 
   /* ---- Righe ore ---- */
-  .riga{
-    background:var(--ft-panel); border:1px solid var(--ft-line); border-radius:var(--ft-r-xl);
-    padding:14px 16px 14px 22px; margin-bottom:10px; display:flex; align-items:center; gap:16px;
-    flex-wrap:wrap; box-shadow:var(--ft-elev-1);
-  }
-  .riga.interna{background:#FAFAFF; border-color:#C7D2FE; box-shadow:inset 4px 0 0 var(--ft-accent), var(--ft-elev-1)}
-  .riga .nome{flex:1; min-width:180px; font:600 20px/1.25 var(--ft-font);}
-  .riga .nome .tag{
-    display:inline-flex; align-items:center; height:24px; padding:0 9px; margin-left:10px; vertical-align:middle;
-    border-radius:6px; background:var(--ft-accent-bg); color:var(--ft-accent-ink);
-    font:600 12px var(--ft-font); letter-spacing:0;
-  }
-  .stepper{display:flex; align-items:center; gap:10px}
-  .step-btn{
-    width:var(--touch); height:var(--touch); border-radius:12px; border:1px solid var(--ft-line);
-    background:var(--ft-panel); font:400 20px/1 var(--ft-font); cursor:pointer; color:var(--ft-ink);
-    display:flex; align-items:center; justify-content:center; padding:0;
-    box-shadow:var(--ft-elev-1); transition:transform .08s, border-color .15s, background .15s;
-  }
-  .step-btn:hover{border-color:#CBD2DC}
-  .step-btn:active{transform:scale(.94); background:var(--ft-line-2)}
-  .step-btn:disabled{opacity:.35; cursor:default; transform:none}
-  .valore{min-width:112px; text-align:center; font:600 34px var(--ft-font);}
-  .valore .u{font:600 16px var(--ft-font); color:var(--ft-ink-3); margin-left:3px; letter-spacing:0}
-  .rimuovi{
-    min-width:56px; height:56px; border-radius:12px; border:1px solid var(--ft-line); padding:0;
-    background:var(--ft-panel); color:var(--ft-err); font-size:20px; cursor:pointer;
-    transition:background .15s, border-color .15s;
-  }
-  .rimuovi:hover, .rimuovi:active{border-color:var(--ft-err-line); background:var(--ft-err-bg)}
+  #righe{background:var(--ft-panel); border:1px solid var(--ft-line); border-radius:var(--ft-r-l); overflow:hidden}
+  #righe:has(.vuoto){border:0; background:none}
+  .riga{display:flex; align-items:center; gap:16px; flex-wrap:wrap; min-height:88px; padding:12px 16px 12px 20px; border-bottom:1px solid var(--ft-line-2)}
+  .riga:last-child{border-bottom:0}
+  .riga.interna{background:var(--ft-g2)}
+  .riga .nome{flex:1; min-width:180px; font:600 20px/1.25 var(--ft-font)}
+  .riga .nome .tag{margin-left:12px; font:400 15px var(--ft-font); color:var(--ft-ink-3)}
+  .stepper{display:flex; align-items:center; gap:8px}
+  .step-btn{width:var(--touch); height:var(--touch); border-radius:var(--ft-r-m); border:1px solid var(--ft-line-3);
+    background:var(--ft-panel); font:400 28px/1 var(--ft-font); color:var(--ft-ink); display:grid; place-items:center; padding:0; cursor:pointer}
+  .step-btn:active{background:var(--ft-g3)}
+  .step-btn:disabled{opacity:.35; cursor:default}
+  .valore{min-width:104px; text-align:center; font:600 32px var(--ft-font)}
+  .valore .u{font:400 16px var(--ft-font); color:var(--ft-ink-3); margin-left:4px}
+  .rimuovi{height:var(--touch); padding:0 16px; border-radius:var(--ft-r-m); border:1px solid var(--ft-line-3);
+    background:var(--ft-panel); color:var(--ft-err); font:600 16px var(--ft-font); cursor:pointer}
+  .rimuovi:active{background:var(--ft-err-bg)}
+
+  /* ---- Clienti da aggiungere ---- */
+  .griglia{display:grid; gap:8px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .btn-grande{min-height:64px; padding:12px 16px; border:1px solid var(--ft-line-3); border-radius:var(--ft-r-m); background:var(--ft-panel);
+    font:600 18px/1.25 var(--ft-font); color:var(--ft-ink); text-align:left; cursor:pointer}
+  .btn-grande:active{background:var(--ft-g3)}
+  .btn-grande.interna{background:var(--ft-g3); border-color:var(--ft-line-3)}
+  .cerca{width:100%; height:56px; font:400 18px var(--ft-font); padding:0 16px; color:var(--ft-ink); margin-bottom:12px;
+    border:1px solid var(--ft-line-3); border-radius:var(--ft-r-m); background:var(--ft-panel); outline:0; -webkit-user-select:text; user-select:text}
+  .cerca::placeholder{color:var(--ft-ink-3)}
+  .cerca:focus{border-color:var(--ft-accent); outline:1px solid var(--ft-accent)}
 
   /* ---- Totale + salva (barra fissa) ---- */
-  .barra{
-    position:fixed; left:0; right:0; bottom:0; z-index:30;
-    display:flex; align-items:center; gap:16px; padding:14px 24px;
-    padding-bottom:calc(14px + env(safe-area-inset-bottom));
-    background:rgba(255,255,255,.9); border-top:1px solid var(--ft-line);
-    backdrop-filter:blur(24px) saturate(180%); -webkit-backdrop-filter:blur(24px) saturate(180%);
-    box-shadow:0 -8px 24px rgba(15,23,42,.06); animation:ftSale .26s var(--ft-ease);
-  }
-  .totale{flex:1; font:600 20px var(--ft-font); color:var(--ft-ink-2)}
-  .totale span{font-size:36px; font-weight:600; color:var(--ft-ink)}
-  .obiettivo{font:600 14px var(--ft-font); margin-top:2px; letter-spacing:0; color:var(--ft-ink-3)}
-  .obiettivo.manca{color:var(--ft-warn)}
-  .obiettivo.ok{color:var(--ft-ok)}
-  .obiettivo.oltre{color:var(--ft-accent-ink)}
-  .btn-salva{
-    min-height:var(--touch); padding:0 44px; border-radius:12px; border:1px solid var(--ft-accent);
-    background:var(--ft-accent); color:#fff; font:600 20px var(--ft-font); cursor:pointer;
-    box-shadow:0 6px 20px rgba(79,70,229,.28);
-    transition:transform .08s, box-shadow .15s, background .15s;
-  }
-  .btn-salva:hover{background:var(--ft-accent-hover)}
-  .btn-salva:active{transform:translateY(1px)}
-  .btn-salva:disabled{background:var(--ft-ink-4); border-color:var(--ft-ink-4); box-shadow:none; cursor:default}
-  .btn-sec{
-    min-height:var(--touch); padding:0 26px; border-radius:12px;
-    border:1px solid var(--ft-line); background:var(--ft-panel); color:var(--ft-ink);
-    font:600 16px var(--ft-font); cursor:pointer; box-shadow:var(--ft-elev-1);
-    transition:background .15s, border-color .15s;
-  }
-  .btn-sec:hover{background:#FAFBFC; border-color:#CBD2DC}
+  .barra{position:fixed; left:0; right:0; bottom:0; z-index:30; display:flex; align-items:center; gap:16px; padding:12px 24px;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom)); background:var(--ft-panel); border-top:1px solid var(--ft-line-3)}
+  .totale{flex:1; min-width:0; font-size:18px; color:var(--ft-ink-2)}
+  .totale span{font:600 32px var(--ft-font); color:var(--ft-ink)}
+  .obiettivo{font-size:15px; margin-top:2px; color:var(--ft-ink-3)}
+  .obiettivo.manca, .obiettivo.oltre{color:var(--ft-warn); font-weight:600}
+  .btn-salva, .btn-sec{height:var(--touch); padding:0 24px; border-radius:var(--ft-r-m); font:600 18px var(--ft-font); cursor:pointer}
+  .btn-salva{min-width:200px; border:1px solid var(--ft-accent); background:var(--ft-accent); color:#fff}
+  .btn-salva:active{background:var(--ft-accent-hover)}
+  .btn-salva:disabled{opacity:.5; cursor:default}
+  .btn-sec{border:1px solid var(--ft-line-3); background:var(--ft-panel); color:var(--ft-ink)}
+  .btn-sec:active{background:var(--ft-g3)}
 
   /* ---- Messaggi ---- */
-  .msg{padding:15px 18px; border-radius:12px; border:1px solid var(--ft-line); font-size:16px; font-weight:400;
-       line-height:1.5; margin:14px 0; display:none; animation:ftIn .22s var(--ft-ease)}
-  .msg.ok{background:var(--ft-ok-bg); border-color:var(--ft-ok-line); color:#05603A; display:block}
-  .msg.err{background:var(--ft-err-bg); border-color:var(--ft-err-line); color:#912018; display:block}
-  .msg.warn{background:var(--ft-warn-bg); border-color:var(--ft-warn-line); color:#93370D; display:block}
-  .msg .azioni{margin-top:12px; display:flex; gap:10px}
+  .msg{padding:12px 16px; border-radius:var(--ft-r-l); border:1px solid var(--ft-line); font-size:16px; line-height:1.5; margin:0 0 16px; display:none}
+  .msg.ok{background:var(--ft-ok-bg); border-color:var(--ft-ok-line); color:#14573A; display:block}
+  .msg.err{background:var(--ft-err-bg); border-color:var(--ft-err-line); color:#8E1C20; display:block}
+  .msg.warn{background:var(--ft-warn-bg); border-color:var(--ft-warn-line); color:#6E4205; display:block}
+  .msg .azioni{margin-top:12px; display:flex; gap:8px}
 
-  /* ---- Finestre: conferma delle ore e "Salvato" ---- */
-  .toast{
-    position:fixed; inset:0; z-index:2000; display:none; align-items:center; justify-content:center; padding:24px;
-    background:rgba(11,18,32,.42); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
-  }
-  .toast.on{display:flex; animation:ftFade .16s ease-out}
-  .toast .box{
-    background:var(--ft-panel); border-radius:18px; padding:40px 56px; text-align:center;
-    box-shadow:var(--ft-elev-3); animation:ftPop .22s var(--ft-ease);
-  }
-  .toast .box.chiedi-box{max-width:560px; padding:28px 30px 24px; text-align:left}
-  .chiedi-tit{font:600 20px/1.2 var(--ft-font); margin-bottom:10px}
-  .chiedi-txt{font-size:20px; color:var(--ft-ink-2); line-height:1.5}
-  .chiedi-az{display:flex; gap:12px; margin-top:26px}
+  /* ---- Finestre: conferma delle ore e "Salvato" (stanno sopra: ombra) ---- */
+  .toast{position:fixed; inset:0; z-index:2000; display:none; align-items:center; justify-content:center; padding:24px; background:rgba(28,32,38,.4)}
+  .toast.on{display:flex}
+  .toast .box{background:var(--ft-panel); border-radius:var(--ft-r-l); padding:32px 48px; text-align:center; box-shadow:var(--ft-elev-3)}
+  .toast .box.chiedi-box{max-width:560px; padding:24px; text-align:left}
+  .chiedi-tit{font:600 24px/1.2 var(--ft-font); margin-bottom:8px}
+  .chiedi-txt{font-size:18px; color:var(--ft-ink-2); line-height:1.5}
+  .chiedi-az{display:flex; gap:8px; margin-top:24px}
   .chiedi-az > button{flex:1}
-  .chiedi-az .btn-salva{padding:0 20px; font-size:20px}
-  /* il cerchio verde entra e la spunta si disegna */
-  .toast .segno{width:92px; height:92px; margin:0 auto; border-radius:50%; background:var(--ft-ok-dot);
-    display:grid; place-items:center; animation:ftPop .3s var(--ft-ease) both, ftOk 1.4s ease-out .2s}
-  .toast .segno svg{width:50px; height:50px}
-  .toast .segno path{fill:none; stroke:#fff; stroke-width:5; stroke-linecap:round; stroke-linejoin:round;
-    stroke-dasharray:40; stroke-dashoffset:40; animation:ftTraccia .4s var(--ft-ease) .18s forwards}
-  .toast .txt{font:600 20px var(--ft-font); margin-top:16px;}
-  .toast .sub{font-size:16px; color:var(--ft-ink-3); margin-top:4px}
+  .toast .segno{width:56px; height:56px; margin:0 auto; color:var(--ft-ok)}
+  .toast .txt{font:600 24px var(--ft-font); margin-top:8px}
+  .toast .sub{font-size:18px; color:var(--ft-ink-3); margin-top:4px}
 
-  /* ---- Bacheca della giornata (schermata fissa della timbratrice) ---- */
-  .testa-bacheca{display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap}
-  .testa-bacheca .agg{display:inline-flex; align-items:center; gap:7px; font-size:14px; color:var(--ft-ink-3); font-weight:400}
-  .testa-bacheca .agg:not(:empty)::before{content:''; width:8px; height:8px; border-radius:50%;
-    background:var(--ft-ok-dot); box-shadow:0 0 0 3px rgba(16,185,129,.15)}
-  .bacheca{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px}
+  .vuoto{color:var(--ft-ink-3); font-size:16px; padding:24px; text-align:center; background:var(--ft-panel); border:1px solid var(--ft-line); border-radius:var(--ft-r-l)}
 
-  .persona{
-    position:relative; display:flex; flex-direction:column; align-items:stretch;
-    justify-content:flex-start; width:100%; text-align:left; cursor:pointer; font:inherit; color:inherit;
-    background:var(--ft-panel); border:1px solid var(--ft-line); border-radius:16px;
-    padding:18px 20px 18px 26px; min-height:var(--touch); overflow:hidden;
-    box-shadow:var(--ft-elev-1); transition:border-color .15s, box-shadow .2s, transform .2s var(--ft-ease);
-  }
-  /* filetto verticale colorato: lo stato si legge da lontano, anche di sbieco */
-  .persona::before{content:''; position:absolute; left:0; top:0; bottom:0; width:6px; background:var(--ft-line)}
-  .persona:hover{border-color:#CBD2DC; box-shadow:var(--ft-elev-2); transform:translateY(-2px)}
-  .persona:active{transform:scale(.99)}
-  .persona.mancante{background:#FFFDF7; border-color:var(--ft-warn-line)}
-  .persona.mancante::before{background:var(--ft-warn-dot)}
-  .persona.completa::before{background:var(--ft-ok-dot)}
-  .persona .riga1{display:flex; align-items:center; gap:12px}
-  .persona .av{flex:none; width:40px; height:40px; border-radius:50%; display:grid; place-items:center;
-    background:var(--ft-line-2); color:var(--ft-ink-2); font:600 14px var(--ft-font)}
-  .persona.completa .av{background:var(--ft-ok-bg); color:var(--ft-ok)}
-  .persona.mancante .av{background:var(--ft-warn-bg); color:var(--ft-warn)}
-  .persona .nome{flex:1; min-width:0; font:600 20px/1.2 var(--ft-font);
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .persona .ore{font:600 20px var(--ft-font); color:var(--ft-ink); white-space:nowrap;}
-  .persona.mancante .ore{color:var(--ft-warn); font:600 13px var(--ft-font); text-transform: none;
-    padding:5px 10px; border-radius:7px; background:var(--ft-warn-bg); border:1px solid var(--ft-warn-line)}
-  .persona .stato{font-size:14px; font-weight:600; margin-top:8px; color:var(--ft-ink-3)}
-  .persona.mancante .stato{color:var(--ft-warn)}
-  .persona.completa .stato{color:var(--ft-ok)}
-  .persona .stato.corta{color:var(--ft-warn)}
-  .persona .clienti{
-    margin-top:12px; padding-top:12px; border-top:1px solid var(--ft-line-2);
-    font-size:16px; color:var(--ft-ink-2); line-height:1.75;
-  }
-  .persona .clienti div{display:flex; justify-content:space-between; gap:14px}
-  .persona .clienti span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .persona .clienti b{color:var(--ft-ink); font-weight:600; white-space:nowrap}
-
-  .cerca{
-    width:100%; height:58px; font:400 16px var(--ft-font); padding:0 18px; color:var(--ft-ink);
-    border:1px solid var(--ft-line); border-radius:12px; margin-bottom:16px;
-    background:var(--ft-panel); box-shadow:var(--ft-elev-1); outline:0;
-    transition:border-color .15s, box-shadow .15s;
-    -webkit-user-select:text; user-select:text;
-  }
-  .cerca::placeholder{color:var(--ft-ink-4)}
-  .cerca:focus{border-color:var(--ft-accent); box-shadow:0 0 0 4px var(--ft-accent-glow)}
-
-  .vuoto{color:var(--ft-ink-3); font-size:16px; padding:30px; text-align:center;
-         background:var(--ft-panel); border:1.5px dashed var(--ft-line); border-radius:var(--ft-r-xl)}
-
-  @media (max-width:720px){
-    .or-titolo{padding-left:0; border-left:0; font-size:20px}
-  }
-  @media (max-width:520px){
-    .wrap{padding:calc(var(--ft-topbar-h) + 14px) 14px 132px}
-    .or-oggi{display:none}
-    .griglia,.bacheca{grid-template-columns:1fr}
-    .riga .nome{min-width:100%}
-    .totale{font-size:16px}
-    .totale span{font-size:20px}
-    .btn-salva{padding:0 26px; font-size:20px}
-  }
   /* uscita dalla timbratrice: discreta, in fondo alla bacheca */
-  .piede-disp{margin-top:28px; text-align:center}
-  .btn-disp{background:none; border:0; color:var(--ft-ink-4, #98A2B3); font:400 14px var(--ft-font);
-    padding:12px 18px; border-radius:10px; cursor:pointer; text-decoration:underline; text-underline-offset:3px}
-  .btn-disp:hover{color:var(--ft-ink-2, #3A4556); background:rgba(0,0,0,.04)}
+  .piede-disp{margin-top:24px; text-align:center}
+  .btn-disp{min-height:48px; padding:0 16px; background:none; border:0; color:var(--ft-ink-3); font:400 15px var(--ft-font);
+    border-radius:var(--ft-r-m); cursor:pointer; text-decoration:underline; text-underline-offset:3px}
+  .btn-disp:active{background:var(--ft-g3)}
 
-  /* 16/10/2026, regole "meno AI": niente filetto colorato, niente alzata,
-     niente puntino verde quando va tutto bene. Lo stato e' la parola sotto
-     il nome (ambra se mancano ore, verde se fatto). */
-  .testa-bacheca .agg:not(:empty)::before{content:none}
-  .persona{border-radius:8px; padding:16px 20px; box-shadow:none; transition:border-color .15s}
-  .persona::before{content:none}
-  .persona:hover{border-color:var(--ft-g8); box-shadow:none; transform:none}
-  .persona.mancante{background:var(--ft-panel)}
-  .persona.completa .av, .persona.mancante .av{background:var(--ft-line-2); color:var(--ft-ink-2)}
-  .persona.mancante .ore{padding:2px 8px; border-radius:4px; border:0}
-  .cerca{border-radius:6px; box-shadow:none}
-  .cerca:focus{box-shadow:none; outline:2px solid var(--ft-accent); outline-offset:-1px}
-  .vuoto{border:1px solid var(--ft-line); border-radius:8px}
+  @media (max-width:899px){
+    .chip-persona{display:none}
+    .bacheca{grid-template-columns:1fr}
+    .persona{border-right:0}
+  }
+  @media (max-width:640px){
+    .wrap{padding:calc(var(--ft-topbar-h) + 16px) 16px 132px}
+    .or-oggi{display:none}
+    .riga .nome{min-width:100%}
+    .btn-salva{min-width:0}
+  }
 </style>
 </head>
 <body class="ft ft-touch">
 
-<header class="ft-topbar or-topbar">
-  <div class="ft-brand">
-    <div class="ft-logo or-logo">LS</div>
-    <span>
-      <div class="ft-brand-name">FerroTrack</div>
-      <div class="ft-brand-area">Timbratrice</div>
-    </span>
-  </div>
-  <h1 class="or-titolo">Ore di lavoro</h1>
+<header class="ft-topbar ftt-barra">
+  <div class="ftt-logo">LS</div>
+  <div class="ftt-stazione"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><b>Timbratrice</b></div>
+  <div class="ftt-dove">Ore di lavoro</div>
   <div class="ft-topbar-end">
-    <div class="or-oggi" id="oggi">—</div>
     <div class="chip-persona" id="chip-persona" hidden></div>
+    <div class="or-oggi" id="oggi">—</div>
   </div>
 </header>
 
@@ -267,7 +155,7 @@
     <input class="cerca" id="in-token" type="password" placeholder="Codice dispositivo"
            autocomplete="off" aria-label="Codice dispositivo">
     <div class="msg err" id="msg-config" hidden></div>
-    <button class="btn-salva" style="width:100%" onclick="salvaToken()">Abilita dispositivo</button>
+    <button class="btn-salva" style="width:100%" onclick="salvaToken()">Abilita il tablet</button>
   </section>
 
   <!-- ============ 1. BACHECA DELLA GIORNATA ============ -->
@@ -276,13 +164,13 @@
       <h2>Ore di oggi</h2>
       <div class="agg" id="bacheca-agg"></div>
     </div>
-    <p class="hint">Tocca il tuo nome per registrare o correggere le tue ore.</p>
+    <div class="ft-adesso adesso-ore" id="adesso-ore">Tocca il tuo nome per registrare o correggere le tue ore.</div>
     <div class="bacheca" id="griglia-operai"></div>
     <p class="hint">Manca qualcuno? Le persone le aggiunge l'ufficio.</p>
     <div class="msg err" id="msg-nome" hidden></div>
     <!-- Uscire dalla timbratrice (usare questo dispositivo per altro): serve il
          PIN dell'amministratore, quindi dal tablet in officina non si cambia
-         niente per sbaglio. Prima mancava: una volta registrato non si usciva. -->
+         niente per sbaglio. -->
     <div class="piede-disp">
       <button type="button" class="btn-disp" onclick="FTA.cambiaDispositivo()">Impostazioni del tablet</button>
     </div>
@@ -295,9 +183,9 @@
     <h2 id="titolo-giornata">La tua giornata</h2>
     <div id="righe"></div>
 
-    <h2>Aggiungi cliente</h2>
-    <input class="cerca" id="cerca-cliente" placeholder="Cerca cliente (facoltativo)"
-           oninput="filtraClienti()" aria-label="Cerca cliente">
+    <h2>Aggiungi un cliente</h2>
+    <input class="cerca" id="cerca-cliente" placeholder="Cerca il cliente"
+           oninput="filtraClienti()" aria-label="Cerca il cliente">
     <div class="griglia" id="griglia-clienti"></div>
   </section>
 </div>
@@ -306,7 +194,7 @@
 <div class="barra" id="barra" hidden>
   <button class="btn-sec" onclick="tornaAiNomi()">Indietro</button>
   <div class="totale">
-    <div>Totale: <span id="totale">0</span> h</div>
+    <div>Totale <span id="totale">0</span> h</div>
     <div class="obiettivo" id="obiettivo"></div>
   </div>
   <button class="btn-salva" id="btn-salva" onclick="salva()">Salva</button>
@@ -327,7 +215,7 @@
 <!-- ============ CONFERMA ============ -->
 <div class="toast" id="toast" role="status">
   <div class="box">
-    <div class="segno"><svg viewBox="0 0 52 52" aria-hidden="true"><path d="M15 27.5l7.5 7.5L38 18.5"/></svg></div>
+    <svg class="segno" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>
     <div class="txt">Salvato</div>
     <div class="sub" id="toast-sub"></div>
   </div>
@@ -472,7 +360,6 @@ function renderOperai() {
                 + "Le persone le aggiunge l'ufficio.</div>";
     return;
   }
-  const conta = [];
   g.innerHTML = OPERAI.map(o => {
     const dich = !!o.dichiarata;
     const tot = o.totale_minuti || 0;
@@ -483,11 +370,10 @@ function renderOperai() {
     let cls = '', stato = '', ore = '';
     if (!dich) {
       cls = 'mancante';
-      stato = attesi === null ? 'Da registrare' : 'Non ha ancora registrato';
-      ore = 'da fare';
+      stato = 'Non ha ancora registrato';
+      ore = '';
     } else {
       ore = oreTesto(tot) + ' h';
-      conta.push([o.id, tot]);
       if (attesi !== null && tot < attesi) {
         cls = 'completa';
         stato = `mancano ${oreTesto(attesi - tot)} h sulle ${oreTesto(attesi)} dovute`
@@ -503,34 +389,37 @@ function renderOperai() {
 
     const righe = (o.righe || []).map(r => {
       const nome = r.attivita_interna ? ETICHETTA_INTERNA() : (r.cliente || '');
-      return `<div><span>${esc(nome)}</span><b>${oreTesto(r.minuti)} h</b></div>`;
-    }).join('');
+      return `${esc(nome)} ${oreTesto(r.minuti)} h`;
+    }).join(', ');
 
     return `
       <button class="persona ${cls}" data-op="${esc(o.id)}" onclick="scegliOperaio(${esc(JSON.stringify(o.id))})">
-        <div class="riga1">
-          <span class="av" aria-hidden="true">${esc(FT.iniziali(o.nome))}</span>
-          <span class="nome">${esc(o.nome)}</span>
-          <span class="ore">${ore}</span>
-        </div>
-        <div class="stato ${cls === 'completa' && attesi !== null && tot !== attesi ? 'corta' : ''}">${stato}</div>
-        ${righe ? `<div class="clienti">${righe}</div>` : ''}
+        <span class="av" aria-hidden="true">${esc(FT.iniziali(o.nome))}</span>
+        <span class="nome">${esc(o.nome)}</span>
+        <span class="ore">${ore}</span>
+        <span class="stato ${cls === 'completa' && attesi !== null && tot < attesi ? 'corta' : ''}">${stato}</span>
+        ${righe ? `<span class="clienti">${righe}</span>` : ''}
       </button>`;
   }).join('');
 
   // Effetti, solo quando succede qualcosa: al primo disegno le schede entrano
   // in sequenza e le ore salgono; poi chi compare si illumina, chi ha appena
   // salvato lampeggia di verde e le sue ore scorrono al valore nuovo.
+  // Niente entrate in sequenza ne' ore che scorrono: chi compare, o chi ha
+  // appena salvato, si illumina un attimo (risposta a un fatto).
   const scheda = id => g.querySelector(`[data-op="${CSS.escape(id)}"]`);
-  conta.forEach(([id, tot]) => {
-    const el = scheda(id); if (!el) return;
-    const h = tot / 60;
-    FT.contaDa('ore-' + id, el.querySelector('.ore'), h, { dec: Number.isInteger(h) ? 0 : 1, suffisso: ' h' });
-  });
-  if (VISTI === null) FT.sequenza(g);
-  else OPERAI.filter(o => !VISTI.has(o.id)).forEach(o => FT.evidenzia(scheda(o.id)));
+  if (VISTI !== null) OPERAI.filter(o => !VISTI.has(o.id)).forEach(o => FT.evidenzia(scheda(o.id)));
   VISTI = new Set(OPERAI.map(o => o.id));
-  if (APPENA_SALVATO) { FT.evidenzia(scheda(APPENA_SALVATO), 'ft-flash-ok'); APPENA_SALVATO = null; }
+  if (APPENA_SALVATO) { FT.evidenzia(scheda(APPENA_SALVATO)); APPENA_SALVATO = null; }
+  rigaAdesso();
+}
+/** In cima, una riga: cosa fare adesso e chi manca ancora. */
+function rigaAdesso() {
+  const el = document.getElementById('adesso-ore');
+  const mancano = OPERAI.filter(o => !o.dichiarata).length;
+  el.innerHTML = !OPERAI.length ? "Nessuno sulla bacheca: le persone le aggiunge l'ufficio."
+    : mancano ? `Tocca il tuo nome e metti le ore. <span class="warn">${mancano === 1 ? 'Manca 1 persona' : 'Mancano ' + mancano + ' persone'}</span> su ${OPERAI.length}.`
+    : 'Hanno registrato tutti. Tocca il tuo nome per correggere le tue ore.';
 }
 
 async function scegliOperaio(id) {
@@ -538,14 +427,12 @@ async function scegliOperaio(id) {
   if (!o) return;
   operatore = o;
   document.getElementById('chip-persona').textContent = o.nome;
-  document.getElementById('titolo-giornata').textContent = `${o.nome} — oggi`;
+  document.getElementById('titolo-giornata').textContent = `Le ore di oggi di ${o.nome}`;
   nascondi('msg-giornata');
   await caricaGiornata();
   renderClienti();
   vista('giornata');
   window.scrollTo(0, 0);
-  FT.sequenza(document.getElementById('righe'));
-  FT.sequenza(document.getElementById('griglia-clienti'));
 }
 
 // ===========================================================================
@@ -579,7 +466,7 @@ function renderRighe() {
   } else {
     box.innerHTML = righe.map((r, i) => {
       const nome = r.attivita_interna
-        ? `${esc(ETICHETTA_INTERNA())}<span class="tag">non cliente</span>`
+        ? `${esc(ETICHETTA_INTERNA())}<span class="tag">non di un cliente</span>`
         : esc(r.cliente);
       return `<div class="riga ${r.attivita_interna ? 'interna' : ''}">
         <div class="nome">${nome}</div>
@@ -589,7 +476,7 @@ function renderRighe() {
           <div class="valore">${oreTesto(r.minuti)}<span class="u">h</span></div>
           <button class="step-btn" onclick="cambia(${i},1)" aria-label="Aggiungi mezz'ora">+</button>
         </div>
-        <button class="rimuovi" onclick="rimuovi(${i})" aria-label="Rimuovi riga">✕</button>
+        <button class="rimuovi" onclick="rimuovi(${i})" aria-label="Togli questa riga">Togli</button>
       </div>`;
     }).join('');
   }
@@ -608,7 +495,7 @@ function totaleMinuti() {
 function aggiornaTotale() {
   const tot = totaleMinuti();
   const h = tot / 60;
-  FT.conta(document.getElementById('totale'), h, { dec: Number.isInteger(h) ? 0 : 1, durata: 320 });
+  document.getElementById('totale').textContent = oreTesto(tot);
 
   // Obiettivo della giornata sempre in vista: l'operaio deve accorgersi SUBITO
   // se non arriva alle ore dovute, non il giorno dopo tramite l'ufficio.
@@ -621,13 +508,13 @@ function aggiornaTotale() {
   const diff = tot - minutiAttesi;
   if (diff === 0) {
     el.classList.add('ok');
-    el.textContent = `Obiettivo ${oreTesto(minutiAttesi)} h — completo`;
+    el.textContent = `Dovute ${oreTesto(minutiAttesi)} h: giornata completa`;
   } else if (diff < 0) {
     el.classList.add('manca');
-    el.textContent = `Obiettivo ${oreTesto(minutiAttesi)} h — mancano ${oreTesto(-diff)} h`;
+    el.textContent = `Dovute ${oreTesto(minutiAttesi)} h: ne mancano ${oreTesto(-diff)}`;
   } else {
     el.classList.add('oltre');
-    el.textContent = `Obiettivo ${oreTesto(minutiAttesi)} h — ${oreTesto(diff)} h in più`;
+    el.textContent = `Dovute ${oreTesto(minutiAttesi)} h: ${oreTesto(diff)} h in più`;
   }
 }
 
@@ -719,13 +606,13 @@ function chiediConferma() {
   document.getElementById('chiedi-testo').textContent =
     tot === 0
       ? `Oggi risultano dovute ${oreTesto(minutiAttesi)} ore e non hai inserito niente. ` +
-        'Se salvi cosi, in ufficio risultera una giornata a zero ore.'
+        'Se salvi così, in ufficio risulterà una giornata a zero ore.'
       : (diff < 0
           ? `Oggi sono dovute ${oreTesto(minutiAttesi)} ore: ne mancano ${oreTesto(-diff)}. ` +
             'Se hai lavorato meno va bene, basta confermare.'
-          : `Oggi sono dovute ${oreTesto(minutiAttesi)} ore: ne hai messe ${oreTesto(diff)} in piu.`);
+          : `Oggi sono dovute ${oreTesto(minutiAttesi)} ore: ne hai messe ${oreTesto(diff)} in più.`);
   document.getElementById('chiedi-ok').textContent =
-    tot === 0 ? 'Salvo a zero' : `Si, ${oreTesto(tot)} ore`;
+    tot === 0 ? 'Salva a zero ore' : `Salva ${oreTesto(tot)} ore`;
   document.getElementById('chiedi').classList.add('on');
 }
 
@@ -815,7 +702,7 @@ async function salva() {
         } else revisione = 0;
       } catch (_) { revisione = 0; }
       richiestaId = null; scostamentoOk = false;
-      document.getElementById('titolo-giornata').textContent = `${operatore.nome} — oggi`;
+      document.getElementById('titolo-giornata').textContent = `Le ore di oggi di ${operatore.nome}`;
       aggiornaTotale();
       mostra('msg-giornata',
         `È cambiato il giorno: il tablet registra solo la giornata di oggi (${dataIta(CTX.oggi)}). ` +
@@ -841,7 +728,7 @@ async function salva() {
 function confermaEsci(totMin) {
   const t = document.getElementById('toast');
   document.getElementById('toast-sub').textContent =
-    `${operatore.nome} — ${oreTesto(totMin)} h`;
+    `${operatore.nome}, ${oreTesto(totMin)} h`;
   t.classList.add('on');
   APPENA_SALVATO = operatore.id;      // tornando alla bacheca la sua scheda lampeggia
   setTimeout(() => { t.classList.remove('on'); tornaAiNomi(true); }, 1400);

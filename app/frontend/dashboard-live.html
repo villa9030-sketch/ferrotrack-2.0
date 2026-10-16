@@ -3,127 +3,77 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0B1220">
-<title>FerroTrack — Dashboard Live</title>
+<meta name="theme-color" content="#F1F2F5">
+<title>FerroTrack — Schermo officina</title>
 <script src="/ft-accesso.js" data-pubblica></script>
 <link rel="stylesheet" href="/ft-ui.css">
 <script src="/ft-ui.js"></script>
 <!--
-  Schermo TV pubblico (1920x1080, si legge da lontano): solo numeri anonimi
-  da /api/dashboard-live, nessun nome ne' prezzo. Stessa base grafica del
-  resto (ft-ui.css), in grande. Le classi "dl-" sono proprie di questa pagina.
+  Schermo appeso in officina (TV 1920x1080, si legge da lontano): solo numeri
+  anonimi da /api/dashboard-live, nessun nome ne' prezzo. Stessi token di
+  ft-ui.css. Le classi "dl-" sono proprie di questa pagina.
+
+  16/10/2026, regole "meno AI" (reports/Design FerroTrack meno AI.md):
+  al posto di due riquadri di numeri, una barra e un pannello col marchio,
+  una frase sola ("18 ordini in produzione, 3 pronti da spedire") e UNA
+  barra divisa in tre (arrivati, in lavorazione, pronti) con i numeri sotto.
+  Il verde solo per "pronti", che e' il fatto; niente puntini che pulsano,
+  aloni, entrate, pillole. Se i dati sono vecchi lo dice in rosso, a parole.
 -->
 <style>
 html, body.ft { height: 100%; width: 100%; overflow: hidden; }
 body.ft { font-size: 16px; }
+.dl { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; padding: 4vh 4vw 3vh; }
 
-.dl {
-  height: 100vh; display: grid; grid-template-rows: auto 1fr auto; gap: 2.2vh;
-  padding: 3vh 3vw 2.6vh;
-}
-
-/* ═══ Testata ═══ */
+/* testata */
 .dl-head { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
-.dl-brand { display: flex; align-items: center; gap: 20px; }
-.dl-brand .ft-logo { width: 72px; height: 72px; border-radius: 16px; font-size: 30px; letter-spacing: -1px; }
-.dl-brand-name { font: 800 44px/1 var(--ft-display); letter-spacing: -1.4px; color: var(--ft-ink); }
-.dl-brand-sub { margin-top: 6px; font-size: 17px; font-weight: 500; color: var(--ft-ink-3); }
+.dl-brand { display: flex; align-items: center; gap: 16px; }
+.dl-brand .ft-logo { width: 56px; height: 56px; border-radius: var(--ft-r-l); font-size: 22px; }
+.dl-brand-name { font: 600 32px/1 var(--ft-font); color: var(--ft-ink); }
+.dl-brand-sub { margin-top: 6px; font-size: 18px; color: var(--ft-ink-3); }
 .dl-clock { text-align: right; }
-.dl-ora { font: 800 64px/1 var(--ft-display); letter-spacing: -2px; color: var(--ft-ink); font-variant-numeric: tabular-nums; }
-.dl-data { margin-top: 8px; font-size: 17px; font-weight: 600; color: var(--ft-ink-3); text-transform: capitalize; }
+.dl-ora { font: 600 56px/1 var(--ft-font); color: var(--ft-ink); }
+.dl-data { margin-top: 8px; font-size: 20px; color: var(--ft-ink-3); }
 
-/* ═══ Griglia ═══ */
-.dl-main {
-  display: grid; min-height: 0; gap: 2.2vh 1.6vw;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr);
-}
-.dl-card {
-  background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 22px;
-  box-shadow: var(--ft-elev-1); min-height: 0;
-}
-.dl-hero { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.6vw; min-height: 0; }
-.dl-stat { display: flex; flex-direction: column; justify-content: center; padding: 3vh 3vw; position: relative; overflow: hidden; }
-.dl-stat-lbl { display: flex; align-items: center; gap: 14px; font-size: 24px; font-weight: 700; color: var(--ft-ink-2); }
-.dl-stat-lbl .dot { width: 16px; height: 16px; border-radius: 50%; background: var(--ft-accent); flex-shrink: 0; }
-.dl-stat.ok .dl-stat-lbl .dot { background: var(--ft-ok-dot); }
-.dl-stat-val {
-  font: 800 clamp(96px, 15vh, 180px)/1 var(--ft-display); letter-spacing: -5px;
-  color: var(--ft-ink); font-variant-numeric: tabular-nums; margin: 1.4vh 0 1vh;
-}
-.dl-stat-sub { font-size: 19px; color: var(--ft-ink-3); font-weight: 500; }
-/* Il numero e' cambiato: alone indaco (o verde per i pronti) che si spegne. */
-.dl-stat.ft-new { animation: dlNuovo 1.8s ease-out; }
-.dl-stat.ok.ft-new { animation-name: dlNuovoOk; }
-@keyframes dlNuovo { 0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, .45); border-color: var(--ft-accent); } 100% { box-shadow: 0 0 0 18px rgba(79, 70, 229, 0); } }
-@keyframes dlNuovoOk { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .45); border-color: var(--ft-ok-dot); } 100% { box-shadow: 0 0 0 18px rgba(16, 185, 129, 0); } }
-
-/* Stato officina */
-.dl-panel { display: flex; flex-direction: column; padding: 3vh 2.4vw; }
-.dl-panel-title {
-  font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
-  color: var(--ft-ink-3); margin: 0 0 2vh;
-}
-.dl-bars { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 3vh; }
-.dl-bar-row { display: grid; grid-template-columns: 220px minmax(0, 1fr) 90px; gap: 24px; align-items: center; }
-.dl-bar-lbl { font-size: 22px; font-weight: 600; color: var(--ft-ink-2); }
-.dl-bar { height: 30px; border-radius: 10px; background: var(--ft-line-2); overflow: hidden; }
-.kanban-bar-fill { height: 100%; border-radius: 10px; min-width: 10px; transition: width .7s var(--ft-ease); }
-.kanban-bar-fill.ricevuti { background: var(--ft-ink-4); }
-.kanban-bar-fill.lavorazione { background: var(--ft-accent); }
+/* la frase e la barra */
+.dl-main { align-self: center; display: grid; gap: 6vh; }
+.dl-frase { font: 600 clamp(36px, 5.2vw, 96px)/1.12 var(--ft-font); color: var(--ft-ink); max-width: 26ch; }
+.dl-frase .pronti { color: var(--ft-ok); white-space: nowrap; }
+.dl-stato { display: grid; gap: 2.4vh; }
+.dl-stato h2 { font: 600 clamp(20px, 1.6vw, 30px) var(--ft-font); color: var(--ft-ink-3); }
+.dl-barra { display: flex; height: clamp(40px, 6vh, 72px); gap: 4px; }
+.dl-barra > div { min-width: 8px; border-radius: var(--ft-r-s); transition: flex-grow .7s var(--ft-ease); }
+.kanban-bar-fill.ricevuti { background: var(--ft-g7); }
+.kanban-bar-fill.lavorazione { background: var(--ft-ink-3); }
 .kanban-bar-fill.pronti { background: var(--ft-ok-dot); }
-.dl-bar-n { font: 800 40px/1 var(--ft-display); letter-spacing: -1px; text-align: right; color: var(--ft-ink); font-variant-numeric: tabular-nums; }
+.dl-leg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.dl-leg div { border-top: 1px solid var(--ft-line-3); padding-top: 1.6vh; }
+.dl-bar-n { display: block; font: 600 clamp(40px, 4.4vw, 84px)/1 var(--ft-font); color: var(--ft-ink); }
+.dl-bar-lbl { display: block; margin-top: 8px; font-size: clamp(18px, 1.5vw, 28px); color: var(--ft-ink-2); }
+.dl-leg .ok .dl-bar-n, .dl-leg .ok .dl-bar-lbl { color: var(--ft-ok); }
 
-/* Chi siamo */
-.dl-brand-panel { display: flex; flex-direction: column; justify-content: center; padding: 3vh 2.4vw; position: relative; overflow: hidden; }
-.dl-brand-panel::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--ft-accent);
-}
-.dl-anni { font: 800 clamp(72px, 11vh, 120px)/1 var(--ft-display); letter-spacing: -4px; color: var(--ft-ink); }
-.dl-anni span { font-size: .42em; letter-spacing: -1px; color: var(--ft-accent); margin-left: 8px; }
-.dl-anni-sub { margin-top: 1.2vh; font-size: 20px; font-weight: 500; color: var(--ft-ink-3); }
-.dl-tags { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 2.6vh; }
-.dl-tag {
-  padding: 8px 16px; border-radius: 100px; border: 1px solid var(--ft-line);
-  background: var(--ft-well); font-size: 16px; font-weight: 600; color: var(--ft-ink-2);
-}
-
-/* ═══ Piede ═══ */
-.dl-foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 24px;
-  padding-top: 1.6vh; border-top: 1px solid var(--ft-line);
-  font-size: 15px; color: var(--ft-ink-3); font-weight: 500;
-}
-.dl-certs { display: flex; gap: 28px; }
-.dl-certs span { font: 700 15px var(--ft-display); color: var(--ft-ink-2); letter-spacing: .03em; }
-.dl-foot .ft-live { font-size: 15px; gap: 0 10px; }
-.dl-foot .ft-live::before { width: 10px; height: 10px; }
-.dl-foot .ft-live:not(.off)::before { animation: dlPulsa 2s ease-in-out infinite; }
-@keyframes dlPulsa { 50% { box-shadow: 0 0 0 7px rgba(16, 185, 129, .08); } }
-#last-update { font-variant-numeric: tabular-nums; color: var(--ft-ink-2); font-weight: 600; }
-
-/* La griglia entra una volta sola, all'accensione dello schermo: poi la
-   classe si toglie, cosi' l'alone dei numeri cambiati non rifa' l'entrata. */
-.dl-entra > :not(.dl-hero), .dl-entra .dl-hero > * { animation: ftSale .5s var(--ft-ease) both; }
-.dl-entra .dl-hero > :nth-child(2) { animation-delay: 60ms; }
-.dl-entra > :nth-child(2) { animation-delay: 120ms; }
-.dl-entra > :nth-child(3) { animation-delay: 180ms; }
+/* piede: chi siamo, quieto */
+.dl-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding-top: 2vh; border-top: 1px solid var(--ft-line);
+  font-size: clamp(16px, 1.1vw, 20px); color: var(--ft-ink-3); }
+.dl-foot b { color: var(--ft-ink-2); font-weight: 600; }
+#live.off { color: var(--ft-err); font-weight: 600; }
+#last-update { color: inherit; }
 
 @media (max-width: 1100px) {
   html, body.ft { overflow: auto; }
-  .dl { height: auto; min-height: 100vh; }
-  .dl-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
-  .dl-stat-val { font-size: 84px; }
-  .dl-bar-row { grid-template-columns: 140px minmax(0, 1fr) 60px; gap: 14px; }
-  .dl-bar-lbl { font-size: 17px; }
-  .dl-bar-n { font-size: 28px; }
+  .dl { height: auto; min-height: 100vh; gap: 32px; padding: 24px 24px 16px; }
+  .dl-ora { font-size: 40px; }
+  .dl-brand-name { font-size: 24px; }
+  .dl-foot { flex-direction: column; gap: 8px; }
+}
+@media (max-width: 720px) {
+  .dl-leg { grid-template-columns: 1fr; }
 }
 </style>
 </head>
 <body class="ft">
 
 <div class="dl">
-  <!-- TESTATA -->
   <header class="dl-head">
     <div class="dl-brand">
       <div class="ft-logo">LS</div>
@@ -138,93 +88,55 @@ body.ft { font-size: 16px; }
     </div>
   </header>
 
-  <main class="dl-main dl-entra" id="dl-main">
-    <!-- Numeri grandi -->
-    <div class="dl-hero">
-      <!-- "Attivi ora" e "Attivita' giornata" contavano le scansioni con la
-           pistola: pistole tolte, tolti anche loro (sarebbero stati zeri). -->
-      <div class="dl-card dl-stat" id="card-produzione">
-        <div class="dl-stat-lbl"><span class="dot"></span>In produzione</div>
-        <div class="dl-stat-val" id="stat-produzione">—</div>
-        <div class="dl-stat-sub">Ordini aperti in officina</div>
-      </div>
-      <div class="dl-card dl-stat ok" id="card-pronti">
-        <div class="dl-stat-lbl"><span class="dot"></span>Pronti</div>
-        <div class="dl-stat-val" id="stat-pronti">—</div>
-        <div class="dl-stat-sub">In attesa di spedizione</div>
-      </div>
-    </div>
+  <main class="dl-main" id="dl-main">
+    <!-- "Attivi ora" e "Attivita' giornata" contavano le scansioni con la
+         pistola: pistole tolte, tolti anche loro (sarebbero stati zeri). -->
+    <p class="dl-frase" id="frase"><span id="stat-produzione">—</span> ordini in produzione, <span class="pronti"><span id="stat-pronti">—</span> pronti da spedire</span>.</p>
 
-    <!-- Stato officina -->
-    <div class="dl-card dl-panel">
-      <h2 class="dl-panel-title">Stato officina</h2>
-      <div class="dl-bars">
-        <div class="dl-bar-row">
-          <span class="dl-bar-lbl">Ricevuti</span>
-          <div class="dl-bar"><div class="kanban-bar-fill ricevuti" id="bar-ricevuti" style="width:0%"></div></div>
-          <span class="dl-bar-n" id="n-ricevuti">—</span>
-        </div>
-        <div class="dl-bar-row">
-          <span class="dl-bar-lbl">In lavorazione</span>
-          <div class="dl-bar"><div class="kanban-bar-fill lavorazione" id="bar-lavorazione" style="width:0%"></div></div>
-          <span class="dl-bar-n" id="n-lavorazione">—</span>
-        </div>
-        <div class="dl-bar-row">
-          <span class="dl-bar-lbl">Pronti</span>
-          <div class="dl-bar"><div class="kanban-bar-fill pronti" id="bar-pronti" style="width:0%"></div></div>
-          <span class="dl-bar-n" id="n-pronti">—</span>
-        </div>
+    <section class="dl-stato" aria-label="Stato dell'officina">
+      <h2>A che punto sono</h2>
+      <div class="dl-barra" aria-hidden="true">
+        <div class="kanban-bar-fill ricevuti" id="bar-ricevuti" style="flex-grow:1"></div>
+        <div class="kanban-bar-fill lavorazione" id="bar-lavorazione" style="flex-grow:1"></div>
+        <div class="kanban-bar-fill pronti" id="bar-pronti" style="flex-grow:1"></div>
       </div>
-    </div>
-
-    <!-- Chi siamo -->
-    <div class="dl-card dl-brand-panel">
-      <div class="dl-anni" id="brand-anni">35<span>anni</span></div>
-      <div class="dl-anni-sub">di esperienza al vostro servizio</div>
-      <div class="dl-tags">
-        <span class="dl-tag">Qualità</span>
-        <span class="dl-tag">Precisione</span>
-        <span class="dl-tag">Tempi certi</span>
-        <span class="dl-tag">Made in Italy</span>
+      <div class="dl-leg">
+        <div><span class="dl-bar-n" id="n-ricevuti">—</span><span class="dl-bar-lbl">appena arrivati</span></div>
+        <div><span class="dl-bar-n" id="n-lavorazione">—</span><span class="dl-bar-lbl">in lavorazione</span></div>
+        <div class="ok"><span class="dl-bar-n" id="n-pronti">—</span><span class="dl-bar-lbl">pronti da spedire</span></div>
       </div>
-    </div>
+    </section>
   </main>
 
-  <!-- PIEDE -->
   <footer class="dl-foot">
-    <div class="dl-certs">
-      <span>UNI EN 1090</span>
-      <span>ISO 9001</span>
-      <span>EN ISO 3834</span>
-    </div>
-    <div class="ft-live" id="live">Live · Ultimo aggiornamento: <span id="last-update">—</span></div>
+    <div><b id="brand-anni">35 anni</b> di esperienza. UNI EN 1090, ISO 9001, EN ISO 3834.</div>
+    <div id="live">aggiornato alle <span id="last-update">—</span></div>
   </footer>
 </div>
 
 <script>
-// ═══ OROLOGIO: aggiornato ogni secondo ═══
+// Orologio: ogni secondo
 function updateClock() {
   const now = new Date();
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  document.getElementById('clock-time').textContent = `${hh}:${mm}`;
-  const opts = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
-  document.getElementById('clock-date').textContent = now.toLocaleDateString('it-IT', opts);
+  document.getElementById('clock-time').textContent = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const d = now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  document.getElementById('clock-date').textContent = d.charAt(0).toUpperCase() + d.slice(1);
 }
 setInterval(updateClock, 1000);
 updateClock();
 
-// ═══ DATI: ogni 10 s ═══
-// Ultimi numeri mostrati: se cambiano, la scheda si accende un attimo.
+// Dati: ogni 10 s. Il numero che cambia si illumina un attimo (risposta a un fatto).
 const ULTIMI = {};
-function numero(id, valore, card) {
+function numero(id, valore) {
   const v = Number(valore) || 0;
+  const el = document.getElementById(id);
   const prima = ULTIMI[id];
   ULTIMI[id] = v;
-  FT.conta(document.getElementById(id), v, { durata: 900 });
-  if (card && prima !== undefined && prima !== v) FT.evidenzia(document.getElementById(card));
+  el.textContent = v.toLocaleString('it-IT');
+  if (prima !== undefined && prima !== v) FT.evidenzia(el);
 }
 
+let ULTIMO_OK = null;
 async function refreshData() {
   const live = document.getElementById('live');
   try {
@@ -232,41 +144,37 @@ async function refreshData() {
     const d = await r.json();
     if (!d.success) throw new Error(d.error || 'Errore server');
 
-    // Numeri grandi
-    numero('stat-produzione', d.snapshot.ordini_in_produzione, 'card-produzione');
-    numero('stat-pronti', d.snapshot.ordini_pronti, 'card-pronti');
+    numero('stat-produzione', d.snapshot.ordini_in_produzione);
+    numero('stat-pronti', d.snapshot.ordini_pronti);
+    // La barra divisa in tre: ogni parte lunga quanto i suoi ordini
+    const k = d.kanban;
+    document.getElementById('bar-ricevuti').style.flexGrow = Math.max(k.ricevuti, 0.05);
+    document.getElementById('bar-lavorazione').style.flexGrow = Math.max(k.lavorazione, 0.05);
+    document.getElementById('bar-pronti').style.flexGrow = Math.max(k.pronti, 0.05);
+    numero('n-ricevuti', k.ricevuti);
+    numero('n-lavorazione', k.lavorazione);
+    numero('n-pronti', k.pronti);
 
-    // Barre proporzionali (il piu' grande = 100%)
-    const max = Math.max(d.kanban.ricevuti, d.kanban.lavorazione, d.kanban.pronti, 1);
-    const pct = (v) => Math.max(3, Math.round(v / max * 100));
-    document.getElementById('bar-ricevuti').style.width = pct(d.kanban.ricevuti) + '%';
-    document.getElementById('bar-lavorazione').style.width = pct(d.kanban.lavorazione) + '%';
-    document.getElementById('bar-pronti').style.width = pct(d.kanban.pronti) + '%';
-    numero('n-ricevuti', d.kanban.ricevuti);
-    numero('n-lavorazione', d.kanban.lavorazione);
-    numero('n-pronti', d.kanban.pronti);
-
-    // Ora dell'ultimo aggiornamento
-    const now = new Date();
-    document.getElementById('last-update').textContent = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    ULTIMO_OK = new Date();
     live.classList.remove('off');
+    live.innerHTML = 'aggiornato alle <span id="last-update"></span>';
+    document.getElementById('last-update').textContent = ULTIMO_OK.toLocaleTimeString('it-IT');
   } catch (e) {
-    // I numeri restano gli ultimi buoni; il pallino rosso dice che sono vecchi.
+    // I numeri restano gli ultimi buoni; la scritta rossa dice che sono vecchi.
     live.classList.add('off');
+    live.innerHTML = ULTIMO_OK
+      ? `Dati fermi alle <span id="last-update">${ULTIMO_OK.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>: il server non risponde.`
+      : 'Il server non risponde: <span id="last-update">nessun dato</span>.';
     console.error('refresh failed:', e);
   }
 }
 
-setTimeout(() => document.getElementById('dl-main').classList.remove('dl-entra'), 1000);
 refreshData();
 setInterval(refreshData, 10000);  // ogni 10 secondi
 
-// ═══ ANNI DI ESPERIENZA: configurabile via URL ?anni=42 ═══
-const params = new URLSearchParams(window.location.search);
-const anni = params.get('anni');
-if (anni && /^\d+$/.test(anni)) {
-  document.getElementById('brand-anni').innerHTML = `${anni}<span>anni</span>`;
-}
+// Anni di esperienza: si cambiano dall'indirizzo, ?anni=42
+const anni = new URLSearchParams(window.location.search).get('anni');
+if (anni && /^\d+$/.test(anni)) document.getElementById('brand-anni').textContent = anni + ' anni';
 </script>
 </body>
 </html>

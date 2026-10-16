@@ -397,6 +397,27 @@ body.ft.ft-touch .ft-tab { font-size: 16px; padding: 0 16px; }
 body.ft.ft-touch .ft-input, body.ft.ft-touch .ft-select { height: 44px; font-size: 16px; }
 body.ft.ft-touch .ft-icon-btn { width: 44px; height: 44px; }
 body.ft.ft-touch .ft-table tbody td { font-size: 14px; }
+/* Segnala errore (ft-segnala.js): sul tablet si preme col dito, anche coi guanti */
+body.ft.ft-touch .ft-topbar .fts-btn { height: 44px; padding: 0 16px; border-radius: var(--ft-r-m); font-size: 14px; }
+body.ft.ft-touch .ft-topbar .fts-btn:hover { border-color: var(--ft-g8); color: var(--ft-ink); background: var(--ft-panel); }
+
+/* ── Barra del tablet (16/10/2026) ───────────────────────────────────
+   I tablet in officina (Officina, Timbratrice) non hanno il menu a
+   sinistra delle stazioni: fanno un lavoro solo, e sotto i 1100 px quel
+   menu diventerebbe un pulsante nascosto. Tengono la stessa identita'
+   della cornice — logo, icona e nome della stazione, Segnala in fondo
+   alla barra — in una barra sola in alto, alta 64 px. */
+body.ft-touch { --ft-topbar-h: 64px; }
+.ftt-barra { height: 64px; gap: 16px; padding: 0 16px 0 12px; }
+.ftt-logo { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: none;
+  border-radius: var(--ft-r-m); background: var(--ft-ink); color: #fff; font: 600 15px var(--ft-font); user-select: none; -webkit-user-select: none; }
+.ftt-stazione { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 16px; border-right: 1px solid var(--ft-line); flex: none; }
+.ftt-stazione svg { width: 20px; height: 20px; color: var(--ft-ink-3); flex: none; }
+.ftt-stazione b { font: 600 18px/1.2 var(--ft-font); color: var(--ft-ink); white-space: nowrap; }
+.ftt-dove { min-width: 0; font-size: 16px; color: var(--ft-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ftt-dove b { color: var(--ft-ink); font-weight: 600; }
+.ftt-ora { font: 600 20px var(--ft-font); color: var(--ft-ink); white-space: nowrap; }
+@media (max-width: 899px) { .ftt-dove { display: none; } }
 
 /* ── Movimento: solo come risposta a un'azione ───────────────────────
    Niente entrate in sequenza, alzate al passaggio del mouse, numeri che
