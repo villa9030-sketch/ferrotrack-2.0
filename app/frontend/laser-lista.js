@@ -1,33 +1,44 @@
-/* Pagina laser — l'elenco degli ordini, sempre a sinistra.
+/* Pagina laser — l'elenco degli ordini da tagliare.
 
-   Dal 15/10/2026 (tela "Laser", approvata il 14/10) in gruppi: Da smistare,
-   Da mandare a Lantek, In Lantek da tagliare, Tagliati. Prima le spunte
-   grigie sulle righe gia' in Lantek non si capiva perche' non andassero:
-   ora la spunta c'e' solo dove serve (Da mandare). Nella riga il numero
-   d'ordine e' grande (gli ordini DECA erano tutti "DECA S.r.l." e si
-   distinguevano da un numero minuscolo), e i due allarmi sono diversi:
-   rosso "Consegna a rischio", arancione "Taglia entro passato".
-   Dentro ogni gruppo l'ordine resta quello di prima: "taglia entro", poi
-   consegna (backend/taglia_entro.py). Le caselle servono a lavorare piu'
-   ordini insieme: "Controlla N disegni" e "Manda a Lantek (K ordini)". */
+   16/10/2026 (ricerca "Design FerroTrack meno AI"): Stefano ragiona a
+   lamiere e pacchi, non un ordine alla volta. L'elenco e' una tabella a
+   tutta larghezza RAGGRUPPATA PER LAMIERA (materiale + spessore):
+   - ogni gruppo ha la sua testata: lamiera, quanti ordini, pezzi, il primo
+     "taglia entro";
+   - dentro il gruppo le righe vanno per "taglia entro" (poi consegna);
+   - un ordine con piu' spessori sta in ogni suo gruppo: la prima volta e'
+     la riga "vera" (data-id), le altre dicono "anche in Inox 2 mm" e
+     portano allo stesso ordine (data-rif);
+   - le lamiere gia' segnate tagliate non tengono l'ordine nel gruppo;
+   - in cima "Da smistare" (si decide prima se passa dal laser), in fondo
+     i tagliati nelle ultime 24 ore;
+   - il cliente e' una colonna e un filtro, non il raggruppamento.
+   Sopra la tabella UNA riga dice cosa fare adesso. Aperto un ordine, la
+   tabella si stringe a sinistra e l'ordine sta nel pannello a destra.
+   Le caselle servono a lavorare piu' ordini insieme: "Controlla N disegni"
+   e "Manda a Lantek (K ordini)". */
 (function () {
   'use strict';
   const LZ = window.LZ;
   const S = LZ.s;
   const esc = LZ.esc;
   const L = LZ.lista = {};
+  S.filtroCliente = S.filtroCliente || '';
+  S.filtroStato = S.filtroStato || '';
 
   let costruita = false;
   function costruisci() {
     const el = document.getElementById('lz-lista');
     el.innerHTML = `<div class="lz-lista-testa" id="lz-l-testa"></div>
-      <div class="lz-righe" id="lz-l-righe" role="list" aria-label="Ordini"></div>
+      <div class="lz-righe" id="lz-l-righe"></div>
       <div id="lz-l-az"></div>
-      <p class="lz-tasti-nota"><kbd>↑</kbd><kbd>↓</kbd> scorri, <kbd>Spazio</kbd> spunta, <kbd>C</kbd> controlla i disegni</p>`;
+      <p class="lz-tasti-nota"><kbd>↑</kbd> <kbd>↓</kbd> scorri, <kbd>Spazio</kbd> spunta, <kbd>C</kbd> controlla i disegni, <kbd>Esc</kbd> chiudi l'ordine</p>`;
     el.addEventListener('click', clic);
     el.addEventListener('change', e => {
       const c = e.target.closest('input[data-sp]');
-      if (c) L.spunta(c.dataset.sp, c.checked);
+      if (c) { L.spunta(c.dataset.sp, c.checked); return; }
+      const f = e.target.closest('select[data-filtro]');
+      if (f) { S[f.dataset.filtro] = f.value; LZ.ridisegna(); }
     });
     costruita = true;
   }
@@ -35,62 +46,151 @@
   /** Si possono spuntare gli ordini da mettere in Lantek. */
   L.spuntabile = o => LZ.statoLaser(o) === 'coda';
 
-  /** Il lato destro della riga: il "taglia entro" e quanto manca. Arancione
-      se e' passato (indietro sul programma), rosso se la consegna e' a rischio. */
+  // ── Date: giorni lavorativi e formati italiani (Intl) ─────────────────
+  const fmtGiorno = new Intl.DateTimeFormat('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const fmtGiornoLungo = new Intl.DateTimeFormat('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  /** "gio 15/10" */
+  LZ.giornoCorto = iso => { const d = iso && FT.data(String(iso).slice(0, 10)); return d ? fmtGiorno.format(d).replace(',', '') : ''; };
+  /** "giovedì 15 ottobre" */
+  LZ.giornoLungo = iso => { const d = iso && FT.data(String(iso).slice(0, 10)); return d ? fmtGiornoLungo.format(d) : ''; };
+  /** Giorni lavorativi (lun-ven) da oggi alla data: 0 oggi, negativo se passata. */
+  LZ.lavorativiA = function (iso) {
+    const g = iso ? FT.giorniDa(String(iso).slice(0, 10)) : null;
+    if (g == null) return null;
+    if (g <= 0) return g;
+    let n = 0;
+    const d = new Date(); d.setHours(12, 0, 0, 0);
+    for (let i = 0; i < g; i++) { d.setDate(d.getDate() + 1); const w = d.getDay(); if (w !== 0 && w !== 6) n++; }
+    return n;
+  };
+
+  /** La cella "Taglia entro": rossa se passata, ambra se entro 2 giorni
+      lavorativi, altrimenti testo normale. Sempre con la parola. */
   function quando(o, st) {
-    if (st === 'tagliato') return `<span class="lz-q"><b>tagliato</b><small>${esc(FT.fmtOra(o.data_taglio_completato))}</small></span>`;
+    if (st === 'tagliato') return `<span class="lz-q fatto"><b>tagliato</b> <small>${esc(FT.fmtOra(o.data_taglio_completato))}</small></span>`;
     const g = LZ.entro(o);
-    const q = LZ.quandoEntro(o);
+    if (!g) return '<span class="lz-q vicino"><b>da decidere</b></span>';
     const ge = LZ.giorniEntro(o);
-    // il rosso della consegna sta a sinistra (etichetta); qui solo il programma
-    const passato = ge != null && ge < 0;
-    const cls = passato ? 'indietro' : '';
-    const sotto = passato ? `passato da ${-ge} gg` : q.t;
-    return `<span class="lz-q ${cls}"><b>entro ${g ? FT.fmtDataBreve(g) : '—'}</b><small>${esc(sotto)}</small></span>`;
+    const wd = LZ.lavorativiA(g);
+    let cls = '', sotto = '';
+    if (ge != null && ge < 0) { cls = 'indietro'; sotto = `passato da ${-ge} gg`; }
+    else if (wd != null && wd <= 2) { cls = 'vicino'; sotto = ge === 0 ? 'oggi' : ge === 1 ? 'domani' : `tra ${wd} gg lav.`; }
+    else sotto = `tra ${ge} gg`;
+    return `<span class="lz-q ${cls}" title="Taglia entro ${esc(LZ.giornoLungo(g))}"><b>${esc(LZ.giornoCorto(g))}</b> <small>${esc(sotto)}</small></span>`;
   }
 
-  /** La riga sotto il cliente: cosa c'e' da fare e l'allarme rosso, o
-      la consegna (e le lamiere gia' tagliate). */
-  function sotto(o, st) {
-    const al = LZ.allarme(o);
+  /** La consegna: rossa con la parola solo se e' a rischio. */
+  function consegna(o, st) {
+    const g = LZ.giorno(o);
+    if (!g) return '<span class="lz-cons">—</span>';
+    const al = st !== 'tagliato' && LZ.allarme(o);
+    if (al && al.k === 'rischio') return `<span class="lz-cons rischio" title="${esc(al.s)}">${esc(LZ.giornoCorto(g))} <span class="lz-al rischio">a rischio</span></span>`;
+    return `<span class="lz-cons">${esc(LZ.giornoCorto(g))}</span>`;
+  }
+
+  /** Lo stato: UNA parola. Grigia; ambra se c'e' da controllare, rossa se bloccato. */
+  function stato(o) {
     const e = LZ.etichetta(o);
-    let h;
-    const rischio = al && al.k === 'rischio' ? `<span class="lz-al rischio">${esc(al.t)}</span>` : '';
-    // cosa c'e' da fare viene prima; l'allarme rosso subito dopo
-    if (e.c === 'att' || e.c === 'err') h = `<span class="lz-sot ${e.c}">${esc(e.corto || e.t)}</span>` + rischio;
-    else if (rischio) h = rischio;
-    else if (e.c === 'skel') h = '<span class="lz-skel" style="display:inline-block;height:10px;width:90px"></span>';
-    else {
-      const cons = LZ.giorno(o);
-      h = `<span>consegna ${cons ? FT.fmtDataBreve(cons) : '—'}</span>`;
-    }
-    const lm = LZ.lamiere(o);
-    if (st === 'in_lantek' && lm.n > 1 && lm.fatte && !(al && al.k === 'rischio')) h += `<span aria-hidden="true">·</span><span>${lm.fatte}/${lm.n} lamiere</span>`;
-    return h + procura(o);
+    if (e.c === 'skel') return '<span class="lz-sot">…</span>';
+    const t = e.corto || e.t;
+    return `<span class="lz-sot ${e.c === 'att' || e.c === 'err' ? e.c : ''}"${t !== e.t ? ` title="${esc(e.t)}"` : ''}>${esc(t)}</span>`;
   }
 
-  function riga(o) {
+  // ── I gruppi per lamiera ──────────────────────────────────────────────
+  /** Le lamiere ancora da tagliare di un ordine: [{chiave, materiale, spessore, n_pezzi, n_codici}]. */
+  function lamiereAperte(o) {
+    const lm = LZ.lamiere(o);
+    const aperte = lm.l.filter(x => !lm.tg[x.chiave]);
+    return aperte.length ? aperte : lm.l;
+  }
+  const passaFiltri = o => (!S.filtroCliente || (o.cliente || '') === S.filtroCliente)
+    && (!S.filtroStato || LZ.statoLaser(o) === S.filtroStato || LZ.statoLaser(o) === 'tagliato' && S.filtroStato === 'tagliato');
+
+  /** [{k, t, righe:[{o, lam, anche:[nomi], prima}], tot}] nell'ordine in cui si vedono. */
+  L.gruppi = function () {
+    const ordini = LZ.ordiniLaser().filter(passaFiltri);
+    const out = [];
+    const smi = ordini.filter(o => LZ.statoLaser(o) === 'smistare');
+    if (smi.length) out.push({ k: 'smistare', t: window.FTStati.laser.da_smistare, nota: smi.length === 1 ? 'decidi se passa dal laser' : 'decidi se passano dal laser', righe: smi.map(o => ({ o })) });
+    const perLam = new Map(), senza = [];
+    for (const o of ordini) {
+      const st = LZ.statoLaser(o);
+      if (st === 'smistare' || st === 'tagliato') continue;
+      const lam = lamiereAperte(o);
+      if (!lam.length) { senza.push({ o }); continue; }
+      for (const x of lam) {
+        if (!perLam.has(x.chiave)) perLam.set(x.chiave, { k: x.chiave, t: LZ.nomeLamiera(x), lam: x, righe: [] });
+        perLam.get(x.chiave).righe.push({ o, lam: x, anche: lam.filter(y => y.chiave !== x.chiave).map(LZ.nomeLamiera) });
+      }
+    }
+    const chiave = o => (LZ.entro(o) || '9999') + (LZ.giorno(o) || '9999') + (o.cliente || '') + o.id;
+    const lams = [...perLam.values()];
+    for (const g of lams) {
+      g.righe.sort((a, b) => chiave(a.o).localeCompare(chiave(b.o)));
+      g.primo = LZ.entro(g.righe[0].o);
+      g.pezzi = g.righe.reduce((s, r) => s + (Number(r.lam.n_pezzi) || 0), 0);
+    }
+    // prima la lamiera che scade prima; a parita', piu' ordini insieme
+    lams.sort((a, b) => (a.primo || '9999').localeCompare(b.primo || '9999') || b.righe.length - a.righe.length || a.t.localeCompare(b.t));
+    out.push(...lams);
+    if (senza.length) out.push({ k: 'senza', t: 'Lamiera non ancora letta', nota: 'i pezzi dell’ordine si stanno leggendo', righe: senza });
+    const tg = ordini.filter(o => LZ.statoLaser(o) === 'tagliato');
+    if (tg.length) out.push({ k: 'tagliato', t: 'Tagliati nelle ultime 24 ore', righe: tg.map(o => ({ o })) });
+    // la prima volta che un ordine compare e' la riga "vera"
+    const visti = new Set();
+    for (const g of out) for (const r of g.righe) { r.prima = !visti.has(r.o.id); visti.add(r.o.id); }
+    return out;
+  };
+  /** Gli ordini nell'ordine in cui si vedono (una volta sola): frecce, ricerca. */
+  L.visti = () => L.gruppi().flatMap(g => g.righe.filter(r => r.prima).map(r => r.o));
+
+  function riga(r, g) {
+    const o = r.o;
     const st = LZ.statoLaser(o);
     const on = S.aperto === o.id;
     const sp = L.spuntabile(o);
-    const g = LZ.entro(o), cons = LZ.giorno(o), te = LZ.te(o);
-    const tit = `${LZ.numero(o)} · ${o.cliente || ''} · taglia entro ${g ? FT.fmtData(g) : '—'}${te && te.motivo ? ' (' + te.motivo + ')' : ''} · consegna ${cons ? FT.fmtData(cons) : '—'}`;
-    return `<div class="lz-r${on ? ' on' : ''}${st === 'tagliato' ? ' spento' : ''}" role="listitem" tabindex="0" data-id="${esc(o.id)}"
-        data-fuoco="r-${esc(o.id)}" ${on ? 'aria-current="true"' : ''} title="${esc(tit)}">
-      ${sp ? `<input type="checkbox" data-sp="${esc(o.id)}" ${S.spuntati.has(o.id) ? 'checked' : ''}
-        aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">` : '<span aria-hidden="true"></span>'}
-      <span class="lz-num${LZ.numeroBreve(o).length > 6 ? ' lungo' : ''}">${esc(LZ.numeroBreve(o))}</span>
-      <div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><span class="lz-sotto">${sotto(o, st)}</span></div>
-      ${quando(o, st)}
-    </div>`;
+    const cons = LZ.giorno(o), te = LZ.te(o), en = LZ.entro(o);
+    const tit = `${LZ.numero(o)}, ${o.cliente || ''}: taglia entro ${en ? FT.fmtData(en) : 'da decidere'}${te && te.motivo ? ' (' + te.motivo + ')' : ''}, consegna ${cons ? FT.fmtData(cons) : '—'}`;
+    const id = esc(o.id);
+    const attr = r.prima ? `data-id="${id}" data-fuoco="r-${id}"` : `data-rif="${id}" data-fuoco="r-${id}-${esc(g.k)}"`;
+    const pezzi = r.lam ? r.lam.n_pezzi : (S.riep[o.id] || {}).n_pezzi;
+    const anche = r.anche && r.anche.length ? `<small class="lz-anche">anche in ${esc(r.anche.join(', '))}</small>` : '';
+    return `<tr class="lz-r${on ? ' on' : ''}${st === 'tagliato' ? ' spento' : ''}${r.prima ? '' : ' anche'}" tabindex="0" ${attr}
+        ${on ? 'aria-current="true"' : ''} title="${esc(tit)}">
+      <td class="c-sp">${sp ? `<input type="checkbox" data-sp="${id}" ${S.spuntati.has(o.id) ? 'checked' : ''}
+        aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">` : ''}</td>
+      <td class="c-num"><span class="lz-num" title="${esc(LZ.numero(o))}">${esc(LZ.numeroBreve(o))}</span></td>
+      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${anche}${procura(o)}</div></td>
+      <td class="c-st">${stato(o)}</td>
+      <td class="c-pz r">${pezzi != null ? esc(FT.numero(pezzi)) : '—'}</td>
+      <td class="c-cons">${consegna(o, st)}</td>
+      <td class="c-entro">${quando(o, st)}</td>
+    </tr>`;
   }
 
-  /** Pezzi da procurare non ancora arrivati: un segno piccolo sulla riga
-      (il chip intero sta sull'ordine aperto). Rosso se in ritardo. */
+  function testaGruppo(g) {
+    const n = new Set(g.righe.map(r => r.o.id)).size;
+    let dx = '';
+    if (g.lam) {
+      const daMandare = g.righe.filter(r => L.spuntabile(r.o)).map(r => r.o.id);
+      const tutti = daMandare.length && daMandare.every(id => S.spuntati.has(id));
+      if (daMandare.length) dx = `<button class="lz-link" type="button" data-az="sel-lam" data-lam="${esc(g.k)}">${tutti ? 'Togli la selezione' : `Seleziona ${daMandare.length === 1 ? 'l’ordine' : `i ${daMandare.length}`} da mandare`}</button>`;
+    }
+    const sotto = g.lam ? LZ.plur(n, 'ordine', 'ordini') : (g.nota ? `${LZ.plur(n, 'ordine', 'ordini')}, ${g.nota}` : LZ.plur(n, 'ordine', 'ordini'));
+    const primo = g.lam && g.primo ? LZ.giornoCorto(g.primo) : '';
+    return `<tr class="lz-gruppo" data-gruppo="${esc(g.k)}">
+      <td colspan="4"><span class="lz-g-tit"><b>${esc(g.t)}</b><span>${esc(sotto)}</span>${dx}</span></td>
+      <td class="c-pz r">${g.lam ? esc(FT.numero(g.pezzi)) : ''}</td>
+      <td class="c-cons"></td>
+      <td class="c-entro">${primo ? `<span class="lz-q-g" title="Il primo da tagliare di questa lamiera"><span class="lz-largo">primo </span>${esc(primo)}</span>` : ''}</td>
+    </tr>`;
+  }
+
+  /** Pezzi da procurare non ancora arrivati: la parola, rossa se in ritardo. */
   function procura(o) {
     const p = (S.riep[o.id] || {}).procura;
     if (!p || !p.n) return '';
-    return ` <em class="lz-pc-mini${p.n_scaduti ? ' rit' : ''}" title="${esc(`Da procurare: ${p.n}${p.n_scaduti ? `, ${p.n_scaduti} in ritardo` : ''}`)}">${LZ.ico('package')}${p.n}</em>`;
+    return `<small class="lz-pc-mini${p.n_scaduti ? ' rit' : ''}" title="${esc(`Da procurare: ${p.n}${p.n_scaduti ? `, ${p.n_scaduti} in ritardo` : ''}`)}">${p.n} da procurare</small>`;
   }
 
   /** I numeri del menu a sinistra (cornice). */
@@ -101,46 +201,81 @@
     set('in_lantek', attivi.filter(o => LZ.statoLaser(o) === 'in_lantek').length);
     set('controllo', attivi.filter(o => L.spuntabile(o)).reduce((s, o) => s + ((S.riep[o.id] || {}).n_controllare || 0), 0));
     set('correggere', attivi.reduce((s, o) => s + ((S.riep[o.id] || {}).n_correggere || 0), 0));
+    document.querySelectorAll('#lz-menu .ft-tab[data-lz-vai]').forEach(b =>
+      b.classList.toggle('active', b.dataset.lzVai === (['coda', 'in_lantek'].includes(S.filtroStato) ? S.filtroStato : 'tutti')));
+  }
+
+  /** "Cosa fare adesso": UNA riga. La lamiera del prossimo ordine da fare,
+      quanti ordini ha, entro quando va tagliato il primo; Apri (Invio). */
+  function adesso(gruppi) {
+    if (S.primoCarico) return '<div class="lz-adesso"><span class="lz-skel" style="height:12px;width:50%"></span></div>';
+    const p = L.prossimo();
+    if (!p) return `<div class="lz-adesso"><span>Niente da tagliare. Quando l'ufficio carica un ordine, compare qui.</span></div>`;
+    const st = LZ.statoLaser(p);
+    const chi = `<b>${esc(LZ.numeroBreve(p))}</b> ${esc(p.cliente || '')}`;
+    let frase;
+    if (st === 'smistare') frase = `${chi}: decidi se passa dal laser.`;
+    else {
+      const g = gruppi.find(x => x.lam && x.righe.some(r => r.o.id === p.id));
+      const en = LZ.entro(p), ge = LZ.giorniEntro(p);
+      const tardi = ge != null && ge < 0 ? ` <span class="err">passato da ${-ge} gg</span>` : '';
+      const quando = en ? `va tagliato entro <b>${esc(LZ.giornoLungo(en))}</b>${tardi}` : 'il taglia entro è da decidere';
+      const al = LZ.allarme(p);
+      const rischio = al && al.k === 'rischio' ? ` <span class="err">${esc(al.s.charAt(0).toUpperCase() + al.s.slice(1))}: a rischio.</span>` : '';
+      frase = g ? `<b>${esc(g.t)}</b>: ${LZ.plur(new Set(g.righe.map(r => r.o.id)).size, 'ordine', 'ordini')}. Il primo, ${chi}, ${quando}.${rischio}`
+        : `${chi} ${quando}.${rischio}`;
+    }
+    return `<div class="lz-adesso" aria-label="Cosa fare adesso"><span class="lz-ad-t">Adesso</span><span class="lz-ad-f">${frase}</span>
+      ${S.aperto === p.id ? '' : `<button class="lz-btn pri" type="button" data-az="apri-prossimo" data-id="${esc(p.id)}" data-fuoco="apri-prossimo">Apri ${esc(LZ.numeroBreve(p))}${LZ.tasto('Invio')}</button>`}</div>`;
+  }
+
+  function filtri() {
+    const clienti = [...new Set(LZ.ordiniLaser().map(o => o.cliente || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
+    if (S.filtroCliente && !clienti.includes(S.filtroCliente)) S.filtroCliente = '';
+    const W = window.FTStati.laser;
+    const opz = (v, t, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(t)}</option>`;
+    return `<div class="lz-filtri">
+      <label>Cliente <select data-filtro="filtroCliente" aria-label="Filtra per cliente">${opz('', 'Tutti', S.filtroCliente)}${clienti.map(c => opz(c, c, S.filtroCliente)).join('')}</select></label>
+      <label>Stato <select data-filtro="filtroStato" aria-label="Filtra per stato">${opz('', 'Tutti', S.filtroStato)}${opz('smistare', W.da_smistare, S.filtroStato)}${opz('coda', W.da_importare, S.filtroStato)}${opz('in_lantek', 'In Lantek, da tagliare', S.filtroStato)}</select></label>
+    </div>`;
   }
 
   L.disegna = function () {
     if (!costruita) costruisci();
-    const ordini = LZ.ordiniLaser();
+    const tutti = LZ.ordiniLaser();
     // le caselle restano solo sugli ordini ancora spuntabili
     for (const id of [...S.spuntati]) { const o = LZ.trova(id); if (!o || !L.spuntabile(o)) S.spuntati.delete(id); }
+    const main = document.querySelector('.lz-main');
+    if (main) main.classList.toggle('con-ordine', !!S.aperto);
 
-    const attivi = ordini.filter(o => LZ.statoLaser(o) !== 'tagliato');
+    const attivi = tutti.filter(o => LZ.statoLaser(o) !== 'tagliato');
     const nRischio = attivi.filter(o => (LZ.allarme(o) || {}).k === 'rischio').length;
+    const gruppi = L.gruppi();
+    const nLam = gruppi.filter(g => g.lam).length;
+    const nDaCtl = attivi.filter(o => L.spuntabile(o) && (S.riep[o.id] || {}).n_controllare).length;
+    const selCtl = nDaCtl && !S.spuntati.size ? ` <button class="lz-link" type="button" data-az="sel-ctl">Seleziona ${nDaCtl === 1 ? 'quello' : `i ${nDaCtl}`} con disegni da controllare</button>` : '';
     // il "Taglio in ritardo" (taglia entro passato) lo dice la riga del carico,
     // col conto del server uguale all'ufficio (laser-saturazione.js)
-    const al = [nRischio ? `<span class="rischio">${LZ.plur(nRischio, 'consegna a rischio', 'consegne a rischio')}</span>` : ''].filter(Boolean);
-    LZ.metti(document.getElementById('lz-l-testa'), `<h1>Ordini al laser</h1>
-      <p class="lz-riass">${LZ.plur(attivi.length, 'ordine', 'ordini')}${al.length ? '. ' + al.join(', ') : ''}</p>
-      ${promemoria(attivi)}${LZ.sat.html()}`);
+    LZ.metti(document.getElementById('lz-l-testa'), `<div class="lz-l-tit"><h1>Ordini al laser</h1>
+        <p class="lz-riass">${LZ.plur(attivi.length, 'ordine', 'ordini')} da tagliare${nLam ? ` su ${LZ.plur(nLam, 'lamiera', 'lamiere')}` : ''}${nRischio ? `, <span class="rischio">${LZ.plur(nRischio, 'consegna a rischio', 'consegne a rischio')}</span>` : ''}.${selCtl}</p>
+        ${LZ.sat.html()}${filtri()}</div>
+      ${adesso(gruppi)}${promemoria(attivi)}`);
     menu(attivi);
 
     const righe = document.getElementById('lz-l-righe');
     let html = '';
+    const testa = `<thead><tr><th class="c-sp"><span class="lz-nascosto">Seleziona</span></th><th class="c-num">Ordine</th><th class="c-cli">Cliente</th>
+      <th class="c-st">Stato</th><th class="c-pz r">Pezzi</th><th class="c-cons">Consegna</th><th class="c-entro">Taglia entro</th></tr></thead>`;
     if (S.primoCarico) {
-      html = Array.from({ length: 7 }, () => `<div class="lz-r" aria-hidden="true"><span></span>
-        <div class="lz-skel" style="height:22px;width:52px"></div><div><div class="lz-skel" style="height:12px;width:70%;margin-bottom:6px"></div>
-        <div class="lz-skel" style="height:10px;width:40%"></div></div><div class="lz-skel" style="height:12px;width:56px"></div></div>`).join('');
-    } else if (!ordini.length) {
+      html = `<table class="lz-tabella">${testa}<tbody>${Array.from({ length: 7 }, () => `<tr class="lz-r" aria-hidden="true"><td></td>
+        <td><div class="lz-skel" style="height:12px;width:40px"></div></td><td><div class="lz-skel" style="height:12px;width:70%"></div></td>
+        <td><div class="lz-skel" style="height:12px;width:60%"></div></td><td></td><td></td><td><div class="lz-skel" style="height:12px;width:56px"></div></td></tr>`).join('')}</tbody></table>`;
+    } else if (!tutti.length) {
       html = `<div class="lz-vuoto-lista"><b>Nessun ordine al laser</b>Quando l'ufficio carica un ordine, compare qui.</div>`;
+    } else if (!gruppi.length) {
+      html = `<div class="lz-vuoto-lista"><b>Nessun ordine con questi filtri</b><button class="lz-link" type="button" data-az="via-filtri">Togli i filtri</button></div>`;
     } else {
-      for (const g of LZ.GRUPPI) {
-        const l = ordini.filter(o => LZ.statoLaser(o) === g.k);
-        if (!l.length) continue;
-        let dx = '';
-        if (g.k === 'coda') {
-          const daCtl = l.filter(o => (S.riep[o.id] || {}).n_controllare).length;
-          dx = S.spuntati.size ? `<button class="lz-link" type="button" data-az="sel-via">Togli selezione</button>`
-            : daCtl ? `<button class="lz-link" type="button" data-az="sel-ctl">Seleziona quelli da controllare</button>`
-              : '<span class="nota">spunta per mandarne più</span>';
-        }
-        html += `<div class="lz-gruppo" data-gruppo="${g.k}" role="presentation"><h2>${esc(g.t)} <span>${l.length}</span></h2>${dx}</div>`;
-        html += l.map(riga).join('');
-      }
+      html = `<table class="lz-tabella">${testa}<tbody>${gruppi.map(g => testaGruppo(g) + g.righe.map(r => riga(r, g)).join('')).join('')}</tbody></table>`;
     }
     LZ.metti(righe, html, righe);
     disegnaAzione();
@@ -153,9 +288,9 @@
     const nDa = conta('n_correggere'), nOk = conta('n_corretti');
     if (!nDa && !nOk) return '';
     return `<div class="lz-promemoria">${nDa ? `<button class="lz-ricorda" type="button" data-az="vai-correggere" data-fuoco="vai-correggere"
-        title="Codici tenuti fuori da Lantek perché diversi dall'ordine: correggili in Lantek">${LZ.ico('pencil-ruler')}<span>${LZ.plur(nDa, 'codice', 'codici')} da correggere in Lantek</span></button>` : ''}
+        title="Codici tenuti fuori da Lantek perché diversi dall'ordine: correggili in Lantek"><span>${LZ.plur(nDa, 'codice', 'codici')} da correggere in Lantek</span></button>` : ''}
       ${nOk ? `<button class="lz-ricorda pronti" type="button" data-az="vai-corretti" data-fuoco="vai-corretti"
-        title="Corretti in Lantek: si possono mandare">${LZ.ico('send')}<span>${LZ.plur(nOk, 'codice corretto', 'codici corretti')}: da mandare</span></button>` : ''}</div>`;
+        title="Corretti in Lantek: si possono mandare"><span>${LZ.plur(nOk, 'codice corretto', 'codici corretti')}: da mandare</span></button>` : ''}</div>`;
   }
   /** Il primo ordine (nell'ordine dell'elenco) con codici da correggere / corretti. */
   L.apriCorrezione = function (k) {
@@ -172,13 +307,14 @@
     const pronti = sel.filter(o => (S.riep[o.id] || {}).pronto);
     const altri = sel.length - pronti.length;
     LZ.metti(box, `<div class="lz-azione">
-      <div class="q"><span>${LZ.plur(sel.length, 'ordine selezionato', 'ordini selezionati')}</span></div>
-      <button class="lz-btn pri grande lungo" type="button" data-az="ctl-multi" ${nCtl ? '' : 'disabled'}>
+      <div class="q"><span>${LZ.plur(sel.length, 'ordine selezionato', 'ordini selezionati')}</span>
+        <button class="lz-link" type="button" data-az="sel-via">Togli la selezione</button></div>
+      <button class="lz-btn${nCtl ? ' pri' : ''}" type="button" data-az="ctl-multi" ${nCtl ? '' : 'disabled'}>
         <span>Controlla ${LZ.plur(nCtl, 'disegno', 'disegni')}</span>${nCtl ? LZ.tasto('C') : ''}</button>
-      <button class="lz-btn grande lungo" type="button" data-az="lantek-multi" ${pronti.length ? '' : 'disabled'}>
+      <button class="lz-btn${!nCtl && pronti.length ? ' pri' : ''}" type="button" data-az="lantek-multi" ${pronti.length ? '' : 'disabled'}>
         <span>Manda a Lantek${pronti.length ? ` (${LZ.plur(pronti.length, 'ordine', 'ordini')})` : ''}</span>${pronti.length ? LZ.tasto('L') : ''}</button>
-      ${altri && pronti.length ? `<div class="nota">${altri === 1 ? 'Un altro ha' : `Gli altri ${altri} hanno`} ancora qualcosa da fare prima di Lantek.</div>`
-        : !pronti.length ? '<div class="nota">Per mandarli a Lantek, prima controlla i disegni e sistema i blocchi.</div>' : ''}
+      ${altri && pronti.length ? `<span class="nota">${altri === 1 ? 'Un altro ha' : `Gli altri ${altri} hanno`} ancora qualcosa da fare prima di Lantek.</span>`
+        : !pronti.length ? '<span class="nota">Per mandarli a Lantek, prima controlla i disegni e sistema i blocchi.</span>' : ''}
     </div>`);
   }
 
@@ -188,35 +324,48 @@
       const a = az.dataset.az;
       if (a === 'sel-ctl') L.selezionaDaControllare();
       else if (a === 'sel-via') { S.spuntati.clear(); LZ.ridisegna(); }
+      else if (a === 'sel-lam') L.selezionaLamiera(az.dataset.lam);
       else if (a === 'ctl-multi') L.controllaSpuntati();
       else if (a === 'lantek-multi') L.mandaSpuntati();
       else if (a === 'vai-correggere') L.apriCorrezione('n_correggere');
       else if (a === 'vai-corretti') L.apriCorrezione('n_corretti');
+      else if (a === 'via-filtri') { S.filtroCliente = ''; S.filtroStato = ''; LZ.ridisegna(); }
       else if (a === 'apri-prossimo') { const id = az.dataset.id; if (id) L.apri(id); }
       return;
     }
-    if (e.target.closest('input[data-sp]')) return;
-    const r = e.target.closest('.lz-r[data-id]');
-    if (r) L.apri(r.dataset.id);
+    if (e.target.closest('input[data-sp], select, label')) return;
+    const r = e.target.closest('.lz-r');
+    const id = r && (r.dataset.id || r.dataset.rif);
+    if (id) L.apri(id);
   }
 
-  /** Il menu della cornice: porta al gruppo, al controllo, alle correzioni. */
+  /** "Seleziona i N da mandare" di una lamiera: e' il pacco di oggi, finche'
+      il pacco non e' un oggetto suo (fase 2). Di nuovo: toglie la selezione. */
+  L.selezionaLamiera = function (k) {
+    const g = L.gruppi().find(x => x.k === k);
+    if (!g) return;
+    const ids = g.righe.filter(r => L.spuntabile(r.o)).map(r => r.o.id);
+    const tutti = ids.every(id => S.spuntati.has(id));
+    ids.forEach(id => (tutti ? S.spuntati.delete(id) : S.spuntati.add(id)));
+    LZ.ridisegna();
+  };
+
+  /** Il menu della cornice: filtra per stato, porta al controllo, alle correzioni. */
   L.vai = function (k) {
     const righe = document.getElementById('lz-l-righe');
-    if (k === 'tutti') { if (righe) righe.scrollTo({ top: 0 }); }
+    if (k === 'tutti') { S.filtroStato = ''; LZ.ridisegna(); if (righe) righe.scrollTo({ top: 0 }); }
     else if (k === 'coda' || k === 'in_lantek') {
-      const g = document.querySelector(`.lz-gruppo[data-gruppo="${k}"]`) || (k === 'coda' && document.querySelector('.lz-gruppo[data-gruppo="smistare"]'));
-      if (g && righe) righe.scrollTo({ top: g.offsetTop - righe.offsetTop });
-      else FT.toast(k === 'coda' ? 'Nessun ordine da mandare a Lantek' : 'Nessun ordine in Lantek da tagliare', '');
-      const primo = g && g.nextElementSibling && g.nextElementSibling.matches('.lz-r[data-id]') ? g.nextElementSibling : null;
+      const n = LZ.ordiniLaser().filter(o => LZ.statoLaser(o) === k).length;
+      if (!n) { FT.toast(k === 'coda' ? 'Nessun ordine da mandare a Lantek' : 'Nessun ordine in Lantek da tagliare', ''); return; }
+      S.filtroStato = k;
+      LZ.ridisegna();
+      if (righe) righe.scrollTo({ top: 0 });
+      const primo = document.querySelector('#lz-l-righe .lz-r[data-id]');
       if (primo) primo.focus({ preventScroll: true });
     } else if (k === 'controllo') {
       const ids = LZ.ordiniVisti().filter(o => L.spuntabile(o) && (S.riep[o.id] || {}).n_controllare).map(o => o.id);
       if (ids.length) LZ.controllo.inizia(ids); else FT.toast('Nessun disegno da controllare', '');
     } else if (k === 'correggere') L.apriCorrezione('n_correggere');
-    // la voce resta accesa solo per i gruppi dell'elenco
-    document.querySelectorAll('#lz-menu .ft-tab[data-lz-vai]').forEach(b =>
-      b.classList.toggle('active', b.dataset.lzVai === (['coda', 'in_lantek'].includes(k) ? k : 'tutti')));
   };
   document.addEventListener('click', e => {
     const b = e.target.closest('#lz-menu [data-lz-vai]');
@@ -245,7 +394,7 @@
     if (ids.some(id => (S.riep[id] || {}).pronto)) LZ.lantek.apri(ids);
   };
 
-  /** Apre un ordine a destra (solo su richiesta: clic, frecce, Apri). */
+  /** Apre un ordine nel pannello a destra (solo su richiesta: clic, frecce, Apri). */
   L.apri = function (id) {
     if (S.aperto !== id) {
       S.aperto = id;
@@ -258,6 +407,16 @@
     const r = document.querySelector(`.lz-r[data-id="${CSS.escape(id)}"]`);
     if (r) r.scrollIntoView({ block: 'nearest' });
   };
+  /** Chiude il pannello dell'ordine: la tabella torna a tutta larghezza. */
+  L.chiudi = function () {
+    if (!S.aperto) return false;
+    const id = S.aperto;
+    S.aperto = null;
+    LZ.ridisegna();
+    const r = document.querySelector(`.lz-r[data-id="${CSS.escape(id)}"]`);
+    if (r) r.focus({ preventScroll: false });
+    return true;
+  };
   /** Frecce: nell'ordine in cui le righe si vedono (gruppi). */
   L.sposta = function (passo) {
     const l = LZ.ordiniVisti();
@@ -269,8 +428,8 @@
     if (r) r.focus({ preventScroll: true });
   };
 
-  /** "Il prossimo da fare" quando a destra non c'e' niente di aperto: il
-      primo ordine dell'elenco che chiede qualcosa (mai aperto da solo). */
+  /** Il prossimo da fare (riga "Adesso", Invio senza ordine aperto): prima
+      la consegna a rischio, poi il taglia entro passato, poi l'elenco. */
   L.prossimo = function () {
     const l = LZ.ordiniVisti().filter(o => LZ.statoLaser(o) !== 'tagliato');
     const pr = o => { const a = LZ.allarme(o); return a && a.k === 'rischio' ? 0 : a ? 1 : 2; };
@@ -282,10 +441,10 @@
     window.FTC.cerca = function (q) {
       const t = q.toLowerCase();
       const W = window.FTStati.laser;
-      return LZ.ordiniVisti().filter(o => [LZ.numero(o), o.numero_ordine, o.cliente].some(x => String(x || '').toLowerCase().includes(t)))
-        .map(o => ({ t: `${LZ.numeroBreve(o)}  ${o.cliente || ''}`, s: `${LZ.numero(o)} · consegna ${LZ.giorno(o) ? FT.fmtData(LZ.giorno(o)) : '—'}`,
-                     st: `<span class="lz-chip">${esc({ smistare: W.da_smistare, coda: W.da_importare, in_lantek: W.in_lantek, tagliato: W.tagliato }[LZ.statoLaser(o)] || '')}</span>`,
-                     fn: () => L.apri(o.id) }));
+      return LZ.ordiniLaser().filter(o => [LZ.numero(o), o.numero_ordine, o.cliente].some(x => String(x || '').toLowerCase().includes(t)))
+        .map(o => ({ t: `${LZ.numeroBreve(o)}  ${o.cliente || ''}`, s: `${LZ.numero(o)}, consegna ${LZ.giorno(o) ? FT.fmtData(LZ.giorno(o)) : '—'}`,
+                     st: `<span class="lz-sot">${esc({ smistare: W.da_smistare, coda: W.da_importare, in_lantek: W.in_lantek, tagliato: W.tagliato }[LZ.statoLaser(o)] || '')}</span>`,
+                     fn: () => { S.filtroCliente = ''; S.filtroStato = ''; L.apri(o.id); } }));
     };
   }
 })();

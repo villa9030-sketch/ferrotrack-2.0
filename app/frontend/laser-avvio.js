@@ -131,6 +131,8 @@
     if (t && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) && !/^(checkbox|radio)$/.test(t.type || '')) || (t && t.isContentEditable)) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    // Esc: chiude il pannello dell'ordine, la tabella torna a tutta larghezza
+    if (k === 'Escape' && S.aperto) { e.preventDefault(); LZ.lista.chiudi(); return; }
     if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); LZ.lista.sposta(k === 'ArrowDown' ? 1 : -1); return; }
     if (k === ' ' && S.aperto && !(t && t.tagName === 'BUTTON')) {
       const o = LZ.trova(S.aperto);
@@ -147,9 +149,9 @@
     if (k === 'Enter') {
       // Invio sul pulsante col fuoco lo preme; altrimenti e' il passo principale
       if (t && t.tagName === 'BUTTON' && !t.closest('.lz-r')) return;
-      if (t && t.closest && t.closest('.lz-r[data-id]') && t.closest('.lz-r').dataset.id !== S.aperto) {
-        e.preventDefault(); LZ.lista.apri(t.closest('.lz-r').dataset.id); return;
-      }
+      const rr = t && t.closest && t.closest('.lz-r');
+      const rid = rr && (rr.dataset.id || rr.dataset.rif);
+      if (rid && rid !== S.aperto) { e.preventDefault(); LZ.lista.apri(rid); return; }
       if (LZ.ordine.invio()) e.preventDefault();      // senza ordine aperto: apre il prossimo da fare
       return;
     }

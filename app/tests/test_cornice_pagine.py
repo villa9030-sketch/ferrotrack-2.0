@@ -7,7 +7,11 @@ Per ogni pagina di stazione (Laser, Ufficio, Ore dell'ufficio, Capo officina):
  3. una voce del menu fa il suo lavoro;
  4. Ctrl K porta alla casella di ricerca;
  5. a 900 px (tablet) il menu si nasconde e si apre col pulsante;
- 6. Esci porta fuori (ingresso o cambio postazione).
+ 6. Esci porta fuori (ingresso o cambio postazione);
+ 7. (16/10/2026) le regole "meno AI" (reports/Design FerroTrack meno AI.md):
+    Inter con cifre tabellari, niente MAIUSCOLO spaziato, niente ombre sui
+    pannelli, indaco profondo solo come accento; al laser la riga "Adesso" e
+    i gruppi per lamiera, all'ufficio una riga al posto dei riquadri.
 
 Serve un server di prova (tools/server_prova.py, porta 5056) su una COPIA
 del database. Senza, si salta. Uso: python tests/test_cornice_pagine.py [base]
@@ -36,7 +40,8 @@ def check(nome, ok, dett=''):
 # pagina, stazione del dispositivo, nome atteso nel menu, voce da provare, cosa deve succedere
 PAGINE = [
     ('/laser.html', 'laser', 'Laser',
-     '#lz-menu [data-lz-vai="in_lantek"]', "document.querySelector('#lz-menu [data-lz-vai=\"in_lantek\"]').classList.contains('active')"),
+     # dal 16/10 la voce filtra la tabella; senza ordini in Lantek lo dice un avviso
+     '#lz-menu [data-lz-vai="in_lantek"]', "document.querySelector('#lz-menu [data-lz-vai=\"in_lantek\"]').classList.contains('active') && LZ.s.filtroStato === 'in_lantek' || !!document.querySelector('.ft-toast')"),
     ('/impiegata.html', 'ufficio', 'Ufficio',
      '.ftc-side .ft-tab[data-tab="ordini"]', "document.getElementById('panel-ordini').classList.contains('active')"),
     ('/ufficio-ore.html', 'ufficio', 'Ufficio', None, None),
@@ -66,11 +71,33 @@ with sync_playwright() as p:
         check('barra: "Segnala" nella barra', pg.locator('.ft-topbar .fts-btn').count() == 1)
         lato = pg.evaluate("getComputedStyle(document.querySelector('.ftc-side')).left")
         larg = pg.evaluate("document.querySelector('.ftc-side').getBoundingClientRect().width")
-        check('menu a sinistra, 240 px', lato == '0px' and abs(larg - 240) < 1, (lato, larg))
+        check('menu a sinistra, 232 px', lato == '0px' and abs(larg - 232) < 1, (lato, larg))
         sx = pg.evaluate("document.querySelector('.ft-topbar').getBoundingClientRect().left")
-        check('la barra comincia dopo il menu', abs(sx - 240) < 1, sx)
-        check('un solo accento: niente blu del laser', pg.evaluate(
-            "getComputedStyle(document.documentElement).getPropertyValue('--ft-accent').trim()").upper() == '#4F46E5')
+        check('la barra comincia dopo il menu', abs(sx - 232) < 1, sx)
+        check('un solo accento: indaco profondo (non il #6366F1/#4F46E5 di Tailwind)', pg.evaluate(
+            "getComputedStyle(document.documentElement).getPropertyValue('--ft-accent').trim()").upper() == '#3D3FB5')
+        # Regole "meno AI" (16/10/2026)
+        r = pg.evaluate("""() => {
+          const vis = el => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+          const tutti = [...document.querySelectorAll('body *')].filter(vis);
+          const maiusc = tutti.filter(el => { const c = getComputedStyle(el); return c.textTransform === 'uppercase' && el.textContent.trim(); })
+            .map(el => el.className || el.tagName).slice(0, 3);
+          const pannelli = [...document.querySelectorAll('.ft-card, .og-card, .card, .lz-tabella, .ft-kpis')].filter(vis)
+            .filter(el => getComputedStyle(el).boxShadow !== 'none').map(el => el.className).slice(0, 3);
+          const b = getComputedStyle(document.body);
+          return { maiusc, pannelli, font: b.fontFamily, num: b.fontVariantNumeric };
+        }""")
+        check('Inter con cifre tabellari', r['font'].startswith('Inter') and 'tabular-nums' in r['num'], r)
+        check('niente MAIUSCOLO', not r['maiusc'], r['maiusc'])
+        check('pannelli senza ombra (separati per contrasto)', not r['pannelli'], r['pannelli'])
+        if url == '/laser.html':
+            pg.wait_for_selector('.lz-r[data-id]', timeout=30000)
+            check('laser: la riga "Adesso" in cima', pg.locator('#lz-l-testa .lz-adesso').count() == 1)
+            lam = pg.evaluate("[...document.querySelectorAll('.lz-gruppo')].map(g => g.dataset.gruppo)")
+            check('laser: gli ordini raggruppati per lamiera', any('|' in (g or '') for g in lam), lam)
+        if url == '/impiegata.html':
+            check('ufficio: una riga al posto dei riquadri di numeri', pg.locator('#og-kpi.ft-adesso').count() == 1
+                  and pg.locator('.og-k').count() == 0)
         if voce:
             pg.click(voce)
             pg.wait_for_timeout(600)

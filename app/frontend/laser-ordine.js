@@ -190,8 +190,8 @@
       costruitoPer = null;
       el.classList.remove('con-pdf', 'accanto');
       LZ.metti(el, S.aperto && !S.primoCarico
-        ? `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('archive')}</div><b>Quest'ordine non è più al laser</b><p>Scegline un altro a sinistra.</p></div></div>`
-        : vuotoProssimo());
+        ? `<div class="lz-vuoto"><div><b>Quest'ordine non è più al laser</b><p>Scegline un altro a sinistra, o chiudi con Esc.</p></div></div>`
+        : '');
       return;
     }
     if (costruitoPer !== o.id || !el.querySelector('#lz-o-testa')) scheletro(el, o.id);
@@ -209,34 +209,9 @@
     LZ.metti(document.getElementById('lz-o-scheda'), scheda(o), el);
   };
 
-  /** Niente aperto: il prossimo ordine da fare, con Apri. Si apre solo se
-      lo chiedi tu (Stefano, 14/10: niente si apre da solo). */
-  function vuotoProssimo() {
-    if (S.primoCarico) return '<div class="lz-vuoto"><div><div class="lz-skel" style="height:120px;width:520px;max-width:100%"></div></div></div>';
-    const p = LZ.lista.prossimo();
-    if (!p) {
-      return `<div class="lz-vuoto"><div><div class="ico">${LZ.ico('circle-check')}</div><b>Niente da fare al laser</b>
-        <p>Quando l'ufficio carica un ordine, compare a sinistra.</p></div></div>`;
-    }
-    const passo = O.passo(p);
-    const al = LZ.allarme(p);
-    const g = LZ.giorno(p);
-    const dopo = LZ.ordiniVisti().filter(x => x.id !== p.id && LZ.statoLaser(x) !== 'tagliato').slice(0, 4);
-    const W = window.FTStati.laser;
-    const cosa = x => ({ smistare: W.da_smistare, coda: W.da_importare, in_lantek: 'da tagliare' }[LZ.statoLaser(x)] || '');
-    return `<div class="lz-prossimo">
-      <h2>Il prossimo da fare</h2>
-      <div class="lz-pr-card">
-        <div class="lz-pr-chi"><span class="lz-num">${esc(LZ.numeroBreve(p))}</span><b>${esc(p.cliente || 'Cliente non indicato')}</b>
-          ${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}</div>
-        <p>${esc(/[?]$/.test(passo.t) ? passo.t : passo.t.replace(/[.!…]$/, '') + '.')}${g ? ` Consegna ${esc(FT.fmtData(g))}.` : ''}</p>
-        <button class="lz-btn pri grande" type="button" data-az="apri-prossimo" data-id="${esc(p.id)}" data-fuoco="apri-prossimo">Apri${LZ.tasto('Invio')}</button>
-      </div>
-      ${dopo.length ? `<h3>Dopo</h3><ul class="lz-pr-dopo">${dopo.map(x => `<li><button type="button" data-az="apri-prossimo" data-id="${esc(x.id)}">
-        <span><b>${esc(LZ.numeroBreve(x))}</b> ${esc(x.cliente || '')}</span><span class="c">${esc(cosa(x))}</span></button></li>`).join('')}</ul>` : ''}
-      <p class="lz-pr-tasti"><kbd>↑</kbd> <kbd>↓</kbd> per scorrere gli ordini, <kbd>Spazio</kbd> per spuntarli, <kbd>C</kbd> per controllare i disegni.</p>
-    </div>`;
-  }
+  /* Niente aperto (16/10/2026): il pannello non c'e' e la tabella prende
+     tutta la larghezza; "cosa fare adesso" sta nella riga sopra la tabella
+     (laser-lista.js). Niente si apre da solo (Stefano, 14/10). */
 
   function testa(o) {
     const st = LZ.statoLaser(o);
@@ -269,7 +244,7 @@
     return `<div class="lz-o-testa">
       <div class="lz-o-tit"><h2><span class="lz-o-num">${esc(LZ.numeroBreve(o))}</span><span class="lz-o-cli" title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</span></h2>
         <div class="lz-o-sotto"><span>ordine del cliente <span class="mono">${esc(LZ.numero(o))}</span></span>${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}${LZ.procura.chip(o)}</div></div>
-      <div class="lz-o-az"><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
+      <div class="lz-o-az"><button class="lz-btn ghost piccolo" type="button" data-az="chiudi" data-fuoco="chiudi-ordine" title="Chiudi l'ordine (Esc)">Chiudi</button><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
       <div class="lz-fatti">
         <div class="lz-entro"><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
           <small class="${ritE ? 'rit' : ''}">${st === 'tagliato' ? 'tagliato' : esc(qe.t)}</small>
@@ -616,7 +591,7 @@
     const lm = LZ.lamiere(o);
     if (lm.n < 2) return '';
     return `<div class="lz-lam-riep"><span class="t">${LZ.plur(lm.n, 'lamiera', 'lamiere')}${lm.fatte ? `, ${lm.fatte} tagliat${lm.fatte === 1 ? 'a' : 'e'}` : ''}:</span>
-      ${lm.l.map(x => `<span class="lz-lam-pill${lm.tg[x.chiave] ? ' ok' : ''}">${lm.tg[x.chiave] ? LZ.ico('check') : ''}${esc(LZ.nomeLamiera(x))}</span>`).join('')}
+      <span>${lm.l.map(x => `<span class="lz-lam-pill${lm.tg[x.chiave] ? ' ok' : ''}">${esc(LZ.nomeLamiera(x))}${lm.tg[x.chiave] ? ' <em>tagliata</em>' : ''}</span>`).join('; ')}</span>
       <button class="lz-link" type="button" data-scheda="lamiere">Vedi per lamiera</button></div>`;
   }
   /** I pezzi raggruppati per lamiera, coi totali, e "Segna tagliato" per
@@ -707,6 +682,7 @@
     if (!dett || !dett.contains(e.target)) return;
     const ap = e.target.closest('[data-az="apri-prossimo"]');
     if (ap) { LZ.lista.apri(ap.dataset.id); return; }
+    if (e.target.closest('[data-az="chiudi"]')) { LZ.lista.chiudi(); return; }
     const o = LZ.trova(S.aperto);
     if (!o) return;
     // pezzi per assieme / quanti assiemi: si scrive nel campo, non si apre il disegno

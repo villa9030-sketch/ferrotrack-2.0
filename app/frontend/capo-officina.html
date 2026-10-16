@@ -25,8 +25,8 @@ body.capo h2, body.capo h3, body.capo p { margin: 0; }
   --border: var(--ft-line);
   --blue: var(--ft-accent-ink);
   --blue-bg: var(--ft-accent-bg);
-  --red: #B42318;
-  --red-bg: #FEF3F2;
+  --red: var(--ft-err);
+  --red-bg: var(--ft-err-bg);
   --orange: var(--ft-warn);
   --orange-bg: var(--ft-warn-bg);
   --green-badge: var(--ft-ok);
@@ -34,16 +34,16 @@ body.capo h2, body.capo h3, body.capo p { margin: 0; }
   --shadow-sm: var(--ft-elev-1);
   --shadow-md: var(--ft-elev-2);
   --shadow-lg: var(--ft-elev-3);
-  --r-sm: 6px; --r-md: 10px; --r-lg: 12px; --r-xl: 14px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 8px;
 }
 
 body.capo { font-size: 14px; }
 
 /* PANELS */
 .panel { display: none; max-width: var(--ft-page-max); margin: 0 auto; padding: calc(var(--ftc-top-h) + 28px) 32px 48px; }
-.panel.active { display: block; animation: tabFade 0.18s ease-out; }
+.panel.active { display: block; }
 @keyframes tabFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-.page-title { font: 700 24px/1.2 var(--ft-display); letter-spacing: -0.4px; margin-bottom: 20px; }
+.page-title { font: 600 20px/1.2 var(--ft-font); margin-bottom: 20px; }
 
 /* CARDS */
 .card {
@@ -69,15 +69,15 @@ body.capo { font-size: 14px; }
   background: var(--white);
   box-shadow: var(--shadow-sm); transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
-.kpi-card .name { font-weight: 700; font-size: 15px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px; }
+.kpi-card .name { font-weight: 600; font-size: 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 10px; }
 .kpi-card .avatar { width: 32px; height: 32px; border-radius: 50%; color: white;
-  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px;
   background: var(--green); /* override inline da JS colorFromName */ }
 /* HERO: ore settimana grandi */
 .kpi-hero { padding: 6px 0 14px; border-bottom: 1px solid #f1f3f5; margin-bottom: 10px; }
-.kpi-hero .label { font-size: 12.5px; font-weight: 600; color: var(--gray-text); }
+.kpi-hero .label { font-size: 12px; font-weight: 600; color: var(--gray-text); }
 .kpi-hero .value {
-  font-family: var(--ft-display); font-weight: 700; font-size: 44px; line-height: 1.05; letter-spacing: -1.5px;
+  font-family: var(--ft-font); font-weight: 600; font-size: 44px; line-height: 1.05;
   font-variant-numeric: tabular-nums; margin-top: 6px; color: var(--black);
 }
 /* Il testo piccolo dentro il numero grande deve ripartire da spaziatura
@@ -85,28 +85,28 @@ body.capo { font-size: 14px; }
    lettere e rende il badge una macchia illeggibile. */
 .kpi-hero .value .unit,
 .kpi-hero .value .trend { letter-spacing: normal; }
-.kpi-hero .value .unit { font-size: 18px; font-weight: 700; color: var(--gray-muted); margin-left: 4px; letter-spacing: 0; }
+.kpi-hero .value .unit { font-size: 16px; font-weight: 600; color: var(--gray-muted); margin-left: 4px; letter-spacing: 0; }
 .kpi-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; }
 .kpi-label { font-size: 12px; color: var(--gray-text); }
-.kpi-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--ft-display); }
+.kpi-value { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--ft-font); }
 .kpi-bar-wrap { margin-top: 10px; }
 .kpi-bar-bg { width: 100%; height: 6px; background: #eef0f2; border-radius: 100px; overflow: hidden; }
 .kpi-bar { height: 100%; background: var(--green); border-radius: 100px; transition: width 0.4s ease; }
 .kpi-bar.warn { background: var(--orange); }
 .kpi-bar.crit { background: var(--red); }
-.kpi-pct { font-size: 11px; color: var(--gray-text); margin-top: 4px; text-align: right; }
+.kpi-pct { font-size: 12px; color: var(--gray-text); margin-top: 4px; text-align: right; }
 
 /* TABLES */
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl thead th {
-  text-align: left; font-size: 12.5px; font-weight: 600; color: var(--gray-text); padding: 10px 18px;
+  text-align: left; font-size: 12px; font-weight: 600; color: var(--gray-text); padding: 10px 18px;
   border-bottom: 1px solid var(--border); background: #fafbfc;
 }
-.tbl tbody td { padding: 12px 18px; border-bottom: 1px solid var(--ft-line-2); font-size: 13.5px; }
+.tbl tbody td { padding: 12px 18px; border-bottom: 1px solid var(--ft-line-2); font-size: 14px; }
 .tbl tbody tr:hover { background: #fafbfc; cursor: pointer; }
 .tbl tbody tr:last-child td { border-bottom: none; }
 .tbl .n { text-align: right; font-variant-numeric: tabular-nums; }
-.tbl code { font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 12px; }
+.tbl code { font-family: 'Geist Mono', 'Consolas', monospace; font-size: 12px; }
 
 .badge {
   display: inline-flex; align-items: center; padding: 3px 9px;
@@ -124,7 +124,7 @@ body.capo { font-size: 14px; }
   display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;
   border-bottom: 1px solid var(--border); background: #fafbfc;
 }
-.cal-controls .month-title { font-family: var(--ft-display); font-weight: 700; font-size: 18px; letter-spacing: -0.3px; }
+.cal-controls .month-title { font-family: var(--ft-font); font-weight: 600; font-size: 16px; }
 .cal-nav { display: flex; gap: 6px; }
 .cal-nav button {
   padding: 6px 12px; border: 1px solid var(--border); background: var(--white);
@@ -136,7 +136,7 @@ body.capo { font-size: 14px; }
   background: var(--border); border-bottom: 1px solid var(--border);
 }
 .cal-wk-head {
-  background: #fafbfc; padding: 8px 10px; font-size: 12.5px; font-weight: 600; color: var(--gray-muted);
+  background: #fafbfc; padding: 8px 10px; font-size: 12px; font-weight: 600; color: var(--gray-muted);
   text-align: center;
 }
 .cal-day {
@@ -147,8 +147,8 @@ body.capo { font-size: 14px; }
 .cal-day:hover { background: #fafbfc; }
 .cal-day.empty { background: #f7f8f9; cursor: default; pointer-events: none; }
 .cal-day.today { background: var(--ft-accent-bg); }
-.cal-day.today .day-num { color: var(--green); font-weight: 900; }
-.day-num { font-size: 12.5px; font-weight: 600; color: var(--gray-text); margin-bottom: 4px; }
+.cal-day.today .day-num { color: var(--green); font-weight: 600; }
+.day-num { font-size: 12px; font-weight: 600; color: var(--gray-text); margin-bottom: 4px; }
 .day-orders { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
 .day-order {
   font-size: 12px; padding: 2px 6px; border-radius: 4px;
@@ -157,7 +157,7 @@ body.capo { font-size: 14px; }
 }
 .day-order.urgent { background: var(--red-bg); color: var(--red); }
 .day-order.warn   { background: var(--orange-bg); color: var(--orange); }
-.day-more { font-size: 10px; color: var(--gray-muted); font-style: italic; margin-top: 2px; }
+.day-more { font-size: 11px; color: var(--gray-muted); font-style: italic; margin-top: 2px; }
 
 /* DAY MODAL */
 .modal-overlay {
@@ -177,11 +177,11 @@ body.capo { font-size: 14px; }
 }
 @keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .modal-head { padding: 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-.modal-head h3 { font: 700 18px var(--ft-display); margin: 0; }
+.modal-head h3 { font: 600 16px var(--ft-font); margin: 0; }
 .modal-body { padding: 0; overflow-y: auto; }
 .modal-close {
   width: 32px; height: 32px; border-radius: 8px; border: none;
-  background: var(--bg); cursor: pointer; font-size: 16px; font-weight: 700;
+  background: var(--bg); cursor: pointer; font-size: 16px; font-weight: 600;
 }
 .modal-close:hover { background: var(--red-bg); color: var(--red); }
 
@@ -189,6 +189,38 @@ body.capo { font-size: 14px; }
 .empty {
   padding: 32px; text-align: center; color: var(--gray-muted); font-size: 13px;
 }
+
+/* ── 16/10/2026: regole "meno AI" (reports/Design FerroTrack meno AI.md) ──
+   pannelli piatti separati per contrasto, parole al posto delle pillole,
+   colore solo per il ritardo, i numeri delle ore non piu' giganti. */
+.panel { padding: calc(var(--ftc-top-h) + 24px) 24px 48px; }
+.page-title { margin-bottom: 16px; }
+.card { border-radius: 8px; box-shadow: none; transition: none; margin-bottom: 16px; }
+.card-header { padding: 12px 16px; }
+.card-meta { font-weight: 400; }
+.capo-forse h3 { color: var(--ft-warn); }
+.tbl thead th { height: 32px; padding: 0 16px; background: var(--ft-g2); }
+.tbl tbody td { height: 32px; padding: 4px 16px; font-size: 13px; }
+.tbl tbody tr:hover { background: var(--ft-g2); }
+.tbl code { font-family: var(--ft-mono); font-size: 13px; color: var(--ft-ink); }
+.tbl td.az { text-align: right; white-space: nowrap; }
+.badge { padding: 0; border-radius: 4px; background: none !important; font-weight: 400; color: var(--ft-ink-2) !important; }
+.badge.green { color: var(--ft-ok) !important; font-weight: 600; }
+.badge.red { color: var(--ft-err) !important; font-weight: 600; }
+.badge.orange { color: var(--ft-warn) !important; font-weight: 600; }
+.kpi-grid { gap: 0; padding: 0; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.kpi-card { border: 0; border-right: 1px solid var(--ft-line-2); border-bottom: 1px solid var(--ft-line-2); border-radius: 0; padding: 16px; box-shadow: none; transition: none; }
+.kpi-card .name { margin-bottom: 12px; }
+.kpi-card .avatar { background: var(--ft-g4) !important; color: var(--ft-ink-2) !important; width: 28px; height: 28px; }
+.kpi-hero .value { font-size: 20px; }
+.kpi-bar-bg { height: 4px; border-radius: 2px; }
+.kpi-bar { background: var(--ft-ink-3); border-radius: 2px; }
+.cal-nav button { border-radius: 6px; }
+.day-order { background: var(--ft-g3); color: var(--ft-ink-2); }
+.modal-overlay { animation: none; background: rgba(28, 32, 38, .36); }
+.modal { border: 0; border-radius: 8px; animation: none; }
+.modal-close { border-radius: 6px; }
+#nota-fonte-ore { background: var(--ft-panel) !important; border-color: var(--ft-line) !important; border-radius: 8px !important; color: var(--ft-ink-2) !important; font-size: 13px !important; }
 </style>
 </head>
 <body class="ft ftc capo" data-stazione="capo" data-cerca-testo="Cerca un ordine: numero o cliente">
@@ -234,13 +266,13 @@ body.capo { font-size: 14px; }
 
 <!-- ===================== PANEL: ORDINI ATTIVI ===================== -->
 <div class="panel" id="panel-ordini">
-  <h2 class="page-title">Ordini attivi <span id="ord-count-title" style="color:var(--gray-muted); font-weight:600; font-size:15px; margin-left:8px;"></span></h2>
+  <h2 class="page-title">Ordini attivi <span id="ord-count-title" style="color:var(--gray-muted); font-weight:600; font-size:14px; margin-left:8px;"></span></h2>
 
   <!-- ORDINI SOSPETTI FINITI — il sistema suggerisce, il capo decide -->
-  <div class="card" id="sospetti-card-capo" style="display:none; border-color:#fca5a5; margin-bottom:20px;">
-    <div class="card-header" style="background:#fef2f2;">
-      <h3 style="color:#991b1b;">⚠ Ordini probabilmente finiti — controlla e chiudi</h3>
-      <span class="card-meta" id="sospetti-count-capo" style="color:#991b1b; font-weight:700;">—</span>
+  <div class="card" id="sospetti-card-capo" style="display:none;">
+    <div class="card-header capo-forse">
+      <h3>Forse finiti: fermi da giorni, controlla e segna lavoro finito</h3>
+      <span class="card-meta" id="sospetti-count-capo">—</span>
     </div>
     <div class="card-body">
       <table class="tbl">
@@ -251,7 +283,7 @@ body.capo { font-size: 14px; }
             <th>Arrivato il</th>
             <th>Consegna</th>
             <th class="n">Aperto da</th>
-            <th style="text-align:center;">Azione</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="sospetti-tbody-capo"></tbody>
@@ -261,7 +293,7 @@ body.capo { font-size: 14px; }
 
   <div class="card">
     <div class="card-header">
-      <h3>Ordinati per data consegna (più urgenti in alto)</h3>
+      <h3>Per data di consegna, i più vicini in alto</h3>
       <span class="card-meta" id="ord-meta">—</span>
     </div>
     <div class="card-body">
@@ -273,7 +305,7 @@ body.capo { font-size: 14px; }
             <th>Consegna</th>
             <th class="n">Giorni</th>
             <th>Taglio</th>
-            <th style="text-align:center;">Azione</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="ord-tbody">
@@ -412,14 +444,11 @@ async function refreshSospettiCapo() {
       html += `<tr title="${escapeHtml(o.motivo || '')}">
         <td><code>${label}</code></td>
         <td>${escapeHtml(o.cliente || '')}</td>
-        <td style="color:var(--gray-text); font-size:12px;">${arr}</td>
-        <td style="color:var(--gray-text); font-size:12px;">${cons}</td>
-        <td class="n" style="font-weight:700; color:#991b1b;">${o.giorni_inattivo}g</td>
-        <td style="text-align:center;">
-          <button onclick="closeOrder('${o.id}', '${label}')"
-                  style="padding:6px 12px; background:var(--green); color:white; border:none; border-radius:6px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">
-            ✓ Lavoro finito
-          </button>
+        <td>${arr}</td>
+        <td>${cons}</td>
+        <td class="n">${o.giorni_inattivo} gg</td>
+        <td class="az">
+          <button class="ft-btn sm" onclick="closeOrder('${o.id}', '${label}')">Lavoro finito</button>
         </td>
       </tr>`;
     }
@@ -500,7 +529,7 @@ async function loadKpi() {
         const arrow = isUp ? '↗' : '↘';
         const color = isUp ? 'var(--green-badge)' : '#b45309';
         const bg = isUp ? 'var(--green-badge-bg)' : '#fff4d6';
-        trendBadge = `<span class="trend" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:100px;background:${bg};color:${color};font-size:11px;font-weight:700;margin-left:10px;white-space:nowrap;vertical-align:middle;">${arrow} ${Math.abs(trendDelta).toFixed(1)}h vs media</span>`;
+        trendBadge = `<span class="trend" style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:100px;background:${bg};color:${color};font-size:12px;font-weight:600;margin-left:10px;white-space:nowrap;vertical-align:middle;">${arrow} ${Math.abs(trendDelta).toFixed(1)}h vs media</span>`;
       }
       html += `<div class="kpi-card">
         <div class="name"><div class="avatar" style="background:${avatarColor}">${escapeHtml(initials)}</div>${escapeHtml(k.nome)}</div>
@@ -561,13 +590,13 @@ async function loadOrdini() {
     let html = '';
     for (const o of orders) {
       const cons = o.data_consegna ? new Date(o.data_consegna) : null;
-      let giorni = '—', urgClass = 'gray';
+      // colore solo se c'e' un problema: rosso passata, ambra entro 2 giorni
+      let giorni = '—', urgClass = '';
       if (cons) {
         const diff = Math.ceil((cons - now) / (1000 * 60 * 60 * 24));
         giorni = diff;
-        if (diff < 0 || diff < 2) urgClass = 'red';
-        else if (diff < 5) urgClass = 'orange';
-        else urgClass = 'green';
+        if (diff < 0) urgClass = 'err';
+        else if (diff <= 2) urgClass = 'warn';
       }
       const consTxt = cons ? `${String(cons.getDate()).padStart(2,'0')}/${String(cons.getMonth()+1).padStart(2,'0')}/${cons.getFullYear()}` : '—';
       const label = escapeHtml(o.numero_ordine || o.id.substring(0,8));
@@ -575,20 +604,18 @@ async function loadOrdini() {
       // conosce (il resto lo dice l'officina a voce).
       // le parole di tutte le pagine (backend/stati.py)
       const fl = FTStati.faseLaser(o);
-      const taglio = `<span class="badge ${{ tagliato: 'green', non_serve: 'gray', in_lantek: 'purple' }[fl] || 'orange'}" title="${escapeHtml(FTStati.laserSpiega[fl])}">${escapeHtml(FTStati.laser[fl])}</span>`;
-      const prevBadge = (o.origine === 'PREVENTIVO') ? ' <span class="badge purple" style="font-size:9px; padding:1px 6px;" title="Ordine creato da preventivo accettato">PREV</span>' : '';
-      html += `<tr data-order-id="${o.id}" style="cursor:pointer;" onclick="openOrderDetailModal('${o.id}', '${label}')">
-        <td><code>${label}</code>${prevBadge}</td>
+      const taglio = `<span class="ft-status${fl === 'tagliato' ? ' ok' : ''}" title="${escapeHtml(FTStati.laserSpiega[fl])}">${escapeHtml(FTStati.laser[fl])}</span>`;
+      const daPrev = o.origine === 'PREVENTIVO' ? ' (da un preventivo accettato)' : '';
+      const gTxt = typeof giorni === 'number' ? (giorni < 0 ? `in ritardo ${-giorni} gg` : giorni === 0 ? 'oggi' : giorni === 1 ? 'domani' : `${giorni} gg`) : '—';
+      html += `<tr data-order-id="${o.id}" style="cursor:pointer;" onclick="openOrderDetailModal('${o.id}', '${label}')" title="${escapeHtml(label + daPrev)}">
+        <td><code>${label}</code></td>
         <td>${escapeHtml(o.cliente || '')}</td>
         <td>${consTxt}</td>
-        <td class="n"><span class="badge ${urgClass}">${giorni}${typeof giorni === 'number' ? ' g' : ''}</span></td>
+        <td class="n"><span class="ft-status ${urgClass}">${gTxt}</span></td>
         <td>${taglio}</td>
-        <td style="text-align:center;" onclick="event.stopPropagation();">
-          <button onclick="closeOrder('${o.id}', '${label}')"
-                  title="Lavorazione finita: passa all'amministrazione per la fatturazione"
-                  style="padding:6px 14px; background:#fff; border:1px solid var(--green); color:var(--green); border-radius:6px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">
-            ✓ Lavoro finito
-          </button>
+        <td class="az" onclick="event.stopPropagation();">
+          <button class="ft-btn sm" onclick="closeOrder('${o.id}', '${label}')"
+                  title="Lavorazione finita: nell'ufficio passa fra i pronti per il DDT">Lavoro finito</button>
         </td>
       </tr>`;
     }
@@ -737,16 +764,16 @@ function renderOrderDetail(ord) {
 
   let html = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:16px 18px; background:#fafbfc; border-bottom:1px solid var(--border);">
-      <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Cliente</div><div style="font-weight:700; margin-top:2px;">${cliente}</div></div>
-      <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Numero ordine</div><div style="margin-top:2px;"><code>${numero}</code></div></div>
-      <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Consegna</div><div style="margin-top:2px;">${consStr}</div></div>
-      <div><div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Stato</div><div style="margin-top:2px;"><span class="badge ${ord.status==='CHIUSO'?'gray':'green'}">${escapeHtml(FTStati.passo[FTStati.daStatus[ord.status] || 'in_lavorazione'])}</span></div></div>
+      <div><div style="font-size:11px; font-weight:600; color:var(--gray-muted); text-transform: none;">Cliente</div><div style="font-weight:600; margin-top:2px;">${cliente}</div></div>
+      <div><div style="font-size:11px; font-weight:600; color:var(--gray-muted); text-transform: none;">Numero ordine</div><div style="margin-top:2px;"><code>${numero}</code></div></div>
+      <div><div style="font-size:11px; font-weight:600; color:var(--gray-muted); text-transform: none;">Consegna</div><div style="margin-top:2px;">${consStr}</div></div>
+      <div><div style="font-size:11px; font-weight:600; color:var(--gray-muted); text-transform: none;">Stato</div><div style="margin-top:2px;"><span class="badge ${ord.status==='CHIUSO'?'gray':'green'}">${escapeHtml(FTStati.passo[FTStati.daStatus[ord.status] || 'in_lavorazione'])}</span></div></div>
     </div>
     <div style="padding:16px 18px; display:flex; gap:16px; flex-wrap:wrap; border-bottom:1px solid var(--border);">
       <div>
-        <div style="font-size:10px; font-weight:700; color:var(--gray-muted); text-transform:uppercase; letter-spacing:0.4px;">Taglio laser</div>
+        <div style="font-size:11px; font-weight:600; color:var(--gray-muted); text-transform: none;">Taglio laser</div>
         <div style="margin-top:4px;">${tagliato
-          ? `<span class="badge green">✓ ${escapeHtml(FTStati.laser.tagliato)}</span> <span style="color:var(--gray-text); font-size:12px;">${dataTaglio ? dataTaglio.toLocaleString('it-IT', {dateStyle:'short', timeStyle:'short'}) : ''}</span>`
+          ? `<span class="badge green">${escapeHtml(FTStati.laser.tagliato)}</span> <span style="color:var(--gray-text); font-size:12px;">${dataTaglio ? dataTaglio.toLocaleString('it-IT', {dateStyle:'short', timeStyle:'short'}) : ''}</span>`
           : `<span class="badge orange">${escapeHtml(FTStati.laser[FTStati.faseLaser(ord)])}</span>`}</div>
       </div>
     </div>
@@ -758,7 +785,8 @@ function renderOrderDetail(ord) {
 // ---------- Lavoro finito (capo conferma fine lavorazione fisica) ----------
 // Sposta l'ordine in DA_FATTURARE → appare nella tab di Elena.
 async function closeOrder(orderId, label) {
-  if (!confirm(`Confermi che la lavorazione di "${label}" è finita?\n\nNell'ufficio l'ordine passa a "${FTStati.passo.attesa_ddt}".`)) return;
+  const ok = await FT.conferma({ titolo: `Vuoi segnare finito l'ordine ${label}?`, testo: `Nell'ufficio passa a «${FTStati.passo.attesa_ddt}».`, ok: 'Segna finito' });
+  if (!ok) return;
   try {
     const r = await fetch(`${API_URL}/api/orders/${orderId}/close`, {
       method: 'POST',
@@ -768,16 +796,16 @@ async function closeOrder(orderId, label) {
     const data = await r.json();
     if (r.ok && data.success && (data.gia_fatto || data.gia_registrato)) {
       // Un'altra postazione l'aveva appena segnato: nessun avviso doppio.
-      alert('Era già segnato come finito (da un\'altra postazione): nessuna modifica.');
+      FT.toast('Era già segnato finito da un\'altra postazione: niente da cambiare', '');
       loadOrdini();
     } else if (r.ok && data.success) {
-      alert(`✓ Lavoro finito: nell'ufficio l'ordine è ora "${FTStati.passo.attesa_ddt}".`);
+      FT.toast(`${label}: lavoro finito. Nell'ufficio è ora «${FTStati.passo.attesa_ddt}»`, 'ok');
       loadOrdini();
     } else {
-      alert('Errore: ' + (data.error || 'sconosciuto'));
+      FT.toast('Non segnato: ' + (data.error || 'il server non ha risposto') + '. Riprova.', 'err');
     }
   } catch (e) {
-    alert('Errore: ' + e.message);
+    FT.toast('Non segnato: il server non risponde. Riprova.', 'err');
   }
 }
 

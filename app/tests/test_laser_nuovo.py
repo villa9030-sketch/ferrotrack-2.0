@@ -104,9 +104,12 @@ with sync_playwright() as p:
     print('1) Apertura')
     check('elenco con gli ordini', pg.locator('.lz-r[data-id]').count() > 0)
     check('nessun ordine aperto da solo', pg.evaluate('LZ.s.aperto') is None and pg.locator('.lz-r.on').count() == 0)
-    # dal 15/10: a destra "Il prossimo da fare" con Apri (non si apre da solo)
-    dx = pg.locator('#lz-dett').inner_text()
-    check('a destra: "Il prossimo da fare" (o niente da fare)', 'Il prossimo da fare' in dx or 'Niente da fare' in dx, dx[:120])
+    # dal 16/10: niente pannello a destra finche' non apri un ordine; in cima
+    # la riga "Adesso" dice il prossimo da fare, con Apri (non si apre da solo)
+    ad = pg.locator('.lz-adesso').inner_text()
+    check('in cima: la riga "Adesso" col prossimo da fare (o niente da tagliare)',
+          ('Adesso' in ad and 'Apri' in ad) or 'Niente da tagliare' in ad, ad[:160])
+    check('senza ordine aperto la tabella prende tutta la larghezza', not pg.evaluate("document.querySelector('.lz-main').classList.contains('con-ordine')"))
     check("la riga del carico (stesse parole dell'ufficio)", 'Laser, prossimi 5 giorni lavorativi' in pg.locator('.lz-sat').inner_text())
     check('niente calendario ne\' lamiere', pg.locator('text=Calendario').count() == 0 and pg.locator('text=Banco lamiere').count() == 0)
 

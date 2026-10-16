@@ -228,7 +228,11 @@
   else segnoSchede();
 
   // ── Effetti comuni (vedi "Effetti comuni" in ft-ui.css) ─────────────
-  const MUOVI = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  // 16/10/2026 (ricerca "meno AI"): niente numeri che scorrono, niente
+  // entrate in sequenza, niente dissolvenza fra le pagine. Sono animazioni
+  // di comparsa ripetute cento volte al giorno: i valori arrivano subito.
+  // Resta solo evidenzia(): la riga appena cambiata, come risposta a un fatto.
+  const MUOVI = false;
 
   /** Il numero scorre dal valore mostrato a `valore`.
       opz: {dec, euro, intero, durata, suffisso}. Ritorna subito; il testo
@@ -261,7 +265,7 @@
   /** Numera i figli per l'entrata in sequenza di .ft-stagger (max 14 in
       ritardo: oltre entrano tutti insieme, una lista lunga non deve attendere). */
   function sequenza(box) {
-    if (!box) return;
+    if (!box || !MUOVI) return;
     const figli = Array.from(box.children);
     figli.forEach((c, i) => c.style.setProperty('--i', Math.min(i, 14)));
     box.classList.remove('ft-stagger'); void box.offsetWidth; box.classList.add('ft-stagger');

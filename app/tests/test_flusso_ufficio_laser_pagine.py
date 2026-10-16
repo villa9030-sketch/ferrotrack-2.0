@@ -112,7 +112,7 @@ with sync_playwright() as p:
         try:
             riga = u.locator(f'#og-dafare .og-r[onclick*="{fatto["id"]}"]:has(button:has-text("Non ancora"))')
             check('compare fra i "Forse finiti" con le due scelte', u.locator('#og-s-forse').count() == 1
-                  and riga.count() == 1 and 'Finito → DDT da fare' in riga.inner_text(), u.inner_text('#og-dafare')[:300])
+                  and riga.count() == 1 and 'Finito: DDT da fare' in riga.inner_text(), u.inner_text('#og-dafare')[:300])
             riga.locator('button:has-text("Non ancora")').click()
             u.wait_for_function(f'!FORSE_FINITI.some(f => f.id === "{fatto["id"]}")', timeout=15000)
             u.wait_for_timeout(300)

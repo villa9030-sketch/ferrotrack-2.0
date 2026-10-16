@@ -226,9 +226,9 @@ with sync_playwright() as p:
             eliminato = y['id']
             pg.wait_for_selector(f'.lz-r[data-id="{y["id"]}"]', state='detached', timeout=30000)
             check("eliminato: non e' piu' nell'elenco", stato['scritture'] == [f'DELETE {B}/api/orders/{y["id"]}'], stato['scritture'])
-            dx = pg.locator('#lz-dett').inner_text()
-            check('a destra torna "Il prossimo da fare"', ('Il prossimo da fare' in dx or 'Niente da fare' in dx)
-                  and pg.evaluate('LZ.s.aperto') is None)
+            # dal 16/10 il pannello si chiude e la tabella torna a tutta larghezza
+            check('il pannello dell’ordine si chiude', pg.evaluate('LZ.s.aperto') is None
+                  and not pg.evaluate("document.querySelector('.lz-main').classList.contains('con-ordine')"))
             toast = pg.locator('.ft-toast:has-text("eliminato")')
             check('avviso con "Annulla"', toast.count() >= 1 and 'Annulla' in toast.last.inner_text())
             toast.last.locator('.ft-toast-act').click()

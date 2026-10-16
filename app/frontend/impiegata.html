@@ -47,11 +47,11 @@ body.ft [hidden] { display: none !important; }
   display: flex; align-items: center; justify-content: center;
 }
 .ft-dropzone-icon svg, .ft-dropzone-icon [data-lucide] { width: 21px; height: 21px; }
-.ft-dropzone-title { font-size: 14px; font-weight: 700; color: var(--ft-ink); }
-.ft-dropzone-sub { font-size: 12.5px; color: var(--ft-ink-3); max-width: 380px; }
+.ft-dropzone-title { font-size: 14px; font-weight: 600; color: var(--ft-ink); }
+.ft-dropzone-sub { font-size: 12px; color: var(--ft-ink-3); max-width: 380px; }
 .ft-dropzone-cta {
   margin-top: 8px; padding: 7px 12px; border-radius: 8px; background: #E0E7FF;
-  font-size: 12.5px; font-weight: 700; color: var(--ft-accent-ink);
+  font-size: 12px; font-weight: 600; color: var(--ft-accent-ink);
 }
 
 /* ── File scelto ── */
@@ -62,7 +62,7 @@ body.ft [hidden] { display: none !important; }
 }
 .ft-file-icon {
   width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; background: var(--ft-line-2); color: var(--ft-ink-2);
-  display: flex; align-items: center; justify-content: center; font: 700 9.5px var(--ft-font); letter-spacing: .02em;
+  display: flex; align-items: center; justify-content: center; font: 600 9.5px var(--ft-font);
 }
 .ft-file-icon.pdf { background: var(--ft-err-bg); color: var(--ft-err); }
 .ft-file-icon.cad { background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
@@ -71,7 +71,7 @@ body.ft [hidden] { display: none !important; }
 .ft-file-meta { font-size: 12px; color: var(--ft-ink-3); }
 
 /* ── Messaggio d'errore sotto un campo ── */
-.ft-err-msg { font-size: 12px; font-weight: 500; color: var(--ft-err); }
+.ft-err-msg { font-size: 12px; font-weight: 400; color: var(--ft-err); }
 .ft-err-msg:empty { display: none; }
 .ft-select.invalid, .ft-textarea.invalid { border-color: var(--ft-err); }
 
@@ -96,15 +96,15 @@ body.ft [hidden] { display: none !important; }
 .ft-option:hover { border-color: #CBD2DC; }
 .ft-option:has(input:checked) { border-color: var(--ft-accent); background: var(--ft-accent-bg); box-shadow: inset 0 0 0 1px var(--ft-accent); }
 .ft-option input { margin: 3px 0 0; accent-color: var(--ft-accent); }
-.ft-option b { display: block; font-size: 13.5px; }
-.ft-option small { font-size: 12.5px; color: var(--ft-ink-3); }
+.ft-option b { display: block; font-size: 14px; }
+.ft-option small { font-size: 12px; color: var(--ft-ink-3); }
 
 /* ── Coppie etichetta / valore ── */
 .ft-dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin: 0; }
 .ft-dl > div { min-width: 0; }
-.ft-dl dt { font-size: 11.5px; font-weight: 600; color: var(--ft-ink-3); margin: 0 0 3px; }
-.ft-dl dd { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--ft-ink); overflow-wrap: anywhere; }
-.ft-dl dd small { display: block; margin-top: 1px; font-size: 12px; font-weight: 500; color: var(--ft-ink-3); }
+.ft-dl dt { font-size: 12px; font-weight: 600; color: var(--ft-ink-3); margin: 0 0 3px; }
+.ft-dl dd { margin: 0; font-size: 14px; font-weight: 600; color: var(--ft-ink); overflow-wrap: anywhere; }
+.ft-dl dd small { display: block; margin-top: 1px; font-size: 12px; font-weight: 400; color: var(--ft-ink-3); }
 .ft-dl dd small.late { color: var(--ft-err); font-weight: 600; }
 .ft-dl dd small.soon { color: var(--ft-warn); font-weight: 600; }
 .ft-dl .span-2 { grid-column: 1 / -1; }
@@ -112,7 +112,7 @@ body.ft [hidden] { display: none !important; }
 /* ── Paginazione in fondo a una card ── */
 .ft-pager {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 14px; border-top: 1px solid var(--ft-line); font-size: 12.5px; color: var(--ft-ink-3);
+  padding: 10px 14px; border-top: 1px solid var(--ft-line); font-size: 12px; color: var(--ft-ink-3);
 }
 .ft-pager:empty { display: none; }
 
@@ -152,10 +152,10 @@ body.ft [hidden] { display: none !important; }
 .imp-form { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
 .imp-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 20px 22px 22px; }
 .imp-col + .imp-col { border-left: 1px solid var(--ft-line); }
-.imp-step-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; margin: 0; }
+.imp-step-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; margin: 0; }
 .imp-step-n {
   width: 22px; height: 22px; border-radius: 50%; background: var(--ft-ink); color: #fff;
-  display: inline-flex; align-items: center; justify-content: center; font: 700 11.5px var(--ft-font);
+  display: inline-flex; align-items: center; justify-content: center; font: 600 12px var(--ft-font);
 }
 .imp-pdf-preview { display: none; height: 300px; border: 1px solid var(--ft-line); border-radius: 10px; overflow: hidden; background: var(--ft-well); }
 .imp-pdf-preview.active { display: block; }
@@ -166,15 +166,15 @@ body.ft [hidden] { display: none !important; }
 }
 .imp-how { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .imp-how li { display: flex; gap: 12px; align-items: flex-start; font-size: 13px; color: var(--ft-ink-2); }
-.imp-how li b { display: block; color: var(--ft-ink); font-size: 13.5px; }
+.imp-how li b { display: block; color: var(--ft-ink); font-size: 14px; }
 .imp-how .imp-step-n { flex-shrink: 0; margin-top: 1px; background: var(--ft-line-2); color: var(--ft-ink-2); }
 
 /* ── Ordini ── */
 .imp-table { min-width: 860px; }
 .imp-table td.act { text-align: right; white-space: nowrap; }
 .imp-table td.act .ft-btn + .ft-btn { margin-left: 6px; }
-.imp-kpi-hint { font-size: 12.5px; color: var(--ft-ink-3); }
-.imp-sub { display: block; font-size: 11.5px; color: var(--ft-ink-4); font-weight: 500; }
+.imp-kpi-hint { font-size: 12px; color: var(--ft-ink-3); }
+.imp-sub { display: block; font-size: 12px; color: var(--ft-ink-4); font-weight: 400; }
 .imp-sub.late { color: var(--ft-err); font-weight: 600; }
 .imp-sub.soon { color: var(--ft-warn); font-weight: 600; }
 .imp-next {
@@ -183,10 +183,10 @@ body.ft [hidden] { display: none !important; }
 }
 .imp-next.done { background: var(--ft-ok-bg); border-color: var(--ft-ok-line); }
 .imp-next-txt { flex: 1; min-width: 0; }
-.imp-next-txt b { display: block; font-size: 13.5px; }
-.imp-next-txt span { font-size: 12.5px; color: var(--ft-ink-3); }
+.imp-next-txt b { display: block; font-size: 14px; }
+.imp-next-txt span { font-size: 12px; color: var(--ft-ink-3); }
 .imp-dr-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.imp-dr-top h2 { margin: 2px 0 0; font: 800 20px/1.2 var(--ft-display); letter-spacing: -.4px; }
+.imp-dr-top h2 { margin: 2px 0 0; font: 600 20px/1.2 var(--ft-font); }
 .imp-dr-tabs { margin-bottom: 12px; }
 .imp-sec { margin-top: 22px; }
 .imp-sec:first-child { margin-top: 0; }
@@ -194,18 +194,18 @@ body.ft [hidden] { display: none !important; }
 .imp-sec-head .ft-section-title { margin: 0; }
 .imp-money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .imp-money > div { padding: 11px 13px; border: 1px solid var(--ft-line); border-radius: 10px; }
-.imp-money dt { font-size: 11.5px; font-weight: 600; color: var(--ft-ink-3); }
-.imp-money dd { margin: 3px 0 0; font: 800 17px var(--ft-display); letter-spacing: -.3px; }
+.imp-money dt { font-size: 12px; font-weight: 600; color: var(--ft-ink-3); }
+.imp-money dd { margin: 3px 0 0; font: 600 16px var(--ft-font); }
 .imp-money dd.nd { font: 600 14px var(--ft-font); color: var(--ft-ink-4); }
 .imp-money dd.ok { color: var(--ft-ok); } .imp-money dd.err { color: var(--ft-err); }
-.imp-money small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--ft-ink-3); }
+.imp-money small { display: block; margin-top: 2px; font-size: 12px; color: var(--ft-ink-3); }
 .imp-note { padding: 10px 12px; border-radius: 8px; background: var(--ft-well); font-size: 13px; color: var(--ft-ink-2); white-space: pre-wrap; }
 .imp-list { border: 1px solid var(--ft-line); border-radius: 10px; overflow: hidden; }
 .imp-list-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--ft-line-2); }
 .imp-list-row:last-child { border-bottom: 0; }
 .imp-list-row .ft-file-text { flex: 1; }
-.imp-mini { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.imp-mini th { text-align: left; padding: 8px 10px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line); font-size: 11.5px; font-weight: 600; color: var(--ft-ink-3); white-space: nowrap; }
+.imp-mini { width: 100%; border-collapse: collapse; font-size: 12px; }
+.imp-mini th { text-align: left; padding: 8px 10px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line); font-size: 12px; font-weight: 600; color: var(--ft-ink-3); white-space: nowrap; }
 .imp-mini td { padding: 8px 10px; border-bottom: 1px solid var(--ft-line-2); vertical-align: top; }
 .imp-mini tr:last-child td { border-bottom: 0; }
 .imp-mini .r { text-align: right; }
@@ -213,11 +213,11 @@ body.ft [hidden] { display: none !important; }
 .imp-fase { padding: 11px 13px; border: 1px solid var(--ft-line); border-radius: 10px; }
 .imp-fase + .imp-fase { margin-top: 8px; }
 .imp-fase-top { display: flex; align-items: center; gap: 10px; }
-.imp-fase-top .dur { margin-left: auto; font-weight: 700; }
+.imp-fase-top .dur { margin-left: auto; font-weight: 600; }
 .imp-fase-meta { margin-top: 5px; font-size: 12px; color: var(--ft-ink-3); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .imp-fase details { margin-top: 6px; font-size: 12px; color: var(--ft-ink-3); }
 .imp-fase summary { cursor: pointer; font-weight: 600; color: var(--ft-ink-2); }
-.imp-fase-tot { margin-top: 10px; text-align: right; font-size: 13px; font-weight: 700; }
+.imp-fase-tot { margin-top: 10px; text-align: right; font-size: 13px; font-weight: 600; }
 .imp-disegno-img { flex: 1; display: flex; align-items: center; justify-content: center; border: 1px solid var(--ft-line); border-radius: 10px; background: #fff; overflow: auto; padding: 16px; }
 .imp-disegno-img img { max-width: 100%; max-height: 100%; }
 
@@ -227,7 +227,7 @@ body.ft [hidden] { display: none !important; }
 .imp-cal-head, .imp-cal-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .imp-cal-head div {
   padding: 9px 10px; background: #FAFBFC; border-bottom: 1px solid var(--ft-line);
-  font-size: 11.5px; font-weight: 600; color: var(--ft-ink-3);
+  font-size: 12px; font-weight: 600; color: var(--ft-ink-3);
 }
 .imp-cal-day {
   display: flex; flex-direction: column; gap: 3px; min-width: 0; min-height: 92px; padding: 6px 7px; cursor: pointer;
@@ -248,34 +248,34 @@ body.ft [hidden] { display: none !important; }
 .imp-cal-day.today .imp-cal-num { background: var(--ft-ink); color: #fff; }
 .imp-cal-pill {
   display: block; padding: 2px 6px; border-radius: 5px; border-left: 3px solid var(--ft-ink-4);
-  background: var(--ft-line-2); color: var(--ft-ink-2); font-size: 11px; font-weight: 600;
+  background: var(--ft-line-2); color: var(--ft-ink-2); font-size: 12px; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .imp-cal-pill.err { background: var(--ft-err-bg); color: #912018; border-left-color: var(--ft-err-dot); }
 .imp-cal-pill.warn { background: var(--ft-warn-bg); color: #93370D; border-left-color: var(--ft-warn-dot); }
 .imp-cal-pill.ok { background: var(--ft-ok-bg); color: #05603A; border-left-color: var(--ft-ok-dot); }
 .imp-cal-pill.accent { background: var(--ft-accent-bg); color: var(--ft-accent-ink); border-left-color: var(--ft-accent); }
-.imp-cal-more { padding-left: 4px; font-size: 11px; font-weight: 600; color: var(--ft-ink-3); }
+.imp-cal-more { padding-left: 4px; font-size: 12px; font-weight: 600; color: var(--ft-ink-3); }
 .imp-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 14px; border-top: 1px solid var(--ft-line); }
 .imp-day-list { max-height: 560px; overflow: auto; }
 .imp-day-item { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
 .imp-day-item:last-child { border-bottom: 0; }
 .imp-day-item:hover { background: var(--ft-hover); }
 .imp-day-item .ft-cell-main { flex: 1; }
-.imp-month { min-width: 150px; text-align: center; font: 700 15px var(--ft-display); }
+.imp-month { min-width: 150px; text-align: center; font: 600 14px var(--ft-font); }
 
 /* ── Archivio e backup ── */
 .imp-filters .ft-select, .imp-filters .ft-input { width: auto; min-width: 150px; height: 34px; }
 .imp-filters .ft-input[type=date] { min-width: 0; }
 .imp-filters .imp-lbl { font-size: 12px; font-weight: 600; color: var(--ft-ink-3); }
 .imp-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--ft-line-2); }
-.imp-setting b { display: block; font-size: 13.5px; }
+.imp-setting b { display: block; font-size: 14px; }
 
 /* ── Carica ordine: pacchetto del cliente (PDF + disegni) ── */
-.imp-dz-alt { margin-top: 2px; font-size: 12.5px; color: var(--ft-ink-3); }
-.imp-dz-alt .ft-link { font-size: 12.5px; }
+.imp-dz-alt { margin-top: 2px; font-size: 12px; color: var(--ft-ink-3); }
+.imp-dz-alt .ft-link { font-size: 12px; }
 .imp-pk-wait { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 64px 24px; text-align: center; }
-.imp-pk-wait b { font: 700 16px var(--ft-display); letter-spacing: -.2px; }
+.imp-pk-wait b { font: 600 16px var(--ft-font); }
 .imp-pk-wait span { font-size: 13px; color: var(--ft-ink-3); min-height: 19px; }
 .imp-pk-wait small { font-size: 12px; color: var(--ft-ink-4); font-variant-numeric: tabular-nums; }
 .imp-pk-spin { width: 48px; height: 48px; margin-bottom: 6px; border-radius: 14px; background: var(--ft-accent-bg); color: var(--ft-accent);
@@ -293,7 +293,7 @@ body.ft [hidden] { display: none !important; }
 .imp-pk-alerts:empty { display: none; }
 .imp-pk-head { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); }
 .imp-pk-sum { display: flex; flex-direction: column; gap: 10px; }
-.imp-pk-big { font: 800 22px/1.2 var(--ft-display); letter-spacing: -.5px; }
+.imp-pk-big { font: 600 20px/1.2 var(--ft-font); }
 .imp-pk-big small { font: 600 13px var(--ft-font); color: var(--ft-ink-3); letter-spacing: 0; }
 .imp-pk-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .imp-pk-chips .ft-chip { font-size: 12px; }
@@ -301,11 +301,11 @@ body.ft [hidden] { display: none !important; }
 .imp-pk-chips button.ft-chip:hover { filter: brightness(.97); }
 .imp-pk-sec { border-top: 1px solid var(--ft-line); }
 .imp-pk-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px 10px; }
-.imp-pk-sec-head h3 { margin: 0; font-size: 13.5px; font-weight: 700; }
-.imp-pk-sec-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--ft-ink-3); }
+.imp-pk-sec-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.imp-pk-sec-head p { margin: 2px 0 0; font-size: 12px; color: var(--ft-ink-3); }
 .imp-pk-table { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 860px; }
 .imp-pk-table th { text-align: left; padding: 8px 10px; background: #FAFBFC; border-top: 1px solid var(--ft-line-2); border-bottom: 1px solid var(--ft-line);
-  font-size: 11.5px; font-weight: 600; color: var(--ft-ink-3); white-space: nowrap; }
+  font-size: 12px; font-weight: 600; color: var(--ft-ink-3); white-space: nowrap; }
 .imp-pk-table th:first-child, .imp-pk-table td:first-child { padding-left: 22px; }
 .imp-pk-table th:last-child, .imp-pk-table td:last-child { padding-right: 22px; }
 .imp-pk-table td { padding: 8px 10px; border-bottom: 1px solid var(--ft-line-2); vertical-align: middle; font-size: 13px; }
@@ -317,7 +317,7 @@ body.ft [hidden] { display: none !important; }
 .imp-pk-q { width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
 .imp-pk-mat { width: 128px; }
 .imp-pk-sp { width: 68px; text-align: right; }
-.imp-pk-qc small { display: block; margin-top: 3px; font-size: 11px; font-weight: 600; color: var(--ft-ink-4); white-space: nowrap; }
+.imp-pk-qc small { display: block; margin-top: 3px; font-size: 12px; font-weight: 600; color: var(--ft-ink-4); white-space: nowrap; }
 .imp-pk-qc small.warn { color: var(--ft-warn); }
 .imp-pk-thumb { width: 52px; height: 40px; padding: 2px; border: 1px solid var(--ft-line); border-radius: 7px; background: #fff; cursor: pointer;
   display: flex; align-items: center; justify-content: center; color: var(--ft-ink-4); }
@@ -326,16 +326,16 @@ body.ft [hidden] { display: none !important; }
 .imp-pk-thumb.vuoto { cursor: default; background: var(--ft-well); border-style: dashed; }
 .imp-pk-thumb svg { width: 16px; height: 16px; }
 .imp-pk-cod b { font-size: 13px; }
-.imp-pk-cod code { display: block; margin-top: 1px; font: 500 11.5px var(--ft-font); color: var(--ft-ink-3); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-pk-cod code { display: block; margin-top: 1px; font: 400 12px var(--ft-font); color: var(--ft-ink-3); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-pk-avv { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; }
-.imp-pk-avv li { font-size: 11.5px; color: var(--ft-warn); }
-.imp-pk-dim { font-size: 12.5px; color: var(--ft-ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.imp-pk-avv li { font-size: 12px; color: var(--ft-warn); }
+.imp-pk-dim { font-size: 12px; color: var(--ft-ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .imp-pk-empty { padding: 18px 22px; font-size: 13px; color: var(--ft-ink-3); }
 .imp-pk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 22px; border-top: 1px solid var(--ft-line);
   background: #FAFBFC; border-radius: 0 0 var(--ft-r-xl) var(--ft-r-xl); position: sticky; bottom: 0; z-index: 2; }
 .imp-pk-foot .ft-hint.warn { color: var(--ft-warn); font-weight: 600; }
 .imp-pk-foot .ft-hint.ok { color: var(--ft-ok); font-weight: 600; }
-.imp-pk-details { padding: 0 22px 14px; font-size: 12.5px; color: var(--ft-ink-3); }
+.imp-pk-details { padding: 0 22px 14px; font-size: 12px; color: var(--ft-ink-3); }
 .imp-pk-details summary { cursor: pointer; font-weight: 600; color: var(--ft-ink-2); }
 .imp-pk-details ul { margin: 6px 0 0; padding-left: 18px; }
 
@@ -363,7 +363,7 @@ body.ft [hidden] { display: none !important; }
 .imp-cerca input::-webkit-search-cancel-button { display: none; }
 .imp-cerca input:focus { outline: none; border-color: var(--ft-accent); background: var(--ft-panel); box-shadow: 0 0 0 3px var(--ft-accent-glow); }
 .imp-cerca > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--ft-ink-3); pointer-events: none; }
-body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font: 500 12px var(--ft-font); color: var(--ft-ink-3);
+body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font: 400 12px var(--ft-font); color: var(--ft-ink-3);
   border: 1px solid var(--ft-line); border-radius: 5px; padding: 2px 6px; background: var(--ft-panel); pointer-events: none; opacity: 1; }
 .imp-cerca-res { position: absolute; top: 42px; left: 0; width: 520px; max-height: 460px; overflow: auto; z-index: 80; display: none;
   background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 12px; box-shadow: 0 16px 40px rgba(15, 23, 42, .16); }
@@ -372,33 +372,33 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
   border: 0; border-bottom: 1px solid var(--ft-line-2); background: none; padding: 10px 14px; cursor: pointer; font: inherit; color: var(--ft-ink); }
 .imp-cerca-res button:hover, .imp-cerca-res button.on { background: var(--ft-hover); }
 .imp-cerca-res b { font-size: 14px; }
-.imp-cerca-res small { font-size: 12.5px; color: var(--ft-ink-3); }
+.imp-cerca-res small { font-size: 12px; color: var(--ft-ink-3); }
 .imp-cerca-res .st { grid-row: span 2; align-self: center; }
 .imp-cerca-res .vuoto { padding: 16px; color: var(--ft-ink-3); font-size: 13px; }
 
 /* ═══ Oggi ═══ */
 .og-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px; }
-.og-head h1 { margin: 0; font: 800 28px/1.15 var(--ft-display); letter-spacing: -.6px; }
+.og-head h1 { margin: 0; font: 600 20px/1.15 var(--ft-font); }
 .og-head p { margin: 4px 0 0; color: var(--ft-ink-3); font-size: 14px; }
 .og-head .ft-actions { margin-left: auto; }
 .og-kpi { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .og-k { --c: var(--ft-ink-3); display: grid; gap: 2px; text-align: left; cursor: pointer; padding: 12px 16px 13px;
   border: 1px solid var(--ft-line); border-left: 5px solid var(--c); border-radius: 12px; background: var(--ft-panel); font: inherit; color: var(--ft-ink); }
 .og-k:hover { background: var(--ft-hover); }
-.og-k .t { font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--c); }
-.og-k b { font: 800 32px/1.05 var(--ft-display); }
-.og-k small { font-size: 12.5px; color: var(--ft-ink-3); }
+.og-k .t { font-size: 12px; font-weight: 600; text-transform: none; color: var(--c); }
+.og-k b { font: 600 20px/1.05 var(--ft-font); }
+.og-k small { font-size: 12px; color: var(--ft-ink-3); }
 .og-k.zero { opacity: .58; }
 .og-k.err { --c: #B42318; } .og-k.warn { --c: #B54708; } .og-k.info { --c: #1D4ED8; } .og-k.vio { --c: #6D28D9; } .og-k.ok { --c: #067647; } .og-k.acc { --c: var(--ft-accent); }
 .og-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(420px, 32vw, 600px); gap: 16px; align-items: start; }
 .og-col { display: grid; gap: 16px; }
 .og-card { background: var(--ft-panel); border: 1px solid var(--ft-line); border-radius: 14px; overflow: hidden; }
 .og-card-h { display: flex; align-items: center; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--ft-line); }
-.og-card-h h2 { margin: 0; font: 800 17px/1.2 var(--ft-display); }
+.og-card-h h2 { margin: 0; font: 600 16px/1.2 var(--ft-font); }
 .og-card-h svg { width: 18px; height: 18px; color: var(--ft-ink-3); }
 .og-card-h > span { margin-left: auto; font-size: 13px; color: var(--ft-ink-3); }
 .og-sez { --gc: #344054; --gb: #EEF0F3; display: flex; align-items: center; gap: 8px; padding: 9px 18px;
-  background: var(--gb); color: var(--gc); border-bottom: 2px solid var(--gc); font-size: 13px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+  background: var(--gb); color: var(--gc); border-bottom: 2px solid var(--gc); font-size: 13px; font-weight: 600; text-transform: none; }
 .og-sez svg { width: 16px; height: 16px; }
 .og-sez em { margin-left: 4px; padding: 1px 9px; border-radius: 999px; background: rgba(255, 255, 255, .75); font-style: normal; font-size: 12px; letter-spacing: 0; text-transform: none; }
 .og-sez.err { --gc: #B42318; --gb: #FEE4E2; } .og-sez.warn { --gc: #B54708; --gb: #FEF0C7; } .og-sez.info { --gc: #1D4ED8; --gb: #DBEAFE; }
@@ -407,32 +407,32 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
 .og-r { display: grid; grid-template-columns: 150px minmax(0, 1.1fr) minmax(0, 1fr) auto; gap: 16px; align-items: center;
   padding: 10px 18px; border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
 .og-r:hover { background: var(--ft-hover); }
-.og-r .c b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.og-r .c small { font: 500 12.5px var(--ft-mono); color: var(--ft-ink-3); }
+.og-r .c b { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.og-r .c small { font: 400 12px var(--ft-mono); color: var(--ft-ink-3); }
 .og-r .s { font-size: 13px; color: var(--ft-ink-2); }
 .og-r .s small { display: block; color: var(--ft-ink-3); font-size: 12px; }
 .og-r .a { display: flex; gap: 6px; justify-content: flex-end; }
 .og-vuoto { padding: 26px 18px; text-align: center; color: var(--ft-ink-3); font-size: 14px; }
-.og-vuoto b { display: block; color: var(--ft-ok); font-size: 15px; margin-bottom: 2px; }
+.og-vuoto b { display: block; color: var(--ft-ok); font-size: 14px; margin-bottom: 2px; }
 .og-giorni { display: grid; gap: 7px; padding: 14px 18px 8px; }
 .og-g { display: grid; grid-template-columns: 96px minmax(0, 1fr) 96px; gap: 10px; align-items: center; font-size: 13px; }
 .og-g .d { color: var(--ft-ink-2); }
-.og-g.oggi .d { font-weight: 800; color: var(--ft-ink); }
+.og-g.oggi .d { font-weight: 600; color: var(--ft-ink); }
 .og-g .bar { position: relative; height: 14px; border-radius: 7px; background: var(--ft-line-2); overflow: hidden; }
 .og-g .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 7px; background: #12B76A; }
 .og-g.warn .bar i { background: #F79009; } .og-g.over .bar i { background: #F04438; }
 .og-g .bar b { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(15, 23, 42, .35); }
-.og-g .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.og-g .v { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
 .og-g .v em { font-style: normal; color: var(--ft-warn); font-weight: 600; }
 .og-nota { padding: 4px 18px 14px; font-size: 13px; color: var(--ft-ink-2); }
 .og-nota b { color: var(--ft-ink); }
 .og-motivi { display: flex; flex-wrap: wrap; gap: 4px; }
 /* consiglio sulla data di consegna (carico del laser) */
-.imp-laser-hint { margin-top: 6px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; background: var(--ft-line-2); color: var(--ft-ink-2); }
+.imp-laser-hint { margin-top: 6px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45; background: var(--ft-line-2); color: var(--ft-ink-2); }
 .imp-laser-hint.ok { background: #DCFAE6; color: #085D3A; }
 .imp-laser-hint.warn { background: #FEF0C7; color: #93370D; }
 .imp-laser-hint.over { background: #FEE4E2; color: #912018; }
-.imp-laser-hint a { color: inherit; font-weight: 700; }
+.imp-laser-hint a { color: inherit; font-weight: 600; }
 /* storia dell'ordine nella scheda */
 .imp-storia { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .imp-storia li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 6px 0; position: relative; }
@@ -442,11 +442,79 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
 .imp-storia li.fatto .pt { background: var(--ft-ok); border-color: var(--ft-ok); }
 .imp-storia li.ora .pt { border-color: var(--ft-accent); box-shadow: 0 0 0 4px var(--ft-accent-glow); }
 .imp-storia li.salta { opacity: .5; }
-.imp-storia b { font-size: 13.5px; }
+.imp-storia b { font-size: 14px; }
 .imp-storia small { display: block; font-size: 12px; color: var(--ft-ink-3); }
 .imp-storia .q { font-size: 13px; color: var(--ft-ink-2); text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 1400px) { .og-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); } .og-grid { grid-template-columns: minmax(0, 1fr); } }
 
+
+/* ═══ 16/10/2026: regole "meno AI" (reports/Design FerroTrack meno AI.md) ═══
+   Una riga "adesso" al posto dei riquadri; pannelli separati dal fondo per
+   contrasto; testate di sezione grigie con la parola (rosso solo il
+   ritardo); niente icone nelle testate; il pannello dell'ordine a destra
+   lascia vedere la tabella (niente velo, un bordo, nessuna ombra). */
+.ft-drawer, .ft-drawer.open { box-shadow: none; transition: transform .16s var(--ft-ease), visibility 0s linear .16s; }
+.ft-drawer.open { transition: transform .16s var(--ft-ease); }
+.imp-full { padding-left: 24px; padding-right: 24px; }
+.imp-cerca input { height: 32px; border-radius: 6px; padding-left: 32px; background: var(--ft-g2); }
+.imp-cerca input:focus { box-shadow: none; outline: 1px solid var(--ft-accent); }
+.imp-cerca > svg { left: 10px; }
+.imp-cerca-res { top: 36px; border: 0; border-radius: 8px; box-shadow: var(--ft-elev-3); }
+/* Oggi */
+.og-adesso { margin-bottom: 16px; gap: 4px 20px; }
+.og-adesso > b { margin-right: 4px; }
+.og-voce { border: 0; background: none; padding: 4px 0; font: 14px var(--ft-font); color: var(--ft-ink-2); cursor: pointer; }
+.og-voce b { color: var(--ft-ink); font-weight: 600; }
+.og-voce:hover { text-decoration: underline; text-underline-offset: 3px; }
+.og-voce.err, .og-voce.err b { color: var(--ft-err); font-weight: 600; }
+.og-voce.warn, .og-voce.warn b { color: var(--ft-warn); font-weight: 600; }
+.og-card { border-radius: 8px; }
+.og-card-h { padding: 12px 16px; }
+.og-sez, .og-sez.err, .og-sez.warn, .og-sez.info, .og-sez.vio, .og-sez.ok { --gc: var(--ft-ink); --gb: var(--ft-g2);
+  padding: 8px 16px; border-bottom: 1px solid var(--ft-line); font-weight: 600; }
+.og-sez.err { --gc: var(--ft-err); }
+.og-sez.warn { --gc: var(--ft-warn); }
+.og-sez em { padding: 0; background: none; border-radius: 0; color: var(--ft-ink-3); font-weight: 400; }
+.og-sp { height: 8px; background: var(--ft-canvas); }
+.og-r { padding: 8px 16px; gap: 16px; }
+.og-r .c b { font-weight: 600; }
+.og-r .a { gap: 8px; }
+.og-vuoto { padding: 24px 16px; }
+.og-vuoto b { color: var(--ft-ink); }
+.og-motivi { display: grid; gap: 2px; color: var(--ft-warn); font-weight: 600; }
+.og-giorni { gap: 8px; padding: 12px 16px 8px; }
+.og-g .bar { height: 8px; border-radius: 4px; }
+.og-g .bar i { border-radius: 4px; background: var(--ft-ink-3); }
+.og-g.warn .bar i { background: var(--ft-warn-dot); } .og-g.over .bar i { background: var(--ft-err-dot); }
+.og-g .v { font-weight: 400; }
+.og-nota { padding: 4px 16px 12px; }
+.imp-laser-hint { border-radius: 4px; }
+.imp-laser-hint.ok { background: var(--ft-g3); color: var(--ft-ink-2); }
+.imp-laser-hint.warn { background: var(--ft-warn-bg); color: #6E4205; }
+.imp-laser-hint.over { background: var(--ft-err-bg); color: #8E1C20; }
+.imp-storia .pt { width: 8px; height: 8px; margin: 6px 0 0 7px; border-width: 1px; border-color: var(--ft-line-3); }
+.imp-storia li.fatto .pt { background: var(--ft-ink-3); border-color: var(--ft-ink-3); }
+.imp-storia li.ora .pt { border-color: var(--ft-accent); background: var(--ft-accent); box-shadow: none; }
+.imp-storia li::before { width: 1px; left: 11px; }
+.imp-storia b { font-weight: 600; }
+/* Ordini */
+.imp-viste { margin-bottom: 12px; }
+.imp-filtro { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ft-ink-3); }
+.imp-filtro select { height: 28px; max-width: 200px; border: 1px solid var(--ft-line-3); border-radius: 4px; background: var(--ft-panel); font: 13px var(--ft-font); color: var(--ft-ink); }
+.imp-filtro input { width: 16px; height: 16px; margin: 0; accent-color: var(--ft-accent); }
+.imp-table { min-width: 960px; }
+.imp-table td.act .ft-btn + .ft-btn { margin-left: 8px; }
+.imp-cli { font-weight: 400; color: var(--ft-ink); }
+.imp-num { font-size: 13px; color: var(--ft-ink); }
+.imp-prog { display: inline; font-size: 13px; color: var(--ft-ink-2); }
+.imp-prog.warn { color: var(--ft-warn); font-weight: 600; }
+.imp-oggi { color: var(--ft-ink); font-weight: 600; }
+.imp-gruppo td { height: 40px; padding: 12px 12px 4px; background: var(--ft-g2); border-bottom: 1px solid var(--ft-line); font-weight: 600; color: var(--ft-ink); }
+.imp-gruppo td span { margin-left: 12px; font-weight: 400; color: var(--ft-ink-3); }
+.imp-gruppo.oggi td { color: var(--ft-ok); }
+.ft-table .ft-due small { display: inline; margin-left: 8px; }
+.ft-steps.compact { display: none; }
+#vista-hint { display: none; }
 </style>
 </head>
 <body class="ft ftc" data-stazione="ufficio">
@@ -492,7 +560,7 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
       <div class="ft-pop" id="notif-panel" role="dialog" aria-label="Notifiche">
         <div class="ft-pop-head">
           <span>Notifiche</span>
-          <button class="ft-link" id="notif-panel-footer" onclick="clearAllNotifs()" style="font-size:12.5px; display:none;">Svuota</button>
+          <button class="ft-link" id="notif-panel-footer" onclick="clearAllNotifs()" style="font-size:12px; display:none;">Svuota</button>
         </div>
         <div id="notif-panel-body"></div>
       </div>
@@ -506,19 +574,19 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
 <!-- ═══════════════ OGGI ═══════════════ -->
 <section class="ft-view active" id="panel-oggi">
   <div class="og-head">
-    <div><h1 id="og-titolo">Oggi</h1><p id="og-sotto">Quello che c'è da fare, e cosa rischia di arrivare in ritardo.</p></div>
+    <div><h1 id="og-titolo">Oggi</h1><p id="og-sotto">Cosa c'è da fare oggi e cosa rischia di arrivare in ritardo.</p></div>
     <div class="ft-actions">
       <button class="ft-btn" onclick="caricaOggi(true)" title="Aggiorna"><i data-lucide="refresh-cw"></i> Aggiorna</button>
     </div>
   </div>
-  <div class="og-kpi" id="og-kpi"></div>
+  <div class="ft-adesso og-adesso" id="og-kpi" aria-label="Cosa fare adesso"></div>
   <div class="og-grid">
-    <div class="og-card"><div class="og-card-h"><i data-lucide="list-checks"></i><h2>Da fare</h2><span id="og-dafare-n"></span></div>
+    <div class="og-card"><div class="og-card-h"><h2>Da fare</h2><span id="og-dafare-n"></span></div>
       <div id="og-dafare"><div style="padding:18px"><div class="ft-skel" style="height:40px;margin-bottom:8px"></div><div class="ft-skel" style="height:40px"></div></div></div></div>
     <div class="og-col">
-      <div class="og-card"><div class="og-card-h"><i data-lucide="gauge"></i><h2>Laser · prossimi 5 giorni lavorativi</h2><span id="og-laser-n"></span></div>
+      <div class="og-card"><div class="og-card-h"><h2>Laser</h2><span id="og-laser-n" hidden></span></div>
         <div id="og-laser"></div></div>
-      <div class="og-card"><div class="og-card-h"><i data-lucide="triangle-alert"></i><h2>A rischio</h2><span id="og-rischio-n"></span></div>
+      <div class="og-card"><div class="og-card-h"><h2>A rischio</h2><span id="og-rischio-n"></span></div>
         <div id="og-rischio"></div></div>
     </div>
   </div>
@@ -690,14 +758,14 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
   <div class="ft-head">
     <div>
       <h1 class="ft-title">Ordini</h1>
-      <p class="ft-subtitle">L'officina ti dice a voce quando ha finito: qui registri i passaggi uno alla volta — <b>lavorazione finita, DDT, consegna, fattura</b>.</p>
+      <p class="ft-subtitle">Registra i passaggi uno alla volta: lavorazione finita, DDT, consegna, fattura. I tagliati di oggi stanno in cima.</p>
     </div>
     <div class="ft-actions">
       <button class="ft-btn primary" onclick="switchTab('carica')"><i data-lucide="plus"></i> Nuovo ordine</button>
     </div>
   </div>
 
-  <div class="ft-kpis" id="vista-kpis" role="tablist" aria-label="Viste degli ordini"></div>
+  <div class="ft-seg imp-viste" id="vista-kpis" role="tablist" aria-label="Viste degli ordini"></div>
 
   <div class="ft-card">
     <div class="ft-toolbar">
@@ -706,6 +774,8 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
         <input type="search" id="vista-cerca" placeholder="Cerca cliente o numero ordine…" autocomplete="off" oninput="renderVista()">
         <kbd>/</kbd>
       </label>
+      <label class="imp-filtro">Cliente <select id="vista-cliente" onchange="renderVista()" aria-label="Filtra per cliente"><option value="">Tutti</option></select></label>
+      <label class="imp-filtro"><input type="checkbox" id="vista-percliente" onchange="renderVista()"> Raggruppa per cliente</label>
       <span class="imp-kpi-hint" id="vista-hint"></span>
       <span class="ft-toolbar-meta" id="vista-count">—</span>
       <button class="ft-btn sm" onclick="esportaVista()" title="Scarica l'elenco di questa vista per Excel (es. da confrontare col gestionale a fine mese)"><i data-lucide="file-spreadsheet"></i> Esporta per Excel</button>
@@ -807,7 +877,7 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
             <input type="text" id="bk-path" class="ft-input" placeholder="Vuoto = app/database/backups/" onchange="saveBackupSettings()">
           </label>
           <label class="ft-field span-2">
-            <span>Cartella di rete / NAS <span class="ft-muted" style="font-weight:500;">(facoltativa)</span></span>
+            <span>Cartella di rete / NAS <span class="ft-muted" style="font-weight:400;">(facoltativa)</span></span>
             <input type="text" id="bk-remote" class="ft-input" placeholder="Es. \\NAS\backups\ferrotrack" onchange="saveBackupSettings()">
           </label>
         </div>
@@ -929,7 +999,7 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
         <label class="ft-field"><span>Data fattura <span class="req">*</span></span>
           <input type="date" id="chiudi-data" class="ft-input">
           <div class="ft-err-msg" id="err-chiudi-data"></div></label>
-        <label class="ft-field span-2"><span>Note <span class="ft-muted" style="font-weight:500;">(facoltative)</span></span>
+        <label class="ft-field span-2"><span>Note <span class="ft-muted" style="font-weight:400;">(facoltative)</span></span>
           <textarea id="chiudi-note" class="ft-textarea" rows="2" placeholder="Es. fattura cumulativa con l'ordine 2026-014"></textarea></label>
       </div>
       <div class="ft-alert err" id="chiudi-msg" hidden style="margin-top:14px;"></div>
@@ -984,7 +1054,7 @@ body.ft .imp-cerca kbd { position: absolute; right: 10px; top: 50%; transform: t
 <!-- Anteprima disegno -->
 <div class="ft-modal-bg" id="disegno-modal" onclick="if(event.target===this)FT.chiudi('disegno-modal')">
   <div class="ft-modal xl" role="dialog" aria-modal="true" aria-labelledby="disegno-title">
-    <div class="ft-modal-head"><div><h3 class="ft-modal-title ft-mono" id="disegno-title" style="font-size:15px;">Disegno</h3>
+    <div class="ft-modal-head"><div><h3 class="ft-modal-title ft-mono" id="disegno-title" style="font-size:14px;">Disegno</h3>
       <p class="ft-modal-sub" id="disegno-sub"></p></div>
       <div class="ft-actions">
         <a class="ft-btn sm" id="disegno-dxf" download><i data-lucide="download"></i> Scarica DXF</a>
@@ -1083,7 +1153,8 @@ function dueHtml(v, finito) {
   const g = giorno(v);
   if (!g) return '<span class="ft-muted">—</span>';
   const s = finito ? { testo: '', classe: '' } : FT.scadenza(g);
-  return `<div class="ft-due ${s.classe}">${FT.fmtData(g)}${s.testo ? `<small>${s.testo}</small>` : ''}</div>`;
+  // 16/10: "ven 16/10" come il taglia entro; l'anno nel suggerimento
+  return `<div class="ft-due ${s.classe}" title="${FT.fmtData(g)}">${typeof giornoCorto === 'function' ? giornoCorto(g) : FT.fmtData(g)}${s.testo ? `<small>${s.testo}</small>` : ''}</div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2115,7 +2186,7 @@ const FASI_ORDINE = ['aperto', 'pronto_ddt', 'consegnato', 'archivio'];
 const FASI_INFO = {
   aperto:     { lbl: 'In lavorazione', dot: 'var(--ft-info-dot)', hint: 'Quando l\u2019officina ti dice che ha finito, premi «Lavorazione finita».' },
   pronto_ddt: { lbl: 'Pronti per DDT', dot: 'var(--ft-accent)', hint: 'Prepara il DDT nel gestionale e annotane il numero; quando la merce parte, registra la consegna.' },
-  consegnato: { lbl: 'Consegnati · da fatturare', dot: 'var(--ft-warn-dot)', hint: 'Emessa la fattura, chiudi la pratica con numero e data.' },
+  consegnato: { lbl: 'Consegnati da fatturare', dot: 'var(--ft-warn-dot)', hint: 'Emessa la fattura, chiudi la pratica con numero e data.' },
   archivio:   { lbl: 'Fatturati e chiusi', dot: 'var(--ft-ok-dot)', hint: 'Pratiche chiuse. Se c\u2019è un errore puoi riaprirle.' },
 };
 const TAPPE = ['Lavorazione', 'Pronto', 'DDT', 'Consegnato', 'Fatturato'];
@@ -2159,16 +2230,58 @@ function stepsHtml(o, compatto) {
   if (!compatto) return `<div class="ft-steps">${passi}</div>`;
   let lbl = (PASSI[o.passo] || {}).lbl || TAPPE_STATO[t];
   if (t === 3 && o.consegna_parziale) lbl = 'Consegna parziale';
-  return `<div class="imp-prog"><div class="ft-steps compact" aria-label="${lbl}">${passi}</div><span>${lbl}</span></div>`;
+  return `<span class="imp-prog${o.consegna_parziale ? ' warn' : ''}">${esc(lbl)}</span>`;
 }
 function laserHtml(o) {
   const L = FTStati.laser, f = o.laser_fase || FTStati.faseLaser(o);
-  if (f === 'da_importare') return `<span class="ft-chip info" title="${esc(FTStati.laserSpiega.da_importare)}${o.data_taglio_pianificata ? ' · taglio previsto il ' + FT.fmtData(o.data_taglio_pianificata) : ''}"><i data-lucide="file-input"></i> ${esc(L.da_importare)}</span>`;
-  if (f === 'in_lantek') return `<span class="ft-chip" style="background:#EDE9FE;color:#5B21B6" title="In Lantek dal ${o.importato_lantek_il ? FT.fmtDataOra(o.importato_lantek_il) : '—'}: pronto da tagliare"><i data-lucide="scissors"></i> ${esc(L.in_lantek)}</span>`;
-  if (f === 'da_smistare') return `<span class="ft-chip" title="${esc(FTStati.laserSpiega.da_smistare)}">${esc(L.da_smistare)}</span>`;
-  if (f === 'non_serve') return `<span class="ft-chip">${esc(L.non_serve)}</span>`;
-  if (f === 'tagliato') return `<span class="ft-chip ok" title="${o.taglio_il ? 'Tagliato il ' + FT.fmtDataOra(o.taglio_il) : esc(FTStati.laserSpiega.tagliato)}"><i data-lucide="check"></i> ${esc(L.tagliato)}</span>`;
-  return `<span class="ft-chip info"><i data-lucide="clock"></i> ${esc(L.da_importare)}</span>`;
+  if (f === 'da_importare') return `<span class="ft-status" title="${esc(FTStati.laserSpiega.da_importare)}${o.data_taglio_pianificata ? ', taglio previsto il ' + FT.fmtData(o.data_taglio_pianificata) : ''}">${esc(L.da_importare)}</span>`;
+  if (f === 'in_lantek') return `<span class="ft-status" title="In Lantek dal ${o.importato_lantek_il ? FT.fmtDataOra(o.importato_lantek_il) : '—'}: pronto da tagliare">${esc(L.in_lantek)}</span>`;
+  if (f === 'da_smistare') return `<span class="ft-status" title="${esc(FTStati.laserSpiega.da_smistare)}">${esc(L.da_smistare)}</span>`;
+  if (f === 'non_serve') return `<span class="ft-status">${esc(L.non_serve)}</span>`;
+  if (f === 'tagliato') return `<span class="ft-status ok" title="${o.taglio_il ? 'Tagliato il ' + FT.fmtDataOra(o.taglio_il) : esc(FTStati.laserSpiega.tagliato)}">${esc(L.tagliato)}</span>`;
+  return `<span class="ft-status">${esc(L.da_importare)}</span>`;
+}
+/** "Taglia entro" del laser (backend/taglia_entro.py), letto da /api/laser/ordini. */
+let TE_UFF = {};
+let TE_UFF_T = 0;
+async function caricaTagliaEntro(forza) {
+  if (!forza && Date.now() - TE_UFF_T < 60000) return;
+  TE_UFF_T = Date.now();
+  const res = await api('/api/laser/ordini');
+  const d = res.ok && res.data ? (res.data.ordini || res.data) : null;
+  if (!d || typeof d !== 'object') return;
+  const m = {};
+  for (const [id, r] of Object.entries(d)) if (r && r.taglia_entro) m[id] = r.taglia_entro;
+  TE_UFF = m;
+  if (TAB === 'ordini') renderVista();
+}
+const _fmtG = new Intl.DateTimeFormat('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+function giornoCorto(ds) { const d = ds && FT.data(String(ds).slice(0, 10)); return d ? _fmtG.format(d).replace(',', '') : ''; }
+function lavorativiA(ds) {
+  const g = ds ? FT.giorniDa(String(ds).slice(0, 10)) : null;
+  if (g == null || g <= 0) return g;
+  let n = 0; const d = new Date(); d.setHours(12, 0, 0, 0);
+  for (let i = 0; i < g; i++) { d.setDate(d.getDate() + 1); if (d.getDay() % 6) n++; }
+  return n;
+}
+/** La cella "Taglia entro": rosso se passato, ambra entro 2 giorni lavorativi. */
+function tagliaEntroHtml(o) {
+  const f = o.laser_fase;
+  if (f === 'tagliato' || f === 'non_serve') return '<span class="ft-muted">—</span>';
+  const te = TE_UFF[o.id] || {};
+  const ds = o.data_taglio_pianificata ? String(o.data_taglio_pianificata).slice(0, 10) : te.data;
+  if (!ds) return TE_UFF_T ? '<span class="ft-status warn">da decidere</span>' : '<span class="ft-muted">…</span>';
+  const g = FT.giorniDa(ds), wd = lavorativiA(ds);
+  const tit = te.motivo ? ` title="${esc(te.motivo)}"` : '';
+  if (g < 0) return `<span class="ft-due late"${tit}>${giornoCorto(ds)} <small style="display:inline">passato da ${-g} gg</small></span>`;
+  if (wd <= 2) return `<span class="ft-due soon"${tit}>${giornoCorto(ds)} <small style="display:inline">${g === 0 ? 'oggi' : g === 1 ? 'domani' : `tra ${wd} gg lav.`}</small></span>`;
+  return `<span class="ft-due"${tit}>${giornoCorto(ds)}</span>`;
+}
+/** "Data di taglio": quando il laser l'ha segnato tagliato. */
+function dataTaglioHtml(o) {
+  if (!o.taglio_il) return o.data_taglio_pianificata && o.laser_fase !== 'tagliato' ? `<span class="ft-muted">previsto ${giornoCorto(o.data_taglio_pianificata)}</span>` : '<span class="ft-muted">—</span>';
+  const oggi = giorno(o.taglio_il) === FT.oggiISO();
+  return `<span${oggi ? ' class="imp-oggi"' : ''}>${oggi ? 'oggi' : giornoCorto(o.taglio_il)} ${FT.fmtOra(o.taglio_il)}</span>`;
 }
 /** Consegna: prevista contro effettiva. */
 function consegnaHtml(o) {
@@ -2188,8 +2301,8 @@ function consegnaHtml(o) {
 }
 function ddtCellHtml(o) {
   const d = ddtDi(o);
-  if (!d.num) return '<span class="ft-chip warn">Da fare</span>';
-  return `<div class="ft-cell-main"><b class="ft-mono" style="font-size:12.5px;">${esc(d.num)}</b><span class="imp-sub">${d.data ? fmtGiorno(d.data) : ''}</span></div>`;
+  if (!d.num) return '<span class="ft-status warn">Da fare</span>';
+  return `<div class="ft-cell-main"><b class="ft-mono" style="font-size:12px;">${esc(d.num)}</b><span class="imp-sub">${d.data ? fmtGiorno(d.data) : ''}</span></div>`;
 }
 
 // ═══════════════ OGGI ═══════════════
@@ -2217,9 +2330,9 @@ function rigaForseFinito(f) {
   const id = esc(f.id);
   const dopo = (f.dopo_il_laser || []).map(v => DOPO_LASER[v] || v);
   const stato = `${esc(FTStati.laser.tagliato)} ${f.tagliato_il ? FT.fmtRelativo(f.tagliato_il) : ''}<small>${dopo.length
-    ? 'dopo il laser: ' + esc(dopo.join(', ')) + ' — chiedi all’officina se è fatto' : 'dopo il laser non risulta altro'}</small>`;
+    ? 'dopo il laser: ' + esc(dopo.join(', ')) + '. Chiedi all’officina se è fatto' : 'dopo il laser non risulta altro'}</small>`;
   const az = btn('Non ancora', `forseFinitoNonAncora('${id}')`, 'ghost', '', 'Lo richiede fra due giorni')
-    + ' ' + btn('Finito → ' + FTStati.passo.attesa_ddt, `forseFinitoSi('${id}')`, 'primary', 'check',
+    + ' ' + btn('Finito: ' + FTStati.passo.attesa_ddt, `forseFinitoSi('${id}')`, '', '',
       'L’officina ha finito: l’ordine passa fra i pronti per il DDT');
   return rigaOggi({ id: f.id, cliente: f.cliente, numero_ordine: f.numero_ordine, numero_ordine_cliente: f.numero_ordine_cliente,
                     data_consegna: f.data_consegna }, stato, az);
@@ -2294,7 +2407,7 @@ function statoOggi(o) {
 function renderOggi() {
   if (!$('og-kpi')) return;
   const oggi = FT.oggiISO();
-  $('og-titolo').textContent = 'Oggi · ' + FT.data(oggi).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('og-titolo').textContent = 'Oggi, ' + FT.data(oggi).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
   const tutti = VISTE_DATI.ordini || [];
   const aperti = tutti.filter(o => o.fase !== 'archivio');
   const consG = o => { const c = giorno(o.data_consegna); return c ? FT.giorniDa(c) : null; };
@@ -2316,27 +2429,31 @@ function renderOggi() {
   const rischio = aperti.map(o => ({ o, m: motiviRischio(o) })).filter(x => x.m.length).sort((a, b) => consG(a.o) - consG(b.o));
   const nConf = Number(($('conferme-badge') || {}).textContent) || 0;
 
-  const kpi = [
-    ['err', 'In ritardo', ritardo.length, 'consegna passata', "vaiA('og-s-ritardo')"],
-    ['warn', 'Consegne oggi e domani', prossime.length, 'da preparare', "vaiA('og-s-prossime')"],
-    ['vio', 'A rischio', rischio.length, 'prossimi 7 giorni', "vaiA('og-rischio')"],
-    ['info', 'DDT da fare', aperti.filter(o => o.passo === 'attesa_ddt').length, 'lavorazione finita', "switchTab('ordini', 'pronto_ddt')"],
-    ['acc', 'Da consegnare', aperti.filter(o => o.passo === 'ddt_registrato' || o.passo === 'consegna_parziale').length, 'DDT registrato', "vaiA('og-s-consegnare')"],
-    ['ok', 'Da fatturare', daFatt.length, 'consegnati', "switchTab('ordini', 'consegnato')"],
-  ];
-  $('og-kpi').innerHTML = kpi.map(([c, t, n, sub, fn]) =>
-    `<button type="button" class="og-k ${c}${n ? '' : ' zero'}" onclick="${fn}"><span class="t">${t}</span><b>${n}</b><small>${sub}</small></button>`).join('')
-    .replace('<small>da preparare</small>', `<small>${nConf ? `+ ${nConf} preventiv${nConf === 1 ? 'o' : 'i'} da confermare` : 'da preparare'}</small>`);
-  $('og-kpi').querySelectorAll('.og-k b').forEach((b, i) => FT.contaDa('og-k-' + i, b, kpi[i][2]));
+  // Una riga sola (16/10/2026): cosa c'e' da fare adesso, in parole.
+  // Rosso solo per il ritardo; le voci a zero non si dicono.
+  const voce = (n, t, fn, cls) => n ? `<button type="button" class="og-voce${cls ? ' ' + cls : ''}" onclick="${fn}">${t}: <b>${n}</b></button>` : '';
+  const nDdt = aperti.filter(o => o.passo === 'attesa_ddt').length;
+  const nCons = aperti.filter(o => o.passo === 'ddt_registrato' || o.passo === 'consegna_parziale').length;
+  const voci = [
+    voce(FORSE_FINITI.length, 'Forse finiti', "vaiA('og-s-forse')", 'warn'),
+    voce(ritardo.length, 'In ritardo', "vaiA('og-s-ritardo')", 'err'),
+    voce(prossime.length, 'Consegna oggi o domani', "vaiA('og-s-prossime')"),
+    voce(nDdt, 'DDT da fare', "switchTab('ordini', 'pronto_ddt')"),
+    voce(nCons, 'Da consegnare', "vaiA('og-s-consegnare')"),
+    voce(daFatt.length, 'Da fatturare', "switchTab('ordini', 'consegnato')"),
+    voce(rischio.length, 'A rischio nei prossimi 7 giorni', "vaiA('og-rischio')"),
+    voce(nConf, 'Preventivi da confermare', "switchTab('conferme')"),
+  ].filter(Boolean);
+  $('og-kpi').innerHTML = `<b>Adesso</b>` + (voci.length ? voci.join('') : '<span>Niente in ritardo, niente da registrare.</span>');
   setCount('oggi-badge', ritardo.length + prossime.length + FORSE_FINITI.length || '');
 
   // ── Da fare ──
   const sez = (id, cls, ico, titolo, lista, stato, az) => !lista.length ? '' :
-    `<div class="og-sez ${cls}" id="${id}"><i data-lucide="${ico}"></i>${titolo}<em>${lista.length}</em></div>`
+    `<div class="og-sez ${cls}" id="${id}">${titolo}<em>${lista.length}</em></div>`
     + lista.map(o => rigaOggi(o, stato(o), az(o))).join('');
   const forse = FORSE_FINITI.filter(f => idForse.has(f.id));
   let html = [
-    forse.length ? `<div class="og-sez ok" id="og-s-forse"><i data-lucide="circle-check-big"></i>Forse finiti<em>${forse.length}</em></div>`
+    forse.length ? `<div class="og-sez warn" id="og-s-forse">Forse finiti: tagliati, chiedi all’officina<em>${forse.length}</em></div>`
       + forse.map(rigaForseFinito).join('') : '',
     sez('og-s-ritardo', 'err', 'triangle-alert', 'In ritardo', ritardo, statoOggi, azioneDi),
     sez('og-s-prossime', 'warn', 'alarm-clock', 'Consegna oggi e domani', prossime, statoOggi, azioneDi),
@@ -2344,11 +2461,10 @@ function renderOggi() {
     sez('og-s-consegnare', 'vio', 'truck', 'Da consegnare', daCons, statoOggi, azioneDi),
     sez('og-s-fatturare', 'ok', 'receipt', 'Da fatturare', daFatt, statoOggi, azioneDi),
   ].filter(Boolean).join('<div class="og-sp"></div>');
-  if (nConf) html = `<div class="og-sez acc" style="--gc:var(--ft-accent);--gb:var(--ft-accent-bg)"><i data-lucide="mail-check"></i>Preventivi da confermare<em>${nConf}</em></div>
-    <div class="og-r" onclick="switchTab('conferme')" role="button"><span></span><div class="c"><b>${nConf} preventiv${nConf === 1 ? 'o inviato' : 'i inviati'} al cliente</b><small>aspettano la risposta</small></div><div class="s">Quando il cliente accetta, confermalo: diventa un ordine.</div><div class="a">${btn('Apri', "switchTab('conferme')", '', 'arrow-right')}</div></div>`
+  if (nConf) html = `<div class="og-sez" id="og-s-conferme">Preventivi da confermare<em>${nConf}</em></div>
+    <div class="og-r" onclick="switchTab('conferme')" role="button"><span></span><div class="c"><b>${nConf} preventiv${nConf === 1 ? 'o inviato' : 'i inviati'} al cliente</b><small>aspettano la risposta</small></div><div class="s">Quando il cliente accetta, confermalo: diventa un ordine.</div><div class="a">${btn('Apri', "switchTab('conferme')", '', '')}</div></div>`
     + (html ? '<div class="og-sp"></div>' + html : '');
-  $('og-dafare').innerHTML = html || `<div class="og-vuoto"><b>Tutto in ordine</b>Niente in ritardo, niente da registrare.</div>`;
-  if (!renderOggi.visto) { renderOggi.visto = true; FT.sequenza($('og-kpi')); FT.sequenza($('og-dafare')); }
+  $('og-dafare').innerHTML = html || `<div class="og-vuoto">Niente in ritardo, niente da registrare.</div>`;
   const nFare = ritardo.length + prossime.length + ddt.length + daCons.length + daFatt.length + forse.length;
   $('og-dafare-n').textContent = nFare ? `${nFare} ${nFare === 1 ? 'ordine' : 'ordini'}` : '';
 
@@ -2372,22 +2488,22 @@ function renderOggi() {
     }).join('');
     const libero = CaricoLaser.primoGiornoLibero(ord);
     const tr = rp && rp.taglio_in_ritardo;
-    $('og-laser').innerHTML = (rp ? `<div class="og-nota" style="margin-top:0"><b>${esc(rp.periodo.etichetta)}: ${CaricoLaser.fmtOre(rp.periodo.min)} su ${CaricoLaser.fmtOre(rp.periodo.cap)}</b>${rp.periodo.ignoti ? ` · ${rp.periodo.ignoti} ordini senza durata` : ''}</div>` : '')
-      + (tr && tr.n ? `<div class="og-nota" style="color:var(--ft-err)" title="${esc(tr.definizione)}"><b>Taglio in ritardo: ${tr.n} ${tr.n === 1 ? 'ordine' : 'ordini'}</b>${tr.min ? ` · ${CaricoLaser.fmtOre(tr.min)} di laser` : ''} (contati su oggi)</div>` : '')
+    $('og-laser').innerHTML = (rp ? `<div class="og-nota" style="margin-top:0"><b>${esc(rp.periodo.etichetta)}: ${CaricoLaser.fmtOre(rp.periodo.min)} su ${CaricoLaser.fmtOre(rp.periodo.cap)}</b>${rp.periodo.ignoti ? `, ${rp.periodo.ignoti} ordini senza durata` : ''}</div>` : '')
+      + (tr && tr.n ? `<div class="og-nota" style="color:var(--ft-err)" title="${esc(tr.definizione)}"><b>Taglio in ritardo: ${tr.n} ${tr.n === 1 ? 'ordine' : 'ordini'}</b>${tr.min ? `, ${CaricoLaser.fmtOre(tr.min)} di laser` : ''} (contati su oggi)</div>` : '')
       + `<div class="og-giorni">${righe}</div>
       <div class="og-nota">Primo giorno con spazio al laser: <b>${libero ? giornoBreve(libero) : 'oltre 2 mesi'}</b>. La tacca è il limite delle ore utili (turno meno riserva per le emergenze).</div>`;
     $('og-laser-n').textContent = rp ? `${CaricoLaser.fmtOre(rp.periodo.min)} su ${CaricoLaser.fmtOre(rp.periodo.cap)}` : `${CaricoLaser.fmtOre(tot)} su ${CaricoLaser.fmtOre(cap)}`;
   }
   // ── A rischio ──
   $('og-rischio').innerHTML = rischio.length ? rischio.map(({ o, m }) => rigaOggi(o,
-      `<div class="og-motivi">${m.map(x => `<span class="ft-chip warn">${esc(x)}</span>`).join('')}</div>`, '')).join('')
-    : `<div class="og-vuoto"><b>Nessun ordine a rischio</b>nei prossimi 7 giorni.</div>`;
+      `<div class="og-motivi">${m.map(x => `<span>${esc(x.charAt(0).toUpperCase() + x.slice(1))}</span>`).join('')}</div>`, '')).join('')
+    : `<div class="og-vuoto">Nessun ordine a rischio nei prossimi 7 giorni.</div>`;
   $('og-rischio-n').textContent = rischio.length ? `${rischio.length} ${rischio.length === 1 ? 'ordine' : 'ordini'}` : '';
   FT.icone();
 }
 function vaiA(id) {
   const el = $(id);
-  if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.animate([{ filter: 'brightness(.9)' }, { filter: 'none' }], 900); }
+  if (el) el.scrollIntoView({ block: 'start' });
   else FT.toast('Niente in questa voce', 'ok');
 }
 
@@ -2514,6 +2630,7 @@ async function caricaViste(silenzioso) {
   }
   VISTE_DATI = res.data;
   VISTE_CARICATE = true;
+  caricaTagliaEntro();
   menuViste();
   if (TAB === 'ordini') { renderKpiViste(); renderVista(); }
   if (TAB === 'oggi') renderOggi();
@@ -2535,35 +2652,13 @@ function renderKpiViste() {
   const fasi = fasiPresenti();
   if (!fasi.includes(VISTA)) VISTA = fasi[0] || 'aperto';
   const box = $('vista-kpis');
-  box.className = 'ft-kpis' + (fasi.length === 5 ? ' k5' : fasi.length === 3 ? ' k3' : '');
+  box.className = 'ft-seg imp-viste';
   const ord = VISTE_DATI.ordini || [];
   box.innerHTML = fasi.map(f => {
-    const righe = ord.filter(o => o.fase === f);
-    const n = (VISTE_DATI.conteggi || {})[f] ?? righe.length;
-    let sub = '';
-    if (f === 'aperto') {
-      const late = righe.filter(o => FT.scadenza(giorno(o.data_consegna)).classe === 'late').length;
-      const coda = righe.filter(o => o.taglio_stato ? o.taglio_stato === 'da_tagliare' : (!o.taglio_fatto && o.taglio_richiesto !== false)).length;
-      const parti = [];
-      if (late) parti.push(`<b class="err">${late} in ritardo</b>`);
-      parti.push(coda ? `${coda} in coda laser` : 'nessuno in coda laser');
-      sub = parti.join(' · ');
-    } else if (f === 'pronto_ddt') {
-      const conDdt = righe.filter(o => ddtDi(o).num).length;
-      sub = n ? [n - conDdt ? `${n - conDdt} DDT da fare` : '', conDdt ? `${conDdt} da consegnare` : ''].filter(Boolean).join(' · ') : 'niente da preparare';
-    }
-    else if (f === 'consegnato') {
-      const tot = righe.filter(o => o.consegna).reduce((a, o) => a + (Number(o.prezzo_quotato) || 0), 0);
-      const parz = righe.filter(o => o.consegna_parziale).length;
-      sub = (tot ? `${FT.euro(tot, true)} da fatturare` : 'da fatturare') + (parz ? ` · <b class="warn">${parz} parzial${parz === 1 ? "e" : "i"}</b>` : '');
-    } else if (f === 'archivio') sub = 'pratiche chiuse';
-    const info = FASI_INFO[f] || {};
-    return `<button type="button" class="ft-kpi${f === VISTA ? ' on' : ''}" role="tab" aria-selected="${f === VISTA}" data-fase="${esc(f)}" onclick="cambiaVista('${esc(f)}')">
-      <span class="ft-kpi-lbl"><span class="dot" style="background:${info.dot || 'var(--ft-ink-4)'}"></span>${esc(etichettaFase(f))}</span>
-      <span class="ft-kpi-val" id="n-${esc(f)}">${n}</span>
-      <span class="ft-kpi-sub">${sub}</span></button>`;
+    const n = (VISTE_DATI.conteggi || {})[f] ?? ord.filter(o => o.fase === f).length;
+    return `<button type="button" class="${f === VISTA ? 'on' : ''}" role="tab" aria-selected="${f === VISTA}" data-fase="${esc(f)}" onclick="cambiaVista('${esc(f)}')">
+      ${esc(etichettaFase(f))} <b id="n-${esc(f)}">${n}</b></button>`;
   }).join('');
-  box.querySelectorAll('.ft-kpi-val').forEach(el => FT.contaDa(el.id, el, Number(el.textContent)));
   menuViste();
 }
 
@@ -2585,7 +2680,7 @@ function menuViste() {
 function cambiaVista(fase) {
   VISTA = fase;
   menuViste();
-  document.querySelectorAll('#vista-kpis .ft-kpi').forEach(b => {
+  document.querySelectorAll('#vista-kpis [data-fase]').forEach(b => {
     const on = b.dataset.fase === fase;
     b.classList.toggle('on', on); b.setAttribute('aria-selected', on);
   });
@@ -2594,11 +2689,11 @@ function cambiaVista(fase) {
 }
 
 const COLONNE = {
-  aperto:     ['Ordine', 'Consegna prevista', 'Laser', 'Avanzamento', ''],
-  pronto_ddt: ['Ordine', 'Consegna prevista', 'Lavorazione finita', 'DDT', 'Avanzamento', ''],
-  consegnato: ['Ordine', 'DDT', 'Consegna', 'Avanzamento', ''],
-  archivio:   ['Ordine', 'DDT', 'Consegnata', 'Fattura', ''],
-  _:          ['Ordine', 'Consegna prevista', 'Avanzamento', ''],
+  aperto:     ['Cliente', 'Ordine', 'Taglia entro', 'Stato', 'Data di taglio', 'Consegna', ''],
+  pronto_ddt: ['Cliente', 'Ordine', 'Consegna prevista', 'Lavorazione finita', 'DDT', 'Stato', ''],
+  consegnato: ['Cliente', 'Ordine', 'DDT', 'Consegna', 'Stato', ''],
+  archivio:   ['Cliente', 'Ordine', 'DDT', 'Consegnata', 'Fattura', ''],
+  _:          ['Cliente', 'Ordine', 'Consegna prevista', 'Stato', ''],
 };
 const VUOTI = {
   aperto: ['package-open', 'Nessun ordine in lavorazione', 'Gli ordini caricati o confermati dai preventivi stanno qui finché l\u2019officina non ha finito.'],
@@ -2614,8 +2709,13 @@ function renderVista() {
     return;
   }
   const q = ($('vista-cerca').value || '').trim().toLowerCase();
-  const righe = (VISTE_DATI.ordini || [])
-    .filter(o => o.fase === VISTA)
+  const della = (VISTE_DATI.ordini || []).filter(o => o.fase === VISTA);
+  const selCli = $('vista-cliente');
+  const clienti = [...new Set(della.map(o => o.cliente || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
+  const cli = clienti.includes(selCli.value) ? selCli.value : '';
+  selCli.innerHTML = '<option value="">Tutti</option>' + clienti.map(c => `<option${c === cli ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  let righe = della
+    .filter(o => !cli || o.cliente === cli)
     .filter(o => !q || (o.numero_ordine || '').toLowerCase().includes(q) || (o.numero_ordine_cliente || '').toLowerCase().includes(q)
       || (o.cliente || '').toLowerCase().includes(q));
   const col = COLONNE[VISTA] || COLONNE._;
@@ -2626,11 +2726,33 @@ function renderVista() {
     const v = q ? ['search-x', 'Nessun ordine trovato', `Nessun ordine corrisponde a «${esc(q)}» in questa vista.`] : (VUOTI[VISTA] || ['inbox', 'Nessun ordine', '']);
     tb.innerHTML = `<tr><td colspan="${col.length}" style="padding:0;">${vuoto(v[0], v[1], v[2])}</td></tr>`;
   } else {
-    tb.innerHTML = righe.map(rigaVista).join('');
+    tb.innerHTML = righeRaggruppate(righe, col.length);
     effettiRighe(tb);
   }
   $('vista-count').textContent = righe.length === 1 ? '1 ordine' : `${righe.length} ordini`;
   FT.icone();
+}
+
+/** I gruppi della tabella (16/10/2026): in lavorazione, i tagliati di oggi
+    in cima (l'avviso del laser che prima era a voce); poi, se chiesto, per
+    cliente. Dentro, l'ordine del server. */
+function righeRaggruppate(righe, ncol) {
+  const testa = (t, n, cls) => `<tr class="imp-gruppo${cls ? ' ' + cls : ''}"><td colspan="${ncol}">${t}<span>${n === 1 ? '1 ordine' : n + ' ordini'}</span></td></tr>`;
+  const perCliente = $('vista-percliente').checked;
+  const blocco = l => {
+    if (!perCliente) return l.map(rigaVista).join('');
+    const g = new Map();
+    for (const o of l) { const k = o.cliente || 'Cliente non indicato'; if (!g.has(k)) g.set(k, []); g.get(k).push(o); }
+    return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0], 'it'))
+      .map(([c, x]) => testa(esc(c), x.length, 'cli') + x.map(rigaVista).join('')).join('');
+  };
+  if (VISTA !== 'aperto') return blocco(righe);
+  const oggi = FT.oggiISO();
+  const tagliatiOggi = righe.filter(o => o.taglio_il && giorno(o.taglio_il) === oggi);
+  const altri = righe.filter(o => !tagliatiOggi.includes(o));
+  if (!tagliatiOggi.length) return blocco(altri);
+  return testa('Tagliati oggi: chiedi all\u2019officina quando è finito', tagliatiOggi.length, 'oggi') + blocco(tagliatiOggi)
+    + (altri.length ? testa('Gli altri in lavorazione', altri.length) + blocco(altri) : '');
 }
 
 /** Prima volta: le righe entrano in sequenza. Dopo: solo gli ordini arrivati
@@ -2648,19 +2770,21 @@ function effettiRighe(tb) {
 }
 
 function btn(testo, fn, cls, icona, titolo) {
+  cls = String(cls || '').replace(/\bprimary\b/, '');
+  icona = '';                     // niente icone nelle righe: basta la parola
   return `<button class="ft-btn sm ${cls || ''}" onclick="event.stopPropagation();${fn}"${titolo ? ` title="${esc(titolo)}"` : ''}>${icona ? `<i data-lucide="${icona}"></i>` : ''}${testo}</button>`;
 }
 
 function rigaVista(o) {
   const id = esc(o.id);
-  const ordine = `<div class="ft-cell-main"><b>${esc(o.cliente || '—')}</b><code>${esc(numOrd(o))}</code></div>`;
+  const ordine = `<b class="imp-cli">${esc(o.cliente || '—')}</b></td><td><code class="ft-code imp-num">${esc(numOrd(o))}</code>`;
   const sel = drawerId === o.id ? ' sel' : '';
   const tr = celle => `<tr class="click${sel}" data-id="${id}" onclick="apriOrdine('${id}')">${celle}</tr>`;
   const d = ddtDi(o);
   switch (o.fase) {
     case 'aperto':
-      return tr(`<td>${ordine}</td><td>${dueHtml(o.data_consegna)}</td><td>${laserHtml(o)}</td><td>${stepsHtml(o, true)}</td>
-        <td class="act">${btn('Lavorazione finita', `azCompletamento('${id}')`, 'primary', 'check', 'L\u2019officina ha finito: l\u2019ordine passa a «Pronti per DDT»')}</td>`);
+      return tr(`<td>${ordine}</td><td>${tagliaEntroHtml(o)}</td><td>${laserHtml(o)}</td><td>${dataTaglioHtml(o)}</td><td>${dueHtml(o.data_consegna)}</td>
+        <td class="act">${btn('Lavorazione finita', `azCompletamento('${id}')`, '', '', 'L\u2019officina ha finito: l\u2019ordine passa a «Pronti per DDT»')}</td>`);
     case 'pronto_ddt': {
       const quando = o.completamento
         ? `<div class="ft-due">${FT.fmtData(o.completamento)}<small>${esc(o.completato_da || '')}</small></div>`
@@ -2680,9 +2804,9 @@ function rigaVista(o) {
     }
     case 'archivio': {
       const f = fatturaDi(o);
-      const fatt = f.num ? `<div class="ft-cell-main"><b class="ft-mono" style="font-size:12.5px;">${esc(f.num)}</b><span class="imp-sub">${f.data ? fmtGiorno(f.data) : ''}</span></div>` : '<span class="ft-muted">—</span>';
+      const fatt = f.num ? `<div class="ft-cell-main"><b class="ft-mono" style="font-size:12px;">${esc(f.num)}</b><span class="imp-sub">${f.data ? fmtGiorno(f.data) : ''}</span></div>` : '<span class="ft-muted">—</span>';
       return tr(`<td>${ordine}</td><td>${d.num ? ddtCellHtml(o) : '<span class="ft-muted">—</span>'}</td>
-        <td>${o.consegna ? FT.fmtData(o.consegna) : '<span class="ft-muted">—</span>'}${o.consegna_parziale ? ' <span class="ft-chip warn">Parziale</span>' : ''}</td>
+        <td>${o.consegna ? FT.fmtData(o.consegna) : '<span class="ft-muted">—</span>'}${o.consegna_parziale ? ' <span class="ft-status warn">Parziale</span>' : ''}</td>
         <td>${fatt}</td><td class="act">${btn('Riapri', `azRiapri('${id}')`, 'ghost', 'rotate-ccw', 'Riporta fra i consegnati da fatturare')}</td>`);
     }
     default:
@@ -3163,7 +3287,7 @@ function disegniHtml() {
       ${g.url_zip ? `<a class="ft-btn sm" href="${esc(g.url_zip)}" download><i data-lucide="folder-down"></i> Scarica tutti (ZIP)</a>` : ''}</div>
     <div class="imp-list">${lista.map((x, i) => `<div class="imp-list-row">
       <div class="ft-file-icon cad">DXF</div>
-      <div class="ft-file-text"><div class="ft-file-name ft-mono" style="font-size:12.5px;" title="${esc(x.nome)}">${esc(x.nome)}</div><div class="ft-file-meta">${dimensioneHtml(x.dimensione)}</div></div>
+      <div class="ft-file-text"><div class="ft-file-name ft-mono" style="font-size:12px;" title="${esc(x.nome)}">${esc(x.nome)}</div><div class="ft-file-meta">${dimensioneHtml(x.dimensione)}</div></div>
       ${x.url_svg ? `<button class="ft-btn sm ghost" onclick="apriDisegno(${i})"><i data-lucide="eye"></i> Anteprima</button>` : ''}
       ${x.url_dxf ? `<a class="ft-btn sm" href="${esc(x.url_dxf)}" download title="Scarica il DXF"><i data-lucide="download"></i></a>` : ''}
     </div>`).join('')}</div>`;
@@ -3209,10 +3333,10 @@ function distintaHtml() {
         const dis = String(r.disegno || '').toLowerCase().replace(/\.[a-z0-9]+$/, '');
         const lav = (r.lavorazioni || []).map(l => `<span class="ft-chip">${esc(l)}</span>`).join('');
         if (r.tipo === 'assieme') return `<tr style="background:var(--ft-well);">
-          <td colspan="4"><div class="ft-cell-main"><b style="font-size:12.5px;">Assieme ${esc(r.codice || '')}</b><code>${r.quantita != null ? '× ' + FT.numero(r.quantita) + ' da montare' : ''}</code></div></td>
+          <td colspan="4"><div class="ft-cell-main"><b style="font-size:12px;">Assieme ${esc(r.codice || '')}</b><code>${r.quantita != null ? '× ' + FT.numero(r.quantita) + ' da montare' : ''}</code></div></td>
           <td><div class="imp-chips">${lav || ''}</div></td><td></td></tr>`;
         return `<tr>
-          <td><div class="ft-cell-main"><b style="font-size:12.5px;">${esc(r.descrizione || r.codice || '—')}</b><code>${esc(r.codice || '')}${r.assieme ? ' · assieme ' + esc(r.assieme) : ''}</code></div></td>
+          <td><div class="ft-cell-main"><b style="font-size:12px;">${esc(r.descrizione || r.codice || '—')}</b><code>${esc(r.codice || '')}${r.assieme ? ' · assieme ' + esc(r.assieme) : ''}</code></div></td>
           <td class="r"><b>${r.quantita != null ? FT.numero(r.quantita) : '—'}</b></td>
           <td>${esc(r.materiale || '—')}</td>
           <td class="r" style="white-space:nowrap;">${r.spessore_mm != null && r.spessore_mm !== '' ? FT.numero(r.spessore_mm, Number(r.spessore_mm) % 1 ? 1 : 0) + ' mm' : '—'}</td>
@@ -3513,7 +3637,7 @@ async function loadBackupList() {
   if (!lista.length) { box.innerHTML = vuoto('database', 'Nessun backup', 'Premi «Esegui backup ora» per creare la prima copia.'); FT.icone(); return; }
   box.innerHTML = `<table class="ft-table"><thead><tr><th>Creato</th><th>File</th><th class="r">Dimensione</th></tr></thead><tbody>
     ${lista.map(b => { const d = dataLocale(b.created); return `<tr><td style="white-space:nowrap;">${d ? FT.fmtDataOra(d) : esc(b.created || '—')}</td>
-      <td class="ft-mono" style="font-size:11.5px; color:var(--ft-ink-3);">${esc(b.filename)}</td>
+      <td class="ft-mono" style="font-size:12px; color:var(--ft-ink-3);">${esc(b.filename)}</td>
       <td class="r" style="white-space:nowrap;">${FT.numero(b.size_kb)} KB</td></tr>`; }).join('')}</tbody></table>`;
 }
 /** Il server scrive l'ora dei file gia' in ora locale. */

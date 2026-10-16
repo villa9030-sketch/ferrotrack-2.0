@@ -128,7 +128,10 @@
     { k: 'in_lantek', t: 'In Lantek, da tagliare' },
     { k: 'tagliato', t: 'Tagliati nelle ultime 24 ore' },
   ];
+  /** Dal 16/10 l'elenco e' per lamiera (laser-lista.js): l'ordine in cui
+      gli ordini si vedono lo dice la lista; qui solo il ripiego. */
   LZ.ordiniVisti = function () {
+    if (LZ.lista && LZ.lista.visti) return LZ.lista.visti();
     const l = LZ.ordiniLaser();
     return LZ.GRUPPI.flatMap(g => l.filter(o => LZ.statoLaser(o) === g.k));
   };
@@ -171,7 +174,7 @@
     const e = LZ.etichetta(o);
     if (e.c === 'skel') return '<span class="lz-chip skel lz-skel" aria-hidden="true">&nbsp;</span>';
     const t = corto && e.corto ? e.corto : e.t;
-    return `<span class="lz-chip ${e.c}${extra ? ' ' + extra : ''}"${t !== e.t ? ` title="${esc(e.t)}"` : ''}>${e.c === 'att' || e.c === 'err' ? '<i class="pt"></i>' : ''}${esc(t)}</span>`;
+    return `<span class="lz-chip ${e.c}${extra ? ' ' + extra : ''}"${t !== e.t ? ` title="${esc(e.t)}"` : ''}>${esc(t)}</span>`;
   };
 
   /** Un codice "da correggere in Lantek" e' appena diventato "corretto"

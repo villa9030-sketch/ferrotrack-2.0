@@ -96,14 +96,19 @@ with sync_playwright() as p:
     check('ci sono ordini da tagliare', len(righe) > 0)
     chiavi = [(r['entro'] or '9999', r['cons'] or '9999') for r in righe]
     check('in fila per taglia entro, poi consegna', chiavi == sorted(chiavi), chiavi[:8])
-    # dal 15/10 l'elenco e' in gruppi (Da smistare, Da mandare, In Lantek):
-    # dentro ogni gruppo resta la fila per taglia entro
+    # dal 16/10 l'elenco e' in gruppi per LAMIERA (materiale + spessore), con
+    # "Da smistare" in cima: dentro ogni gruppo resta la fila per taglia entro,
+    # e le lamiere vanno da quella che scade prima
     dom = pg.evaluate(ORDINE_JS)
     visti = pg.evaluate("() => LZ.ordiniVisti().filter(o => LZ.statoLaser(o) !== 'tagliato').map(o => o.id)")
     check("l'elenco a schermo e' in quell'ordine (per gruppi)", dom[:len(visti)] == visti)
-    for g in ('smistare', 'coda', 'in_lantek'):
-        ch = pg.evaluate(f"""() => LZ.ordiniVisti().filter(o => LZ.statoLaser(o) === '{g}').map(o => [LZ.entro(o) || '9999', LZ.giorno(o) || '9999'])""")
-        check(f'gruppo {g}: in fila per taglia entro', ch == sorted(ch), ch[:5])
+    gr = pg.evaluate("""() => LZ.lista.gruppi().map(g => ({k: g.k, lam: !!g.lam, primo: g.primo || null,
+        ch: g.righe.map(r => [LZ.entro(r.o) || '9999', LZ.giorno(r.o) || '9999'])}))""")
+    for g in gr:
+        if g['k'] != 'tagliato':
+            check(f'gruppo {g["k"]}: in fila per taglia entro', g['ch'] == sorted(g['ch']), g['ch'][:5])
+    primi = [g['primo'] or '9999' for g in gr if g['lam']]
+    check('le lamiere: prima quella che scade prima', primi == sorted(primi), primi)
     coerenti = [r for r in righe if r['server'] and not r['man']]
     check('il taglia entro e\' quello del server', all(r['entro'] == r['server'] for r in coerenti),
           [r for r in coerenti if r['entro'] != r['server']][:3])
@@ -112,7 +117,7 @@ with sync_playwright() as p:
     primo = righe[0]
     t = pg.locator(f'.lz-r[data-id="{primo["id"]}"] .lz-q').inner_text()
     gm = lambda iso: '%s/%s' % (iso[8:10], iso[5:7])  # noqa: E731
-    check('la riga: "entro" col taglia entro a destra', 'entro ' + gm(primo['entro']) in t, t)
+    check('la riga: la colonna "Taglia entro" col giorno', gm(primo['entro']) in t, t)
     oggi = date.today().isoformat()
     rit = [r for r in righe if r['entro'] and r['entro'] < oggi]
     if rit:
