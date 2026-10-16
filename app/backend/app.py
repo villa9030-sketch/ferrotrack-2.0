@@ -2027,11 +2027,12 @@ def _segnalazioni_di_oggi(order_ids) -> dict:
         session.close()
 
 
-def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None) -> dict:
+def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None, cal=None) -> dict:
     """Un ordine come lo mostra il tablet: testata, reparti, taglio, pezzi.
     procura: {order_id: riassunto} dei pezzi "da procurare" non arrivati
     (backend/procura.py): finche' mancano, l'ordine non e' pronto per il
-    montaggio e il tablet lo dice."""
+    montaggio e il tablet lo dice. cal: il calendario (per il "taglia
+    entro", lo stesso del laser); None = si legge qui."""
     from .ordini_service import stato_taglio, fase_laser
     from . import tablet_officina as tab
     disegni = _disegni_ordine(o, piatti=piatti, righe_file=list(o.files or []))
@@ -2084,6 +2085,14 @@ def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None) -> dict
 
     num_cli = ((prev or {}).get('numero_ordine_cliente') or '').strip()
     pdf = next((f for f in (o.files or []) if f.file_type == 'PDF'), None)
+    # "taglia entro": lo stesso giorno che vede il laser (backend/taglia_entro.py)
+    try:
+        from . import taglia_entro as _te
+        entro = _te.per_ordine(o, righe, origine, cal if cal is not None else _cal_config(),
+                               ((procura or {}).get(o.id) or {}).get('esterne'))['data']
+    except Exception:
+        logger.warning('taglia entro non calcolato per il tablet (%s)', o.id, exc_info=True)
+        entro = None
     return {
         'id': o.id,
         'cliente': o.cliente or '',
@@ -2094,6 +2103,7 @@ def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None) -> dict
         'numero_ordine_cliente': num_cli or None,
         # data di calendario e basta: la consegna e' un giorno, non un istante
         'data_consegna': (iso_data(o.data_consegna) or '')[:10] or None,
+        'taglia_entro': entro,
         'note': (o.note or '').strip(),
         'lotto_numero': o.lotto_numero or 0,
         'lotto_nome': o.lotto_nome or '',
@@ -2150,7 +2160,8 @@ def api_officina_tablet():
             except Exception:
                 logger.warning('da procurare non letto per il tablet', exc_info=True)
                 proc = {}
-            out = [_ordine_per_tablet(o, segnalazioni, piatti, proc) for o in ordini]
+            cal = _cal_config()
+            out = [_ordine_per_tablet(o, segnalazioni, piatti, proc, cal) for o in ordini]
         finally:
             session.close()
         ms = round((time.perf_counter() - t0) * 1000)

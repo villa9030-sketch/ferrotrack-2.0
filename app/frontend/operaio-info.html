@@ -13,14 +13,15 @@
 <style>
 /* Tablet dei ragazzi in officina: trovare un ordine (cliente o numero), vedere
    i pezzi da fare, i disegni e il foglio d'ordine. Si consulta e basta, salvo
-   "Segnala un problema", che avvisa l'ufficio. Quando nessuno lo tocca e' un
-   cartellone: "Cosa c'e' da fare", leggibile da due o tre metri.
+   "Segnala un problema", che avvisa l'ufficio. La pagina e' l'ELENCO DEGLI
+   ORDINI (16/10, dai ragazzi dell'officina): a tutto schermo, dal piu'
+   urgente, leggibile da due o tre metri.
 
    16/10/2026, regole "meno AI" (reports/Design FerroTrack meno AI.md):
    - stessi token di ft-ui.css delle stazioni, base 16 (rapporti 14/16/18/24);
    - righe al posto delle card, niente strisce colorate ne' pillole: lo stato
      e' una parola, colorata solo se e' un problema (ritardo, nota, segnalato);
-   - in cima una riga sola "Adesso" con l'unico pulsante indaco (Apri);
+   - niente riga "Adesso" a parte: i piu' urgenti sono le prime righe;
    - bersagli di almeno 44 px, 56 per le cose che si premono di piu';
    - niente entrate in sequenza, numeri che scorrono, ombre sotto i pannelli.
    La barra in alto e' quella comune dei tablet (.ftt-barra in ft-ui.css). */
@@ -56,54 +57,115 @@ body.ft { display: flex; flex-direction: column; overflow: hidden; }
 .attiva h2 { font: 600 24px var(--ft-font); margin-bottom: 8px; }
 .attiva p { color: var(--ft-ink-2); line-height: 1.5; font-size: 16px; }
 
-/* ── corpo: elenco a sinistra, ordine (o cartellone) a destra ── */
-.corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); }
-.lista { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ft-line); background: var(--ft-canvas); }
-.cerca-box { padding: 16px 16px 8px; display: grid; gap: 8px; }
-.cerca-w { display: flex; gap: 8px; }
+/* ── corpo ──
+   16/10, dal reparto: "il focus della pagina principale deve essere la lista
+   degli ordini". In partenza l'elenco prende tutto lo schermo, in verticale
+   e in orizzontale: niente cartellone accanto, niente riga "Adesso" con Apri.
+   Cerca e reparto stanno in UNA riga sopra l'elenco; i piu' urgenti sono in
+   cima, sotto "In ritardo" e "Oggi". Aperto un ordine, in orizzontale
+   l'elenco si stringe a sinistra e l'ordine va a destra (come prima); in
+   verticale si vede uno alla volta. */
+.corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.corpo.dettaglio { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); }
+.corpo:not(.dettaglio) .ordine-aperto { display: none; }
+.lista { display: flex; flex-direction: column; min-height: 0; background: var(--ft-canvas); container-type: inline-size; }
+.corpo.dettaglio .lista { border-right: 1px solid var(--ft-line); }
+.cerca-box { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 16px; }
+.cerca-w { display: flex; gap: 8px; flex: 1 1 200px; min-width: 0; }
 .cerca-campo { position: relative; flex: 1; min-width: 0; }
 .cerca-ico { position: absolute; left: 16px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--ft-ink-3); pointer-events: none;
   fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.cerca { width: 100%; height: 56px; border: 1px solid var(--ft-line-3); border-radius: var(--ft-r-m); padding: 0 56px 0 48px; font: 400 18px var(--ft-font);
+.cerca { width: 100%; height: 52px; border: 1px solid var(--ft-line-3); border-radius: var(--ft-r-m); padding: 0 52px 0 48px; font: 400 18px var(--ft-font);
   background: var(--ft-panel); color: var(--ft-ink); outline: 0; }
+.cerca:placeholder-shown { padding-right: 12px; }   /* la x per svuotare c'e' solo col testo */
 .cerca:focus { border-color: var(--ft-accent); outline: 1px solid var(--ft-accent); }
 .cerca::placeholder { color: var(--ft-ink-3); }
 .cerca::-webkit-search-cancel-button { display: none; }
-.svuota { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; border: 0; border-radius: var(--ft-r-s); background: var(--ft-g3);
+.svuota { position: absolute; right: 4px; top: 4px; width: 44px; height: 44px; border: 0; border-radius: var(--ft-r-s); background: var(--ft-g3);
   font-size: 24px; line-height: 1; color: var(--ft-ink-2); }
 /* 123: la tastiera coi numeri, per cercare un numero d'ordine */
-.tasti { flex: none; width: 64px; height: 56px; border: 1px solid var(--ft-line-3); border-radius: var(--ft-r-m); background: var(--ft-panel);
+.tasti { flex: none; width: 60px; height: 52px; border: 1px solid var(--ft-line-3); border-radius: var(--ft-r-m); background: var(--ft-panel);
   font: 600 16px var(--ft-font); color: var(--ft-ink-2); }
 .tasti[aria-pressed="true"] { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); }
-/* reparto: a segmenti come nelle stazioni; clienti: una riga che scorre */
-#filtri.ft-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
-#filtri.ft-seg button { justify-content: center; height: 44px; padding: 0 8px; font-size: 15px; }
+/* reparto: a segmenti come nelle stazioni, sulla stessa riga della ricerca */
+#filtri.ft-seg { flex: none; flex-wrap: nowrap; }
+#filtri.ft-seg button { height: 48px; padding: 0 12px; font-size: 15px; }
 #filtri.ft-seg button.zero { color: var(--ft-ink-4); }
-#clienti { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
-#clienti::-webkit-scrollbar { display: none; }
-#clienti:empty { display: none; }
-.cli { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border: 1px solid var(--ft-line-3);
-  border-radius: var(--ft-r-m); background: var(--ft-panel); font-size: 15px; color: var(--ft-ink-2); white-space: nowrap; }
-.cli b { font-weight: 400; color: var(--ft-ink-3); }
-.cli.on { border-color: var(--ft-accent); background: var(--ft-accent-bg); color: var(--ft-accent-ink); font-weight: 600; }
-.meta { padding: 8px 16px; font-size: 14px; color: var(--ft-ink-3); }
+/* elenco stretto (a sinistra dell'ordine aperto): il reparto va sotto */
+@container (max-width: 900px) {
+  .tasti { width: 56px; }
+  #filtri.ft-seg button { padding: 0 8px; gap: 6px; }
+}
+@container (max-width: 760px) {
+  .cerca-w { flex-basis: 100%; }
+  #filtri.ft-seg { flex: 1 1 100%; }
+  #filtri.ft-seg button { flex: 1; justify-content: center; padding: 0 4px; font-size: 14px; gap: 4px; }
+}
+@container (max-width: 560px) {
+  #filtri.ft-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); }
+}
 .elenco { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--ft-panel); border-top: 1px solid var(--ft-line); }
-.vuoto { padding: 48px 20px; text-align: center; color: var(--ft-ink-3); font-size: 16px; }
+.vuoto { padding: 48px 20px; text-align: center; color: var(--ft-ink-3); font-size: 18px; }
+.vuoto b { display: block; font: 600 24px var(--ft-font); color: var(--ft-ink); margin-bottom: 8px; }
 
-/* riga ordine: cliente e consegna, numero e lavorazioni, poi solo le anomalie */
-.ordine { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 12px 16px; min-height: 72px;
-  border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
+/* Righe a tutta larghezza, una per ordine: numero e cliente grandi, poi
+   consegna, taglia entro, reparti, laser, avvisi. Le colonne hanno
+   un'intestazione; le parole colorate sono solo i problemi. */
+.ordine, .el-testa { display: grid; grid-template-columns: 120px minmax(0, 1.7fr) 96px 96px minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.1fr);
+  column-gap: 16px; align-items: center; padding: 0 16px 0 20px; }
+.el-testa { position: sticky; top: 0; z-index: 2; height: 36px; background: var(--ft-g2); border-bottom: 1px solid var(--ft-line);
+  font-size: 14px; color: var(--ft-ink-3); }
+.el-testa .n { text-align: right; }
+.el-testa .dx { text-align: right; }
+.ordine { min-height: 56px; padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--ft-line-2); cursor: pointer; }
 .ordine:active { background: var(--ft-g2); }
 .ordine.sel { background: var(--ft-accent-bg); }
-.o-cli { font: 600 17px/1.3 var(--ft-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.o-data { font: 600 17px/1.3 var(--ft-font); text-align: right; }
-.o-sotto { display: flex; gap: 12px; min-width: 0; font-size: 14px; color: var(--ft-ink-3); overflow: hidden; white-space: nowrap; }
-.o-sotto .ft-code { font-size: 14px; color: var(--ft-ink-2); }
-.o-sotto .lv { overflow: hidden; text-overflow: ellipsis; }
-.o-quando { font-size: 14px; color: var(--ft-ink-3); text-align: right; white-space: nowrap; }
-.o-stato { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 14px; color: var(--ft-ink-3); }
-.scaduto .o-quando, .oggi .o-quando { color: var(--ft-err); font-weight: 600; }
-.presto .o-quando { color: var(--ft-warn); font-weight: 600; }
+.o-num { font: 600 20px/1.2 var(--ft-mono); color: var(--ft-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.o-cli { font: 600 20px/1.2 var(--ft-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o-cons, .o-te { text-align: right; white-space: nowrap; line-height: 1.15; }
+.o-cons b { display: block; font: 600 20px/1.15 var(--ft-font); }
+.o-te b { display: block; font: 400 18px/1.15 var(--ft-font); color: var(--ft-ink-2); }
+.o-cons small, .o-te small { display: block; font-size: 14px; color: var(--ft-ink-3); }
+.o-te .et { display: none; }
+.o-te.te-fatto b { color: var(--ft-ink-4); }
+.o-te.te-passato small { color: var(--ft-warn); font-weight: 600; }
+.scaduto .o-cons small, .oggi .o-cons small { color: var(--ft-err); font-weight: 600; }
+.presto .o-cons small { color: var(--ft-warn); font-weight: 600; }
+.o-info { display: contents; }
+.o-lav, .o-laser, .o-avv { font-size: 16px; line-height: 1.3; color: var(--ft-ink-2); min-width: 0; }
+.o-lav { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.o-lav .solo, .o-laser.normale { color: var(--ft-ink-3); }
+.o-avv { display: flex; flex-wrap: wrap; gap: 0 12px; font-size: 15px; }
+/* i piu' urgenti in cima, sotto il loro titolo: e' quello che faceva "Adesso" */
+.sez { position: sticky; top: 36px; z-index: 1; display: flex; align-items: baseline; gap: 8px; padding: 6px 20px; background: var(--ft-panel);
+  border-bottom: 1px solid var(--ft-line); font: 600 15px var(--ft-font); color: var(--ft-ink-2); }
+.sez.rosso { color: var(--ft-err); }
+.sez span { font-weight: 400; color: var(--ft-ink-3); }
+/* in verticale e nell'elenco stretto: due righe per ordine */
+@container (max-width: 900px) {
+  .el-testa { display: flex; justify-content: space-between; }
+  .el-testa > :not(.n) { display: none; }
+  .el-testa .n { text-align: left; }
+  .ordine { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: 'num cli cons' 'info info te'; row-gap: 2px; padding: 8px 16px; }
+  .o-num { grid-area: num; } .o-cli { grid-area: cli; } .o-cons { grid-area: cons; } .o-te { grid-area: te; }
+  .o-cons { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; }
+  .o-cons b, .o-te b, .o-cons small, .o-te small { display: inline; }
+  .o-te { display: flex; align-items: baseline; justify-content: flex-end; gap: 6px; font-size: 14px; color: var(--ft-ink-3); }
+  .o-te .et { display: inline; }
+  .o-te b { font-size: 15px; }
+  .o-te.te-vuota { visibility: hidden; }
+  .o-info { grid-area: info; display: flex; flex-wrap: wrap; gap: 0 16px; min-width: 0; }
+  .o-lav, .o-laser, .o-avv { font-size: 15px; }
+  .o-lav { white-space: normal; }
+  .o-laser:empty, .o-avv:empty { display: none; }
+}
+/* accanto all'ordine aperto l'elenco serve a passare a un altro: basta
+   chi, quando, le lavorazioni e gli avvisi (il resto e' nell'ordine) */
+@container (max-width: 480px) {
+  .o-num, .o-cli, .o-cons b { font-size: 18px; }
+  .ordine { grid-template-areas: 'num cli cons' 'info info info'; }
+  .o-te, .o-laser { display: none; }
+}
 /* le parole di stato: normale senza colore, il problema con il suo */
 .w-warn { color: var(--ft-warn); font-weight: 600; }
 .w-err { color: var(--ft-err); font-weight: 600; }
@@ -178,46 +240,6 @@ button.pz-img:active { border-color: var(--ft-accent); }
   .gr { padding-left: 16px; padding-right: 16px; }
 }
 
-/* ── cartellone "Cosa c'e' da fare" (nessun ordine aperto) ── */
-.pano { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ft-canvas); }
-.pano-testa { flex: none; display: flex; align-items: baseline; gap: 16px; padding: 20px 24px 12px; }
-.pano-testa h2 { font: 600 24px/1.2 var(--ft-font); }
-.pano-testa span { margin-left: auto; font-size: 16px; color: var(--ft-ink-3); }
-.pano-adesso { flex: none; margin: 0 24px 16px; min-height: 72px; padding: 8px 8px 8px 20px; font-size: 18px; }
-.pano-adesso .ft-btn { height: 56px; padding: 0 28px; font-size: 18px; }
-.ft-adesso .ft-code { font-size: 16px; color: var(--ft-ink-2); }
-/* sul tablet in verticale il cartellone non c'e': la riga Adesso sta sopra l'elenco */
-#adesso-stretto { display: none; }
-#adesso-stretto .pano-adesso { margin: 0 16px 8px; }
-.pano-lista { flex: 1; min-height: 0; overflow-y: auto; margin: 0 24px 0; background: var(--ft-panel); border: 1px solid var(--ft-line);
-  border-bottom: 0; border-radius: var(--ft-r-l) var(--ft-r-l) 0 0; -webkit-overflow-scrolling: touch; }
-.sez { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; padding: 8px 20px; background: var(--ft-g2);
-  border-bottom: 1px solid var(--ft-line); font: 600 16px var(--ft-font); color: var(--ft-ink-2); }
-.sez.rosso { color: var(--ft-err); }
-.sez span { font-weight: 400; color: var(--ft-ink-3); }
-.pr { display: grid; grid-template-columns: 112px minmax(0, 1.3fr) minmax(0, 1fr) minmax(150px, .8fr); gap: 16px; align-items: center;
-  width: 100%; min-height: 80px; padding: 12px 20px; border: 0; border-bottom: 1px solid var(--ft-line-2); background: transparent; text-align: left; color: inherit; }
-.pr:active { background: var(--ft-g2); }
-.pr-data b { display: block; font: 600 24px/1.1 var(--ft-font); }
-.pr-data small { display: block; margin-top: 2px; font-size: 15px; color: var(--ft-ink-3); }
-.pr.tardi .pr-data small { color: var(--ft-err); font-weight: 600; }
-.pr.oggi .pr-data small { color: var(--ft-warn); font-weight: 600; }
-.pr-cli { min-width: 0; }
-.pr-cli b { display: block; font: 600 20px/1.25 var(--ft-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pr-cli small { display: flex; align-items: baseline; gap: 12px; margin-top: 2px; font: 400 16px var(--ft-mono); color: var(--ft-ink-2); }
-.pr-cli .notina { font: 600 14px var(--ft-font); color: var(--ft-warn); }
-.pr-lav { font-size: 16px; color: var(--ft-ink-2); }
-.pr-lav .solo { color: var(--ft-ink-3); }
-.pr-taglio { font-size: 16px; color: var(--ft-ink-2); text-align: right; }
-.pr-taglio.tagliato { color: var(--ft-ok); font-weight: 600; }
-.pr-taglio.parziale { color: var(--ft-warn); font-weight: 600; }
-.pano-vuoto { padding: 48px 24px; text-align: center; color: var(--ft-ink-3); font-size: 18px; }
-.pano-vuoto b { display: block; font: 600 24px var(--ft-font); color: var(--ft-ink); margin-bottom: 8px; }
-@container (max-width: 860px) {
-  .pr { grid-template-columns: 96px minmax(0, 1fr) auto; grid-template-areas: 'data cli taglio' 'data lav taglio'; row-gap: 4px; }
-  .pr-data { grid-area: data; } .pr-cli { grid-area: cli; } .pr-lav { grid-area: lav; } .pr-taglio { grid-area: taglio; }
-}
-
 /* ── visori a schermo pieno: disegno, foglio d'ordine, 3D ── */
 .pieno { position: fixed; inset: 0; z-index: 1500; display: flex; flex-direction: column; background: var(--ft-panel); }
 .pieno .testa { flex: none; display: flex; align-items: center; gap: 8px; min-height: 72px; padding: 8px 16px 8px 24px; background: var(--ft-panel);
@@ -285,16 +307,11 @@ button.pz-img:active { border-color: var(--ft-accent); }
 .fatto b { display: block; margin-top: 8px; font: 600 24px var(--ft-font); }
 .fatto p { margin-top: 4px; color: var(--ft-ink-2); font-size: 18px; }
 
-.solalettura { flex: none; padding: 8px 16px; font-size: 14px; color: var(--ft-ink-3); background: var(--ft-panel); border-top: 1px solid var(--ft-line); }
-
 /* tablet in verticale o stretto: elenco e ordine uno alla volta */
 @media (max-width: 899px) {
-  .corpo { grid-template-columns: minmax(0, 1fr); }
+  .corpo.dettaglio { grid-template-columns: minmax(0, 1fr); }
   .corpo.dettaglio .lista { display: none; }
-  .corpo:not(.dettaglio) .ordine-aperto { display: none; }
   .scelte { grid-template-columns: 1fr; }
-  .solalettura { display: none; }
-  #adesso-stretto { display: block; }
 }
 @media (min-width: 900px) { .indietro { display: none !important; } }
 </style>
@@ -343,16 +360,11 @@ button.pz-img:active { border-color: var(--ft-accent); }
         <button class="tasti" id="tasti" type="button" aria-pressed="false" onclick="tastieraNumeri()" title="Tastiera coi numeri">123</button>
       </div>
       <div class="ft-seg" id="filtri" aria-label="Reparto"></div>
-      <div id="clienti" aria-label="Cliente"></div>
     </div>
-    <div id="adesso-stretto"></div>
-    <div class="meta"><span id="conteggio">—</span></div>
     <div class="elenco" id="elenco"></div>
   </section>
   <section class="ordine-aperto" id="aperto" aria-live="polite"></section>
 </main>
-
-<div class="solalettura">Qui si consulta: le ore si segnano alla timbratrice. Un problema su un ordine? Aprilo e tocca «Segnala un problema».</div>
 
 <!-- Il foglio d'ordine a schermo pieno, dentro la pagina: una scheda nuova
      porterebbe in un visore di sistema da cui non si torna agli ordini. -->
@@ -420,7 +432,6 @@ let ORDINI = [];
 let APERTO = null;          // id dell'ordine aperto: resta fra un aggiornamento e l'altro
 let SCHEDA = null;          // 'pezzi' | 'disegni'
 let REPARTO = 'tutti';      // tutti | piega | saldatura | filettatura | montaggio
-let CLIENTE = '';           // filtro per cliente ('' = tutti)
 let ULTIMO_OK = null;
 let ERRORE_RETE = false;
 let FIRMA_APERTO = '';      // per non ridisegnare l'ordine aperto se non e' cambiato
@@ -432,7 +443,7 @@ let ENTRATA = false;        // il prossimo disegno dell'ordine aperto entra in d
 const REPARTI = [['piega', 'Piega'], ['saldatura', 'Saldatura'], ['filettatura', 'Filettatura e svasatura'], ['montaggio', 'Montaggio']];
 const DA_FARE = { piega: 'Da piegare', saldatura: 'Da saldare', filettatura: 'Da filettare e svasare', montaggio: 'Da montare' };
 
-// Dopo 2 minuti senza tocchi il tablet torna al cartellone. ?inattivo_s=N lo
+// Dopo 2 minuti senza tocchi il tablet torna all'elenco. ?inattivo_s=N lo
 // accorcia (solo per le prove: nessuno lo usa in officina).
 let INATTIVO_MS = 120000;
 const VECCHIO_MS = 3 * 60000;   // dati piu' vecchi di cosi': fascia rossa
@@ -492,14 +503,14 @@ function partiElenco() {
   PARTITO = true;
   const cerca = document.getElementById('cerca');
   cerca.addEventListener('input', () => { document.getElementById('svuota').hidden = !cerca.value; disegna(); });
-  mostraPanoramica();
+  chiudiOrdine();
   carica();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     carica(); tieniAcceso();
   });
   orologio(); setInterval(orologio, 10000);
-  // ogni tocco, tasto o rotella rimanda il ritorno al cartellone
+  // ogni tocco, tasto o rotella rimanda il ritorno all'elenco
   ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev =>
     document.addEventListener(ev, () => { ULTIMO_TOCCO = Date.now(); }, { capture: true, passive: true }));
   setInterval(controllaInattivita, 2000);
@@ -557,7 +568,7 @@ async function carica() {
   if (!ERRORE_RETE) NOTI = new Set(ORDINI.map(x => x.id));
   disegna();
   const o = ORDINI.find(x => x.id === APERTO);
-  if (o) mostraOrdine(o, false); else if (APERTO) mostraPanoramica(); else disegnaPanoramica();
+  if (o) mostraOrdine(o, false); else if (APERTO) { chiudiOrdine(); disegna(); }
   aggiornaFuoriLinea();
   nuovi.forEach(id => document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`).forEach(el => FT.evidenzia(el)));
   // ogni minuto; se il server non risponde si riprova piu' spesso
@@ -689,9 +700,8 @@ function setReparto(f) {
   try { localStorage.setItem('off_reparto', f); } catch (_) {}
   disegna();
   const o = ORDINI.find(x => x.id === APERTO);
-  if (o) mostraOrdine(o, true); else disegnaPanoramica();
+  if (o) mostraOrdine(o, true);
 }
-function setCliente(c) { CLIENTE = CLIENTE === c ? '' : c; disegna(); }
 function svuotaCerca() { const c = document.getElementById('cerca'); c.value = ''; document.getElementById('svuota').hidden = true; disegna(); c.focus(); }
 /** 123: la tastiera del tablet coi numeri grandi, per chi cerca il numero
     d'ordine (1302) invece del cliente. Un altro tocco torna alle lettere. */
@@ -704,128 +714,88 @@ function tastieraNumeri() {
   b.title = numeri ? 'Tastiera con le lettere' : 'Tastiera coi numeri';
   c.blur(); c.focus();            // la tastiera cambia solo se il campo riprende il fuoco
 }
-const perConsegna = (a, b) => String(a.data_consegna || '9999').localeCompare(String(b.data_consegna || '9999'));
+/* Dalla consegna piu' vicina (come prima); a parita' di consegna prima chi va
+   tagliato prima. Senza data in fondo. */
+const perConsegna = (a, b) => String(a.data_consegna || '9999').localeCompare(String(b.data_consegna || '9999'))
+  || String(a.taglia_entro || '9999').localeCompare(String(b.taglia_entro || '9999'));
 
+/* ---------- elenco ----------
+   E' la pagina: tutti gli ordini aperti del reparto scelto, i piu' urgenti in
+   cima sotto il loro titolo (In ritardo, Oggi, Domani, Entro 7 giorni, Piu'
+   avanti). Toccando una riga si apre l'ordine. */
 function disegna() {
   const base = filtrati();
-  const conta = k => base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && haReparto(o, k)).length;
+  const conta = k => base.filter(o => haReparto(o, k)).length;
   // "Filettatura e svasatura" sta stretto: sul pulsante basta "Filettatura"
   document.getElementById('filtri').innerHTML = [['tutti', 'Tutti'], ...REPARTI]
     .map(([k, t]) => { const n = conta(k); return `<button class="${REPARTO === k ? 'on' : ''}${n ? '' : ' zero'}" aria-pressed="${REPARTO === k}" onclick="setReparto('${k}')">${t.split(' ')[0]} <b>${n}</b></button>`; }).join('');
-  // clienti con piu' ordini aperti, per filtrare con un tocco
-  const perCli = new Map();
-  base.forEach(o => { const c = o.cliente || '—'; perCli.set(c, (perCli.get(c) || 0) + 1); });
-  const clienti = [...perCli].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 12);
-  document.getElementById('clienti').innerHTML = clienti.length > 1 || CLIENTE
-    ? clienti.map(([c, n]) => `<button class="cli${CLIENTE === c ? ' on' : ''}" aria-pressed="${CLIENTE === c}" onclick="setCliente(${esc(JSON.stringify(c))})">${esc(c)} <b>${n}</b></button>`).join('')
-    : '';
 
-  const lista = base.filter(o => (!CLIENTE || o.cliente === CLIENTE) && haReparto(o, REPARTO)).sort(perConsegna);
-  document.getElementById('conteggio').textContent = lista.length + (lista.length === 1 ? ' ordine' : ' ordini') + (lista.length !== ORDINI.length ? ` su ${ORDINI.length}` : '');
-
-  document.getElementById('elenco').innerHTML = lista.length ? lista.map(o => {
-    const u = urgenza(giorniA(o.data_consegna));
-    const segn = (o.segnalazioni_oggi || []).length;
-    return `<div class="ordine ${u.cls}${APERTO === o.id ? ' sel' : ''}" data-id="${esc(o.id)}" onclick="apri('${o.id}')" role="button" tabindex="0">
-      <div class="o-cli">${esc(o.cliente || 'Cliente non indicato')}</div>
-      <div class="o-data">${dataBreve(o.data_consegna)}</div>
-      <div class="o-sotto"><span class="ft-code">${esc(numero(o))}</span><span class="lv">${testoReparti(o)}</span></div>
-      <div class="o-quando">${u.txt}</div>
-      <div class="o-stato">${statoLaser(o)}${o.pezzi_totali ? `<span>${o.pezzi_totali} pz</span>` : ''}${o.lotto_numero ? `<span>Lotto ${o.lotto_numero}</span>` : ''}${o.note ? '<span class="w-warn">Nota dell’ufficio</span>' : ''}${segn ? '<span class="w-err">Segnalato oggi</span>' : ''}${tagProcura(o)}</div>
-    </div>`;
-  }).join('') : `<div class="vuoto">${ORDINI.length ? 'Nessun ordine con questi filtri.' : (ULTIMO_OK ? 'Nessun ordine aperto.' : 'Carico gli ordini…')}</div>`;
-}
-
-/* ---------- cartellone: cosa c'e' da fare ----------
-   Quando nessuno tocca il tablet, a destra c'e' questo: prima i ritardi
-   (rossi), poi oggi, domani e la settimana. Si legge da lontano; toccando
-   una riga si apre l'ordine. */
-function mostraPanoramica() {
-  APERTO = null; SCHEDA = null; FIRMA_APERTO = '';
-  document.getElementById('corpo').classList.remove('dettaglio');
-  const box = document.getElementById('aperto');
-  box.dataset.entra = '1';
-  box.innerHTML = '<div class="pano" id="pano"></div>';
-  disegnaPanoramica();
-}
-function disegnaPanoramica() {
-  const box = document.getElementById('pano');
-  const tutti = ORDINI.filter(o => haReparto(o, REPARTO)).sort(perConsegna);
-  const gr = { tardi: [], oggi: [], domani: [], sett: [], poi: [] };
-  for (const o of tutti) {
-    const g = giorniA(o.data_consegna);
-    if (g === null) gr.poi.push(o);
-    else if (g < 0) gr.tardi.push(o);
-    else if (g === 0) gr.oggi.push(o);
-    else if (g === 1) gr.domani.push(o);
-    else if (g <= 7) gr.sett.push(o);
-    else gr.poi.push(o);
-  }
-  document.getElementById('adesso-stretto').innerHTML = rigaAdesso(gr);
-  if (!box) return;
+  const lista = base.filter(o => haReparto(o, REPARTO)).sort(perConsegna);
   const rep = REPARTI.find(r => r[0] === REPARTO);
-  const oggi = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
-  // I ritardi e la settimana sempre; "piu' avanti" solo per riempire, cosi'
-  // sulla TV grande non resta un buco nero quando la settimana e' tranquilla.
-  const sezioni = [['tardi', 'In ritardo', true], ['oggi', 'Oggi'], ['domani', 'Domani'], ['sett', 'Entro 7 giorni']];
-  const mostrati = gr.tardi.length + gr.oggi.length + gr.domani.length + gr.sett.length;
-  const riempi = Math.max(0, 10 - mostrati);
-  let righe = sezioni.filter(([k]) => gr[k].length).map(([k, t, rosso]) =>
-    `<div class="sez${rosso ? ' rosso' : ''}">${t} <span>${gr[k].length}</span></div>` + gr[k].map(o => rigaPanoramica(o, k)).join('')).join('');
-  if (riempi && gr.poi.length) {
-    righe += `<div class="sez">Più avanti <span>${gr.poi.length}</span></div>` + gr.poi.slice(0, riempi).map(o => rigaPanoramica(o, 'poi')).join('');
-  }
-  if (!ULTIMO_OK && !ORDINI.length) righe = '<div class="pano-vuoto"><b>Carico gli ordini…</b></div>';
-  else if (!tutti.length) righe = `<div class="pano-vuoto"><b>${rep ? 'Niente ' + DA_FARE[REPARTO].toLowerCase() : 'Niente da fare'}</b>${ORDINI.length ? 'Nessun ordine aperto con questa lavorazione. Scegli «Tutti» per vederli tutti.' : 'Nessun ordine aperto.'}</div>`;
-  box.innerHTML = `
-    <div class="pano-testa"><h2>${rep ? esc(DA_FARE[REPARTO]) : "Cosa c'è da fare"}</h2><span>${esc(oggi)}</span></div>
-    ${rigaAdesso(gr)}
-    <div class="pano-lista">${righe}</div>`;
-}
-/** Una riga sola, in cima: cosa faccio adesso e c'e' qualcosa che non va.
-    Al posto dei quattro riquadri coi numeri. L'unico pulsante indaco. */
-function rigaAdesso(gr) {
-  const primo = gr.tardi[0] || gr.oggi[0] || gr.domani[0] || gr.sett[0] || gr.poi[0];
-  if (!primo) return '';
-  const chi = `<b>${esc(primo.cliente || 'Cliente non indicato')}</b> <span class="ft-code">${esc(numero(primo))}</span>`;
-  let frase;
-  if (gr.tardi.length) {
-    const n = gr.tardi.length;
-    frase = `<span class="err">${n === 1 ? '1 ordine in ritardo' : n + ' ordini in ritardo'}.</span> Il primo è ${chi}, da consegnare il ${dataBreve(primo.data_consegna)}.`;
+  const q = (document.getElementById('cerca').value || '').trim();
+  const quanti = lista.length + (lista.length === 1 ? ' ordine' : ' ordini') + (lista.length !== ORDINI.length ? ` su ${ORDINI.length}` : '');
+  const testa = `<div class="el-testa"><span class="n" id="conteggio">${quanti}</span><span>Cliente</span><span class="dx">Consegna</span><span class="dx">Taglia entro</span><span>Lavorazioni</span><span>Laser</span><span>Avvisi</span></div>`;
+
+  let righe;
+  if (!lista.length) {
+    righe = !ULTIMO_OK && !ORDINI.length ? '<div class="vuoto"><b>Carico gli ordini…</b></div>'
+      : !ORDINI.length ? '<div class="vuoto"><b>Nessun ordine aperto</b></div>'
+      : q ? `<div class="vuoto"><b>Nessun ordine trovato</b>Nessun ordine con «${esc(q)}»${rep ? ' in ' + esc(rep[1].toLowerCase()) : ''}.</div>`
+      : `<div class="vuoto"><b>${rep ? 'Niente ' + esc(DA_FARE[REPARTO].toLowerCase()) : 'Niente da fare'}</b>Nessun ordine aperto con questa lavorazione. Scegli «Tutti» per vederli tutti.</div>`;
   } else {
-    const g = giorniA(primo.data_consegna);
-    const quando = g === null ? 'senza data di consegna' : g === 0 ? 'da consegnare oggi' : g === 1 ? 'da consegnare domani' : `da consegnare il ${dataBreve(primo.data_consegna)}`;
-    frase = `Niente in ritardo. Il prossimo è ${chi}, ${quando}.`;
+    const gr = { tardi: [], oggi: [], domani: [], sett: [], poi: [], senza: [] };
+    for (const o of lista) {
+      const g = giorniA(o.data_consegna);
+      gr[g === null ? 'senza' : g < 0 ? 'tardi' : g === 0 ? 'oggi' : g === 1 ? 'domani' : g <= 7 ? 'sett' : 'poi'].push(o);
+    }
+    const sezioni = [['tardi', 'In ritardo', true], ['oggi', 'Oggi', true], ['domani', 'Domani'], ['sett', 'Entro 7 giorni'], ['poi', 'Più avanti'], ['senza', 'Senza data di consegna']];
+    righe = sezioni.filter(([k]) => gr[k].length).map(([k, t, rosso]) =>
+      `<div class="sez${rosso ? ' rosso' : ''}">${t} <span>${gr[k].length}</span></div>` + gr[k].map(rigaOrdine).join('')).join('');
   }
-  return `<div class="ft-adesso pano-adesso"><span>${frase}</span><span class="sp"></span><button class="ft-btn primary" onclick="apri('${primo.id}')">Apri</button></div>`;
+  document.getElementById('elenco').innerHTML = (lista.length ? testa : '') + righe;
 }
-function rigaPanoramica(o, k) {
-  const g = giorniA(o.data_consegna);
-  const sotto = g === null ? 'senza data' : g < 0 ? (g === -1 ? 'in ritardo di 1 giorno' : `in ritardo di ${-g} giorni`)
-    : g === 0 ? 'oggi' : g === 1 ? 'domani' : new Date(Date.now() + g * 86400000).toLocaleDateString('it-IT', { weekday: 'long' });
+/** Una riga dell'elenco. Larga: sette colonne. Stretta (verticale, o accanto
+    all'ordine aperto): numero, cliente e consegna sopra, il resto sotto. */
+function rigaOrdine(o) {
+  const u = urgenza(giorniA(o.data_consegna));
   const t = riepilogoTaglio(o);
-  return `<button class="pr${k === 'tardi' ? ' tardi' : k === 'oggi' ? ' oggi' : ''}" data-id="${esc(o.id)}" onclick="apri('${o.id}')">
-    <div class="pr-data"><b>${dataBreve(o.data_consegna)}</b><small>${sotto}</small></div>
-    <div class="pr-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b><small>${esc(numero(o))}${o.note ? '<span class="notina">Nota dell’ufficio</span>' : ''}</small></div>
-    <div class="pr-lav">${testoReparti(o)}</div>
-    <div class="pr-taglio ${t.cls}">${esc(t.txt)}</div>
-  </button>`;
+  const laserFatto = t.cls === 'tagliato' || t.cls === 'non_serve';
+  const ge = giorniA(o.taglia_entro);
+  const te = !o.taglia_entro ? { cls: 'te-vuota', b: '—', s: '' }
+    : laserFatto ? { cls: 'te-fatto', b: dataBreve(o.taglia_entro), s: '' }
+    : ge < 0 ? { cls: 'te-passato', b: dataBreve(o.taglia_entro), s: 'passato' }
+    : { cls: '', b: dataBreve(o.taglia_entro), s: ge === 0 ? 'oggi' : ge === 1 ? 'domani' : '' };
+  const laser = t.cls === 'tagliato' ? `<span class="w-ok">${esc(t.txt)}</span>`
+    : t.cls === 'parziale' || t.cls === 'da_smistare' ? `<span class="w-warn">${esc(t.txt)}</span>` : esc(t.txt);
+  const segn = (o.segnalazioni_oggi || []).length;
+  const avvisi = [
+    segn ? '<span class="w-err">Segnalato oggi</span>' : '',
+    o.note ? '<span class="w-warn">Nota dell’ufficio</span>' : '',
+    tagProcura(o),
+  ].join('');
+  return `<div class="ordine ${u.cls}${APERTO === o.id ? ' sel' : ''}" data-id="${esc(o.id)}" onclick="apri('${o.id}')" role="button" tabindex="0">
+      <div class="o-num">${esc(numero(o))}</div>
+      <div class="o-cli">${esc(o.cliente || 'Cliente non indicato')}</div>
+      <div class="o-cons"><b>${dataBreve(o.data_consegna)}</b><small>${u.txt}</small></div>
+      <div class="o-te ${te.cls}"><span class="et">taglia entro</span><b>${te.b}</b>${te.s ? `<small>${te.s}</small>` : ''}</div>
+      <div class="o-info"><div class="o-lav">${testoReparti(o)}</div><div class="o-laser${/^<span/.test(laser) ? '' : ' normale'}">${laser}</div><div class="o-avv">${avvisi}</div></div>
+    </div>`;
 }
 
-/* ---------- ritorno da solo al cartellone ----------
+/* ---------- ritorno da solo all'elenco ----------
    Un ordine lasciato aperto resterebbe li' tutto il giorno: dopo 2 minuti
-   senza tocchi si chiude tutto (visori, finestre, ricerca) e si torna a
-   "Cosa c'e' da fare". Il reparto scelto resta: e' un'impostazione del tablet. */
+   senza tocchi si chiude tutto (visori, finestre, ricerca) e si torna
+   all'elenco, dall'inizio. Il reparto scelto resta: e' un'impostazione del tablet. */
 function controllaInattivita() {
   if (Date.now() - ULTIMO_TOCCO < INATTIVO_MS) return;
   const cerca = document.getElementById('cerca');
-  const daFare = APERTO || cerca.value || CLIENTE || !document.getElementById('visore').hidden || !document.getElementById('foglio').hidden
+  const daFare = APERTO || cerca.value || !document.getElementById('visore').hidden || !document.getElementById('foglio').hidden
     || !document.getElementById('vis3d').hidden || !document.getElementById('dlg-segnala').hidden || !document.getElementById('dlg-esci').hidden
-    || document.getElementById('corpo').classList.contains('dettaglio');
+    || document.getElementById('corpo').classList.contains('dettaglio') || document.getElementById('elenco').scrollTop > 0;
   if (!daFare) return;
-  tornaAlCartellone();
+  tornaAllElenco();
 }
-function tornaAlCartellone() {
+function tornaAllElenco() {
   if (!document.getElementById('visore').hidden) chiudiVisore();
   if (!document.getElementById('foglio').hidden) chiudiFoglio();
   if (!document.getElementById('vis3d').hidden) chiudi3d();
@@ -834,10 +804,15 @@ function tornaAlCartellone() {
   const cerca = document.getElementById('cerca');
   cerca.value = ''; cerca.blur();
   document.getElementById('svuota').hidden = true;
-  CLIENTE = '';
-  mostraPanoramica();
+  chiudiOrdine();
   disegna();
   document.getElementById('elenco').scrollTop = 0;
+}
+/** Nessun ordine aperto: l'elenco torna a tutta larghezza. */
+function chiudiOrdine() {
+  APERTO = null; SCHEDA = null; FIRMA_APERTO = '';
+  document.getElementById('corpo').classList.remove('dettaglio');
+  document.getElementById('aperto').innerHTML = '';
 }
 
 /* ---------- ordine aperto ---------- */
@@ -852,7 +827,7 @@ function apri(id) {
 }
 function indietro() {
   // stretto (tablet in verticale): si torna all'elenco
-  mostraPanoramica();
+  chiudiOrdine();
   disegna();
 }
 function mostraOrdine(o, forza) {

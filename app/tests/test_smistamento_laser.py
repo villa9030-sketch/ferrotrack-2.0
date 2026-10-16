@@ -179,18 +179,21 @@ with sync_playwright() as p:
     pg2.on('pageerror', lambda e: err2.append(str(e)))
     pg2.goto(B + '/operaio-info.html')
     pg2.wait_for_load_state('networkidle')
-    pg2.wait_for_function("document.body.innerText.includes('Lavorabile') || document.body.innerText.includes('In taglio')", timeout=30000)
-    testo = pg2.inner_text('body')
+    # Dal 16/10 la pagina di partenza e' l'elenco degli ordini: nella colonna
+    # Laser lo scartato dice "non passa dal laser", quello da tagliare "da
+    # tagliare" (o "in Lantek"), quello non guardato "da smistare".
+    pg2.wait_for_function("document.querySelectorAll('.ordine .o-laser').length > 0", timeout=30000)
+    testo = pg2.inner_text('#elenco').lower()
     print()
-    check('in officina compare "Lavorabile"', 'Lavorabile' in testo)
-    check('e "In taglio"', 'In taglio' in testo)
+    check('in officina compare "non passa dal laser"', 'non passa dal laser' in testo)
+    check('e "da tagliare" (o "in Lantek")', 'da tagliare' in testo or 'in lantek' in testo)
     # Solo se resta un ordine ancora in lavorazione da smistare: uno gia'
     # "da fatturare" (lavoro finito) giustamente sul tablet non c'e' piu'.
     restano = [o for o in ordini() if o.get('taglio_richiesto') is None
                and o.get('status') in ('RICEVUTO', 'IN_LAVORAZIONE')]
     if restano:
         check('e cio\' che il laser non ha guardato resta "Da smistare"',
-              'Da smistare' in testo, [o.get('numero_ordine') for o in restano])
+              'da smistare' in testo, [o.get('numero_ordine') for o in restano])
     else:
         print('  (nessun ordine in lavorazione rimasto da smistare: controllo "Da smistare" saltato)')
     check('lo scartato dice che non passa dal laser',
