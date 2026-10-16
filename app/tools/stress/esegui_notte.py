@@ -48,6 +48,25 @@ def prossime_0730(da):
     return t
 
 
+def _allineamento(reg, run_dir, meta):
+    """Esito di allinea_produzione.py (lo lancia avvia_notte.bat prima di
+    Python): nel log e nel report; se non si e' unito, un avviso LIEVE."""
+    try:
+        with open(os.path.join(run_dir, 'allineamento.json'), encoding='utf-8') as f:
+            es = json.load(f)
+    except Exception:
+        reg.log('allineamento con la produzione: non fatto (lancio a mano o FT_STRESS_SENZA_MERGE)')
+        return
+    meta['allineamento'] = es
+    reg.log('allineamento con la produzione:', es.get('esito'), es.get('produzione', '')[:7],
+            es.get('ramo_produzione', ''))
+    if es.get('esito') not in ('unito', 'gia_allineato'):
+        reg.problema('LIEVE', 'La prova NON gira sul codice di produzione (merge non fatto)',
+                     '%s: %s' % (es.get('esito'), str(es.get('dettagli') or '')[:600]),
+                     passi='cd ferrotrack-stress && git merge --no-edit %s' % es.get('produzione', '<commit>'),
+                     chiave=('allineamento',))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--durata-ore', type=float, default=13)
@@ -128,6 +147,7 @@ def main():
     threading.Thread(target=guardiano, daemon=True).start()
 
     impronta_prima = {}
+    _allineamento(reg, run_dir, meta)
     try:
         impronta_prima = preparazione.impronta_produzione()
         with open(os.path.join(run_dir, 'impronta_produzione_prima.json'), 'w', encoding='utf-8') as f:

@@ -267,12 +267,17 @@ class Flussi:
             return
         pezzi = an.get('pezzi') or []
         risposte = {}
-        for p in pezzi:
-            if not p.get('da_controllare'):
-                continue
+        # come la pagina laser: apre il disegno (/lettura) e intanto prepara i
+        # 3 dopo, poi risponde (senza /lettura il "giusto" non e' quello vero)
+        coda = [p for p in pezzi if p.get('da_controllare') and p.get('articolo_id')]
+        letti = set()
+        for j, p in enumerate(coda):
             aid = p.get('articolo_id')
-            if not aid:
-                continue
+            for q in coda[j:j + 4]:
+                if q['articolo_id'] not in letti:
+                    letti.add(q['articolo_id'])
+                    self.las.get(b + '/pezzi/%s/lettura' % q['articolo_id'])
+            time.sleep(1.5)            # chi controlla guarda il disegno prima di rispondere
             scelta = self.rnd.choices(['giusto', 'scelgo', 'V', 'P', 'N'], [50, 15, 15, 10, 10])[0]
             base = b + '/pezzi/%s' % aid
             if scelta == 'giusto':

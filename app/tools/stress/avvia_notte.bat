@@ -13,6 +13,9 @@ for /f %%t in ('powershell -NoProfile -NonInteractive -Command "Get-Date -Format
 set "RUN=%RADICE%\banco_motore\stress\%STAMP%"
 if not exist "%RUN%" mkdir "%RUN%"
 cd /d "%QUI%"
+rem Prima si unisce il codice di produzione (commit di ferrotrack-2.0) in prove/stress:
+rem esito in %RUN%\allineamento.json. Per saltarlo: set FT_STRESS_SENZA_MERGE=1
+if not "%FT_STRESS_SENZA_MERGE%"=="1" "%RADICE%\ferrotrack-2.0\app\.venv\Scripts\python.exe" "%QUI%allinea_produzione.py" --cartella "%RUN%" >"%RUN%\allineamento.log" 2>&1
 start "FerroTrack prova notturna" /MIN /BELOWNORMAL "%PYW%" "%QUI%esegui_notte.py" --profilo notte --durata-ore 13 --cartella "%RUN%" %* >"%RUN%\console.log" 2>&1
 endlocal
 exit /b 0

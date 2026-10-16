@@ -230,6 +230,9 @@ class Client:
         self.jar = http.cookiejar.CookieJar()
         self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
         self.stazione = stazione
+        self._pin = None          # PIN della persona entrata (per rientrare)
+        self._ultimo_grezzo = b''
+        self.rientri = 0          # quante volte ha rimesso il PIN (fine giornata alle 3)
         if stazione:
             self.registra(stazione, entra, persona_n)
 
@@ -244,15 +247,42 @@ class Client:
             c, d = self.post('/api/accesso/entra', {'pin': pin}, registra=False)
             if c != 200:
                 raise RuntimeError('ingresso %s: %s %s' % (st, c, d))
+            self._pin = pin
         if stazione == 'admin':
             self.eleva()
 
     def eleva(self):
-        c, d = self.post('/api/accesso/admin', {'pin': PIN_ADMIN}, registra=False)
+        c, d = self.post('/api/accesso/admin', {'pin': PIN_ADMIN}, registra=False, _rinnovo=False)
         return c == 200
 
+    def _rientra(self, codice, d):
+        """La sessione d'ufficio scade alle 3 di notte (fine giornata) e
+        l'admin dopo 15 minuti: l'app chiede di nuovo il PIN (serve_pin /
+        serve_pin_admin), ed e' giusto cosi'. Come farebbe la persona alla
+        postazione, si rimette il PIN. True se si puo' ripetere la chiamata."""
+        cod = d.get('codice') if isinstance(d, dict) else None
+        if codice == 401 and cod == 'serve_pin' and self._pin:
+            c, _ = self.post('/api/accesso/entra', {'pin': self._pin}, registra=False, _rinnovo=False)
+            ok = c == 200
+        elif codice == 403 and cod == 'serve_pin_admin' and self.stazione == 'admin':
+            ok = self.eleva()
+        else:
+            return False
+        if ok:
+            self.rientri += 1
+            self.reg.log('%s: PIN rimesso dopo %s (sessione scaduta: comportamento giusto)' % (self.nome, cod))
+        return ok
+
     def chiama(self, metodo, percorso, corpo=None, dati=None, intestazioni=None, registra=True,
-               atteso_500_ok=False, timeout=None, grezzo=False):
+               atteso_500_ok=False, timeout=None, grezzo=False, _rinnovo=True):
+        if _rinnovo:
+            # sessione scaduta (serve_pin): si rimette il PIN e si ripete UNA volta
+            codice, d = self.chiama(metodo, percorso, corpo, dati, intestazioni, registra,
+                                    atteso_500_ok, timeout, False, False)
+            if codice in (401, 403) and self._rientra(codice, d):
+                codice, d = self.chiama(metodo, percorso, corpo, dati, intestazioni, registra,
+                                        atteso_500_ok, timeout, False, False)
+            return (codice, self._ultimo_grezzo) if grezzo else (codice, d)
         h = {}
         if corpo is not None:
             dati = json.dumps(corpo).encode()
@@ -276,7 +306,10 @@ class Client:
             codice = 0
         ms = (time.perf_counter() - t0) * 1000
         chiave = '%s %s' % (metodo, normalizza(percorso))
-        self.reg.misura(chiave, ms, codice)
+        self._ultimo_grezzo = testo
+        if not (codice in (401, 403) and self._rinnovabile(testo)):
+            # "rimetti il PIN" non e' un tempo dell'app: si misura la ripetuta
+            self.reg.misura(chiave, ms, codice)
         if grezzo:
             return codice, testo
         try:
@@ -300,6 +333,11 @@ class Client:
                 self.reg.problema('GRAVE', 'Database bloccato (database is locked)', str(d)[:400],
                                   passi='%s %s' % (metodo, percorso), chiave=('locked', chiave))
         return codice, d
+
+    def _rinnovabile(self, testo):
+        t = testo or b''
+        return ((b'"serve_pin"' in t and bool(self._pin))
+                or (b'"serve_pin_admin"' in t and self.stazione == 'admin'))
 
     def get(self, p, **kw):
         return self.chiama('GET', p, **kw)
