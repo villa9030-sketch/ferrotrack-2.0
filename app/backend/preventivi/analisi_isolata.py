@@ -325,6 +325,118 @@ def converti_dwg(coppie, tempo_max: float | None = None) -> dict:
                     'da_cache': False} for a, b in coppie}
 
 
+def _verifica_isolata(cartella, item, dxf_cfg, materiali, lantek, correggi, tempo_max_s) -> dict:
+    """verifica_ordine.verifica_automatica di UN pezzo nel lavoratore.
+
+    Il tempo massimo per pezzo resta quello della verifica (lo misura lei, nel
+    lavoratore); qui un secondo limite largo, se il lavoratore si blocca. Il
+    lavoratore che ha lasciato a meta' un controllo troppo lungo si butta (il
+    thread abbandonato continuerebbe a consumare)."""
+    from . import verifica_ordine as vo
+    tmax = float(tempo_max_s or 0)
+    compito = {'tipo': 'verifica', 'cartella': os.path.abspath(cartella), 'item': item,
+               'dxf_cfg': dxf_cfg or {}, 'materiali': materiali, 'lantek': lantek,
+               'correggi': correggi, 'tempo_max_s': tmax}
+    try:
+        json.dumps(compito)
+        trasportabile = True
+    except (TypeError, ValueError):
+        trasportabile = False          # dati non trasportabili: nel server, come prima
+    with _posti:
+        w = _prendi() if trasportabile else None
+        if w is None:
+            return vo.verifica_automatica(cartella, item, dxf_cfg=dxf_cfg, materiali=materiali, lantek=lantek,
+                                          correggi=correggi, tempo_max_s=tmax)
+        stato, dato = w.esegui(compito, tmax * 2 + 60)
+        if stato == 'ok' and isinstance(dato, dict):
+            motivi = (dato.get('esito') or {}).get('motivi') or []
+            if any('controllo troppo lungo' in str(m) for m in motivi):
+                w.chiudi()
+            else:
+                _rendi(w)
+            return dato
+        if stato == 'errore':
+            _rendi(w)
+            return vo._risultato('da_guardare', [f'controllo non riuscito ({str(dato)[:80]})'], [])
+        w.chiudi()
+        logger.warning('[%s] verifica nel lavoratore: %s', (item or {}).get('codice'), stato)
+        return vo._risultato('da_guardare', ['controllo troppo lungo: guardalo a mano'], [])
+
+
+def verifica_pezzi(cartella, items: list, *, dxf_cfg=None, materiali=None,
+                   lantek_per_codice: dict | None = None, correggi=True, tempo_max_s=15.0) -> list:
+    """Come verifica_ordine.verifica_ordine (un risultato per pezzo, nello
+    stesso ordine), ma ogni pezzo nei lavoratori fuori dal server.
+
+    Prima la verifica girava in 4 thread DENTRO il server: e' geometria
+    (shapely, pick_part) col GIL di Python preso, e con un pacchetto grande
+    (C23-226, 15 pezzi: 120 letture di contorno, ~8 s) rallentava tutte le
+    altre richieste, e sotto carico i pezzi finivano "controllo troppo lungo".
+    Stessa funzione (verifica_automatica), stessi dati: stesso risultato."""
+    items = list(items or [])
+    if not items:
+        return []
+    lpc = lantek_per_codice or {}
+
+    def uno(it):
+        it = it or {}
+        lk = lpc.get(it.get('codice')) if it.get('codice') else None
+        return _verifica_isolata(cartella, it, dxf_cfg, materiali, lk, correggi, tempo_max_s)
+    out = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=max(1, min(PROCESSI_MAX, len(items)))) as pool:
+        fut = {pool.submit(uno, it): i for i, it in enumerate(items)}
+        for f, i in fut.items():
+            try:
+                out[i] = f.result()
+            except Exception as e:  # noqa: BLE001
+                from . import verifica_ordine as vo
+                out[i] = vo._risultato('da_guardare', [f'controllo non riuscito ({str(e)[:80]})'], [])
+    return out
+
+
+def contorno_preciso(percorso: str, punti, area: float, k: float, cfg: dict):
+    """Il contorno del motore coi fori, preciso: si "clicca" sul bordo del
+    contorno scelto (punti, in unita' del disegno; k = mm per unita') con lo
+    strumento del CAD e si prende il contorno con la stessa area (2%).
+    (outer_xy, holes_xy) oppure None. Lo usa la pagina laser ("giusto")."""
+    from .pick_part import pick_candidates
+    punti = list(punti or [])
+    if not punti:
+        return None
+    for i in (0, len(punti) // 3, (2 * len(punti)) // 3):
+        x, y = float(punti[i][0]) * k, float(punti[i][1]) * k
+        r = pick_candidates(percorso, x, y, cfg)
+        for c in (r or {}).get('candidates') or []:
+            lorda = float(c.get('area_lorda_dm2') or c.get('area_dm2') or 0)
+            if area > 0 and abs(lorda - area) / area < 0.02:
+                return c.get('outer_xy'), c.get('holes_xy') or []
+    return None
+
+
+def contorno_preciso_isolato(percorso: str, punti, area: float, k: float, cfg: dict):
+    """contorno_preciso nel lavoratore (geometria fuori dal server, senza il
+    GIL); se il lavoratore non c'e' o non risponde, nel server come prima."""
+    compito = {'tipo': 'contorno_preciso', 'path': os.path.abspath(percorso), 'punti': punti,
+               'area': area, 'k': k, 'cfg': cfg or {}}
+    try:
+        json.dumps(compito)
+    except (TypeError, ValueError):
+        return contorno_preciso(percorso, punti, area, k, cfg)
+    with _posti:
+        w = _prendi()
+        if w is not None:
+            stato, dato = w.esegui(compito, TEMPO_MAX_S)
+            if stato == 'ok':
+                _rendi(w)
+                return (dato[0], dato[1]) if dato else None
+            if stato == 'errore':
+                _rendi(w)
+            else:
+                w.chiudi()
+            logger.warning('contorno preciso nel lavoratore: %s, si rifa\' nel server', stato)
+    return contorno_preciso(percorso, punti, area, k, cfg)
+
+
 def chiudi_tutti():
     """Per i test e l'arresto: chiude i lavoratori fermi."""
     with _lock:

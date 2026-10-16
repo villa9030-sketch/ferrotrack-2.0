@@ -313,14 +313,15 @@ def _pulito_dal_contorno_scelto(dest, outer_xy, holes_xy) -> dict:
         return {'success': False, 'error': str(e)[:160]}
 
 
-def _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo) -> dict:
-    """Rifa' il DXF pulito per Lantek dal contorno scelto, lo controlla e, se e'
-    pronto, lo mette in uploads/drawings/<ordine>/LANTEK/<lamiera>/ (dove lo
-    cercano zip, cartella condivisa e "Manda a Lantek"), togliendo la copia da
-    preparare. Se non e' pronto non si tocca niente.
+def _prepara_pulito(percorso, outer_xy, holes_xy, geo) -> dict:
+    """La parte di _pulito_per_lantek che non tocca niente: scrive il DXF
+    pulito in una cartella temporanea, lo controlla e ne tiene i byte.
+    Dipende solo dal disegno, dal contorno e dalla configurazione: si puo'
+    preparare prima che il laser risponda (pagina laser, "giusto").
 
-    {'pronto': bool, 'motivo': str, 'file': percorso relativo o None}"""
-    from .app import DRAWINGS_FOLDER, _nome_lamiera, _nome_base_disegno
+    {'pronto': True, 'dati': bytes, 'nota': str} oppure
+    {'pronto': False, 'motivo': str}"""
+    from .app import _nome_base_disegno
     from .preventivi import dxf_cleanup as _dxc
     nome = _nome_base_disegno(os.path.basename(percorso))
     tmp = tempfile.mkdtemp(prefix='ft_contorno_')
@@ -339,24 +340,70 @@ def _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo) -> dict:
             rp2 = _pulito_dal_contorno_scelto(pulito, outer_xy, holes_xy)
             v = _dxc.verifica_lantek(pulito, attesi) if rp2.get('success') else {}
             if v.get('stato') != 'pronto':
-                return {'pronto': False, 'file': None,
+                return {'pronto': False,
                         'motivo': 'DXF pulito non creato (' + primo + '): il pezzo resta da preparare in Lantek'}
             nota = ' (scritto dal contorno scelto: le linee del disegno non si chiudevano)'
-        cartella_lantek = os.path.join(DRAWINGS_FOLDER, order.id, 'LANTEK')
-        lamiera = _nome_lamiera(art.get('materiale'), art.get('spessore_mm'))
-        dest_dir = os.path.join(cartella_lantek, lamiera)
-        os.makedirs(dest_dir, exist_ok=True)
-        dest = os.path.join(dest_dir, nome)
-        shutil.copyfile(pulito, dest)
-        tolti = _togli_da_preparare(cartella_lantek, nome)
-        rel = '/'.join(['LANTEK', lamiera, nome])
-        return {'pronto': True, 'file': rel,
-                'motivo': f'pronto per Lantek in {rel}' + nota + (' (tolto da _DA PREPARARE)' if tolti else '')}
+        with open(pulito, 'rb') as fh:
+            return {'pronto': True, 'dati': fh.read(), 'nota': nota}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, pagina='cad'):
+def _metti_pulito(order, art, percorso, prep) -> dict:
+    """Il pulito preparato (_prepara_pulito) va in uploads/drawings/<ordine>/
+    LANTEK/<lamiera>/, togliendo la copia da preparare. Se non e' pronto non si
+    tocca niente."""
+    from .app import DRAWINGS_FOLDER, _nome_lamiera, _nome_base_disegno
+    if not prep.get('pronto'):
+        return {'pronto': False, 'file': None, 'motivo': prep['motivo']}
+    nome = _nome_base_disegno(os.path.basename(percorso))
+    cartella_lantek = os.path.join(DRAWINGS_FOLDER, order.id, 'LANTEK')
+    lamiera = _nome_lamiera(art.get('materiale'), art.get('spessore_mm'))
+    dest_dir = os.path.join(cartella_lantek, lamiera)
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, nome)
+    with open(dest, 'wb') as fh:
+        fh.write(prep['dati'])
+    tolti = _togli_da_preparare(cartella_lantek, nome)
+    rel = '/'.join(['LANTEK', lamiera, nome])
+    return {'pronto': True, 'file': rel,
+            'motivo': f'pronto per Lantek in {rel}' + prep.get('nota', '') + (' (tolto da _DA PREPARARE)' if tolti else '')}
+
+
+def _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo) -> dict:
+    """Rifa' il DXF pulito per Lantek dal contorno scelto, lo controlla e, se e'
+    pronto, lo mette in uploads/drawings/<ordine>/LANTEK/<lamiera>/ (dove lo
+    cercano zip, cartella condivisa e "Manda a Lantek"), togliendo la copia da
+    preparare. Se non e' pronto non si tocca niente.
+
+    {'pronto': bool, 'motivo': str, 'file': percorso relativo o None}"""
+    return _metti_pulito(order, art, percorso, _prepara_pulito(percorso, outer_xy, holes_xy, geo))
+
+
+def prepara_contorno(percorso, outer_xy, holes_xy) -> dict:
+    """Tutto il lavoro di salva_contorno che non scrive niente (geometria,
+    controllo sul foglio, DXF pulito in memoria): si puo' fare in anticipo e
+    passare a salva_contorno(preparato=...). Stesso risultato.
+
+    {'outer', 'holes', 'geo', 'dentro', 'pulito' (None se non preparato)}"""
+    geo = _geometria_dal_contorno(outer_xy, holes_xy)
+    out = {'outer': outer_xy, 'holes': holes_xy, 'geo': geo, 'dentro': None, 'pulito': None}
+    if not geo or not geo.get('area_dm2') or geo['area_dm2'] <= 0:
+        return out
+    xs = [p[0] for p in outer_xy]
+    ys = [p[1] for p in outer_xy]
+    out['dentro'] = _dentro_al_disegno(percorso, (min(xs), min(ys), max(xs), max(ys)))
+    if out['dentro']:
+        try:
+            out['pulito'] = _prepara_pulito(percorso, outer_xy, holes_xy, geo)
+        except Exception:
+            # si rifa' (e si riporta l'errore) al salvataggio, come prima
+            logger.warning('pulito per Lantek non preparato in anticipo', exc_info=True)
+    return out
+
+
+def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, pagina='cad',
+                   preparato=None):
     """Salva il contorno di un pezzo dell'ordine: ricalcola area/perimetro/fori,
     aggiorna la riga del pezzo, rifa' il DXF pulito per Lantek, registra
     l'esempio e l'audit. outer_xy/holes_xy in mm, gia' validati (_punti).
@@ -364,6 +411,10 @@ def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, 
     dal_motore=True: il laser conferma il contorno proposto dal motore (pagina
     laser, "Si', e' il pezzo giusto" su un pezzo senza DXF pulito): stesso
     salvataggio, ma nel registro e' una conferma, non una correzione.
+
+    preparato: prepara_contorno(percorso, outer_xy, holes_xy) gia' fatto per
+    questo contorno su questo disegno: si salta il calcolo, il risultato e'
+    lo stesso.
 
     Ritorna (corpo, stato_http)."""
     from .app import _audit, _chi_nome, _invalida_analisi_laser
@@ -376,12 +427,12 @@ def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, 
         # lo rimetterebbe nella distinta accanto ai pezzi
         return {'success': False, 'codice': 'pezzi_foglio',
                 'error': "Questo foglio ha gia' i pezzi confermati: annulla prima i pezzi del foglio"}, 409
-    geo = _geometria_dal_contorno(outer_xy, holes_xy)
+    if not (preparato and preparato.get('outer') is outer_xy and preparato.get('holes') is holes_xy):
+        preparato = prepara_contorno(percorso, outer_xy, holes_xy)
+    geo = preparato['geo']
     if not geo or not geo.get('area_dm2') or geo['area_dm2'] <= 0:
         return {'success': False, 'error': 'Il contorno scelto non è chiuso o si incrocia: scegline un altro'}, 400
-    xs = [p[0] for p in outer_xy]
-    ys = [p[1] for p in outer_xy]
-    if not _dentro_al_disegno(percorso, (min(xs), min(ys), max(xs), max(ys))):
+    if not preparato['dentro']:
         return {'success': False,
                 'error': 'Il contorno non sta nel disegno di questo pezzo: riapri il CAD dal pezzo giusto'}, 400
 
@@ -395,7 +446,10 @@ def salva_contorno(order_id, articolo_id, outer_xy, holes_xy, dal_motore=False, 
         return {'success': False, 'error': esito.get('error') or 'Pezzo non salvato'}, 500
 
     try:
-        lt = _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo)
+        if preparato.get('pulito') is not None:
+            lt = _metti_pulito(order, art, percorso, preparato['pulito'])
+        else:
+            lt = _pulito_per_lantek(order, art, percorso, outer_xy, holes_xy, geo)
     except Exception as e:
         logger.exception('pulito per Lantek dal contorno non preparato')
         lt = {'pronto': False, 'file': None,

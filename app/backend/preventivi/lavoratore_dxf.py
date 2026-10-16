@@ -68,6 +68,19 @@ def main() -> int:
                     dwg_conversione.CACHE_DIR = compito['cache_dwg']
                 risposta['payload'] = dwg_conversione.converti_percorsi(
                     compito.get('coppie') or [], compito.get('tempo_max'))
+            elif compito.get('tipo') == 'contorno_preciso':
+                # contorno coi fori per il "giusto" della pagina laser
+                from backend.preventivi import analisi_isolata
+                risposta['payload'] = analisi_isolata.contorno_preciso(
+                    compito['path'], compito.get('punti'), float(compito.get('area') or 0),
+                    float(compito.get('k') or 1.0), compito.get('cfg') or {})
+            elif compito.get('tipo') == 'verifica':
+                # verifica automatica di un pezzo del pacchetto (verifica_ordine)
+                from backend.preventivi import verifica_ordine
+                risposta['payload'] = verifica_ordine.verifica_automatica(
+                    compito['cartella'], compito.get('item') or {}, dxf_cfg=compito.get('dxf_cfg'),
+                    materiali=compito.get('materiali'), lantek=compito.get('lantek'),
+                    correggi=compito.get('correggi', True), tempo_max_s=compito.get('tempo_max_s', 15.0))
             else:
                 risposta['payload'] = process_single_dxf(
                     compito['path'], compito['filename'], compito.get('cfg') or {})

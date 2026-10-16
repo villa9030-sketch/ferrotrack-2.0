@@ -4616,7 +4616,8 @@ def _verifica_pezzi_pacchetto(prev_dir: str, items: list, app_cfg, materiali) ->
     e' stato corretto col peso del cartiglio, la geometria nuova e
     'contorno_auto' da confermare (il DXF pulito per Lantek era del contorno
     vecchio: si toglie, il pezzo va "da preparare"). Ritorna i conteggi."""
-    from .preventivi.verifica_ordine import verifica_ordine
+    # nei lavoratori fuori dal server (analisi_isolata): stessa verifica
+    from .preventivi.analisi_isolata import verifica_pezzi as verifica_ordine
     from . import lantek as _lt
     con_disegno = [it for it in items if it.get('dxf_filename') and not it.get('_errore_dxf')]
     if not con_disegno:
