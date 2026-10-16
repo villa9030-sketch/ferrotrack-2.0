@@ -114,7 +114,7 @@ with sync_playwright() as p:
                 larg = [float(x) for x in re.findall(r'stroke-width:([0-9.]+)px', testo)]
                 check('linee a spessore fisso sullo schermo (non-scaling-stroke)',
                       'non-scaling-stroke' in testo)
-                check('nessuna linea sotto 1,5 px', larg and min(larg) >= 1.5, larg)
+                check('nessuna linea sotto 1 px', larg and min(larg) >= 1.0, larg)
                 # ingrandito 4 volte la linea non si assottiglia: lo spessore e' in px
                 pg.evaluate("zoomIn(4)")
                 pg.wait_for_timeout(300)

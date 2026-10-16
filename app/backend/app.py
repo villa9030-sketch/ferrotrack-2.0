@@ -6136,7 +6136,7 @@ def _get_dxf_svg_cached(dxf_path: str) -> str:
 # Il disegno del PC (nessun parametro) resta com'e'.
 # Nelle miniature (un foglio A3 in 200 px) linee piu' grosse impastano il
 # cartiglio: li' bastano 1,1-1,6 px, comunque 5-8 volte quelle di prima.
-_LINEE_PX = {'tablet': (1.7, 2.4), 'miniatura': (1.1, 1.6)}
+_LINEE_PX = {'tablet': (1.0, 1.5), 'miniatura': (0.8, 1.2)}
 _RX_CLASSE_SVG = None
 
 
