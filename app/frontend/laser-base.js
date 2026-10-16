@@ -90,8 +90,10 @@
     const l = S.ordini.filter(o => {
       if (o.is_deleted || CHIUSI.includes(o.status)) return false;
       const st = LZ.statoLaser(o);
-      if (st === 'escluso') return false;
-      if (st === 'tagliato') { const d = FT.data(o.data_taglio_completato); return d && ora - d.getTime() < 864e5; }
+      // fuori dal laser: solo se l'officina ha segnalato un problema ancora aperto
+      if (st === 'escluso') return !!(LZ.segn && LZ.segn.haAperte(o.id));
+      // tagliati: nelle ultime 24 ore, o con un problema dall'officina ancora aperto (laser-segnala.js)
+      if (st === 'tagliato') { const d = FT.data(o.data_taglio_completato); return (d && ora - d.getTime() < 864e5) || !!(LZ.segn && LZ.segn.haAperte(o.id)); }
       return true;
     });
     const k = o => (LZ.statoLaser(o) === 'tagliato' ? '1' : '0') + (LZ.entro(o) || '9999') + (LZ.giorno(o) || '9999')

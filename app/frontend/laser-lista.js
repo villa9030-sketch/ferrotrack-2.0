@@ -117,7 +117,7 @@
     const perLam = new Map(), senza = [];
     for (const o of ordini) {
       const st = LZ.statoLaser(o);
-      if (st === 'smistare' || st === 'tagliato') continue;
+      if (st === 'smistare' || st === 'tagliato' || st === 'escluso') continue;
       const lam = lamiereAperte(o);
       if (!lam.length) { senza.push({ o }); continue; }
       for (const x of lam) {
@@ -136,7 +136,12 @@
     lams.sort((a, b) => (a.primo || '9999').localeCompare(b.primo || '9999') || b.righe.length - a.righe.length || a.t.localeCompare(b.t));
     out.push(...lams);
     if (senza.length) out.push({ k: 'senza', t: 'Lamiera non ancora letta', nota: 'i pezzi dell’ordine si stanno leggendo', righe: senza });
-    const tg = ordini.filter(o => LZ.statoLaser(o) === 'tagliato');
+    // gia' tagliati ma con un problema dall'officina aperto (pezzo da rifare...): in cima
+    const tagliati = ordini.filter(o => LZ.statoLaser(o) === 'tagliato');
+    // (e quelli che non passano dal laser: ci sono solo per il problema)
+    const segn = ordini.filter(o => ['tagliato', 'escluso'].includes(LZ.statoLaser(o)) && LZ.segn && LZ.segn.haAperte(o.id));
+    if (segn.length) out.unshift({ k: 'segnalati', t: 'Segnalati dall’officina', nota: segn.every(o => LZ.statoLaser(o) === 'tagliato') ? (segn.length === 1 ? 'già tagliato' : 'già tagliati') : 'già tagliati o fuori dal laser', righe: segn.map(o => ({ o })) });
+    const tg = tagliati.filter(o => !segn.includes(o));
     if (tg.length) out.push({ k: 'tagliato', t: 'Tagliati nelle ultime 24 ore', righe: tg.map(o => ({ o })) });
     // la prima volta che un ordine compare e' la riga "vera"
     const visti = new Set();
@@ -162,7 +167,7 @@
       <td class="c-sp">${sp ? `<input type="checkbox" data-sp="${id}" ${S.spuntati.has(o.id) ? 'checked' : ''}
         aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">` : ''}</td>
       <td class="c-num"><span class="lz-num" title="${esc(LZ.numero(o))}">${esc(LZ.numeroBreve(o))}</span></td>
-      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${LZ.pacchi ? LZ.pacchi.nota(o.id) : ''}${anche}${procura(o)}</div></td>
+      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${LZ.pacchi ? LZ.pacchi.nota(o.id) : ''}${anche}${procura(o)}${LZ.segn ? LZ.segn.parolaLista(o) : ''}</div></td>
       <td class="c-st">${stato(o)}</td>
       <td class="c-pz r">${pezzi != null ? esc(FT.numero(pezzi)) : '—'}</td>
       <td class="c-cons">${consegna(o, st)}</td>
@@ -289,8 +294,12 @@
   function promemoria(attivi) {
     const conta = k => attivi.reduce((s, o) => s + ((S.riep[o.id] || {})[k] || 0), 0);
     const nDa = conta('n_correggere'), nOk = conta('n_corretti');
-    if (!nDa && !nOk) return '';
-    return `<div class="lz-promemoria">${nDa ? `<button class="lz-ricorda" type="button" data-az="vai-correggere" data-fuoco="vai-correggere"
+    // i problemi nuovi dall'officina (laser-segnala.js), anche sugli ordini gia' tagliati
+    const nuove = LZ.segn ? LZ.ordiniLaser().reduce((s, o) => s + LZ.segn.nuove(o.id).length, 0) : 0;
+    const grave = nuove && LZ.ordiniLaser().some(o => LZ.segn.nuove(o.id).some(x => x.grave));
+    if (!nDa && !nOk && !nuove) return '';
+    return `<div class="lz-promemoria">${nuove ? `<button class="lz-ricorda${grave ? '' : ' att'}" type="button" data-az="vai-segnalati" data-fuoco="vai-segnalati"
+        title="Problemi segnalati dal tablet dell'officina: aprili e segnali Visto o Risolto"><span>${nuove === 1 ? '1 problema segnalato' : `${nuove} problemi segnalati`} dall’officina</span></button>` : ''}${nDa ? `<button class="lz-ricorda" type="button" data-az="vai-correggere" data-fuoco="vai-correggere"
         title="Codici tenuti fuori da Lantek perché diversi dall'ordine: correggili in Lantek"><span>${LZ.plur(nDa, 'codice', 'codici')} da correggere in Lantek</span></button>` : ''}
       ${nOk ? `<button class="lz-ricorda pronti" type="button" data-az="vai-corretti" data-fuoco="vai-corretti"
         title="Corretti in Lantek: si possono mandare"><span>${LZ.plur(nOk, 'codice corretto', 'codici corretti')}: da mandare</span></button>` : ''}</div>`;
@@ -300,6 +309,12 @@
     const o = LZ.ordiniVisti().find(x => LZ.statoLaser(x) !== 'tagliato' && (S.riep[x.id] || {})[k]);
     if (o) L.apri(o.id);
     else FT.toast(k === 'n_correggere' ? 'Nessun codice da correggere in Lantek' : 'Nessun codice corretto da mandare', '');
+  };
+
+  /** Il primo ordine (nell'ordine dell'elenco) con un problema nuovo dall'officina. */
+  L.apriSegnalato = function () {
+    const o = LZ.ordiniVisti().find(x => LZ.segn && LZ.segn.nuove(x.id).length);
+    if (o) L.apri(o.id); else FT.toast('Nessun problema nuovo dall’officina', '');
   };
 
   function disegnaAzione() {
@@ -340,6 +355,7 @@
       else if (a === 'lantek-multi') L.mandaSpuntati();
       else if (a === 'vai-correggere') L.apriCorrezione('n_correggere');
       else if (a === 'vai-corretti') L.apriCorrezione('n_corretti');
+      else if (a === 'vai-segnalati') L.apriSegnalato();
       else if (a === 'via-filtri') { S.filtroCliente = ''; S.filtroStato = ''; LZ.ridisegna(); }
       else if (a === 'apri-prossimo') { const id = az.dataset.id; if (id) L.apri(id); }
       return;

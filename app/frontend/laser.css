@@ -838,3 +838,32 @@ body.lz .lz-pr-tasti kbd, body.lz .lz-pr-card kbd { font: 400 12px var(--lz-font
 .lz-pk-vuoto { margin: 0; font-size: 13px; color: var(--lz-ink-3); }
 .lz-pk-tab td { white-space: normal; }
 .lz-pk-tab td.cod, .lz-pk-tab td.r { white-space: nowrap; }
+
+/* ── Problemi segnalati dall'officina (16/10/2026, laser-segnala.js) ──
+   Una parola, colorata solo finche' e' nuova: rossa per pezzo da rifare e
+   disegno, ambra per il resto. Visto o Risolto: torna testo normale. */
+.lz-segn-l { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+.lz-segn-l.err, .lz-segn-pz.err b, .lz-segn-t.err { color: var(--lz-red); }
+.lz-segn-l.att, .lz-segn-pz.att b, .lz-segn-t.att { color: var(--lz-amber); }
+.lz-segn-pz { display: block; max-width: 360px; font: 400 12px/1.4 var(--lz-font); color: var(--lz-ink-2); white-space: normal; }
+.lz-segn-pz b { font-weight: 600; color: var(--lz-ink); }
+.lz-ass-riga .lz-segn-pz { display: inline; margin-left: 8px; }
+.lz-ricorda.att { color: #6E4205; background: var(--lz-amber-bg); border-color: var(--lz-amber-line); }
+.lz-ricorda.att:hover { border-color: var(--lz-amber); }
+.lz-segn { margin-top: 8px; border: 1px solid var(--lz-line); border-radius: var(--lz-r-l); background: var(--lz-surface); }
+.lz-segn h3 { margin: 0; padding: 8px 16px; font: 600 13px var(--lz-font); color: var(--lz-ink-2); border-bottom: 1px solid var(--lz-line); }
+.lz-segn ul { list-style: none; margin: 0; padding: 0; }
+.lz-segn li { display: grid; grid-template-columns: minmax(120px, max-content) minmax(0, 1fr); gap: 4px 16px; padding: 8px 16px; font-size: 14px; }
+.lz-segn li + li { border-top: 1px solid var(--lz-line); }
+.lz-segn .mono { font-weight: 600; overflow-wrap: anywhere; }
+.lz-segn .mot b { font-weight: 600; }
+.lz-segn .mot small { display: block; color: var(--lz-ink-2); font-size: 13px; margin-top: 2px; }
+.lz-segn .mot small.lz-segn-lantek { color: var(--lz-ink); }
+.lz-segn .lz-dati { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.lz-segn-q { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--lz-ink-2); }
+.lz-segn-q input { width: 64px; height: 28px; padding: 0 8px; border: 1px solid var(--lz-line); border-radius: 4px; font: inherit; text-align: right; font-variant-numeric: tabular-nums; }
+/* la parola del problema non si accorcia: si accorcia il nome del cliente */
+.lz-cli .lz-segn-l { flex: none; }
+.lz-cli:has(.lz-segn-l) b { flex: 0 1 auto; min-width: 48px; }
+.lz-segn-l .lz-stretto { display: none; }
+.lz-main.con-ordine .lz-segn-l .lz-stretto { display: inline; }

@@ -2002,29 +2002,56 @@ def _step_per_assieme(codice: str, files: list):
     return None
 
 
-def _segnalazioni_di_oggi(order_ids) -> dict:
-    """{order_id: [segnalazioni di oggi]} lette dall'audit, dalla piu' recente."""
+def _segnalazioni_con_stato(order_ids=None, dal=None) -> dict:
+    """{order_id: [segnalazioni dall'officina, dalla piu' recente]} lette
+    dall'audit, ognuna col suo id (la riga d'audit) e lo stato che le ha
+    dato il laser (tablet_officina.stato_segnalazione): nuova, vista, risolta.
+    order_ids=None: di tutti gli ordini; dal: da quando (UTC)."""
     from .models import AuditLog
     from . import tablet_officina as tab
-    if not order_ids:
+    if order_ids is not None and not order_ids:
         return {}
-    inizio, _fine = giorno_locale_in_utc()
     session = get_session()
     try:
-        righe = session.query(AuditLog).filter(
-            AuditLog.action == tab.AZIONE_AUDIT,
-            AuditLog.entity_id.in_(list(order_ids)),
-            AuditLog.timestamp >= inizio,
-        ).order_by(AuditLog.timestamp.desc()).all()
+        q = session.query(AuditLog).filter(AuditLog.action == tab.AZIONE_AUDIT)
+        if order_ids is not None:
+            q = q.filter(AuditLog.entity_id.in_(list(order_ids)))
+        if dal is not None:
+            q = q.filter(AuditLog.timestamp >= dal)
+        righe = q.order_by(AuditLog.timestamp.desc()).all()
+        if not righe:
+            return {}
+        gq = session.query(AuditLog).filter(AuditLog.action == tab.AZIONE_GESTITA,
+                                            AuditLog.entity_id.in_(list({r.entity_id for r in righe})))
+        if dal is not None:
+            gq = gq.filter(AuditLog.timestamp >= dal)
+        gestioni = {}
+        for g in gq.order_by(AuditLog.timestamp.asc()).all():
+            x = tab.leggi_gestione(g.detail)
+            if x:
+                x['quando'] = iso_utc(g.timestamp)
+                gestioni.setdefault(x['segnalazione_id'], []).append(x)
         out = {}
         for r in righe:
             s = tab.leggi_segnalazione(r.detail)
             if s:
+                s['id'] = r.id
                 s['quando'] = iso_utc(r.timestamp)
+                s['grave'] = s['tipo'] in tab.TIPI_GRAVI
+                s.update(tab.stato_segnalazione(gestioni.get(r.id, [])))
                 out.setdefault(r.entity_id, []).append(s)
         return out
     finally:
         session.close()
+
+
+def _segnalazioni_di_oggi(order_ids) -> dict:
+    """{order_id: [segnalazioni di oggi]} lette dall'audit, dalla piu' recente
+    (con lo stato dato dal laser: nuova, vista, risolta)."""
+    if not order_ids:
+        return {}
+    inizio, _fine = giorno_locale_in_utc()
+    return _segnalazioni_con_stato(order_ids, dal=inizio)
 
 
 def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None, cal=None) -> dict:
@@ -2221,15 +2248,12 @@ def api_segnala_problema(order_id):
                             'error': 'Il pezzo non fa parte di quest\'ordine'}), 400
 
         chiave = tab.chiave_segnalazione(tipo, codice)
-        session = get_session()
-        try:
-            dal = datetime.utcnow() - timedelta(minutes=tab.MINUTI_DOPPIONE)
-            recenti = session.query(AuditLog.detail).filter(
-                AuditLog.action == tab.AZIONE_AUDIT, AuditLog.entity_id == order_id,
-                AuditLog.timestamp >= dal).all()
-        finally:
-            session.close()
-        if any((d or '').startswith(chiave) for (d,) in recenti):
+        # doppione: lo stesso problema entro 10 minuti, se il laser non l'ha
+        # gia' segnato risolto (se torna dopo "Risolto", e' un problema nuovo)
+        dal = datetime.utcnow() - timedelta(minutes=tab.MINUTI_DOPPIONE)
+        recenti = _segnalazioni_con_stato([order_id], dal=dal).get(order_id, [])
+        if any(x['tipo'] == tipo and (x.get('codice_pezzo') or '') == codice and x['stato'] != 'risolta'
+               for x in recenti):
             return jsonify({'success': True, 'gia_segnalato': True}), 200
 
         from .models import RUOLI_UFFICIO
@@ -2254,14 +2278,188 @@ def api_segnala_problema(order_id):
                         message=messaggio, notification_type='order',
                         notification_category='attiva'):
                     avvisati += 1
+        # E al laser (Stefano, 16/10/2026: "devono arrivare al laser"), per
+        # ogni tipo: la campanella della stazione laser, con un tipo suo
+        # ('segnalazione') perche' "Nuovo ordine" al laser sparisce appena
+        # l'ordine e' smistato. Si toglie quando il laser la segna risolta.
+        avvisati_laser = 0
+        for uid in _utenze_laser():
+            if NotificationManager.create_notification(
+                    user_id=uid, order_id=order_id,
+                    title=f'Officina: {etichetta.lower()}',
+                    message=messaggio, notification_type='segnalazione',
+                    notification_category='attiva'):
+                avvisati_laser += 1
         AuditManager.log(user_id=chi.get('id'), user_name=chi.get('nome'),
                          action=tab.AZIONE_AUDIT, entity_type='order', entity_id=order_id,
                          detail=f'{chiave} nota: {nota or "-"} | da: {mittente}'[:2000],
                          ip_address=request.remote_addr)
         return jsonify({'success': True, 'gia_segnalato': False, 'avvisati': avvisati,
+                        'avvisati_laser': avvisati_laser,
                         'tipo': tipo, 'etichetta': etichetta}), 201
     except Exception as e:
         logger.exception('segnalazione officina fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _utenze_laser() -> list:
+    """Chi riceve gli avvisi del laser: le utenze di postazione attive coi
+    ruoli del laser (la campanella della stazione laser e' dell'utenza
+    'postazione-laser', accesso.STAZIONI). Le persone no: gli avvisi sono
+    della stazione."""
+    from .models import RUOLI_LASER
+    return [u['id'] for u in UserManager.get_all_users() or []
+            if u.get('is_active', True) and u.get('e_postazione') and u.get('role') in RUOLI_LASER]
+
+
+def _ordine_e_numero(order_id):
+    """(ordine, numero che conosce l'officina) o (None, None)."""
+    order = _ordine_esistente(order_id)
+    if not order or getattr(order, 'is_deleted', False):
+        return None, None
+    prev = PreventivoManager.get(order.preventivo_id_origine) if getattr(order, 'preventivo_id_origine', None) else None
+    numero = (((prev or {}).get('numero_ordine_cliente') or '').strip()
+              or order.numero_ordine or order.id[:8])
+    return order, numero
+
+
+@app.route('/api/laser/segnalazioni', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_laser_segnalazioni():
+    """Le segnalazioni dall'officina non ancora risolte (ultimi 30 giorni),
+    per ordine: {success, ordini: {order_id: [segnalazione]}}. Ogni
+    segnalazione: id, tipo, etichetta, grave, codice_pezzo, nota, da,
+    quando, stato (nuova | vista), visto_da, visto_il. Sola lettura."""
+    from . import tablet_officina as tab
+    try:
+        dal = datetime.utcnow() - timedelta(days=tab.GIORNI_APERTE)
+        tutte = _segnalazioni_con_stato(None, dal=dal)
+        out = {}
+        if tutte:
+            session = get_session()
+            try:
+                vivi = {oid for (oid,) in session.query(Order.id).filter(
+                    Order.id.in_(list(tutte)), Order.is_deleted == False).all()}  # noqa: E712
+            finally:
+                session.close()
+            for oid, l in tutte.items():
+                aperte = [x for x in l if x['stato'] != 'risolta']
+                if oid in vivi and aperte:
+                    out[oid] = aperte
+        return jsonify({'success': True, 'ordini': out}), 200
+    except Exception as e:
+        logger.exception('segnalazioni del laser non lette')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/segnalazioni-officina/<segnalazione_id>/gestisci', methods=['POST'])
+@richiede('laser')
+def api_gestisci_segnalazione(segnalazione_id):
+    """Il laser segna una segnalazione dell'officina: "Visto", "Risolto"
+    (con "quanti da rifare", facoltativo) o "Riaperto" (l'Annulla).
+
+    Corpo: {esito: visto|risolto|riaperto, quanti?, nota?}. Niente su Lantek:
+    rimettere il pezzo in Lantek lo decide e lo fa il laser. Una riga d'audit
+    per ogni passo; con "Risolto" l'ufficio riceve un avviso (informativo) e
+    gli avvisi del laser per quell'ordine si tolgono se non resta niente di
+    aperto; con "Visto" si segnano letti."""
+    from . import tablet_officina as tab
+    from .models import AuditLog, RUOLI_UFFICIO, Notification
+    chi = _chi_tablet()
+    try:
+        data = request.get_json(silent=True)
+        data = data if isinstance(data, dict) else {}
+        esito = str(data.get('esito') or '').strip()
+        if esito not in tab.ESITI:
+            return jsonify({'success': False, 'codice': 'esito_non_valido',
+                            'error': 'Scegli Visto o Risolto', 'esiti': list(tab.ESITI)}), 400
+        quanti = data.get('quanti')
+        if quanti in (None, ''):
+            quanti = None
+        else:
+            try:
+                quanti = int(str(quanti).strip())
+            except (TypeError, ValueError):
+                quanti = -1
+            if not (1 <= quanti <= tab.MAX_QUANTI):
+                return jsonify({'success': False, 'codice': 'quanti_non_valido',
+                                'error': 'Quanti da rifare: un numero intero da 1 in su'}), 400
+        nota = ' '.join(str(data.get('nota') or '').replace('|', '/').split())
+        if len(nota) > tab.MAX_NOTA:
+            return jsonify({'success': False, 'codice': 'nota_lunga',
+                            'error': 'Nota troppo lunga (al massimo %d caratteri)' % tab.MAX_NOTA}), 400
+
+        session = get_session()
+        try:
+            riga = session.query(AuditLog).filter(AuditLog.id == segnalazione_id,
+                                                  AuditLog.action == tab.AZIONE_AUDIT).first()
+            order_id = riga.entity_id if riga else None
+        finally:
+            session.close()
+        if not riga:
+            return jsonify({'success': False, 'codice': 'non_trovata',
+                            'error': 'Segnalazione non trovata'}), 404
+        order, numero = _ordine_e_numero(order_id)
+        if not order:
+            return _non_trovato_ordine()
+        prima = next((x for x in _segnalazioni_con_stato([order_id]).get(order_id, [])
+                      if x['id'] == segnalazione_id), None)
+        if not prima:
+            return jsonify({'success': False, 'codice': 'non_trovata', 'error': 'Segnalazione non trovata'}), 404
+        # gia' cosi': non si ripete (doppio clic, due postazioni)
+        if (esito == 'visto' and prima['stato'] != 'nuova') or (esito == 'risolto' and prima['stato'] == 'risolta') \
+                or (esito == 'riaperto' and prima['stato'] == 'nuova'):
+            return jsonify({'success': True, 'gia_fatto': True, 'segnalazione': prima}), 200
+
+        chi_nome = chi.get('nome') or 'Laser'
+        AuditManager.log(user_id=chi.get('id'), user_name=chi_nome,
+                         action=tab.AZIONE_GESTITA, entity_type='order', entity_id=order_id,
+                         detail=tab.dettaglio_gestione(segnalazione_id, esito,
+                                                       quanti if esito == 'risolto' else None, nota, chi_nome),
+                         ip_address=request.remote_addr)
+        dopo_tutte = _segnalazioni_con_stato([order_id]).get(order_id, [])
+        dopo = next((x for x in dopo_tutte if x['id'] == segnalazione_id), prima)
+        aperte = [x for x in dopo_tutte if x['stato'] != 'risolta']
+
+        # gli avvisi del laser su quest'ordine: letti con "Visto", via quando
+        # sull'ordine non resta niente di aperto
+        laser = _utenze_laser()
+        if laser:
+            s = get_session()
+            try:
+                notif = s.query(Notification).filter(
+                    Notification.user_id.in_(laser), Notification.order_id == order_id,
+                    Notification.notification_type == 'segnalazione',
+                    Notification.is_deleted == False).all()  # noqa: E712
+                for n in notif:
+                    if esito == 'risolto' and not aperte:
+                        n.is_deleted = True
+                    elif esito in ('visto', 'risolto'):
+                        n.is_read = True
+                s.commit()
+            finally:
+                s.close()
+
+        # l'ufficio sa che e' stato gestito (avviso informativo, non "da fare")
+        if esito == 'risolto':
+            cosa = prima['etichetta'].lower()
+            if prima.get('codice_pezzo'):
+                cosa += f", pezzo {prima['codice_pezzo']}"
+            if quanti:
+                cosa += f' ({quanti} da rifare)'
+            msg = f'Ordine #{numero} ({order.cliente or "cliente ?"}): {cosa}. Risolto dal laser'
+            msg += f': "{nota}".' if nota else '.'
+            for u in UserManager.get_all_users() or []:
+                if u.get('is_active', True) and u.get('e_postazione') and u.get('role') in RUOLI_UFFICIO:
+                    NotificationManager.create_notification(
+                        user_id=u['id'], order_id=order_id,
+                        title=f'Laser: risolto ({prima["etichetta"].lower()})',
+                        message=msg, notification_type='segnalazione_risolta',
+                        notification_category='informativa')
+        return jsonify({'success': True, 'gia_fatto': False, 'segnalazione': dopo,
+                        'aperte_ordine': len(aperte)}), 200
+    except Exception as e:
+        logger.exception('segnalazione officina non gestita')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
