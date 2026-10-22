@@ -400,8 +400,23 @@
   /** "Segna tagliata" di una lamiera (chiave) o di tutto il pacco. */
   P.tagliato = (id, chiave) => LZ.azione(async () => {
     const p0 = P.trova(id);
-    const r = await LZ.post(`/api/pacchi/${encodeURIComponent(id)}/tagliato`, chiave ? { chiave } : {});
+    let r = await LZ.post(`/api/pacchi/${encodeURIComponent(id)}/tagliato`, chiave ? { chiave } : {});
     if (!r.ok) { errore(r, 'Non segnato'); return; }
+    // ordini con assiemi senza componenti / righe senza disegno: non si
+    // segnano «taglio fatto» senza una conferma esplicita (DECA A 001252)
+    const md = r.d.mancano_disegni || [];
+    if (md.length) {
+      const si = await FT.conferma({ titolo: 'Mancano dei disegni: questi ordini non sono tagliati tutti',
+        testo: md.map(x => `${x.numero}: ${x.codici.join(', ')}`).join(' · ') + '. Li ho lasciati da tagliare. Vuoi segnarli «taglio fatto» lo stesso?',
+        ok: 'Segna tagliati lo stesso', annulla: 'No, restano da tagliare', pericolo: true });
+      if (si) {
+        const tutti = md.reduce((a, x) => a.concat(x.codici), []);
+        const r2 = await LZ.post(`/api/pacchi/${encodeURIComponent(id)}/tagliato`, Object.assign(chiave ? { chiave } : {}, { conferma_mancanti: tutti }));
+        if (!r2.ok) { errore(r2, 'Non segnato'); return; }
+        r = { ok: true, d: Object.assign({}, r2.d, { fatto: { lamiere: [...((r.d.fatto || {}).lamiere || []), ...((r2.d.fatto || {}).lamiere || [])],
+          ordini: [...((r.d.fatto || {}).ordini || []), ...((r2.d.fatto || {}).ordini || [])], pacco_prima: (r.d.fatto || {}).pacco_prima } }) };
+      }
+    }
     const p = r.d.pacco, fatto = r.d.fatto || {};
     const nOrd = (fatto.ordini || []).length;
     const tratt = (r.d.trattenuti || []).map(i => { const o = LZ.trova(i); return o ? LZ.numeroBreve(o) : ''; }).filter(Boolean);

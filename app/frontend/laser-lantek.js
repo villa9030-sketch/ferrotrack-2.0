@@ -36,6 +36,8 @@
     v.addEventListener('change', e => {
       const m = e.target.closest('input[data-amano]');
       if (m) { if (m.checked) st.spunte.add(m.dataset.amano); else st.spunte.delete(m.dataset.amano); disegna(); return; }
+      const mc = e.target.closest('input[data-manca]');
+      if (mc) { K.spuntaManca(mc.dataset.manca, mc.checked); return; }
       const r = e.target.closest('input[data-diff]');
       if (r) { (st.scelte[r.dataset.ordine] = st.scelte[r.dataset.ordine] || {})[r.dataset.codice] = r.value; disegna(); }
     });
@@ -95,6 +97,15 @@
     return '';
   }
   const parte = d => d && d.pronto && d.lantek && d.lantek.invio_automatico;
+  /** Righe senza disegni (assiemi senza componenti): l'ordine parte solo se
+      chi manda ha spuntato «Ho capito» (DECA A 001252). */
+  const mancaConfermato = id => !((st.dati[id] || {}).mancano_disegni || []).length || (st.okManca || new Set()).has(id);
+  K.spuntaManca = function (id, on) {
+    if (!st) return;
+    st.okManca = st.okManca || new Set();
+    if (on) st.okManca.add(id); else st.okManca.delete(id);
+    disegna();
+  };
   function diffs(id) {
     const d = st.dati[id] || {};
     const per = {};
@@ -143,6 +154,14 @@
     for (const [m, cod] of motivi) h += `<div class="lz-voce fuori"><b class="n">${cod.length}</b><span>restano fuori (${esc(m)})<br><span class="mono">${elenco(cod)}</span></span></div>`;
     if (fuoriScelti.length) h += `<div class="lz-voce fuori"><b class="n">${fuoriScelti.length}</b><span>restano fuori: li correggi tu in Lantek (restano segnati «da correggere» finché non sono a posto)<br><span class="mono">${elenco(fuoriScelti)}</span></span></div>`;
     if (rifatti.length) h += `<div class="lz-voce"><b class="n">${rifatti.length}</b><span>erano già stati fatti in passato con questo ordine: si rifanno</span></div>`;
+    const manc = d.mancano_disegni || [];
+    if (manc.length) {
+      const nAss = manc.filter(x => x.tipo === 'assieme').length;
+      h += `<div class="lz-manca" role="alert"><p><b>Non manderai questi: ${LZ.plur(manc.length, 'riga', 'righe')} senza disegni${nAss ? ` (${LZ.plur(nAss, 'assieme', 'assiemi')} senza componenti)` : ''}</b></p>
+        <ul>${manc.map(x => `<li><span class="mono">${esc(x.codice)}</span> ${esc(x.motivo)}</li>`).join('')}</ul>
+        <label><input type="checkbox" data-manca="${esc(id)}" data-fuoco="manca-${esc(id)}" ${(st.okManca || new Set()).has(id) ? 'checked' : ''}>
+          Ho capito: mando il resto, queste righe restano bloccate finché non arrivano i disegni</label></div>`;
+    }
     if (Object.keys(df).length) {
       h += `<div class="lz-diffs"><p>Ordine e Lantek non coincidono: quale tagli?</p>
         <small>Se scegli l'ordine, quel codice resta fuori: correggilo in Lantek e rimandalo.</small>
@@ -163,14 +182,17 @@
     if (!box || !st) return;
     const pronti = st.ids.filter(id => parte(st.dati[id]));
     const mancaScelta = pronti.reduce((s, id) => s + daScegliere(id).length, 0);
+    const mancaOk = pronti.filter(id => !mancaConfermato(id)).length;
     const nOrd = st.ids.length;
     let piede;
     if (st.fase === 'carica') piede = `<span class="sp"></span><button class="lz-btn" type="button" data-k="annulla">Annulla${LZ.tasto('Esc')}</button>
       <button class="lz-btn pri grande" type="button" disabled>Rileggo Lantek…</button>`;
     else if (st.fase === 'conferma') {
-      piede = `${mancaScelta ? `<span class="perche">Scegli ${LZ.plur(mancaScelta, 'differenza', 'differenze')} fra ordine e Lantek</span>` : !pronti.length ? '<span class="perche">Nessun ordine pronto da mandare</span>' : ''}
+      piede = `${mancaScelta ? `<span class="perche">Scegli ${LZ.plur(mancaScelta, 'differenza', 'differenze')} fra ordine e Lantek</span>`
+          : mancaOk ? '<span class="perche">Mancano dei disegni: spunta «Ho capito» per mandare il resto</span>'
+          : !pronti.length ? '<span class="perche">Nessun ordine pronto da mandare</span>' : ''}
         <span class="sp"></span><button class="lz-btn" type="button" data-k="annulla">Annulla${LZ.tasto('Esc')}</button>
-        <button class="lz-btn pri grande" type="button" data-k="manda" ${pronti.length && !mancaScelta ? '' : 'disabled'}>
+        <button class="lz-btn pri grande" type="button" data-k="manda" ${pronti.length && !mancaScelta && !mancaOk ? '' : 'disabled'}>
           Manda a Lantek${pronti.length > 1 ? ` (${pronti.length} ordini)` : ''}${LZ.tasto('Invio')}</button>`;
     } else if (st.fase === 'invio') {
       const fatti = Object.values(st.esiti).filter(e => e.stato === 'ok' || e.stato === 'err').length;
@@ -206,7 +228,7 @@
   // ── Invio, un ordine alla volta ─────────────────────────────────────
   async function manda() {
     if (!st || st.fase !== 'conferma') return;
-    const ids = st.ids.filter(id => parte(st.dati[id]) && !daScegliere(id).length);
+    const ids = st.ids.filter(id => parte(st.dati[id]) && !daScegliere(id).length && mancaConfermato(id));
     if (!ids.length) return;
     st.fase = 'invio';
     st.invio = ids;
@@ -236,7 +258,8 @@
     const d = st.dati[id];
     const inv = d.invio || {};
     const fuori = tenutiFuori(id).filter(c => (inv.codici || []).includes(c));
-    const corpo = { codici: (inv.codici || []).filter(c => !fuori.includes(c)), nuovi: inv.nuovi || [], esclusi: fuori };
+    const corpo = { codici: (inv.codici || []).filter(c => !fuori.includes(c)), nuovi: inv.nuovi || [], esclusi: fuori,
+                    conferma_mancanti: (d.mancano_disegni || []).map(x => x.codice) };
     let r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-invia`, corpo);
     if (!r.ok && (r.d || {}).codice === 'lantek_non_risponde') {
       // Lantek non si legge: non si sa cosa c'e' gia' in produzione. Decide chi manda.
@@ -313,7 +336,7 @@
     if (!st) return false;
     if (e.key === 'Escape') { K.chiudi(); return true; }
     if (e.key === 'Enter') {
-      if (e.target && e.target.matches && e.target.matches('input[type=radio], input[data-amano]')) return true;
+      if (e.target && e.target.matches && e.target.matches('input[type=radio], input[data-amano], input[data-manca]')) return true;
       if (st.fase === 'conferma') { const b = document.querySelector('#lz-lantek [data-k="manda"]'); if (b && !b.disabled) manda(); }
       else if (st.fase === 'fatto') K.chiudi();
       return true;

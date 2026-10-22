@@ -341,13 +341,18 @@ margin-top: 5px;
     r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00', 'C1-00']})
     check('elenco diverso da quello confermato: non si manda niente (409)',
           r9.status_code == 409 and not lanciati, (r9.status_code, r9.get_json()))
+    # C1-00 non e' in Lantek e FerroTrack non sa crearlo (niente disegno qui):
+    # senza conferma non si manda il resto (DECA A 001252, assiemi_mancanti.py)
     r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00']})
+    check('C1-00 senza disegno: senza conferma non parte niente (409)',
+          r9.status_code == 409 and (r9.get_json() or {}).get('codici') == ['C1-00'] and not lanciati, r9.get_json())
+    r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00'], 'conferma_mancanti': ['C1-00']})
     j = r9.get_json() or {}
     check('confermato: XML Importer lanciato una volta con l\'XML di A1, verificato in Lantek',
           r9.status_code == 200 and len(lanciati) == 1 and b'A1-00' in lanciati[0][0]
           and b'B1-00' not in lanciati[0][0] and j.get('mandati') == 1 and j.get('verificati') == 1
           and j.get('mancanti') == [], (r9.status_code, j))
-    r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00']})
+    r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00'], 'conferma_mancanti': ['C1-00']})
     check('rimandato: ora e\' gia\' in produzione, niente da mandare (409), niente doppioni',
           r9.status_code == 409 and len(lanciati) == 1, (r9.status_code, r9.get_json()))
     check('l\'officina non puo\' mandare', rep.post(f'/api/orders/{oid}/lantek-invia',

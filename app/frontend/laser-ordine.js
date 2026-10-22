@@ -300,6 +300,11 @@
       <div class="cosa"><b>${esc(p.t)}</b><span>${p.s}</span></div>
       <div class="bottoni">${(p.bottoni || []).map(b => `<button class="lz-btn grande${b.pri ? ' pri' : ''}" type="button" data-az="${b.az}"
         data-fuoco="passo-${b.az}">${esc(b.t)}${b.tasto ? LZ.tasto(b.tasto) : ''}</button>`).join('')}</div></section>`;
+    const manc = st !== 'tagliato' ? (info.mancano_disegni || []) : [];
+    if (manc.length) {
+      h += `<ul class="lz-blocchi" aria-label="Righe senza disegni">${manc.map(b => `<li><span class="mono">${esc(b.codice)}</span>
+        <span class="mot">${esc(capo(b.motivo))}<small>${esc(b.cosa)}</small></span></li>`).join('')}</ul>`;
+    }
     const bl = st === 'coda' ? (info.bloccati || []) : [];
     if (bl.length) {
       h += `<ul class="lz-blocchi" aria-label="Cosa blocca l'ordine">${bl.map(b => `<li><span class="mono">${esc(b.codice)}</span>
@@ -482,6 +487,7 @@
   function cellaDisegno(p) {
     if (p.escluso) return `<span class="lz-st">${LZ.ico('circle-minus')}fuori: ${esc(p.escluso)}</span>`;
     if (p.assieme_senza_disegno) return '<span class="lz-st">non va al laser</span>';
+    if (p.manca_disegno) return `<span class="lz-st err" title="${esc(p.manca_disegno.cosa)}">${LZ.ico('octagon-alert')}${p.manca_disegno.tipo === 'assieme' ? 'Assieme senza componenti: mancano i disegni' : 'Manca il disegno'}</span>`;
     if (p.blocco) return `<span class="lz-st err" title="${esc(p.blocco.cosa)}">${LZ.ico('octagon-alert')}${esc(capo(p.blocco.motivo).replace(/^Disegno da verificare: .*/, 'Disegno da verificare'))}</span>`;
     if (p.da_controllare) return `<span class="lz-st att">${LZ.ico('scan-eye')}da controllare</span>`;
     if (p.decisione) return `<span class="lz-st ok">${LZ.ico('check')}${esc(DECISI[p.decisione] || p.decisione)}</span>`;
@@ -527,7 +533,7 @@
       lamiera = `<span class="lz-pc-tipo t-${esc(v.tipo)}">${esc(v.tipo_testo)}</span> ${pl ? esc(pl) : ''}`
         + (v.da_completare ? ` <span class="lz-st att">${LZ.ico('pencil')}${esc(v.da_completare)}</span>` : '');
     }
-    return `<tr class="${vedi ? 'cl' : ''}${p.escluso || p.assieme_senza_disegno ? ' fuori' : ''}${ass ? ' comp' : ''}" ${vedi ? `data-vedi="${esc(vedi)}"` : ''} data-fuoco="pz-${i}">
+    return `<tr class="${vedi ? 'cl' : ''}${p.escluso || p.assieme_senza_disegno ? ' fuori' : ''}${p.manca_disegno ? ' manca' : ''}${ass ? ' comp' : ''}" ${vedi ? `data-vedi="${esc(vedi)}"` : ''} data-fuoco="pz-${i}">
       <td class="cod">${esc(p.codice)}${p.codice_lantek ? `<small>in Lantek ${esc(p.codice_lantek)}</small>` : ''}${p.foglio ? `<small>pezzo ${esc(String(p.foglio.n))} del foglio ${esc(p.foglio.codice || '')}${p.foglio.qta_per_foglio > 1 ? ` (×${esc(String(p.foglio.qta_per_foglio))} nel foglio)` : ''}</small>` : ''}${LZ.segn ? LZ.segn.pezzo(o.id, p.codice) : ''}</td>
       ${q}
       <td>${lamiera}</td>
@@ -586,7 +592,8 @@
         ${corpo}</tbody></table>`;
     }
     const ass = (d.altri || []).filter(x => x.tipo === 'assieme' && !codAss.has(x.codice)).map(x => x.codice)
-      .concat(pezzi.filter(p => p.assieme_senza_disegno).map(p => p.codice));
+      .concat(pezzi.filter(p => p.assieme_senza_disegno && !p.manca_disegno).map(p => p.codice))
+      .filter(c => !(d.mancano_disegni || []).some(x => x.codice === c));
     const tub = (d.altri || []).filter(x => x.tipo === 'tubolare' && !codAss.has(x.assieme));
     const note = [];
     if (ass.length) note.push(`${LZ.plur(ass.length, 'assieme', 'assiemi')} (<span class="mono">${ass.slice(0, 6).map(esc).join(', ')}${ass.length > 6 ? '…' : ''}</span>): non vanno al laser, i loro pezzi sono nelle righe sopra.`);
@@ -996,7 +1003,15 @@
       testo: (o ? `${o.cliente || ''} · ${LZ.numero(o)}. ` : '') + 'L\'ordine passa in officina.' });
     if (!ok) return;
     await LZ.azione(async () => {
-      const r = await LZ.post(`/api/orders/${id}/mark-laser-done`, {});
+      let r = await LZ.post(`/api/orders/${id}/mark-laser-done`, {});
+      if (!r.ok && (r.d || {}).codice === 'mancano_disegni') {
+        // assiemi senza componenti / righe senza disegno: non e' tagliato tutto
+        const si = await FT.conferma({ titolo: 'Mancano dei disegni: l\'ordine non è tagliato tutto',
+          testo: `${r.d.error || ''} Se lo segni tagliato, l'ufficio lo vede come finito.`,
+          ok: 'Segna tagliato lo stesso', annulla: 'No, aspetto i disegni', pericolo: true });
+        if (!si) return;
+        r = await LZ.post(`/api/orders/${id}/mark-laser-done`, { conferma_mancanti: r.d.codici || [] });
+      }
       if (r.d && r.d.gia_fatto) {
         // Un'altra postazione (o un doppio tocco) l'ha appena segnato: va bene così.
         FT.toast(r.d.error || 'Taglio già segnato come fatto', 'warn');

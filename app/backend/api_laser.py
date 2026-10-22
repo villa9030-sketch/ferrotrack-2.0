@@ -191,6 +191,22 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
 
     pezzi, bloccati, visti = [], [], set()
     n_controllare = 0
+    # Righe che NON si tagliano come se l'ordine fosse completo (DECA A 001252):
+    # assiemi senza componenti, righe senza disegno non in Lantek e non tenute
+    # fuori. Non fermano il resto dell'ordine, ma "Manda a Lantek" e "Taglio
+    # fatto" chiedono una conferma esplicita (assiemi_mancanti.py).
+    from . import assiemi_mancanti as _am
+    senza_comp = set() if righe_pdf else _am.assiemi_senza_componenti(
+        righe_dist + [x['_riga'] for x in esclusi if x.get('_riga')])
+    mancano, visti_m = [], set()
+    if not getattr(order, 'taglio_completato', False):
+        for r in righe_dist:
+            if r.get('tipo') == 'assieme' and _am.chiave(r.get('codice')) in senza_comp:
+                visti_m.add(_am.chiave(r['codice']))
+                mancano.append({'codice': r['codice'], 'articolo_id': r.get('articolo_id'),
+                                'quantita': r.get('quantita'), 'tipo': 'assieme',
+                                'motivo': 'assieme senza componenti: mancano i disegni',
+                                'cosa': _am.COSA_ASSIEME})
     lamiere: dict = {}          # per lamiera (materiale + spessore): codici e pezzi
     for r in tutte_lam:
         cod = str(r['codice']).strip()
@@ -223,6 +239,20 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         # i suoi pezzi sono le altre righe. Non blocca l'ordine.
         assieme = bool(lt_stato == 'nuovo' and not r.get('disegno') and not r.get('foglio')
                        and _RX_ASSIEME.search(cod))
+        manca = None
+        if (not escluso and not righe_pdf and not r.get('disegno') and not r.get('foglio')
+                and not getattr(order, 'taglio_completato', False)):
+            if _am.chiave(cod) in senza_comp:
+                manca = {'tipo': 'assieme', 'motivo': 'assieme senza componenti: mancano i disegni',
+                         'cosa': _am.COSA_ASSIEME}
+            elif (not _RX_ASSIEME.search(cod) and not _am.e_assieme(cod, r.get('descrizione'))
+                  and lt_stato == 'nuovo' and cod_lt.lower() not in si_cod):
+                # non c'e' in Lantek e FerroTrack non ha un disegno per crearlo
+                manca = {'tipo': 'senza_disegno', 'motivo': 'senza disegno', 'cosa': _am.COSA_SENZA_DISEGNO}
+        if manca and _am.chiave(cod) not in visti_m:
+            visti_m.add(_am.chiave(cod))
+            mancano.append({'codice': cod, 'articolo_id': r.get('articolo_id'),
+                            'quantita': r.get('quantita'), **manca})
         # pezzo di un foglio con piu' pezzi: i dati (spessore, materiale) si
         # scrivono sul foglio, e il disegno da guardare e' il foglio
         aid_dati = r.get('articolo_id') or (r.get('foglio') or {}).get('articolo_id')
@@ -300,8 +330,9 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
                 'motore': mt.get('stato'), 'decisione': dec, 'perche': perche[:3],
                 'da_controllare': da_controllare, 'blocco': blocco,
                 'escluso': A._ESCLUSE_LASER.get(dec) if escluso else None,
-                'da_abbinare': cod.lower() in da_abbinare, 'assieme_senza_disegno': assieme,
+                'da_abbinare': cod.lower() in da_abbinare, 'assieme_senza_disegno': assieme and not manca,
                 'avvisi': avvisi,
+                'manca_disegno': manca,
                 'foglio': r.get('foglio'),
                 'lamiera': None if (escluso or assieme) else k_lam,
             })
@@ -347,6 +378,8 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
         'n_controllare': n_controllare, 'n_abbinare': da_abbinare_n,
         'n_esclusi': len(esclusi),
         'bloccati': bloccati,
+        # non partono e non si segnano tagliati senza conferma esplicita
+        'mancano_disegni': mancano,
         'materiali_lantek': (sorted(_lt.materiali_lantek_noti() or [])
                              if any(b.get('campo') == 'materiale' for b in bloccati) else []),
         'lantek': {'letto': q is not None, 'disponibile': bool(lt.get('disponibile')),

@@ -547,6 +547,7 @@ def api_pacco_tagliato(pacco_id):
                    .filter(LamieraTagliata.order_id.in_(ids or ['-'])).all()}
             fatto = {'lamiere': [], 'ordini': [], 'pacco_prima': p.stato}
             lam_ord, trattenuti = {}, []
+            senza_disegni, confermati_senza = [], []
             for oid in ids:
                 o = oo.get(oid)
                 if not o or o.is_deleted or o.taglio_completato:
@@ -571,6 +572,14 @@ def api_pacco_tagliato(pacco_id):
                 if a.get('n_correggere'):
                     trattenuti.append(oid)          # codici da correggere: non e' tutto tagliato
                     continue
+                # assiemi senza componenti / righe senza disegno (DECA A 001252):
+                # l'ordine non e' tagliato tutto, salvo conferma esplicita
+                manc = [str(x.get('codice')) for x in (a.get('mancano_disegni') or [])]
+                if manc and not set(manc) <= {str(c) for c in (corpo.get('conferma_mancanti') or [])}:
+                    senza_disegni.append({'id': oid, 'numero': nomi.get(oid, oid[:8]), 'codici': manc})
+                    continue
+                if manc:
+                    confermati_senza.append(f"{nomi.get(oid, oid[:8])}: {', '.join(manc)}")
                 r = OrderManager.mark_laser_done(oid, user_id=chi_id)
                 if r.get('success'):
                     fatto['ordini'].append(oid)
@@ -584,6 +593,8 @@ def api_pacco_tagliato(pacco_id):
                  or (i in lam_ord and lam_ord[i][0] and all((i, k) in gia for k in lam_ord[i][0])))
                 for i in ids)
             p = _carica(session, pacco_id)
+            # un ordine lasciato da tagliare per i disegni mancanti tiene aperto il pacco
+            finito = finito and not senza_disegni
             if finito and p.stato != 'tagliato':
                 p.stato, p.tagliato_il = 'tagliato', datetime.utcnow()
                 p.aggiornato_il, p.aggiornato_da = datetime.utcnow(), chi_nome
@@ -600,8 +611,13 @@ def api_pacco_tagliato(pacco_id):
              + (f"; taglio fatto: {', '.join(nomi.get(i, i[:8]) for i in fatto['ordini'])}" if fatto['ordini'] else '')
              + (f"; restano da correggere in Lantek: {', '.join(nomi.get(i, i[:8]) for i in trattenuti)}"
                 if trattenuti else '')
-             + ('; pacco tagliato' if out['stato'] == 'tagliato' else ''))
+             + ('; pacco tagliato' if out['stato'] == 'tagliato' else '')
+             + (f"; NON segnati taglio fatto, mancano i disegni: {', '.join(x['numero'] for x in senza_disegni)}"
+                if senza_disegni else '')
+             + (f"; taglio fatto CONFERMATO anche se mancano i disegni ({'; '.join(confermati_senza)})"
+                if confermati_senza else ''))
     return jsonify({'success': True, 'pacco': out, 'fatto': fatto, 'trattenuti': trattenuti,
+                    'mancano_disegni': senza_disegni,
                     'lamiere_tagliate': _al.lamiere_tagliate(ids)}), 200
 
 

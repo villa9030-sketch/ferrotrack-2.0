@@ -681,7 +681,19 @@ def mark_laser_done(order_id):
     """
     try:
         # Solo la stazione Laser (regola sopra): chi ha tagliato e' il laser
+        # Assiemi senza componenti / righe senza disegno: l'ordine non e'
+        # tagliato tutto, si segna solo con la conferma esplicita.
+        order = _ordine_esistente(order_id)
+        manc = []
+        if order and not order.taglio_completato:
+            manc, err_m = _mancano_disegni_confermati(
+                order, request.get_json(silent=True) or {}, 'segnarlo tagliato lo stesso')
+            if err_m:
+                return err_m
         result = OrderManager.mark_laser_done(order_id, user_id=_chi())
+        if manc and result.get('success'):
+            _audit('TAGLIO_FATTO_SENZA_DISEGNI', 'orders', order_id,
+                   'Taglio fatto confermato anche se mancano i disegni di: ' + ', '.join(manc))
         if result.get('gia_fatto'):
             # Gia' segnato (doppio clic, o un'altra postazione un attimo prima)
             return jsonify(result), 409
@@ -5300,6 +5312,7 @@ def api_preventivi_import_rfq_package():
             'n_step': n_step,
             'dxf_no_match': result.dxf_no_match,
             'warnings': result.warnings,
+            'assiemi_senza_componenti': getattr(result, 'assiemi_senza_componenti', []),
             # Elenco compatto per la rivelazione animata lato UI (non è la fonte
             # di verità: la geometria si conferma poi col click nel CAD interno).
             'articoli': [
@@ -5537,6 +5550,22 @@ def api_ordine_pacchetto_analizza():
             cliente = ''   # il segnaposto del preventivatore non e' un cliente
         numero = (result.numero_ordine_cliente or '').strip()
         pdf_nome = getattr(result, 'pdf_filename', None)
+        # Assiemi dell'ordine senza componenti (DECA A 001252: cartella caricata
+        # senza le sottocartelle): BLOCCANO la creazione (assiemi_mancanti.py).
+        from . import assiemi_mancanti as _am
+        # dopo la distinta: i pezzi assegnati all'assieme dal disegno d'insieme contano
+        ass_mancanti = _am.dal_pacchetto(result, componenti={r['assieme'] for r in righe
+                                                                if r.get('assieme') and _am.chiave(r['codice']) != _am.chiave(r['assieme'])})
+        # cartella col solo disegno d'insieme: il disegno c'e' (DECA 750-24
+        # 07SA00187-00 "Angolare supporto guide" e' un pezzo solo), si avvisa
+        # senza bloccare. Blocca l'assieme che non ha NESSUN disegno.
+        solo_insieme = [x for x in ass_mancanti if x.get('solo_insieme')]
+        ass_mancanti = [x for x in ass_mancanti if not x.get('solo_insieme')]
+        if solo_insieme:
+            result.warnings.insert(0, "Assiemi col solo disegno d'insieme, senza i pezzi: "
+                                   + ', '.join(x['codice'] for x in solo_insieme)
+                                   + '. Controlla che non manchi una cartella.')
+        _salva_assiemi_mancanti(pid, ass_mancanti)
 
         try:
             AuditManager.log(
@@ -5570,10 +5599,44 @@ def api_ordine_pacchetto_analizza():
                                     if not r['disegno'] and not r['fuori_ordine']],
             'avvisi': list(result.warnings or []),
             'ordine_esistente': _ordine_gia_caricato(numero, cliente),
+            # problema BLOCCANTE: senza la conferma scritta l'ordine non si crea
+            'assiemi_senza_componenti': ass_mancanti,
+            'blocco': ({'codice': 'assiemi_senza_componenti',
+                        'messaggio': _am.messaggio([x['codice'] for x in ass_mancanti])}
+                       if ass_mancanti else None),
         }), 200
     except Exception as e:
         logger.exception('analisi pacchetto ordine fallita')
         return _errore_pacchetto('errore_interno', 'Errore nella lettura del pacchetto: ' + str(e), 500)
+
+
+_FILE_ASSIEMI_MANCANTI = 'assiemi_senza_componenti.json'
+# Cosa scrivere per creare lo stesso un ordine con assiemi senza componenti
+PAROLA_CREA_LO_STESSO = 'CREA'
+
+
+def _salva_assiemi_mancanti(pacchetto_id, lista) -> None:
+    """Gli assiemi senza componenti letti all'analisi, accanto ai file del
+    pacchetto: la conferma li ricontrolla (non si fida del browser)."""
+    try:
+        cart = _cartella_preventivo(pacchetto_id)
+        os.makedirs(cart, exist_ok=True)
+        with open(os.path.join(cart, _FILE_ASSIEMI_MANCANTI), 'w', encoding='utf-8') as fp:
+            _json_mod.dump(lista or [], fp, ensure_ascii=False)
+    except Exception:
+        logger.exception('assiemi senza componenti non salvati per %s', pacchetto_id)
+
+
+def _assiemi_mancanti_pacchetto(pacchetto_id) -> list:
+    try:
+        with open(os.path.join(_cartella_preventivo(pacchetto_id), _FILE_ASSIEMI_MANCANTI),
+                  encoding='utf-8') as fp:
+            return _json_mod.load(fp) or []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        logger.exception('assiemi senza componenti non letti per %s', pacchetto_id)
+        return []
 
 
 def _leggi_correzioni_pacchetto(prev, righe_in):
@@ -5705,6 +5768,18 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
             if err:
                 return _errore_pacchetto(*err)
 
+            # Assiemi senza componenti (DECA A 001252): si crea solo se chi
+            # carica lo scrive ("CREA"); gli assiemi restano bloccati al laser.
+            # (anche se l'ufficio ha messo 0: l'assieme e' nell'ordine del cliente)
+            ass_mancanti = _assiemi_mancanti_pacchetto(pacchetto_id)
+            lo_stesso = str(data.get('crea_lo_stesso') or '').strip().upper() == PAROLA_CREA_LO_STESSO
+            if ass_mancanti and not lo_stesso:
+                from . import assiemi_mancanti as _am
+                return _errore_pacchetto(
+                    'assiemi_senza_componenti',
+                    _am.messaggio([x['codice'] for x in ass_mancanti]), 409,
+                    assiemi_senza_componenti=ass_mancanti)
+
             doppione = _ordine_gia_caricato(numero, cliente)
             if doppione and not data.get('forza'):
                 return _errore_pacchetto(
@@ -5772,11 +5847,24 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
         except Exception:
             pass
 
+        if ass_mancanti:
+            try:
+                AuditManager.log(
+                    user_id=user_id, action='ORDER_PACKAGE_ASSIEMI_MANCANTI',
+                    entity_type='order', entity_id=order.id,
+                    detail=f'Ordine {numero} creato LO STESSO senza i componenti di '
+                           f'{len(ass_mancanti)} assiemi: '
+                           + ', '.join(x['codice'] for x in ass_mancanti)
+                           + ' (al laser restano bloccati)')
+            except Exception:
+                logger.exception('audit assiemi mancanti non scritto')
+
         from .ordini_service import riga_ordine
         return jsonify({
             'success': True,
             'order_id': order.id,
             'numero_ordine': numero,
+            'assiemi_senza_componenti': ass_mancanti,
             'ordine': riga_ordine(order.id),
             'n_pezzi': len(nuovi),
             'al_laser': bool(smistato and smistato.get('success')),
@@ -8984,6 +9072,32 @@ def api_ordine_pezzo_contorno_svg(order_id, articolo_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _mancano_disegni_confermati(order, corpo, azione):
+    """(codici, None) se non manca niente o se `corpo["conferma_mancanti"]`
+    contiene tutti i codici che mancano; altrimenti (codici, risposta 409).
+    Le righe che mancano sono quelle della pagina laser (api_laser.analisi):
+    assiemi senza componenti, righe senza disegno."""
+    from . import api_laser as _al
+    try:
+        # fresca: una lettura vecchia puo' dire "senza disegno" a un pezzo che
+        # nel frattempo FerroTrack sa creare (o il contrario)
+        lista = _al._analisi_in_cache(order, forza=True).get('mancano_disegni') or []
+    except Exception:
+        logger.exception('righe senza disegno non lette per %s', order.id)
+        lista = []
+    codici = [str(x.get('codice')) for x in lista]
+    ok = {str(c) for c in (corpo.get('conferma_mancanti') or [])}
+    if not codici or set(codici) <= ok:
+        return codici, None
+    n_ass = sum(1 for x in lista if x.get('tipo') == 'assieme')
+    testo = (f"Mancano i disegni di {len(codici)} {'riga' if len(codici) == 1 else 'righe'}"
+             + (f" ({n_ass} {'assieme' if n_ass == 1 else 'assiemi'} senza componenti)" if n_ass else '')
+             + f": {', '.join(codici[:8])}{'…' if len(codici) > 8 else ''}. "
+             f"Queste non si tagliano: conferma se vuoi {azione}.")
+    return codici, (jsonify({'success': False, 'codice': 'mancano_disegni', 'codici': codici,
+                             'mancano_disegni': lista, 'error': testo}), 409)
+
+
 @app.route('/api/orders/<order_id>/lantek-invia', methods=['POST'])
 @richiede('laser', 'ufficio')
 def api_ordine_lantek_invia(order_id):
@@ -9020,6 +9134,11 @@ def _lantek_invia(order_id, _li):
             return jsonify({'success': False, 'codice': 'qta_da_confermare', 'codici': senza_qta,
                             'error': 'Pezzi per assieme da confermare: ' + ', '.join(senza_qta[:5])
                                      + '. Scrivili nella pagina laser, poi manda'}), 409
+        # Assiemi senza componenti / righe senza disegno (DECA A 001252): non
+        # partono, e il resto parte solo se chi manda lo ha confermato vedendoli.
+        manc, err_m = _mancano_disegni_confermati(order, corpo, 'mandare a Lantek il resto')
+        if err_m:
+            return err_m
         q = _quantita_lantek(order, righe_dist)
         # PRIMA il registro di FerroTrack (lantek_invii): quello che e' gia'
         # partito per quest'ordine non riparte, che Lantek si legga o no
@@ -9112,7 +9231,9 @@ def _lantek_invia(order_id, _li):
                f"{len(presenti)} di {len(righe)} ordini di produzione verificati"
                + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else '')
                + ('; LANTEK NON LEGGIBILE: mandato senza il controllo dei doppioni, confermato da chi ha mandato'
-                  if lantek_giu else ''))
+                  if lantek_giu else '')
+               + (f"; NON MANDATI, mancano i disegni (confermato da chi ha mandato): {', '.join(manc)}"
+                  if manc else ''))
         # un codice da correggere mandato adesso (corretto in Lantek, o scelto
         # "va bene Lantek" nella conferma) e' risolto
         if presenti:

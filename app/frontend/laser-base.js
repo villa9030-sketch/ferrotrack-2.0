@@ -159,6 +159,8 @@
     const W = window.FTStati.laser;        // le parole di tutte le pagine (backend/stati.py)
     if (st === 'smistare') return { t: W.da_smistare, c: 'forte' };
     if (st === 'tagliato') return { t: W.tagliato, c: '' };
+    // assiemi senza componenti / righe senza disegno (DECA A 001252)
+    if (r && (r.mancano_disegni || []).length) return { t: `Mancano i disegni di ${LZ.plur(r.mancano_disegni.length, 'riga', 'righe')}`, corto: `Mancano disegni (${r.mancano_disegni.length})`, c: 'err' };
     // codici "da correggere in Lantek": l'ordine non e' fatto finche' non sono a posto
     if (r && r.n_correggere) return { t: `${r.n_correggere} da correggere in Lantek`, corto: `Da correggere (${r.n_correggere})`, c: 'err' };
     if (st === 'in_lantek') return { t: r && r.n_corretti ? `${W.in_lantek} · ${r.n_corretti} da mandare` : W.in_lantek, c: r && r.n_corretti ? 'forte' : '' };

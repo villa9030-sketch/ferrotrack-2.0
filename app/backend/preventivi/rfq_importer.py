@@ -77,6 +77,9 @@ class RFQParseResult:
     # (la riga "master"): {codice assieme: qta} / {codice assieme: testo}.
     # Un assieme senza riga nell'ordine non c'e' qui (quantita' da controllare).
     qta_assiemi: dict = field(default_factory=dict)
+    # Righe dell'ordine che sono assiemi senza i loro componenti nel pacchetto
+    # (assiemi_mancanti.dal_pacchetto): bloccano la creazione dell'ordine.
+    assiemi_senza_componenti: list = field(default_factory=list)
     desc_assiemi: dict = field(default_factory=dict)
     # Disegno d'insieme di ogni assieme (il DXF che porta il nome della sua
     # cartella): {basename: codice assieme}. Non e' un pezzo: c'e' la sua
@@ -819,6 +822,17 @@ def process_rfq_package(zip_bytes: bytes, tollerante: bool = False) -> RFQParseR
     n_no_sp = sum(1 for a in articoli if not a.spessore_mm)
     if n_no_sp > 0:
         result.warnings.append(f'{n_no_sp} articoli senza spessore specificato')
+
+    # Assiemi dell'ordine senza componenti (DECA A 001252: caricati i soli
+    # file della radice, senza le sottocartelle): primo avviso, in chiaro.
+    try:
+        from ..assiemi_mancanti import dal_pacchetto, messaggio
+        result.assiemi_senza_componenti = dal_pacchetto(result)
+        if result.assiemi_senza_componenti:
+            result.warnings.insert(0, messaggio([x['codice'] for x in result.assiemi_senza_componenti]))
+    except Exception:
+        logger.exception('controllo assiemi senza componenti fallito')
+        result.assiemi_senza_componenti = []
 
     result.success = True
     # Salva dxf_map dentro result per il caller (che deve scrivere i file su disco)

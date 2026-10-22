@@ -329,6 +329,12 @@ body.ft [hidden] { display: none !important; }
 .imp-pk-cod code { display: block; margin-top: 1px; font: 400 12px var(--ft-font); color: var(--ft-ink-3); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-pk-avv { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; }
 .imp-pk-avv li { font-size: 12px; color: var(--ft-warn); }
+.imp-pk-avv li.err { color: var(--ft-err); font-weight: 600; }
+.imp-pk-table tr.manca td.imp-pk-cod b { color: var(--ft-err); }
+.imp-pk-blocco ul { margin: 6px 0 0; padding-left: 18px; }
+.imp-pk-blocco .imp-pk-stesso { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.imp-pk-blocco .imp-pk-stesso input { width: 110px; }
+.imp-dz-cartella { margin-top: 10px; }
 .imp-pk-dim { font-size: 12px; color: var(--ft-ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .imp-pk-empty { padding: 18px 22px; font-size: 13px; color: var(--ft-ink-3); }
 .imp-pk-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 22px; border-top: 1px solid var(--ft-line);
@@ -669,10 +675,10 @@ em.imp-nota-fin { color: var(--ft-ink); }
         <h2 class="imp-step-title"><span class="imp-step-n">1</span> Ordine del cliente</h2>
         <div class="ft-dropzone" id="pdf-upload-btn" role="button" tabindex="0" aria-label="Carica il PDF dell'ordine o la cartella con i disegni">
           <div class="ft-dropzone-icon"><i data-lucide="file-up"></i></div>
-          <div class="ft-dropzone-title">Trascina qui il PDF dell'ordine</div>
-          <div class="ft-dropzone-sub">oppure la cartella del cliente con PDF e disegni DXF (anche in ZIP): i pezzi vengono letti da soli</div>
-          <span class="ft-dropzone-cta">Scegli i file</span>
-          <div class="imp-dz-alt">o <button type="button" class="ft-link" onclick="event.stopPropagation(); $('pkg-dir-input').click();">scegli una cartella</button></div>
+          <div class="ft-dropzone-title">Trascina qui la cartella dell'ordine</div>
+          <div class="ft-dropzone-sub">La cartella intera del cliente, con il PDF e i disegni: le sottocartelle sono gli assiemi. Va bene anche lo ZIP, o il solo PDF.</div>
+          <button type="button" class="ft-btn primary imp-dz-cartella" onclick="event.stopPropagation(); $('pkg-dir-input').click();"><i data-lucide="folder-open"></i> Scegli la cartella</button>
+          <div class="imp-dz-alt">o <button type="button" class="ft-link" onclick="event.stopPropagation(); $('pdf-input').click();">scegli dei file</button> (solo il PDF, o uno ZIP)</div>
         </div>
         <input type="file" id="pdf-input" accept=".pdf,.zip,.dxf,.dwg,application/pdf,application/zip" multiple hidden>
         <input type="file" id="pkg-dir-input" webkitdirectory multiple hidden>
@@ -1522,6 +1528,10 @@ async function avviaPacchetto(files) {
   const d = res.data;
   PKG = {
     id: d.pacchetto_id, dati: d, files, stato: 'revisione', filtro: 'tutti', forza: false,
+    // file sciolti (scelti o trascinati), non una cartella: le sottocartelle
+    // degli assiemi non possono esserci (DECA A 001252)
+    daFile: !zip && !files.some(f => /[\/]/.test(f._relPath || f.webkitRelativePath || '')),
+    creaLoStesso: '',
     secondi: Math.round((Date.now() - t0) / 1000),
     // il PDF che il server ha riconosciuto come ordine (non una tavola)
     pdfUrl: (d.pdf && d.pdf.url) || '',
@@ -1563,7 +1573,46 @@ function pkgMancanze() {
   if (qMal) out.push(qMal === 1 ? 'una quantità valida (numero intero)' : `${qMal} quantità valide (numeri interi)`);
   const spMal = PKG.righe.filter(r => !pkgSpValido(r)).length;
   if (spMal) out.push(spMal === 1 ? 'uno spessore valido' : `${spMal} spessori validi`);
+  if (pkgAssMancanti().length && !pkgLoStesso()) out.push('i disegni degli assiemi: carica la cartella intera');
   return out;
+}
+
+/* Assiemi dell'ordine senza componenti (DECA A 001252): BLOCCANO la creazione.
+   Si crea lo stesso solo scrivendo CREA: gli assiemi restano bloccati al laser. */
+function pkgAssMancanti() { return (PKG && PKG.dati && PKG.dati.assiemi_senza_componenti) || []; }
+function pkgLoStesso() { return String(PKG.creaLoStesso || '').trim().toUpperCase() === 'CREA'; }
+function pkgScriviLoStesso(v) {
+  PKG.creaLoStesso = v;
+  pkgAggiorna();
+}
+function pkgMostraLoStesso() {
+  const box = $('pkg-stesso');
+  if (!box) return;
+  box.hidden = false;
+  const i = $('pkg-stesso-input'); if (i) i.focus();
+}
+function pkgRicaricaCartella() {
+  const id = PKG && PKG.id;
+  pkgChiudi();
+  if (id) inviaJson('/api/orders/da-pacchetto/' + encodeURIComponent(id), {}, 'DELETE');
+  $('pkg-dir-input').click();
+}
+function pkgBloccoHtml() {
+  const m = pkgAssMancanti();
+  if (!m.length) return '';
+  const d = PKG.dati;
+  return `<div class="ft-alert err imp-pk-blocco" role="alert"><i data-lucide="octagon-alert"></i><div>
+      <b>${esc((d.blocco && d.blocco.messaggio) || 'Mancano i disegni degli assiemi')}</b>
+      ${PKG.daFile ? '<p style="margin:6px 0 0"><b>Hai scelto dei file: le sottocartelle degli assiemi non ci sono. Trascina la cartella intera.</b></p>' : ''}
+      <ul>${m.map(x => `<li><b class="mono">${esc(x.codice)}</b> ${esc(x.descrizione || '')} · ${esc(x.motivo || '')}</li>`).join('')}</ul>
+      <p style="margin:6px 0 0">Senza i componenti questi assiemi non si tagliano: al laser mancherebbero i pezzi.</p>
+      <div class="imp-pk-stesso">
+        <button type="button" class="ft-btn primary" onclick="pkgRicaricaCartella()"><i data-lucide="folder-open"></i> Ricarica la cartella intera</button>
+        <button type="button" class="ft-btn" onclick="pkgMostraLoStesso()">Crea lo stesso (gli assiemi restano bloccati)</button>
+        <span id="pkg-stesso" hidden>Scrivi <b>CREA</b> per confermare:
+          <input type="text" id="pkg-stesso-input" class="ft-input" autocomplete="off" value="${esc(PKG.creaLoStesso || '')}"
+            aria-label="Scrivi CREA per creare l'ordine senza i componenti degli assiemi" oninput="pkgScriviLoStesso(this.value)"></span>
+      </div></div></div>`;
 }
 
 function pkgRiepilogo() {
@@ -1613,7 +1662,7 @@ function pkgRender() {
       ${fileHtml(d.pdf ? d.pdf.nome : 'Pacchetto senza PDF', `${nDis === 1 ? '1 disegno' : nDis + ' disegni'} letti in ${PKG.secondi} s`)}
       ${PKG.pdfUrl ? `<button class="ft-btn sm" onclick="pkgVediPdf()"><i data-lucide="file-text"></i> Vedi il PDF</button>` : ''}
     </div>
-    <div class="imp-pk-alerts">${alerts.join('')}</div>
+    <div class="imp-pk-alerts">${pkgBloccoHtml()}${alerts.join('')}</div>
     <div class="imp-pk-head">
       <div class="imp-col">
         <h2 class="imp-step-title"><span class="imp-step-n">1</span> Dati dell’ordine</h2>
@@ -1692,12 +1741,13 @@ function pkgRigaHtml(i) {
     : '<span class="ft-chip ok"><i data-lucide="check"></i> Letto</span>';
   const dim = r.bbox_w_mm && r.bbox_h_mm ? `${FT.numero(r.bbox_w_mm)} × ${FT.numero(r.bbox_h_mm)}` : '<span class="ft-muted">—</span>';
   const avvisi = (r.avvisi || []).filter(a => !r.fuori_ordine || !/non citato/i.test(a));
+  const manca = pkgAssMancanti().some(x => x.codice === r.codice);
   const sotto = r.descrizione || (r.assieme ? 'assieme ' + r.assieme : '') || (r.disegno && r.disegno.replace(/\.[a-z0-9]+$/i, '') !== r.codice ? r.disegno : '');
   const zero = pkgQtaValida(r) && pkgNum(r.q) === 0;
-  return `<tr data-i="${i}" class="${r.fuori_ordine ? 'fuori' : ''}${zero ? ' zero' : ''}">
+  return `<tr data-i="${i}" class="${r.fuori_ordine ? 'fuori' : ''}${zero ? ' zero' : ''}${manca ? ' manca' : ''}">
     <td>${thumb}</td>
     <td class="imp-pk-cod"><b>${esc(r.codice || '—')}</b>${sotto ? `<code title="${esc(sotto)}">${esc(sotto)}</code>` : ''}
-      ${avvisi.length ? `<ul class="imp-pk-avv">${avvisi.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}</td>
+      ${avvisi.length || manca ? `<ul class="imp-pk-avv">${manca ? '<li class="err">Assieme senza componenti: mancano i disegni</li>' : ''}${avvisi.filter(a => !manca || !/^Nessun disegno/.test(a)).map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : ''}</td>
     <td class="imp-pk-qc"><input class="ft-input imp-pk-q ${fonte.c}" type="number" min="0" step="1" inputmode="numeric" value="${esc(r.q)}"
         aria-label="Quantità di ${esc(r.codice)}${ass ? ' per assieme' : ''}" oninput="pkgCampo(${i}, 'q', this)"><small class="${fonte.c}"${ass ? ` title="Pezzi per un assieme ${esc(ass.codice)} (dalla distinta del disegno d’insieme). L’ordine ha ${esc(ass.quantita)} assiemi."` : ''}>${fonte.t}</small></td>
     <td><input class="ft-input imp-pk-mat" list="pkg-materiali" value="${esc(r.mat)}" placeholder="Es. S235"
@@ -1864,6 +1914,7 @@ async function pkgCrea(forza) {
   const corpo = {
     numero_ordine: t.numero.trim(), cliente: t.cliente.trim(), data_consegna: t.data, note: t.note.trim(),
     forza: !!forza, al_laser: !!PKG.alLaser,
+    crea_lo_stesso: pkgAssMancanti().length && pkgLoStesso() ? 'CREA' : '',
     righe: PKG.righe.map(r => ({ id: r.id, quantita: pkgNum(r.q), materiale: r.mat.trim(), spessore_mm: pkgNum(r.sp) })),
   };
   const res = await inviaJson(`/api/orders/da-pacchetto/${encodeURIComponent(PKG.id)}/conferma`, corpo);
@@ -1885,6 +1936,13 @@ async function pkgCrea(forza) {
   if (res.status === 409 && r.codice === 'ordine_duplicato') {
     PKG.dati.ordine_esistente = r.ordine_esistente || PKG.dati.ordine_esistente || {};
     return pkgCrea(false);
+  }
+  if (res.status === 409 && r.codice === 'assiemi_senza_componenti') {
+    PKG.dati.assiemi_senza_componenti = r.assiemi_senza_componenti || PKG.dati.assiemi_senza_componenti || [];
+    PKG.dati.blocco = { codice: r.codice, messaggio: r.error };
+    PKG.creaLoStesso = '';
+    pkgRender();
+    return;
   }
   if (res.status === 409 && r.codice === 'gia_confermato' && r.order_id) {
     FT.toast('Quest’ordine era già stato creato: lo apro.', 'warn');
