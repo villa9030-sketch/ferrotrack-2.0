@@ -127,15 +127,21 @@ def quantita_da_distinte(prev_dir: str, result) -> int:
     if articoli is None:
         return 0
     trovati = 0
+    # lo stesso codice puo' stare in piu' assiemi (DECA A 001252: 25CCPA0026
+    # in 4 spalle): ogni distinta deve trovare il pezzo del SUO assieme.
+    # Prima si teneva solo il primo e negli altri assiemi il pezzo restava
+    # "da confermare" anche con la distinta letta.
     per_chiave = {}
     for a in articoli:
         if not getattr(a, 'e_master', False):
-            per_chiave.setdefault(_chiave(a.codice), a)
+            per_chiave.setdefault(_chiave(a.codice), []).append(a)
     liberi = {_chiave(d): d for d in (getattr(result, 'dxf_no_match', None) or [])}
     for cod_ass in assiemi:
         dist = distinta_assieme(prev_dir, result, cod_ass)
         for k, riga in dist.items():
-            a = per_chiave.get(k)
+            cand = per_chiave.get(k) or []
+            a = (next((x for x in cand if x.codice_assieme == cod_ass), None)
+                 or next((x for x in cand if x.codice_assieme is None), None))
             if a is None and k in liberi:
                 # disegno del pacchetto che l'ordine non cita: e' di quest'assieme
                 base = liberi.pop(k)
@@ -143,7 +149,7 @@ def quantita_da_distinte(prev_dir: str, result) -> int:
                                 codice_assieme=cod_ass, descrizione='componente assieme (dalla distinta)',
                                 qta_fonte='per_assieme', abbinamento='esatto')
                 articoli.append(a)
-                per_chiave[k] = a
+                per_chiave.setdefault(k, []).append(a)
                 try:
                     result.dxf_no_match.remove(base)
                 except (AttributeError, ValueError):
