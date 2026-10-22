@@ -88,7 +88,10 @@ OFFICINA_LETTURA = ('commerciale', 'ufficio', 'laser', 'reparto')   # ordini, di
 CON_AVVISI = ('commerciale', 'ufficio', 'laser')                      # hanno la campanella
 
 # Configurazioni
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), '..', 'uploads')
+# FERROTRACK_UPLOADS sposta i file (solo per le prove su una copia, come
+# FERROTRACK_DB col database): senza, quelli dell'installazione.
+UPLOAD_FOLDER = (os.environ.get('FERROTRACK_UPLOADS')
+                 or os.path.join(os.path.dirname(__file__), '..', 'uploads'))
 DRAWINGS_FOLDER = os.path.join(UPLOAD_FOLDER, 'drawings')
 PDFS_FOLDER = os.path.join(UPLOAD_FOLDER, 'pdfs')
 FRONTEND_FOLDER = os.path.join(os.path.dirname(__file__), '..', 'frontend')
@@ -10331,6 +10334,67 @@ def api_admin_export_orders():
     except Exception as e:
         logger.exception('admin export orders failed')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============================================================================
+#  AGGIUNGI DISEGNI / ASSIEMI MANCANTI A UN ORDINE GIA' CARICATO
+#  (DECA A 001252: caricato senza le sottocartelle degli assiemi). Due passi
+#  come il pacchetto: analisi (piano) e conferma. Vedi aggiungi_disegni.py.
+# ============================================================================
+@app.route('/api/orders/<order_id>/aggiungi-disegni', methods=['POST'])
+@richiede('ufficio', 'laser')
+def api_ordine_aggiungi_disegni(order_id):
+    """Multipart come il pacchetto (cartella trascinata: files + paths, o
+    zip). Prepara i pezzi mancanti e risponde col piano; l'ordine non cambia."""
+    from . import aggiungi_disegni as _ad
+    try:
+        if not _RX_UUID.match(str(order_id or '')):
+            return _errore_pacchetto('ordine_non_trovato', 'Ordine non trovato.', 404)
+        zip_bytes, f = _zip_dalla_richiesta()
+        if not zip_bytes:
+            return _errore_pacchetto('nessun_file', 'Trascina la cartella del cliente (PDF d\'ordine + disegni).')
+        piano = _ad.analizza(order_id, zip_bytes, f.filename if f else '', utente_id=_chi() or None)
+        _audit('ORDINE_AGGIUNGI_DISEGNI_ANALISI', 'orders', order_id,
+               f"Analisi disegni da aggiungere: {piano['n_nuovi']} pezzi, assiemi "
+               + ', '.join(a['codice'] for a in piano['assiemi']))
+        return jsonify({'success': True, **piano}), 200
+    except _ad.Errore as e:
+        return _errore_pacchetto(e.codice, e.messaggio, e.stato)
+    except Exception as e:
+        logger.exception('aggiungi disegni: analisi fallita')
+        return _errore_pacchetto('errore_interno', 'Errore nella lettura dei disegni: ' + str(e), 500)
+
+
+@app.route('/api/orders/<order_id>/aggiungi-disegni/<tecnico_id>/conferma', methods=['POST'])
+@richiede('ufficio', 'laser')
+def api_ordine_aggiungi_disegni_conferma(order_id, tecnico_id):
+    from . import aggiungi_disegni as _ad
+    try:
+        if not (_RX_UUID.match(str(order_id or '')) and _RX_UUID.match(str(tecnico_id or ''))):
+            return _errore_pacchetto('aggiunta_non_trovata', 'Analisi non trovata.', 404)
+        r = _ad.applica(order_id, tecnico_id, _chi_nome())
+        _audit('ORDINE_AGGIUNTI_DISEGNI', 'orders', order_id,
+               f"Aggiunti {r['aggiunti']} pezzi; assiemi {', '.join(r['assiemi']) or '-'}; "
+               f"righe diventate assiemi {', '.join(r['righe_assieme_convertite']) or '-'}; "
+               f"bloccati {', '.join(r['bloccati']) or '-'}")
+        _invalida_analisi_laser(order_id)
+        return jsonify(r), 200
+    except _ad.Errore as e:
+        return _errore_pacchetto(e.codice, e.messaggio, e.stato)
+    except Exception as e:
+        logger.exception('aggiungi disegni: conferma fallita')
+        return _errore_pacchetto('errore_interno', 'Disegni non aggiunti: ' + str(e), 500)
+
+
+@app.route('/api/orders/<order_id>/aggiungi-disegni/<tecnico_id>', methods=['DELETE'])
+@richiede('ufficio', 'laser')
+def api_ordine_aggiungi_disegni_scarta(order_id, tecnico_id):
+    from . import aggiungi_disegni as _ad
+    if not (_RX_UUID.match(str(order_id or '')) and _RX_UUID.match(str(tecnico_id or ''))):
+        return _errore_pacchetto('aggiunta_non_trovata', 'Analisi non trovata.', 404)
+    if not _ad.scarta(order_id, tecnico_id):
+        return _errore_pacchetto('aggiunta_non_trovata', 'Analisi non trovata.', 404)
+    return jsonify({'success': True}), 200
 
 
 if __name__ == '__main__':
