@@ -3367,6 +3367,7 @@ async function renderDrawer() {
       <button class="ft-btn sm primary" onclick="apriStampaOrdine('${esc(id)}', ${jsq((d.numero_ordine || '') + ' · ' + (d.cliente || ''))})" title="${d.pdf_file ? 'Il PDF d\u2019ordine del cliente' : 'Il foglio d\u2019ordine con i pezzi per lamiera'}, da mettere nel faldone per l\u2019officina"><i data-lucide="printer"></i> Stampa ordine</button>
       ${(d.dxf_files || []).length || d.origine !== 'PDF' ? `<a class="ft-btn sm" href="/api/orders/${esc(id)}/disegni.zip" download title="Disegni divisi per lamiera, col nome del cliente e del numero"><i data-lucide="archive"></i> Disegni (ZIP)</a>
       <button class="ft-btn sm" onclick="creaCartellaLantek('${esc(id)}')" title="Crea la cartella dell'ordine (divisa per lamiera) nella cartella dei disegni per Lantek"><i data-lucide="folder-output"></i> Cartella Lantek</button>` : ''}
+      ${d.origine === 'PACCHETTO' || d.origine === 'PREVENTIVO' ? `<button class="ft-btn sm" onclick="FTAggiungiDisegni.apri('${esc(id)}', { dopo: () => { if (drawerId === '${esc(id)}') renderDrawer(); } })" title="Assiemi o disegni rimasti fuori dal caricamento: trascina la cartella del cliente, si aggiunge solo quello che manca"><i data-lucide="folder-plus"></i> Aggiungi disegni / assiemi mancanti</button>` : ''}
       <span class="spacer"></span>
       <button class="ft-btn sm danger" onclick="chiediEliminaOrdine('${esc(id)}')"><i data-lucide="trash-2"></i> Elimina</button>
     </div>`;
@@ -4036,6 +4037,7 @@ if (sessionStorage.getItem('wantsFs') === '1') {
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 </script>
 <script src="/laser-procura.js?v=3"></script>
+<script src="/aggiungi-disegni.js?v=1"></script>
 <script src="/vendor/lucide.min.js"></script>
 <script>FT.icone();</script>
 </body>

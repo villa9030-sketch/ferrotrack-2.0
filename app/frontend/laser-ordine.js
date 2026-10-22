@@ -834,6 +834,8 @@
     if (v.length) v.push({ sep: true });
     v.push({ t: 'Crea la cartella dei disegni per Lantek', ico: 'folder-output', fn: () => O.creaCartella(o.id) });
     v.push({ t: 'Scarica tutti i disegni (ZIP)', ico: 'download', href: `/api/orders/${o.id}/disegni.zip`, download: true });
+    if (window.FTAggiungiDisegni) v.push({ t: 'Aggiungi disegni / assiemi mancanti…', ico: 'folder-plus',
+      fn: () => window.FTAggiungiDisegni.apri(o.id, { dopo: async () => { await LZ.avvio.caricaRiep(o.id, true); await O.carica(o.id, true); } }) });
     if (st === 'coda' || st === 'in_lantek') v.push({ t: 'File degli ordini per Lantek (XML)', ico: 'file-code', href: `/api/orders/${o.id}/lantek-ordini.xml`, download: true });
     if (o.pdf_file) v.push({ t: 'Apri il PDF in una scheda', ico: 'external-link', fn: () => window.open(`/api/orders/${o.id}/pdf`, '_blank', 'noopener') });
     v.push({ sep: true }, { t: 'Elimina ordine…', ico: 'trash-2', cls: 'rosso', fn: () => O.elimina(o.id) });
