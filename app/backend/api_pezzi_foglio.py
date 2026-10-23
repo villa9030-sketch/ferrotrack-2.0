@@ -62,9 +62,11 @@ def _cfg() -> dict:
 # ---------------------------------------------------------------------------
 # Lettura del foglio e proposte
 # ---------------------------------------------------------------------------
-def pezzi_letti(percorso: str) -> list:
+def pezzi_letti(percorso: str, attesa_s: float | None = None) -> list:
     """I pezzi del foglio (tipo_disegno.pezzi_del_foglio_da_file), in cache per
-    (percorso, data del file)."""
+    (percorso, data del file). La lettura si fa nel lavoratore, una volta
+    (backend/preparazione_disegni.py): InPreparazione / DisegnoNonLeggibile
+    passano a chi chiama."""
     try:
         mt = os.path.getmtime(percorso)
     except OSError:
@@ -73,8 +75,8 @@ def pezzi_letti(percorso: str) -> list:
     with _LOCK:
         if k in _CACHE:
             return _CACHE[k]
-    from .preventivi.tipo_disegno import pezzi_del_foglio_da_file
-    pezzi = pezzi_del_foglio_da_file(percorso, _cfg())
+    from . import preparazione_disegni as pd
+    pezzi = pd.prepara('pezzi_foglio', percorso, _cfg(), attesa_s)
     with _LOCK:
         if len(_CACHE) > 30:
             _CACHE.clear()
@@ -209,9 +211,13 @@ def api_pezzi_foglio(order_id, articolo_id):
         testi = []
         try:
             import json as _json
-            gj = _json.loads(_app()._get_dxf_geometry_cached(percorso, _cfg()) or '{}')
+            from .api_laser import _dati_foglio
+            gj = _json.loads(_dati_foglio(percorso)[0] or '{}')
             testi = gj.get('texts') or []
-        except Exception:
+        except Exception as e:
+            from .preparazione_disegni import InPreparazione
+            if isinstance(e, InPreparazione):
+                raise
             logger.warning('testi del foglio non letti: %s', percorso, exc_info=True)
         dai_testi = codici_dai_testi(letti, testi, cod_f)
         pezzi, usati = [], set(altri)
@@ -234,6 +240,10 @@ def api_pezzi_foglio(order_id, articolo_id):
         return jsonify({'success': True, 'confermati': False, 'codice_foglio': cod_f, 'qta_foglio': qf,
                         'pezzi': pezzi, 'altri_codici': altri}), 200
     except Exception as e:
+        from .api_laser import _risposta_disegno
+        r = _risposta_disegno(e)
+        if r is not None:
+            return r
         logger.exception('pezzi del foglio non letti')
         return _errore('Pezzi del foglio non letti: ' + str(e)[:160], 500)
 

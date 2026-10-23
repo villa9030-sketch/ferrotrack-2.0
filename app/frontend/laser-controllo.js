@@ -140,11 +140,20 @@
     const k = chiave(v);
     if (st.letture[k]) return st.letture[k].prom;
     const rec = { stato: 'carica' };
-    rec.prom = LZ.get(`/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}/lettura`).then(r => {
-      rec.stato = r.ok ? 'ok' : 'errore';
-      rec.d = r.d;
-      return rec;
-    });
+    const url = `/api/orders/${encodeURIComponent(v.id)}/pezzi/${encodeURIComponent(v.aid)}/lettura`;
+    rec.prom = (async () => {
+      for (let n = 0; ; n++) {
+        const r = await LZ.get(url);
+        // disegno pesante ancora in preparazione nel server: si riprova da soli
+        if (!r.ok && r.d.codice === 'in_preparazione' && st && n < 60) {
+          await new Promise(fatto => setTimeout(fatto, 1000 * (Number(r.d.riprova_tra_s) || 3)));
+          continue;
+        }
+        rec.stato = r.ok ? 'ok' : 'errore';
+        rec.d = r.d;
+        return rec;
+      }
+    })();
     st.letture[k] = rec;
     return rec.prom;
   }
@@ -428,7 +437,13 @@
     const leg = f.querySelector('.lz-leg');
     if (leg) { leg.classList.add('blu'); leg.innerHTML = '<i></i>Pezzi del foglio: clicca un pezzo per sceglierlo, il bordo di uno mancante per aggiungerlo'; }
     lato();
-    const r = await LZ.get(urlPf(v));
+    let r = await LZ.get(urlPf(v));
+    // disegno pesante ancora in preparazione nel server: si riprova da soli
+    for (let n = 0; !r.ok && r.d.codice === 'in_preparazione' && n < 60; n++) {
+      await new Promise(fatto => setTimeout(fatto, 1000 * (Number(r.d.riprova_tra_s) || 3)));
+      if (!st || chiave(voce()) !== k || st.modo !== 'pezzi') return;
+      r = await LZ.get(urlPf(v));
+    }
     if (!st || chiave(voce()) !== k || st.modo !== 'pezzi') return;
     if (!r.ok) { st.pf = { errore: r.d.error || 'Pezzi non letti' }; lato(); return; }
     let prossimo = 0;
@@ -815,7 +830,12 @@
     salvaInCorso++;
     segnaSalvataggi();
     codaSalva = codaSalva.then(async () => {
-      const r = await LZ.post(url, corpo);
+      let r = await LZ.post(url, corpo);
+      // disegno pesante ancora in preparazione nel server: si riprova da soli
+      for (let n = 0; !r.ok && r.d.codice === 'in_preparazione' && n < 40; n++) {
+        await new Promise(fatto => setTimeout(fatto, 1000 * (Number(r.d.riprova_tra_s) || 3)));
+        r = await LZ.post(url, corpo);
+      }
       salvaInCorso--;
       segnaSalvataggi();
       if (!r.ok) {

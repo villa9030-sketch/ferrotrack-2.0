@@ -1010,7 +1010,7 @@ def _contorno_salvato(order, art, percorso) -> dict | None:
             from shapely.geometry import Polygon
             anelli.sort(key=lambda a: -Polygon(a).area if len(a) >= 3 else 0)
             # solo se sta nel foglio (i puliti copiati dal disegno possono essere spostati)
-            gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+            gj = json.loads(_dati_foglio(percorso)[0] or '{}')
             bb = gj.get('extents')
             xs = [p[0] for p in anelli[0]]
             ys = [p[1] for p in anelli[0]]
@@ -1023,7 +1023,52 @@ def _contorno_salvato(order, art, percorso) -> dict | None:
     return None
 
 
-def _foglio(percorso: str) -> dict:
+def _dati_foglio(percorso: str, attesa_s: float | None = None) -> tuple:
+    """(geometria del CAD in JSON, lettura del motore) del disegno: le due
+    letture pesanti, fatte UNA volta nel lavoratore (backend/
+    preparazione_disegni.py), non dentro la richiesta. Stessi risultati di
+    _get_dxf_geometry_cached e _lettura_motore, che poi le trovano in cache.
+    InPreparazione / DisegnoNonLeggibile passano a chi chiama."""
+    from . import preparazione_disegni as pd
+    A = _app()
+    try:
+        mt = os.path.getmtime(percorso)
+    except OSError:
+        mt = 0
+    gj = A._GEOMETRY_CACHE.get((percorso, mt))
+    with _FOGLI_LOCK:
+        det = _FOGLI.get(('det', percorso, mt))
+    if gj is not None and det is not None:
+        return gj, det
+    d = pd.prepara('foglio', percorso, _cfg_riconoscimento(), attesa_s)
+    gj = d.get('_json')
+    if gj is None:
+        gj = d['_json'] = json.dumps(d['geometria'])
+    det = d['motore']
+    A._GEOMETRY_CACHE.put((percorso, mt), gj)
+    with _FOGLI_LOCK:
+        while len(_FOGLI) >= _FOGLI_MAX:
+            _FOGLI.pop(next(iter(_FOGLI)))
+        _FOGLI[('det', percorso, mt)] = det
+    return gj, det
+
+
+def _risposta_disegno(e):
+    """La risposta per un disegno non pronto o non leggibile, o None."""
+    from . import preparazione_disegni as pd
+    if isinstance(e, pd.InPreparazione):
+        # la pagina riprova da sola (laser-controllo.js)
+        return jsonify({'success': False, 'codice': 'in_preparazione', 'error': str(e),
+                        'riprova_tra_s': 3}), 202
+    if isinstance(e, pd.DisegnoNonLeggibile):
+        if e.codice == 'errore':
+            return jsonify({'success': False, 'codice': 'errore',
+                            'error': 'Il disegno non si legge: ' + str(e)[:160]}), 500
+        return jsonify({'success': False, 'codice': e.codice, 'error': str(e)}), 422
+    return None
+
+
+def _foglio(percorso: str, attesa_s: float | None = None) -> dict:
     """{svg, vista, contorno, avvisi, confidenza} del foglio, in cache."""
     try:
         mt = os.path.getmtime(percorso)
@@ -1033,11 +1078,10 @@ def _foglio(percorso: str) -> dict:
     with _FOGLI_LOCK:
         if chiave in _FOGLI:
             return _FOGLI[chiave]
-    A = _app()
-    gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+    gj_s, det = _dati_foglio(percorso, attesa_s)
+    gj = json.loads(gj_s or '{}')
     if gj.get('error'):
         raise ValueError(gj['error'])
-    det = _lettura_motore(percorso)
     contorno = _contorno_motore(gj, det)
     svg, vista = svg_foglio(gj, contorno)
     r = {'svg': svg, 'vista': vista, 'contorno': contorno,
@@ -1170,7 +1214,7 @@ def api_pezzo_lettura(order_id, articolo_id):
         # contorno scelto (o confermato) a mano: si mostra quello, non il motore
         tuo = _contorno_salvato(order, art, percorso)
         if tuo:
-            gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
+            gj = json.loads(_dati_foglio(percorso)[0] or '{}')
             svg_tuo, vista_tuo = svg_foglio(gj, tuo)
             f = {**f, 'svg': svg_tuo, 'vista': vista_tuo, 'contorno': tuo}
         mt = A._stato_motore(art)
@@ -1192,6 +1236,9 @@ def api_pezzo_lettura(order_id, articolo_id):
                         'motore': mt.get('stato'), 'decisione': mt.get('decisione'),
                         'misure': [art.get('bbox_w_mm'), art.get('bbox_h_mm')]}), 200
     except Exception as e:
+        r = _risposta_disegno(e)
+        if r is not None:
+            return r
         logger.exception('lettura del pezzo fallita')
         return jsonify({'success': False, 'error': 'Il disegno non si legge: ' + str(e)[:160]}), 500
 
@@ -1215,6 +1262,9 @@ def api_pezzo_foglio_svg(order_id, articolo_id):
         resp.headers['X-Trasforma'] = 'x=u; y=-v (mm)'
         return resp
     except Exception as e:
+        r = _risposta_disegno(e)
+        if r is not None:
+            return r
         logger.exception('foglio del pezzo fallito')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
 
@@ -1269,7 +1319,12 @@ def _contorno_preciso(percorso: str, det: dict, gj: dict):
 _PREP: dict = {}            # (percorso, data, cfg) -> {'fatto': Event, 'esito': dict | None}
 _PREP_LOCK = threading.Lock()
 _PREP_MAX = 64
-_PREP_ATTESA_S = 120        # "giusto" aspetta una preparazione gia' in corso
+# "giusto" aspetta una preparazione gia' in corso al massimo questo, poi
+# risponde "in preparazione" (prima 120 s, e dopo rifaceva tutto da capo
+# dentro la richiesta: oltre i 120 s nella prova notturna del 22-23/10)
+_PREP_ATTESA_S = 60
+_GIUSTO_ATTESA_DISEGNO_S = 45   # lettura del disegno fatta da "giusto" stesso
+_SOTTOFONDO_ATTESA_S = 600      # la preparazione in sottofondo aspetta il lavoratore
 _prep_pool = None
 
 
@@ -1285,14 +1340,14 @@ def _chiave_prep(percorso: str):
     return (percorso, mt, json.dumps(_cfg_riconoscimento(), sort_keys=True, default=str))
 
 
-def _calcola_prep(percorso: str) -> dict:
+def _calcola_prep(percorso: str, attesa_s: float | None = None) -> dict:
     """Quello che "giusto" calcola sul disegno, nello stesso ordine:
     {'preciso': (outer, holes) | None, 'ha_contorno': bool,
      'preparato': prepara_contorno(...) | None}. Le eccezioni passano."""
-    A = _app()
-    f = _foglio(percorso)
-    gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
-    preciso = _contorno_preciso(percorso, _lettura_motore(percorso), gj)
+    f = _foglio(percorso, attesa_s)
+    gj_s, det = _dati_foglio(percorso, attesa_s)
+    gj = json.loads(gj_s or '{}')
+    preciso = _contorno_preciso(percorso, det, gj)
     if preciso and preciso[0]:
         from .api_contorno_ordine import prepara_contorno
         return {'preciso': preciso, 'ha_contorno': bool(f.get('contorno')),
@@ -1309,15 +1364,25 @@ def _prendi_voce(voce) -> bool:
         return True
 
 
-def _esegui_prep(chiave, voce, percorso, se_manca_pulito=None):
+def _esegui_prep(chiave, voce, percorso, se_manca_pulito=None, attesa_s=None):
+    from . import preparazione_disegni as pd
+    from .preventivi.analisi_isolata import Occupato
     if not _prendi_voce(voce):
         return                    # l'ha gia' presa "giusto" (o un altro giro)
     try:
         if se_manca_pulito and _disegno_pulito_pronto(*se_manca_pulito):
             # c'e' gia' il pulito: "giusto" sara' la conferma di sempre
             raise _PulitoPronto()
-        voce['esito'] = _calcola_prep(percorso)
-    except _PulitoPronto:
+        voce['esito'] = _calcola_prep(percorso, attesa_s)
+    except (pd.InPreparazione, Occupato):
+        # il disegno non e' ancora pronto: niente da ricordare, si riprova
+        voce['esito'] = None
+        voce['in_preparazione'] = True
+        with _PREP_LOCK:
+            if _PREP.get(chiave) is voce:
+                _PREP.pop(chiave, None)
+    except (_PulitoPronto, pd.DisegnoNonLeggibile):
+        # (disegno non leggibile: "giusto" lo dira' con lo stesso messaggio)
         voce['esito'] = None
         with _PREP_LOCK:
             if _PREP.get(chiave) is voce:
@@ -1360,22 +1425,25 @@ def prepara_giusto(order, art, percorso) -> None:
             if _prep_pool is None:
                 from concurrent.futures import ThreadPoolExecutor
                 _prep_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='prepara-giusto')
-        _prep_pool.submit(_esegui_prep, chiave, voce, percorso, (order, art))
+        _prep_pool.submit(_esegui_prep, chiave, voce, percorso, (order, art), _SOTTOFONDO_ATTESA_S)
     except Exception:
         logger.warning('preparazione del "giusto" non avviata', exc_info=True)
 
 
 def _prep_per_giusto(percorso):
     """La preparazione per "giusto": quella pronta, quella in corso (si
-    aspetta) o, se non c'e', la si fa qui. None se non riesce (allora "giusto"
-    fa come prima, e mostra lo stesso errore)."""
+    aspetta, con un limite) o, se non c'e', la si fa qui. None se non riesce
+    (allora "giusto" fa come prima, e mostra lo stesso errore).
+    InPreparazione se il disegno non e' ancora pronto: non si rifa' tutto
+    dentro la richiesta."""
+    from . import preparazione_disegni as pd
     chiave = _chiave_prep(percorso)
     with _PREP_LOCK:
         voce, _nuova = _nuova_voce_prep(chiave)
     # non ancora iniziata (nuova, o in coda dietro i disegni dopo): si fa qui
-    _esegui_prep(chiave, voce, percorso)
-    if not voce['fatto'].wait(_PREP_ATTESA_S):
-        return None
+    _esegui_prep(chiave, voce, percorso, attesa_s=_GIUSTO_ATTESA_DISEGNO_S)
+    if not voce['fatto'].wait(_PREP_ATTESA_S) or voce.get('in_preparazione'):
+        raise pd.InPreparazione()
     with _PREP_LOCK:
         if _PREP.get(chiave) is voce:
             _PREP.pop(chiave, None)       # usata: il pezzo ora cambia
@@ -1426,9 +1494,9 @@ def api_pezzo_giusto(order_id, articolo_id):
                 return jsonify({'success': False, 'codice': 'contorno_non_preciso',
                                 'error': 'Non riesco a ricostruire il contorno con i fori: sceglilo tu sul disegno (S)'}), 409
             # preparazione non riuscita: come prima (stessi errori)
-            f = _foglio(percorso)
-            gj = json.loads(A._get_dxf_geometry_cached(percorso, _cfg_riconoscimento()) or '{}')
-            preciso = _contorno_preciso(percorso, _lettura_motore(percorso), gj)
+            f = _foglio(percorso, _GIUSTO_ATTESA_DISEGNO_S)
+            gj_s, det = _dati_foglio(percorso, _GIUSTO_ATTESA_DISEGNO_S)
+            preciso = _contorno_preciso(percorso, det, json.loads(gj_s or '{}'))
             if preciso and preciso[0]:
                 from .api_contorno_ordine import salva_contorno
                 esito, stato = salva_contorno(order_id, articolo_id, preciso[0], preciso[1],
@@ -1452,6 +1520,13 @@ def api_pezzo_giusto(order_id, articolo_id):
         invalida(order_id)
         return jsonify({'success': True, 'modo': 'conferma'}), 200
     except Exception as e:
+        from .preventivi.analisi_isolata import Occupato
+        if isinstance(e, Occupato):
+            from .preparazione_disegni import InPreparazione
+            e = InPreparazione()
+        r = _risposta_disegno(e)
+        if r is not None:
+            return r
         logger.exception('conferma del pezzo fallita')
         return jsonify({'success': False, 'error': str(e)[:200]}), 500
 

@@ -272,10 +272,10 @@ def prova_giusto():
     calcoli = []
     vero_calcola = AL._calcola_prep
 
-    def lento(p):
+    def lento(p, *a):
         calcoli.append(p)
         time.sleep(0.5)
-        return vero_calcola(p)
+        return vero_calcola(p, *a)
     AL._calcola_prep = lento
     try:
         o, a, p, _ = AL._pezzo(oid, arts['G-ATT-00'])
@@ -288,7 +288,7 @@ def prova_giusto():
     finally:
         AL._calcola_prep = vero_calcola
 
-    def rotto(p):
+    def rotto(p, *a):
         raise RuntimeError('prova')
     AL._calcola_prep = rotto
     try:
