@@ -51,6 +51,28 @@
                  s: `${esc(elenco(corretti))} ${corretti.length === 1 ? 'è stato corretto' : 'sono stati corretti'} in Lantek: ora si può mandare.`,
                  bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
       }
+      // codici NUOVI aggiunti dopo l'invio (es. assiemi mancanti aggiunti con
+      // "Aggiungi disegni", A 001252 del 22/10): prima il controllo dei loro
+      // disegni, poi "Manda a Lantek" solo per loro (quelli gia' mandati sono
+      // nel registro lantek_invii e non ripartono)
+      if (info && (info.n_invio || 0) > 0) {
+        if ((info.n_controllare || 0) > 0) {
+          return { tono: 'att', ico: 'scan-eye', t: `Pezzi nuovi: controlla ${LZ.plur(info.n_controllare, 'disegno', 'disegni')}`,
+                   s: `Dopo l'invio a Lantek sono stati aggiunti ${LZ.plur(info.n_invio, 'codice', 'codici')} da mandare. Controlla i disegni, poi li mandi: quelli già in Lantek non ripartono.`,
+                   bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Inizia il controllo', az: 'controlla', pri: true, tasto: 'Invio' }] };
+        }
+        if (info.pronto) {
+          return { tono: 'pronto', ico: 'send', t: `Manda a Lantek i pezzi nuovi: ${LZ.plur(info.n_invio, 'codice', 'codici')}`,
+                   s: 'Aggiunti dopo il primo invio. Quelli già mandati non ripartono.',
+                   bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Manda a Lantek', az: 'lantek', pri: true, tasto: 'Invio' }] };
+        }
+        const blN = ((info.bloccati || []).length);
+        return { tono: 'err', ico: 'octagon-alert',
+                 t: `Pezzi nuovi da mandare: ${LZ.plur(info.n_invio, 'codice', 'codici')}`,
+                 s: blN ? `${LZ.plur(blN, 'codice è bloccato', 'codici sono bloccati')}: sistemali nella tabella sotto (spessore, materiale), poi Ricontrolla.`
+                   : 'Non si possono ancora mandare: premi Ricontrolla.',
+                 bottoni: [{ t: 'Taglio fatto', az: 'taglio' }, { t: 'Ricontrolla', az: 'ricontrolla', pri: true, tasto: 'Invio' }] };
+      }
       // quantita' cambiate dopo l'invio (pezzi per assieme, assiemi)
       // (e gli spessori/materiali tenuti fuori all'invio): si vedono anche qui
       const daCorr = ((info || {}).correzioni || []).filter(c => c.stato === 'da_correggere');
