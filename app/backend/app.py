@@ -72,6 +72,9 @@ app.register_blueprint(bp_pacchi)
 # Da procurare: tubi, laser tubo, meccanica, commerciali (backend/procura.py).
 from .api_procura import bp_procura  # noqa: E402
 app.register_blueprint(bp_procura)
+# Quadratura degli ordini: tutto quello che il cliente ha ordinato arriva al laser? (backend/quadratura.py)
+from .api_quadratura import bp_quadratura  # noqa: E402
+app.register_blueprint(bp_quadratura)
 # Il controllo unico degli accessi, prima di qualunque altra cosa.
 from . import accesso  # noqa: E402
 from .accesso import richiede, identita, ADMIN, PUBBLICO, UFFICI  # noqa: E402,F401

@@ -3412,6 +3412,7 @@ async function renderDrawer() {
       </div>
       ${stepsHtml(o, false)}
       ${prossimoPassoHtml(o)}
+      <div id="dr-quad" class="imp-dr-quad"></div>
       <div class="ft-seg imp-dr-tabs" role="tablist">
         ${[['riepilogo', 'Riepilogo'], ['disegni', 'Disegni'], ['distinta', 'Distinta'], ['lavorazioni', 'Lavorazioni']].map(([k, l]) =>
           `<button type="button" data-k="${k}" class="${drawerTab === k ? 'on' : ''}" onclick="tabDrawer('${k}')">${l} <b id="dr-n-${k}"></b></button>`).join('')}
@@ -3431,6 +3432,8 @@ async function renderDrawer() {
     </div>`;
   aggiornaConteggiDrawer();
   renderCorpoDrawer();
+  // la quadratura dell'ordine (ft-quadratura.js): tutto quello che il cliente ha ordinato arriva al laser?
+  if (window.FTQuad && !STATI_FINITI.includes(d.status)) FTQuad.monta($('dr-quad'), id);
 }
 
 function prossimoPassoHtml(o) {
@@ -4096,6 +4099,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 </script>
 <script src="/laser-procura.js?v=3"></script>
 <script src="/aggiungi-disegni.js?v=1"></script>
+<script src="/ft-quadratura.js?v=1"></script>
 <script src="/vendor/lucide.min.js"></script>
 <script>FT.icone();</script>
 </body>

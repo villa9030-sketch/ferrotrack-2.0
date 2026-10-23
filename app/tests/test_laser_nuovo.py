@@ -24,6 +24,7 @@ Serve il server di prova (default 127.0.0.1:5056).
 """
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -84,6 +85,20 @@ def vietato(route):
     route.abort()
 
 
+def quadra(route):
+    """La quadratura ha il suo test (test_quadratura_pagina.py): qui ogni ordine
+    "quadra", cosi' "Manda a Lantek" apre subito il suo riassunto."""
+    url = route.request.url.split('?')[0]
+    if '/api/orders/' not in url:
+        return route.fulfill(status=200, content_type='application/json',
+                             body=json.dumps({'success': True, 'ordini': {}, 'in_corso': []}))
+    oid = url.split('/api/orders/')[1].split('/')[0]
+    route.fulfill(status=200, content_type='application/json', body=json.dumps({
+        'success': True, 'pronto': True, 'in_corso': False, 'vecchio': False,
+        'quadratura': {'order_id': oid, 'esito': 'QUADRA', 'testo': 'Quadratura: tutto torna', 'n_problemi': 0,
+                       'non_verificabile': [], 'problemi_ordine': [], 'righe': [], 'problemi': [], 'note': []}}))
+
+
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     ctx = contesto_stazione(b.new_context(viewport={'width': 1440, 'height': 900}), B, 'laser')
@@ -94,6 +109,7 @@ with sync_playwright() as p:
     ctx.route('**/crea-cartella', vietato)
     ctx.route('**/smistamento', vietato)
     ctx.route('**/mark-laser-done', vietato)
+    ctx.route(re.compile(r'/quadratura(\?.*)?$'), quadra)
     pg = ctx.new_page()
     err = []
     pg.on('pageerror', lambda e: err.append(str(e)))
