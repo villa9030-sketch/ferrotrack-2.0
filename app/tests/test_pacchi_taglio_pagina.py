@@ -90,6 +90,20 @@ def filtro(route):
     return route.abort()
 
 
+def quadra(route):
+    """La quadratura ha il suo test (test_quadratura_pagina.py): qui ogni ordine
+    "quadra", cosi' il giro del pacco non si ferma alla spunta "Ho controllato"."""
+    url = route.request.url.split('?')[0]
+    if '/api/orders/' not in url:
+        return route.fulfill(status=200, content_type='application/json',
+                             body=json.dumps({'success': True, 'ordini': {}, 'in_corso': []}))
+    oid = url.split('/api/orders/')[1].split('/')[0]
+    route.fulfill(status=200, content_type='application/json', body=json.dumps({
+        'success': True, 'pronto': True, 'in_corso': False, 'vecchio': False,
+        'quadratura': {'order_id': oid, 'esito': 'QUADRA', 'testo': 'Quadratura: tutto torna', 'n_problemi': 0,
+                       'non_verificabile': [], 'problemi_ordine': [], 'righe': [], 'problemi': [], 'note': []}}))
+
+
 def scatto(pg, nome):
     if SCATTI:
         os.makedirs(SCATTI, exist_ok=True)
@@ -112,6 +126,7 @@ with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     ctx = contesto_stazione(b.new_context(viewport={'width': 1440, 'height': 900}), B, 'laser')
     ctx.route('**/*', filtro)
+    ctx.route(re.compile(r'/quadratura(\?.*)?$'), quadra)   # dopo il filtro: vince
     pg = ctx.new_page()
     err = []
     pg.on('pageerror', lambda e: err.append(str(e)))
