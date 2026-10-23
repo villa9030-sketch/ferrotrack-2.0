@@ -20,6 +20,7 @@ from .models import (initialize_database, Order, OrderFile, get_session,
                      RUOLI_UFFICIO)
 from .database import OrderManager, UserManager, AuditManager, ArchiveManager, FatturazioneManager, NotificationManager, AlertManager, KPIManager, ConfigManager, PreventivoManager
 from .events import OrderEventBus
+from .versione_dati import CacheBreve
 from .orario import iso_utc, iso_data, data_locale, oggi_locale, giorno_locale_in_utc
 from urllib.parse import quote
 from .preventivi import (
@@ -2173,6 +2174,53 @@ def _ordine_per_tablet(o, segnalazioni: dict, piatti=None, procura=None, cal=Non
     }
 
 
+def _ordini_tablet() -> list:
+    """Gli ordini come li mostra il tablet (il calcolo vero, senza cache).
+
+    Gli ordini sono quelli che il tablet mostrava gia': non eliminati, non
+    archiviati e ancora "aperti" (non finiti, non consegnati), dalla consegna
+    piu' vicina."""
+    from sqlalchemy.orm import selectinload
+    from .ordini_service import STATI_ARCHIVIO, fase as fase_ordine
+    session = get_session()
+    try:
+        ordini = session.query(Order).options(selectinload(Order.files)).filter(
+            Order.is_deleted == False,  # noqa: E712
+            (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO)),
+        ).order_by(Order.data_consegna.asc()).all()
+        ordini = [o for o in ordini if fase_ordine(o) == 'aperto']
+        segnalazioni = _segnalazioni_di_oggi([o.id for o in ordini])
+        piatti = _elenco_cartella(DRAWINGS_FOLDER)   # una volta, non per ogni ordine
+        try:
+            from . import procura as _pc
+            proc = _pc.riassunto_per_ordini([o.id for o in ordini])
+        except Exception:
+            logger.warning('da procurare non letto per il tablet', exc_info=True)
+            proc = {}
+        cal = _cal_config()
+        return [_ordine_per_tablet(o, segnalazioni, piatti, proc, cal) for o in ordini]
+    finally:
+        session.close()
+
+
+def _impronta_config():
+    """Quando sono cambiate le impostazioni (calendario del laser, anticipi
+    del "taglia entro"): stanno in un file, non nel database."""
+    try:
+        p = ConfigManager._get_config_path()
+        st = os.stat(p)
+        return (p, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+# Tablet: 4-5 tablet chiedono ogni minuto lo stesso elenco. Vale finche' non
+# cambia niente nel database (e al massimo 30 s, per i file copiati a mano).
+_CACHE_TABLET = CacheBreve(durata_s=30.0, vecchia_max_s=60.0, attesa_s=20.0)
+# Schermo dell'ufficio (dashboard-live, ogni 10 s): soli conteggi.
+_CACHE_DASHBOARD = CacheBreve(durata_s=10.0, vecchia_max_s=30.0, attesa_s=10.0)
+
+
 @app.route('/api/officina/tablet', methods=['GET'])
 @richiede('reparto', 'ufficio', 'laser')
 def api_officina_tablet():
@@ -2184,32 +2232,16 @@ def api_officina_tablet():
     """
     chi = _chi_tablet()
     try:
-        from sqlalchemy.orm import selectinload
-        from .ordini_service import STATI_ARCHIVIO, fase as fase_ordine
         t0 = time.perf_counter()
-        session = get_session()
-        try:
-            ordini = session.query(Order).options(selectinload(Order.files)).filter(
-                Order.is_deleted == False,  # noqa: E712
-                (Order.status.is_(None)) | (~Order.status.in_(STATI_ARCHIVIO)),
-            ).order_by(Order.data_consegna.asc()).all()
-            ordini = [o for o in ordini if fase_ordine(o) == 'aperto']
-            segnalazioni = _segnalazioni_di_oggi([o.id for o in ordini])
-            piatti = _elenco_cartella(DRAWINGS_FOLDER)   # una volta, non per ogni ordine
-            try:
-                from . import procura as _pc
-                proc = _pc.riassunto_per_ordini([o.id for o in ordini])
-            except Exception:
-                logger.warning('da procurare non letto per il tablet', exc_info=True)
-                proc = {}
-            cal = _cal_config()
-            out = [_ordine_per_tablet(o, segnalazioni, piatti, proc, cal) for o in ordini]
-        finally:
-            session.close()
+        oggi = oggi_locale().isoformat()
+        # Uno stesso elenco per tutti i tablet finche' i dati non cambiano
+        # (backend/versione_dati.py): prima ogni tablet, ogni minuto, lo
+        # rifaceva da capo (p95 29,7 s nella prova notturna del 22-23/10).
+        out = _CACHE_TABLET.prendi((oggi, _impronta_config()), _ordini_tablet)
         ms = round((time.perf_counter() - t0) * 1000)
         if ms > 1500:
             logger.warning('tablet officina: %d ordini in %d ms', len(out), ms)
-        return jsonify({'success': True, 'ordini': out, 'oggi': oggi_locale().isoformat(),
+        return jsonify({'success': True, 'ordini': out, 'oggi': oggi,
                         'dispositivo': chi.get('nome'), 'ms': ms}), 200
     except Exception as e:
         logger.exception('tablet officina fallito')
@@ -3436,6 +3468,44 @@ def health_check():
     }), 200
 
 
+def _conteggi_dashboard() -> tuple:
+    """(in produzione, pronti, ricevuti non ancora toccati) di tutti gli ordini.
+
+    "Attivi ora" e la curva dell'attivita' della giornata venivano dalle
+    scansioni con la pistola: pistole tolte, tolti anche loro (sarebbero stati
+    zeri per sempre).
+    Ordini per fase: le STESSE fasi delle viste dell'ufficio
+    (ordini_service.fase). Prima "pronti" contava gli ordini tagliati ma
+    ancora in officina (taglio fatto + RICEVUTO), cioe' proprio quelli in
+    lavorazione.
+      in produzione = ordini aperti: in coda al laser, tagliati, in
+                      lavorazione in officina
+      pronti        = lavoro finito, non ancora consegnati
+      ricevuti      = aperti che nessuno ha ancora toccato: il laser non li
+                      ha ancora smistati e non sono tagliati. Smistato "non va
+                      tagliato" vuol dire che e' gia' passato in officina:
+                      prima lo diceva la prima scansione, ora lo dice lo
+                      smistamento."""
+    from .ordini_service import fase as _fase
+    session = get_session()
+    try:
+        ordini = session.query(Order).filter(Order.is_deleted == False).all()  # noqa: E712
+        n_in_produzione = n_pronti = n_ricevuti_puri = 0
+        for o in ordini:
+            f = _fase(o)
+            if f == 'pronto_ddt':
+                n_pronti += 1
+            elif f == 'aperto':
+                n_in_produzione += 1
+                toccato = (o.taglio_richiesto is not None
+                           or bool(o.taglio_completato))
+                if not toccato:
+                    n_ricevuti_puri += 1
+        return n_in_produzione, n_pronti, n_ricevuti_puri
+    finally:
+        session.close()
+
+
 @app.route('/api/dashboard-live', methods=['GET'])
 @richiede(PUBBLICO)
 def api_dashboard_live():
@@ -3452,60 +3522,25 @@ def api_dashboard_live():
     dati sensibili.
     """
     try:
-        from .models import get_session, Order
-        session = get_session()
-        try:
-            # "Attivi ora" e la curva dell'attivita' della giornata venivano
-            # dalle scansioni con la pistola: pistole tolte, tolti anche loro
-            # (sarebbero stati zeri per sempre).
-            # Ordini per fase: le STESSE fasi delle viste dell'ufficio
-            # (ordini_service.fase). Prima "pronti" contava gli ordini
-            # tagliati ma ancora in officina (taglio fatto + RICEVUTO), cioe'
-            # proprio quelli in lavorazione.
-            #   in produzione = ordini aperti: in coda al laser, tagliati, in
-            #                   lavorazione in officina
-            #   pronti        = lavoro finito, non ancora consegnati
-            #   ricevuti      = aperti che nessuno ha ancora toccato: il laser
-            #                   non li ha ancora smistati e non sono tagliati.
-            #                   Smistato "non va tagliato" vuol dire che e' gia'
-            #                   passato in officina: prima lo diceva la prima
-            #                   scansione, ora lo dice lo smistamento.
-            from .ordini_service import fase as _fase
-            ora = datetime.utcnow()
-            ordini = session.query(Order).filter(
-                Order.is_deleted == False  # noqa: E712
-            ).all()
-            n_in_produzione = 0
-            n_pronti = 0
-            n_ricevuti_puri = 0
-            for o in ordini:
-                f = _fase(o)
-                if f == 'pronto_ddt':
-                    n_pronti += 1
-                elif f == 'aperto':
-                    n_in_produzione += 1
-                    toccato = (o.taglio_richiesto is not None
-                               or bool(o.taglio_completato))
-                    if not toccato:
-                        n_ricevuti_puri += 1
-            n_kanban_lavorazione = n_in_produzione - n_ricevuti_puri
-            n_kanban_pronti = n_pronti
-
-            return jsonify({
-                'success': True,
-                'snapshot': {
-                    'ordini_in_produzione': n_in_produzione,
-                    'ordini_pronti': n_pronti,
-                },
-                'kanban': {
-                    'ricevuti': n_ricevuti_puri,
-                    'lavorazione': n_kanban_lavorazione,
-                    'pronti': n_kanban_pronti,
-                },
-                'timestamp': iso_utc(ora),
-            }), 200
-        finally:
-            session.close()
+        ora = datetime.utcnow()
+        # gli stessi conteggi per tutti, finche' non cambia niente (versione_dati.py)
+        n_in_produzione, n_pronti, n_ricevuti_puri = _CACHE_DASHBOARD.prendi(
+            oggi_locale().isoformat(), _conteggi_dashboard)
+        n_kanban_lavorazione = n_in_produzione - n_ricevuti_puri
+        n_kanban_pronti = n_pronti
+        return jsonify({
+            'success': True,
+            'snapshot': {
+                'ordini_in_produzione': n_in_produzione,
+                'ordini_pronti': n_pronti,
+            },
+            'kanban': {
+                'ricevuti': n_ricevuti_puri,
+                'lavorazione': n_kanban_lavorazione,
+                'pronti': n_kanban_pronti,
+            },
+            'timestamp': iso_utc(ora),
+        }), 200
     except Exception as e:
         logger.exception('dashboard-live failed')
         return jsonify({'success': False, 'error': str(e)}), 500
