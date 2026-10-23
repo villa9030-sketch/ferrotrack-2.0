@@ -187,6 +187,16 @@ class _Lavoratore:
 
 _lock = threading.Lock()
 _posti = threading.BoundedSemaphore(PROCESSI_MAX)
+# Posti a parte per chi guarda un disegno adesso (pagina laser: foglio,
+# contorno del "giusto", pezzi del foglio). Prova notturna 22-23/10: con i
+# posti di sopra occupati dall'analisi di un pacchetto, il disegno aperto al
+# laser aspettava senza limite, e un disegno da 16 MB (122 s di lettura)
+# veniva poi riletto DENTRO il server: risposte oltre i 120 s e tutto il
+# server rallentato. Qui l'attesa di un posto ha un limite, e un disegno
+# troppo lento si ferma e basta.
+PROCESSI_INTERATTIVI = max(1, _num_env('FERROTRACK_DXF_PROCESSI_PAGINA', 2, int))
+_posti_pagina = threading.BoundedSemaphore(PROCESSI_INTERATTIVI)
+ATTESA_POSTO_S = _num_env('FERROTRACK_DXF_ATTESA_POSTO', 60.0)
 _liberi: list[_Lavoratore] = []
 _custode = None
 _avvio_fallito_il = 0.0
@@ -413,28 +423,73 @@ def contorno_preciso(percorso: str, punti, area: float, k: float, cfg: dict):
     return None
 
 
+class Occupato(Exception):
+    """Tutti i lavoratori per le pagine sono occupati da troppo: riprovare."""
+
+
+def esegui_per_pagina(compito: dict, tempo_max: float | None = None,
+                      attesa_posto_s: float | None = None):
+    """Un compito per chi guarda un disegno adesso, nel lavoratore, coi posti
+    riservati alle pagine (non quelli dei pacchetti).
+
+    ('ok', dato) | ('errore', msg) | ('lento', None) | ('morto', None) |
+    ('senza_lavoratore', None): il lavoratore non parte, chi chiama fa come
+    prima (nel server). Occupato se nessun posto si libera entro
+    attesa_posto_s. Mai un ricalcolo nel server dopo un 'lento': e' proprio
+    il disegno che teneva fermo il server."""
+    tempo_max = TEMPO_MAX_S if tempo_max is None else float(tempo_max)
+    attesa = ATTESA_POSTO_S if attesa_posto_s is None else float(attesa_posto_s)
+    if not _posti_pagina.acquire(timeout=max(0.0, attesa)):
+        raise Occupato()
+    try:
+        w = _prendi()
+        if w is None:
+            return 'senza_lavoratore', None
+        stato, dato = w.esegui(compito, tempo_max)
+        if stato in ('ok', 'errore'):
+            _rendi(w)
+        else:
+            w.chiudi()                     # lento o caduto: si butta
+        return stato, dato
+    finally:
+        _posti_pagina.release()
+
+
 def contorno_preciso_isolato(percorso: str, punti, area: float, k: float, cfg: dict):
     """contorno_preciso nel lavoratore (geometria fuori dal server, senza il
-    GIL); se il lavoratore non c'e' o non risponde, nel server come prima."""
+    GIL). Se il lavoratore non parte: nel server, come prima. Se e' troppo
+    lento o cade: None (il laser lo sceglie a mano), SENZA rifarlo nel server
+    (prova notturna 22-23/10: "si rifa' nel server" teneva il server occupato
+    per minuti). Occupato passa a chi chiama."""
     compito = {'tipo': 'contorno_preciso', 'path': os.path.abspath(percorso), 'punti': punti,
                'area': area, 'k': k, 'cfg': cfg or {}}
     try:
         json.dumps(compito)
     except (TypeError, ValueError):
         return contorno_preciso(percorso, punti, area, k, cfg)
-    with _posti:
-        w = _prendi()
-        if w is not None:
-            stato, dato = w.esegui(compito, TEMPO_MAX_S)
-            if stato == 'ok':
-                _rendi(w)
-                return (dato[0], dato[1]) if dato else None
-            if stato == 'errore':
-                _rendi(w)
-            else:
-                w.chiudi()
-            logger.warning('contorno preciso nel lavoratore: %s, si rifa\' nel server', stato)
-    return contorno_preciso(percorso, punti, area, k, cfg)
+    stato, dato = esegui_per_pagina(compito)
+    if stato == 'ok':
+        return (dato[0], dato[1]) if dato else None
+    if stato == 'senza_lavoratore':
+        return contorno_preciso(percorso, punti, area, k, cfg)
+    logger.warning('contorno preciso nel lavoratore: %s (%s), niente contorno preciso', stato, percorso)
+    return None
+
+
+def dati_foglio(percorso: str, cfg: dict) -> dict:
+    """Le due letture pesanti del foglio di un disegno (pagina laser), come
+    nel server: {'geometria': pick_part.geometry_json, 'motore':
+    detect_pezzo_geometry_v3 (o {'warnings': [], 'candidates': []} se fallisce,
+    come _lettura_motore)}. Gira nel lavoratore."""
+    from .pick_part import geometry_json
+    from .dxf_polygon_detector_v3 import detect_pezzo_geometry_v3
+    geo = geometry_json(percorso, cfg or {})
+    try:
+        det = detect_pezzo_geometry_v3(percorso, cfg or {}) or {}
+    except Exception as e:  # noqa: BLE001
+        logger.warning('lettura del motore fallita per %s: %s', percorso, e)
+        det = {'warnings': [], 'candidates': []}
+    return {'geometria': geo, 'motore': det}
 
 
 def chiudi_tutti():

@@ -74,6 +74,14 @@ def main() -> int:
                 risposta['payload'] = analisi_isolata.contorno_preciso(
                     compito['path'], compito.get('punti'), float(compito.get('area') or 0),
                     float(compito.get('k') or 1.0), compito.get('cfg') or {})
+            elif compito.get('tipo') == 'foglio':
+                # il foglio del disegno per la pagina laser (geometria + motore)
+                from backend.preventivi import analisi_isolata
+                risposta['payload'] = analisi_isolata.dati_foglio(compito['path'], compito.get('cfg') or {})
+            elif compito.get('tipo') == 'pezzi_foglio':
+                # i pezzi di un foglio con piu' pezzi (tasto P della pagina laser)
+                from backend.preventivi.tipo_disegno import pezzi_del_foglio_da_file
+                risposta['payload'] = pezzi_del_foglio_da_file(compito['path'], compito.get('cfg') or {})
             elif compito.get('tipo') == 'verifica':
                 # verifica automatica di un pezzo del pacchetto (verifica_ordine)
                 from backend.preventivi import verifica_ordine
