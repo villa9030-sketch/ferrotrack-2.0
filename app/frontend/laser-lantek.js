@@ -23,7 +23,14 @@
   /** opz (pacco di taglio, laser-pacchi.js): {titolo, dopo(esiti)} — il
       titolo della finestra e cosa fare quando si chiude dopo l'invio. */
   K.apri = async function (ids, opz) {
-    if (st || !ids.length) return;
+    if (st || !ids.length || K._quad) return;
+    // un ordine che non quadra: prima l'elenco e «Ho controllato» (laser-quadratura.js)
+    if (LZ.quad) {
+      K._quad = true;
+      let ok = false;
+      try { ok = await LZ.quad.prima(ids, opz && opz.titolo ? 'pacco_lantek' : 'lantek'); } finally { K._quad = false; }
+      if (!ok || st) return;
+    }
     LZ.chiudiMenu();
     st = { ids: LZ.ordiniLaser().map(o => o.id).filter(id => ids.includes(id)), fase: 'carica', dati: {}, errori: {},
            scelte: {}, esiti: {}, foto: LZ.fotografa(), amano: [], spunte: new Set(), opz: opz || {} };

@@ -400,6 +400,8 @@
   /** "Segna tagliata" di una lamiera (chiave) o di tutto il pacco. */
   P.tagliato = (id, chiave) => LZ.azione(async () => {
     const p0 = P.trova(id);
+    // un ordine del pacco che non quadra: prima l'elenco e «Ho controllato» (laser-quadratura.js)
+    if (LZ.quad && !(await LZ.quad.prima((p0 && p0.ordini) || [], 'pacco_taglio'))) return;
     let r = await LZ.post(`/api/pacchi/${encodeURIComponent(id)}/tagliato`, chiave ? { chiave } : {});
     if (!r.ok) { errore(r, 'Non segnato'); return; }
     // ordini con assiemi senza componenti / righe senza disegno: non si

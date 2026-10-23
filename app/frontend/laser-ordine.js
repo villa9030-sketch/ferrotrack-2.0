@@ -317,7 +317,9 @@
     const D = S.dett[o.id] || {};
     const info = D.dati || S.riep[o.id] || {};
     const st = LZ.statoLaser(o);
-    let h = `<section class="lz-passo ${p.tono || ''}" aria-label="Prossimo passo">
+    // la quadratura dell'ordine, in cima (laser-quadratura.js)
+    let h = LZ.quad ? LZ.quad.riga(o) : '';
+    h += `<section class="lz-passo ${p.tono || ''}" aria-label="Prossimo passo">
       <div class="ico">${p.carica ? `<span class="lz-gira" style="display:grid">${LZ.ico('loader-circle')}</span>` : LZ.ico(p.ico)}</div>
       <div class="cosa"><b>${esc(p.t)}</b><span>${p.s}</span></div>
       <div class="bottoni">${(p.bottoni || []).map(b => `<button class="lz-btn grande${b.pri ? ' pri' : ''}" type="button" data-az="${b.az}"
@@ -659,6 +661,8 @@
     }).join('');
   }
   O.lamiera = (id, chiave, annulla) => LZ.azione(async () => {
+    // una lamiera tagliata di un ordine che non quadra: prima l'elenco e «Ho controllato»
+    if (!annulla && LZ.quad && !(await LZ.quad.prima([id], 'taglio'))) return;
     const r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lamiera-tagliata`, { chiave, annulla: !!annulla });
     if (!r.ok) { FT.toast('Non salvato: ' + (r.d.error || 'errore del server'), 'err'); return; }
     const x = (LZ.lamiere(LZ.trova(id) || { id }).l || []).find(l => l.chiave === chiave);
@@ -1023,6 +1027,8 @@
   });
   O.taglioFatto = async function (id) {
     const o = LZ.trova(id);
+    // un ordine che non quadra: prima l'elenco e «Ho controllato» (laser-quadratura.js)
+    if (LZ.quad && !(await LZ.quad.prima([id], 'taglio'))) return;
     const ok = await FT.conferma({ titolo: 'Taglio fatto?', ok: 'Sì, taglio fatto',
       testo: (o ? `${o.cliente || ''} · ${LZ.numero(o)}. ` : '') + 'L\'ordine passa in officina.' });
     if (!ok) return;

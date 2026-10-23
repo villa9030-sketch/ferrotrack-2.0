@@ -167,7 +167,7 @@
       <td class="c-sp">${sp ? `<input type="checkbox" data-sp="${id}" ${S.spuntati.has(o.id) ? 'checked' : ''}
         aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">` : ''}</td>
       <td class="c-num"><span class="lz-num" title="${esc(LZ.numero(o))}">${esc(LZ.numeroBreve(o))}</span></td>
-      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${LZ.pacchi ? LZ.pacchi.nota(o.id) : ''}${anche}${procura(o)}${LZ.segn ? LZ.segn.parolaLista(o) : ''}</div></td>
+      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${LZ.pacchi ? LZ.pacchi.nota(o.id) : ''}${anche}${procura(o)}${LZ.segn ? LZ.segn.parolaLista(o) : ''}${LZ.quad ? LZ.quad.parolaLista(o) : ''}</div></td>
       <td class="c-st">${stato(o)}</td>
       <td class="c-pz r">${pezzi != null ? esc(FT.numero(pezzi)) : '—'}</td>
       <td class="c-cons">${consegna(o, st)}</td>
