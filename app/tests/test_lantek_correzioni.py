@@ -106,6 +106,9 @@ L.materiali_lantek_noti = lambda: {'FERRO', 'INOX'}
 L.xmlimporter_disponibile = lambda: True
 L.importa_pezzi_dxf = pezzi_finti
 L.importa_xml = xml_finto
+L.expert_aperto = lambda: False   # Lantek Expert chiuso (sul PC vero puo' essere aperto)
+from tests.lantek_finto import usa as _lantek_finto  # noqa: E402
+_lantek_finto(L)   # dopo l'invio Lantek "ha creato" gli ordini dell'XML
 
 OK = 0
 KO = []

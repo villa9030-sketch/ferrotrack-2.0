@@ -9230,6 +9230,10 @@ def _lantek_invia(order_id, _li):
             return jsonify({'success': False, 'codice': 'no_xmlimporter',
                             'error': "XML Importer di Lantek non trovato su questo PC: scarica il file "
                                      "e importalo a mano"}), 503
+        # Expert aperto: Procesos non apre il sistema e i pezzi non entrano
+        # (A 001252, 22/10/2026). Non parte niente; il MES aperto va bene.
+        if _lt.expert_aperto():
+            return jsonify({'success': False, 'codice': 'expert_aperto', 'error': _lt.MSG_EXPERT_APERTO}), 409
         cartella = os.path.join(UPLOAD_FOLDER, 'lantek_import')
         esito_pezzi, creati = None, []
         # 1. pezzi nuovi col disegno
@@ -9239,6 +9243,8 @@ def _lantek_invia(order_id, _li):
                 cons = datetime.strptime(q['consegna'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
             esito_pezzi = _lt.importa_pezzi_dxf(nuovi_si, cartella, [q['cliente_lantek'], cons])
             if not esito_pezzi.get('eseguito'):
+                if esito_pezzi.get('expert_aperto'):
+                    return jsonify({'success': False, 'codice': 'expert_aperto', 'error': esito_pezzi['errore']}), 409
                 _audit('LANTEK_INVIA', 'orders', order_id,
                        'Pezzi nuovi non mandati a Lantek: ' + (esito_pezzi.get('errore') or ''))
                 return jsonify({'success': False, 'codice': 'pezzi_falliti', 'error': esito_pezzi.get('errore')}), 502
@@ -9248,6 +9254,9 @@ def _lantek_invia(order_id, _li):
             q = _quantita_lantek(order, righe_dist)
             ammessi = ({str(c) for c in (corpo.get('codici') or [])} | set(creati)) - tenuti_fuori
             righe = [r for r in _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia) if r['codice'] in ammessi]
+        # i pezzi nuovi creati: in Lantek col materiale e lo spessore mandati?
+        problemi = _lt.controlla_invio([], None, {}, [x for x in nuovi_si if x['codice'] in creati],
+                                       visti) if creati else []
         # 2. ordini di produzione
         rap, presenti = {}, []
         if righe:
@@ -9265,11 +9274,24 @@ def _lantek_invia(order_id, _li):
                 return jsonify({'success': False, 'codice': 'import_fallito', 'pezzi_creati': len(creati),
                                 'error': esito.get('errore')}), 502
             rap = esito['rapporto']
-            ora = _lt.ordini_in_lantek(q['commessa']) or {}
-            presenti = [r['codice'] for r in righe if ora.get(str(r['codice']).strip().upper())]
+            # riletti ADESSO, uno per uno col riferimento appena mandato:
+            # c'e', e' per quel pezzo, con la quantita' mandata
+            rif = lambda c: _lt.riferimento_ordine(q['commessa'], c, invio)  # noqa: E731
+            prob_ordini = _lt.controlla_invio(righe, rif, _lt.ordini_per_riferimento([rif(r['codice']) for r in righe]))
+            male = {p['codice'] for p in prob_ordini}
+            presenti = [r['codice'] for r in righe if str(r['codice']) not in male]
+            problemi += prob_ordini
+        # la quadratura dell'ordine si rifa' subito (non alle 06:45 di domani)
+        try:
+            from . import quadratura as _qd
+            _qd.in_sottofondo(order_id)
+        except Exception:
+            logger.warning('quadratura dopo l\'invio non avviata', exc_info=True)
         _audit('LANTEK_INVIA', 'orders', order_id,
                f"Mandati a Lantek (ordine {q['commessa']}): {len(creati)} di {len(nuovi_si)} pezzi nuovi creati, "
                f"{len(presenti)} di {len(righe)} ordini di produzione verificati"
+               + (f"; RILETTO IN LANTEK, NON TORNA: {'; '.join(p['codice'] + ' ' + p['problema'] for p in problemi)}"
+                  if problemi else '')
                + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else '')
                + ('; LANTEK NON LEGGIBILE: mandato senza il controllo dei doppioni, confermato da chi ha mandato'
                   if lantek_giu else '')
@@ -9284,7 +9306,9 @@ def _lantek_invia(order_id, _li):
                         'pezzi_nuovi': len(nuovi_si), 'pezzi_creati': len(creati),
                         'pezzi_non_creati': [x['codice'] for x in nuovi_si if x['codice'] not in creati],
                         'mandati': len(righe), 'rapporto': rap, 'verificati': len(presenti),
-                        'mancanti': [r['codice'] for r in righe if r['codice'] not in presenti]}), 200
+                        'mancanti': [r['codice'] for r in righe if r['codice'] not in presenti],
+                        # riletto in Lantek dopo l'invio: [{codice, problema}], vuoto = tutto giusto
+                        'problemi': problemi}), 200
     except Exception as e:
         logger.exception('invio a Lantek fallito')
         return jsonify({'success': False, 'error': str(e)}), 500

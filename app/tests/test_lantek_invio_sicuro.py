@@ -124,6 +124,7 @@ def _importa_finto(contenuto, nome, cartella, attesa_s=300):
 
 
 L.importa_xml = _importa_finto
+L.expert_aperto = lambda: False   # Lantek Expert chiuso (sul PC vero puo' essere aperto)
 TL._leggi_lantek = lambda codici: None
 
 OK = 0

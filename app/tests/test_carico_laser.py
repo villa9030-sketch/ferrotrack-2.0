@@ -73,6 +73,7 @@ TL._leggi_lantek = lambda codici: None
 L.pezzi_in_lantek = lambda codici: {'disponibile': False, 'errore': 'prova', 'pezzi': {}}
 L.importa_pezzi_dxf = lambda *a, **k: (_ for _ in ()).throw(AssertionError('Lantek non si lancia nei test'))
 L.importa_xml = lambda *a, **k: (_ for _ in ()).throw(AssertionError('Lantek non si lancia nei test'))
+L.expert_aperto = lambda: False   # Lantek Expert chiuso (sul PC vero puo' essere aperto)
 
 OK = 0
 KO = []

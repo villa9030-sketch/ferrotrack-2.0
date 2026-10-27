@@ -47,6 +47,9 @@ Base.metadata.create_all(bind=_ENG)
 import importlib  # noqa: E402
 A = importlib.import_module('backend.app')
 from backend import lantek as L  # noqa: E402
+L.expert_aperto = lambda: False   # Lantek Expert chiuso (sul PC vero puo' essere aperto)
+from tests.lantek_finto import usa as _lantek_finto  # noqa: E402
+_lantek_finto(L)   # dopo l'invio Lantek "ha creato" gli ordini dell'XML
 from backend.database import PreventivoManager  # noqa: E402
 
 _CARTELLE = tempfile.mkdtemp(prefix='ft_ltq_')
@@ -346,12 +349,20 @@ margin-top: 5px;
     r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00']})
     check('C1-00 senza disegno: senza conferma non parte niente (409)',
           r9.status_code == 409 and (r9.get_json() or {}).get('codici') == ['C1-00'] and not lanciati, r9.get_json())
+    # Lantek Expert aperto (A 001252, 22/10/2026: "Non si può aprire il
+    # sistema"): non parte niente, si dice di chiuderlo
+    L.expert_aperto = lambda: True
+    r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00'], 'conferma_mancanti': ['C1-00']})
+    check('Lantek Expert aperto: non parte niente (409 expert_aperto, "chiudilo")',
+          r9.status_code == 409 and (r9.get_json() or {}).get('codice') == 'expert_aperto'
+          and 'chiudilo' in (r9.get_json() or {}).get('error', '') and not lanciati, (r9.status_code, r9.get_json()))
+    L.expert_aperto = lambda: False
     r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00'], 'conferma_mancanti': ['C1-00']})
     j = r9.get_json() or {}
     check('confermato: XML Importer lanciato una volta con l\'XML di A1, verificato in Lantek',
           r9.status_code == 200 and len(lanciati) == 1 and b'A1-00' in lanciati[0][0]
           and b'B1-00' not in lanciati[0][0] and j.get('mandati') == 1 and j.get('verificati') == 1
-          and j.get('mancanti') == [], (r9.status_code, j))
+          and j.get('mancanti') == [] and j.get('problemi') == [], (r9.status_code, j))
     r9 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': ['A1-00'], 'conferma_mancanti': ['C1-00']})
     check('rimandato: ora e\' gia\' in produzione, niente da mandare (409), niente doppioni',
           r9.status_code == 409 and len(lanciati) == 1, (r9.status_code, r9.get_json()))
@@ -407,6 +418,16 @@ margin-top: 5px;
                 'rapporto': {'totale': 3, 'ok': 3, 'avvisi': 0, 'con_errore': 0, 'errori': []}}
     L.importa_pezzi_dxf = pezzi_finti
     L.importa_xml = xml_finto
+    # Lantek che sbaglia: crea l'ordine di B1-00 con 7 pezzi e C1-00 a 3 mm
+    # invece di 4. FerroTrack lo rilegge subito dopo l'invio e lo dice.
+    _lantek_finto(L, cambia={'B1-00': 7})
+    vecchi_finti = pezzi_finti
+
+    def pezzi_finti(pezzi, cartella, user_data=None, attesa_s=900):   # noqa: F811
+        e = vecchi_finti(pezzi, cartella, user_data, attesa_s)
+        pezzi_lantek['C1-00'] = {**pezzi_lantek['C1-00'], 'spessore': 3.0}
+        return e
+    L.importa_pezzi_dxf = pezzi_finti
     r10 = laser.post(f'/api/orders/{oid}/lantek-invia', json={'codici': sorted(x['codice'] for x in d['da_mandare'])})
     check('senza i nuovi visti in conferma: non si manda niente (409)', r10.status_code == 409 and not passi,
           (r10.status_code, r10.get_json()))
@@ -421,7 +442,13 @@ margin-top: 5px;
     # 14/10/2026): non riparte anche se Lantek non lo mostra piu' in produzione
     check('negli ordini anche il pezzo appena creato (C1-00 x 2), non A1-00 gia mandato',
           b'"C1-00"' in passi[1][1] and b'"A1-00"' not in passi[1][1] and j.get('pezzi_creati') == 1
-          and j.get('verificati') == j.get('mandati') == 2, j)
+          and j.get('mandati') == 2, j)
+    prob = {p['codice']: p['problema'] for p in j.get('problemi') or []}
+    check('riletto in Lantek: B1-00 con 7 pezzi invece di 8, C1-00 a 3 mm invece di 4',
+          set(prob) == {'B1-00', 'C1-00'} and prob['B1-00'] == 'in Lantek 7 pezzi, mandati 8'
+          and prob['C1-00'] == 'in Lantek lo spessore è 3 mm, mandato 4 mm'
+          and j.get('verificati') == 1 and j.get('mancanti') == ['B1-00'], j)
+    _lantek_finto(L)
 
     print('\n11) Verifica tecnica dei disegni (al caricamento dell\'ordine)')
     cp = A._controllo_pezzo

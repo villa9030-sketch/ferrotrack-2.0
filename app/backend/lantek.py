@@ -445,6 +445,82 @@ def cerca_pezzi(testo: str, massimo: int = 30) -> list | None:
         return None
 
 
+def ordini_per_riferimento(riferimenti: list) -> dict | None:
+    """Gli ordini di produzione con questi riferimenti (MnORef: quelli che
+    "Manda a Lantek" ha appena creato), letti adesso, senza cache:
+    {riferimento in maiuscolo: {'codice', 'quantita'}}. None se Lantek non
+    e' leggibile."""
+    rif = sorted({str(r).strip() for r in riferimenti or [] if r and str(r).strip()})
+    cfg = _config()
+    if not cfg.get('abilitato'):
+        return None
+    out = {}
+    if not rif:
+        return out
+    try:
+        con, cur = _connessione(cfg)
+        try:
+            for i in range(0, len(rif), 500):
+                blocco = rif[i:i + 500]
+                cur.execute('SELECT LTRIM(RTRIM(MnORef)), LTRIM(RTRIM(PrdRef)), Quantity FROM MMNN_MMOO_00000100 '
+                            'WHERE MnORef IN (' + ','.join('?' * len(blocco)) + ')', blocco)
+                for mno, prd, q in cur.fetchall():
+                    out[str(mno).upper()] = {'codice': str(prd or ''), 'quantita': float(q or 0)}
+        finally:
+            con.close()
+    except Exception as e:
+        logger.info('ordini di produzione per riferimento non letti: %s', e)
+        return None
+    return out
+
+
+def _stesso_materiale(lantek_mat, atteso) -> bool:
+    a, b = str(lantek_mat or '').strip().upper(), str(atteso or '').strip().upper()
+    return not b or a == b or a.endswith(b)
+
+
+def controlla_invio(righe: list, riferimento, ordini: dict | None,
+                    nuovi: list | None = None, pezzi: dict | None = None) -> list:
+    """Dopo "Manda a Lantek": quello che Lantek ha DAVVERO creato, riletto.
+
+    righe: gli ordini di produzione mandati [{codice, quantita}];
+    riferimento(codice) -> il riferimento (MnORef) mandato per quel codice;
+    ordini: ordini_per_riferimento() (None = Lantek non leggibile);
+    nuovi: i pezzi nuovi mandati a Procesos [{codice, materiale, spessore}];
+    pezzi: pezzi_in_lantek()['pezzi'] per i nuovi.
+    Ritorna i problemi [{'codice', 'problema'}]: vuoto = tutto giusto."""
+    out = []
+    if ordini is None:
+        return [{'codice': str(r['codice']), 'problema': 'Lantek non si legge: controlla a mano che ci sia'}
+                for r in righe]
+    for r in righe:
+        cod, q = str(r['codice']), int(r.get('quantita') or 0)
+        o = ordini.get(riferimento(cod).upper())
+        if not o:
+            out.append({'codice': cod, 'problema': 'ordine di produzione non trovato in Lantek'})
+        elif o['codice'].upper() != cod.upper():
+            out.append({'codice': cod, 'problema': f"in Lantek l'ordine è per il pezzo {o['codice']}"})
+        elif abs(o['quantita'] - q) > 0.001:
+            out.append({'codice': cod, 'problema': f"in Lantek {o['quantita']:g} pezzi, mandati {q}"})
+    for n in nuovi or []:
+        cod = str(n['codice'])
+        p = (pezzi or {}).get(cod) or {}
+        if not p.get('esiste'):
+            out.append({'codice': cod, 'problema': 'pezzo nuovo non trovato in Lantek'})
+            continue
+        if not _stesso_materiale(p.get('materiale'), n.get('materiale')):
+            out.append({'codice': cod, 'problema': f"in Lantek il materiale è {p.get('materiale') or '?'}, "
+                                                   f"mandato {n.get('materiale')}"})
+        try:
+            sp = float(n.get('spessore'))
+        except (TypeError, ValueError):
+            sp = None
+        if sp is not None and (p.get('spessore') is None or abs(p['spessore'] - sp) > 0.01):
+            lt = f"{p['spessore']:g} mm" if p.get('spessore') is not None else 'senza spessore'
+            out.append({'codice': cod, 'problema': f'in Lantek lo spessore è {lt}, mandato {sp:g} mm'})
+    return out
+
+
 def ordini_in_lantek(commessa: str) -> dict | None:
     """Gli ordini di produzione APERTI (non ancora fatti) che Lantek ha per
     quel numero d'ordine: {codice in maiuscolo: quantita'}. None se Lantek non
@@ -757,6 +833,19 @@ def _gia_aperto(nome_exe: str) -> bool:
         return False
 
 
+# Lantek Expert aperto sul PC: Procesos non riesce ad aprire il sistema
+# ("Non si può aprire il sistema", A 001252 il 22/10/2026) e i pezzi non
+# entrano. Il MES (WinInterface.exe) invece e' sempre aperto e non da' noia.
+EXPERT = 'ExpertPr.exe'
+MSG_EXPERT_APERTO = ('Lantek Expert è aperto: chiudilo e premi Riprova. '
+                     'Il MES può restare aperto.')
+
+
+def expert_aperto() -> bool:
+    import os
+    return os.name == 'nt' and _gia_aperto(EXPERT)
+
+
 def _svuota_cache():
     with _LOCK:
         _CACHE.clear()
@@ -782,6 +871,8 @@ def importa_pezzi_dxf(pezzi: list, cartella: str, user_data: list | None = None,
     try:
         if _gia_aperto('Procesos.exe'):
             return {'eseguito': False, 'errore': 'Un processo di Lantek è già in corso su questo PC: riprova tra poco'}
+        if expert_aperto():
+            return {'eseguito': False, 'errore': MSG_EXPERT_APERTO, 'expert_aperto': True}
         stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         lavoro_dir = os.path.join(cartella, 'pezzi_' + stamp)
         os.makedirs(lavoro_dir, exist_ok=True)

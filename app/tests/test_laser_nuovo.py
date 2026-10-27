@@ -59,16 +59,26 @@ if not _salute.get('istanza_di_prova'):
     sys.exit(1)
 
 finti = {'invia': [], 'importato': [], 'contorno': [], 'giusto': []}
+# le prossime risposte di /lantek-invia: 'expert' = Lantek Expert aperto (409),
+# 'storto' = mandato ma riletto in Lantek con una quantita' diversa
+PIANO = []
 
 
 def finto_invio(route):
     corpo = json.loads(route.request.post_data or '{}')
     finti['invia'].append((route.request.url, corpo))
+    modo = PIANO.pop(0) if PIANO else ''
+    if modo == 'expert':
+        return route.fulfill(status=409, content_type='application/json', body=json.dumps({
+            'success': False, 'codice': 'expert_aperto',
+            'error': 'Lantek Expert è aperto: chiudilo e premi Riprova. Il MES può restare aperto.'}))
     n = len(corpo.get('codici') or []) + len(corpo.get('nuovi') or [])
+    cod = ((corpo.get('codici') or []) + (corpo.get('nuovi') or []) or ['?'])[0]
+    prob = [{'codice': cod, 'problema': 'in Lantek 7 pezzi, mandati 8'}] if modo == 'storto' else []
     route.fulfill(status=200, content_type='application/json', body=json.dumps({
         'success': True, 'pezzi_nuovi': len(corpo.get('nuovi') or []), 'pezzi_creati': len(corpo.get('nuovi') or []),
-        'pezzi_non_creati': [], 'mandati': n, 'verificati': n, 'mancanti': [],
-        'rapporto': {'totale': n, 'ok': n, 'avvisi': 0, 'con_errore': 0, 'errori': []}}))
+        'pezzi_non_creati': [], 'mandati': n, 'verificati': n - len(prob), 'mancanti': [p['codice'] for p in prob],
+        'problemi': prob, 'rapporto': {'totale': n, 'ok': n, 'avvisi': 0, 'con_errore': 0, 'errori': []}}))
 
 
 def finto(nome):
@@ -221,8 +231,18 @@ with sync_playwright() as p:
         check('nessun invio prima della conferma', not finti['invia'])
         for r in pg.locator('#lz-lantek input[value="lantek"]').all():
             r.check(force=True)   # l'input sta sotto la sua etichetta (scelta a pulsante)
+        # la prima volta Lantek Expert e' aperto: si dice di chiuderlo, Riprova
+        PIANO[:] = ['expert']
         pg.keyboard.press('Enter')
+        pg.wait_for_selector('.ft-modal-bg .ft-modal-title:has-text("Lantek Expert è aperto")', timeout=60000)
+        avviso = pg.locator('.ft-modal-bg').last.inner_text()
+        check('Expert aperto: "chiudi Lantek Expert", il MES può restare, tasto Riprova',
+              'Chiudi Lantek Expert' in avviso and 'MES' in avviso and 'Riprova' in avviso and len(finti['invia']) == 1,
+              avviso)
+        pg.click('.ft-modal-bg button[data-v="1"]')
         pg.wait_for_function("document.querySelector('#lz-lantek') && document.querySelector('#lz-lantek').innerText.includes('Mandato a Lantek')", timeout=60000)
+        check('Riprova: rimandato una seconda volta, uguale', len(finti['invia']) == 2
+              and finti['invia'][0][1] == finti['invia'][1][1])
         dett = pg.evaluate(f'LZ.s.dett["{oid}"].dati.invio')
         corpo = finti['invia'][-1][1] if finti['invia'] else {}
         check('mandati esattamente i codici visti', sorted(corpo.get('codici') or []) == sorted(dett['codici'])
@@ -232,6 +252,30 @@ with sync_playwright() as p:
         pg.keyboard.press('Enter')
         pg.wait_for_timeout(500)
         check('finestra chiusa', pg.locator('#lz-lantek').count() == 0)
+
+    print('\n5b) Riletto in Lantek dopo l\'invio: qualcosa non torna')
+    if not pronti:
+        print('   Nessun ordine pronto per Lantek nella copia: parte saltata.')
+    else:
+        # l'invio del punto 5 era finto: nel database l'ordine e' ancora da mandare
+        oid = pronti[-1]
+        n_imp = len(finti['importato'])
+        pg.click(f'.lz-r[data-id="{oid}"]')
+        pg.wait_for_function(f'LZ.s.dett["{oid}"] && LZ.s.dett["{oid}"].dati', timeout=60000)
+        pg.keyboard.press('Enter')
+        pg.wait_for_selector('#lz-lantek [data-k="manda"]', timeout=60000)
+        pg.wait_for_function("!document.querySelector('#lz-lantek .lz-skel')", timeout=60000)
+        for r in pg.locator('#lz-lantek input[value="lantek"]').all():
+            r.check(force=True)
+        PIANO[:] = ['storto']
+        pg.keyboard.press('Enter')
+        pg.wait_for_function("document.querySelector('#lz-lantek') && document.querySelector('#lz-lantek').innerText.includes('qualcosa non torna')", timeout=60000)
+        testo = pg.locator('#lz-lantek').inner_text()
+        check('in rosso: "riletto in Lantek, qualcosa non torna" col pezzo e la quantità',
+              'in Lantek 7 pezzi, mandati 8' in testo, testo[:400])
+        check('non segnato «In Lantek»: resta da mettere in Lantek', len(finti['importato']) == n_imp)
+        pg.keyboard.press('Escape')
+        pg.wait_for_timeout(500)
 
     print('\n6) Piu\' ordini insieme')
     coda = [k for k, v in riep.items() if v.get('stato') == 'coda']

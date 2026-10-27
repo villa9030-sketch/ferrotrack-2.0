@@ -62,6 +62,7 @@ dxf_cache._CACHE_DB_PATH = os.path.join(_CARTELLE, 'dxf_cache.db')
 L.pezzi_in_lantek = lambda codici: {'disponibile': False, 'errore': 'simulato', 'pezzi': {}}
 L.importa_pezzi_dxf = lambda *a, **k: {'eseguito': False, 'errore': 'bloccato nel test'}
 L.importa_xml = lambda *a, **k: {'eseguito': False, 'errore': 'bloccato nel test'}
+L.expert_aperto = lambda: False   # Lantek Expert chiuso (sul PC vero puo' essere aperto)
 
 PACCHETTO = r'C:\Users\Stefano\Desktop\AUTOCAD\TAGLIO\DECA\ORDINI\ls 1221\ls 1221'
 TUBI = {'26CCSA0038': ('Quadro', 581), '26CCSA0039': ('Quadro', 895), '26CCSA0040': ('150x50', 595),

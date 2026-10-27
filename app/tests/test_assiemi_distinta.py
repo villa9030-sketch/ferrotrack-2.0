@@ -85,6 +85,7 @@ L.materiali_lantek_noti = lambda: {'FERRO', 'INOX'}
 L.xmlimporter_disponibile = lambda: True
 L.importa_pezzi_dxf = lambda *a, **k: {'eseguito': False, 'errore': 'bloccato nel test'}
 L.importa_xml = lambda *a, **k: {'eseguito': False, 'errore': 'bloccato nel test'}
+L.expert_aperto = lambda: False   # Lantek Expert chiuso (sul PC vero puo' essere aperto)
 
 OK = 0
 KO = []

@@ -268,6 +268,15 @@
     const corpo = { codici: (inv.codici || []).filter(c => !fuori.includes(c)), nuovi: inv.nuovi || [], esclusi: fuori,
                     conferma_mancanti: (d.mancano_disegni || []).map(x => x.codice) };
     let r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-invia`, corpo);
+    // Lantek Expert aperto: non e' partito niente. Lo chiudi e riprovi (il MES puo' restare aperto).
+    while (!r.ok && (r.d || {}).codice === 'expert_aperto') {
+      const ok = await FT.conferma({
+        titolo: 'Lantek Expert è aperto',
+        testo: 'Non è partito niente. Chiudi Lantek Expert, poi premi Riprova. Il MES può restare aperto.',
+        ok: 'Riprova', annulla: 'Annulla' });
+      if (!ok) break;
+      r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-invia`, corpo);
+    }
     if (!r.ok && (r.d || {}).codice === 'lantek_non_risponde') {
       // Lantek non si legge: non si sa cosa c'e' gia' in produzione. Decide chi manda.
       const ok = await FT.conferma({
@@ -284,15 +293,19 @@
                dett: `${esc(x.error || 'errore del server')}${x.pezzi_creati ? `<br>Pezzi nuovi creati prima dell'errore: ${x.pezzi_creati}.` : ''}<br>Riapri l'ordine e premi Ricontrolla: quello che è già in Lantek non si rimanda.` };
     }
     const rap = x.rapporto || {};
-    const tutto = !rap.con_errore && x.verificati === x.mandati && x.pezzi_creati === x.pezzi_nuovi;
+    // problemi: quello che FerroTrack ha riletto in Lantek subito dopo l'invio
+    // (ordine che manca, quantita' diversa, pezzo nuovo con spessore/materiale diverso)
+    const problemi = x.problemi || [];
+    const tutto = !rap.con_errore && !problemi.length && x.verificati === x.mandati && x.pezzi_creati === x.pezzi_nuovi;
     const righe = [];
     if (x.pezzi_nuovi) righe.push(`${x.pezzi_creati} di ${x.pezzi_nuovi} pezzi nuovi creati col disegno`);
-    righe.push(`${x.verificati} di ${x.mandati} ordini di produzione, ricontrollati in Lantek`);
+    righe.push(`${x.verificati} di ${x.mandati} ordini di produzione riletti in Lantek: pezzo e quantità giusti`);
+    const conErr = new Set((rap.errori || []).map(e => e.pezzo));
     const errori = (rap.errori || []).map(e => `<li><span class="mono">${esc(e.pezzo || '?')}</span> ${esc(e.messaggio || 'errore')}</li>`)
       .concat((x.pezzi_non_creati || []).map(c => `<li><span class="mono">${esc(c)}</span> pezzo non creato</li>`))
-      .concat((x.mancanti || []).filter(c => !(rap.errori || []).some(e => e.pezzo === c)).map(c => `<li><span class="mono">${esc(c)}</span> ordine di produzione non trovato in Lantek</li>`));
+      .concat(problemi.filter(p => !conErr.has(p.codice)).map(p => `<li><span class="mono">${esc(p.codice)}</span> ${esc(p.problema)}</li>`));
     if (!tutto) {
-      return { stato: 'err', titolo: 'Lantek non ha creato tutto: l\'ordine resta da mettere in Lantek',
+      return { stato: 'err', titolo: 'Riletto in Lantek: qualcosa non torna. L\'ordine resta da mettere in Lantek',
                dett: righe.map(esc).join('<br>') + (errori.length ? `<ul>${errori.join('')}</ul>` : '') + 'Riapri l\'ordine e premi Ricontrolla.' };
     }
     if (fuori.length) {

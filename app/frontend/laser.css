@@ -468,6 +468,9 @@ body.lz .ft-btn { font-family: var(--lz-font); }
 
 /* ── Finestra "Manda a Lantek" ──────────────────────────────────── */
 .lz-velo { position: fixed; inset: 0; z-index: 2700; display: grid; place-items: center; padding: 24px; background: rgba(15, 18, 24, .42); }
+/* le conferme (FT.conferma, 2000) aperte da una finestra del laser ("Lantek
+   Expert è aperto", "Lantek non risponde") stanno SOPRA, non nascoste dietro */
+.ft-modal-bg { z-index: 2800; }
 .lz-dlg { width: min(760px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--lz-surface);
   border-radius: 14px; box-shadow: var(--lz-float); overflow: hidden; }
 .lz-dlg-testa { padding: 20px 24px 12px; }
