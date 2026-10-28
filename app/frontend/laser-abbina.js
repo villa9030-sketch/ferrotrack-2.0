@@ -20,16 +20,16 @@
     const liberi = pdf.liberi || [];
     return `<section class="lz-abb" id="lz-abb" aria-label="Righe da abbinare">
       <div class="lz-abb-testa"><b>${LZ.plur(righe.length, 'riga da abbinare', 'righe da abbinare')}</b>
-        <p>Queste righe del PDF non sono in Lantek col loro codice. Dimmi cosa sono: me lo ricordo per le prossime forniture.</p></div>
+        <p>Queste righe del PDF non sono in Lantek col loro codice. Scegli i disegni di Lantek che diventano: me lo ricordo per le prossime forniture (li trovi poi in «Disegni Lantek per articolo»).</p></div>
       <ul>${righe.map(r => {
         const e = ed(o.id, r.codice);
         const c = esc(r.codice);
         return `<li><div class="lz-abb-riga"><div><span class="mono">${c}</span> <span class="num" style="color:var(--lz-ink-3)">· ${esc(String(r.quantita))} pz</span>
             <p>${esc(r.descrizione || '')}</p></div>
           <div style="display:flex;gap:8px">
-            <button class="lz-btn piccolo${e ? ' pri' : ''}" type="button" data-abb="apri" data-cod="${c}">${LZ.ico('layers')}È un assieme</button>
+            <button class="lz-btn piccolo${e ? ' pri' : ''}" type="button" data-abb="apri" data-cod="${c}">${LZ.ico('layers')}Scegli i disegni di Lantek</button>
             <button class="lz-btn piccolo" type="button" data-abb="nonlaser" data-cod="${c}">Non va al laser</button></div></div>
-          ${e ? editor(o, r, e, liberi) : '<p style="margin:6px 0 0;font-size:12.5px;color:var(--lz-ink-3)">Se è un pezzo singolo: disegnalo in Lantek con lo stesso codice, poi premi Ricontrolla.</p>'}</li>`;
+          ${e ? editor(o, r, e, liberi) : ''}</li>`;
       }).join('')}</ul></section>`;
   };
 
@@ -40,27 +40,26 @@
       return `<label class="lz-abb-p"><input type="checkbox" data-abb="spunta" data-cod="${c}" data-pz="${esc(cod)}" ${q != null ? 'checked' : ''}>
         <span class="mono">${esc(cod)}</span><span style="color:var(--lz-ink-3);font-size:12.5px">${qLantek != null ? `in Lantek ${esc(String(qLantek))} pz` : ''}</span>
         <span><input type="number" min="1" max="9999" value="${esc(String(q != null ? q : 1))}" ${q != null ? '' : 'disabled'}
-          data-abb="qta" data-cod="${c}" data-pz="${esc(cod)}" aria-label="Pezzi per un assieme"> per assieme</span></label>`;
+          data-abb="qta" data-cod="${c}" data-pz="${esc(cod)}" aria-label="Quanti per uno"> per uno</span></label>`;
     };
     const liberiCod = new Set(liberi.map(x => x.codice));
     const extra = Object.keys(e.pezzi).filter(k => !liberiCod.has(k));
     const trovati = (e.trovati || []).filter(x => !liberiCod.has(x.codice) && e.pezzi[x.codice] == null);
     const n = Object.keys(e.pezzi).length;
     return `<div class="lz-abb-ed">
-      <h4>Di quali pezzi di Lantek è fatto ${c}? (quanti per UN assieme)</h4>
-      ${liberi.length ? `<p>Pezzi che hai messo in Lantek con quest'ordine e che nessuna riga spiega:</p>${liberi.map(x => riga(x.codice, x.quantita)).join('')}`
-        : '<p>In Lantek non ci sono pezzi di quest\'ordine senza riga: cercali per codice.</p>'}
-      ${extra.map(k => riga(k, null)).join('')}
-      <div class="lz-abb-cerca"><input type="search" placeholder="Cerca un pezzo in Lantek (almeno 3 caratteri del codice)" value="${esc(e.q || '')}"
-          data-abb="testo" data-cod="${c}" aria-label="Cerca un pezzo in Lantek">
+      <h4>Quali disegni di Lantek diventa ${c}? (quanti per UNO)</h4>
+      <div class="lz-abb-cerca"><input type="search" placeholder="Cerca un disegno in Lantek: un pezzo del nome (es. FONDO 563)" value="${esc(e.q || '')}"
+          data-abb="testo" data-cod="${c}" aria-label="Cerca un disegno in Lantek">
         <button class="lz-btn piccolo" type="button" data-abb="cerca" data-cod="${c}">${LZ.ico('search')}Cerca</button></div>
       ${e.cercaErr ? `<p style="margin:4px 0;color:var(--lz-ink-3);font-size:12.5px">${esc(e.cercaErr)}</p>` : ''}
       ${trovati.map(x => `<div class="lz-abb-p"><span></span><span class="mono">${esc(x.codice)}</span>
           <span style="color:var(--lz-ink-3);font-size:12.5px">${esc(LZ.lamiera(x.materiale, x.spessore))}</span>
           <button class="lz-btn piccolo" type="button" data-abb="aggiungi" data-cod="${c}" data-pz="${esc(x.codice)}">Aggiungi</button></div>`).join('')}
+      ${liberi.length ? `<p>Disegni che hai già messo in Lantek con quest'ordine e che nessuna riga spiega:</p>${liberi.map(x => riga(x.codice, x.quantita)).join('')}` : ''}
+      ${extra.map(k => riga(k, null)).join('')}
       <div class="lz-abb-az">
         <button class="lz-btn piccolo" type="button" data-abb="chiudi" data-cod="${c}">Annulla</button>
-        <button class="lz-btn piccolo pri" type="button" data-abb="salva" data-cod="${c}" ${n ? '' : 'disabled'}>${LZ.ico('check')}Salva: ${LZ.plur(n, 'pezzo', 'pezzi')} per assieme</button>
+        <button class="lz-btn piccolo pri" type="button" data-abb="salva" data-cod="${c}" ${n ? '' : 'disabled'}>${LZ.ico('check')}Salva: ${LZ.plur(n, 'disegno', 'disegni')}</button>
       </div></div>`;
   }
 
@@ -103,10 +102,10 @@
     const e = ed(id, cod);
     if (!e) return;
     e.q = String(testo || '').trim();
-    if (e.q.length < 3) { e.cercaErr = 'Scrivi almeno 3 caratteri del codice'; e.trovati = []; ridisegna(); return; }
+    if (e.q.length < 3) { e.cercaErr = 'Scrivi almeno 3 caratteri del nome'; e.trovati = []; ridisegna(); return; }
     const r = await LZ.get(`/api/lantek/pezzi?q=${encodeURIComponent(e.q)}`);
     e.trovati = r.ok ? (r.d.pezzi || []) : [];
-    e.cercaErr = !r.ok ? (r.d.error || 'Lantek non risponde') : (!e.trovati.length ? 'Nessun pezzo in Lantek con questo codice' : null);
+    e.cercaErr = !r.ok ? (r.d.error || 'Lantek non risponde') : (!e.trovati.length ? 'Nessun disegno in Lantek con questo nome' : null);
     ridisegna();
   }
   async function manda(id, corpo, messaggio) {

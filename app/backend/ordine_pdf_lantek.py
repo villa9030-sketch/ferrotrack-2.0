@@ -138,6 +138,27 @@ def salva_abbinamento(codice: str, pezzi: list, non_laser: bool, descrizione: st
     abbinamenti_backup.esporta_sicuro(f'abbinamento {chiave}')
 
 
+def elenco_abbinamenti() -> list:
+    """Tutti gli articoli abbinati, per la pagina "Disegni Lantek per articolo"
+    (28/10/2026): [{'codice', 'descrizione', 'cliente', 'non_laser', 'pezzi':
+    [{'codice', 'quantita'}], 'da', 'il'}], per cliente e codice."""
+    from .models import get_session, AssiemeLantek
+    s = get_session()
+    try:
+        out = {}
+        for a in s.query(AssiemeLantek).order_by(AssiemeLantek.codice, AssiemeLantek.pezzo_lantek).all():
+            x = out.setdefault(a.codice, {'codice': a.codice, 'descrizione': a.descrizione or '', 'cliente': a.cliente or '',
+                                          'non_laser': False, 'pezzi': [], 'da': a.creato_da,
+                                          'il': a.creato_il.isoformat() if a.creato_il else None})
+            if a.non_laser:
+                x['non_laser'] = True
+            elif a.pezzo_lantek:
+                x['pezzi'].append({'codice': a.pezzo_lantek, 'quantita': int(a.quantita or 1)})
+        return sorted(out.values(), key=lambda x: (x['cliente'].lower(), x['codice']))
+    finally:
+        s.close()
+
+
 def dimentica_abbinamento(codice: str) -> int:
     from .models import get_session, AssiemeLantek
     s = get_session()

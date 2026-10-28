@@ -258,7 +258,7 @@
     set('controllo', attivi.filter(o => L.spuntabile(o)).reduce((s, o) => s + ((S.riep[o.id] || {}).n_controllare || 0), 0));
     set('correggere', attivi.reduce((s, o) => s + ((S.riep[o.id] || {}).n_correggere || 0), 0));
     set('lamiere', L.gruppiLamiera().length);
-    const attivo = S.vista === 'lamiere' ? 'lamiere' : ['coda', 'in_lantek'].includes(S.filtroStato) ? S.filtroStato : 'tutti';
+    const attivo = S.vista === 'lamiere' || S.vista === 'articoli' ? S.vista : ['coda', 'in_lantek'].includes(S.filtroStato) ? S.filtroStato : 'tutti';
     document.querySelectorAll('#lz-menu .ft-tab[data-lz-vai]').forEach(b => b.classList.toggle('active', b.dataset.lzVai === attivo));
   }
 
@@ -298,6 +298,12 @@
     if (main) main.classList.toggle('con-ordine', !!(S.aperto || S.pacco));
 
     const attivi = tutti.filter(o => LZ.statoLaser(o) !== 'tagliato');
+    if (S.vista === 'articoli' && LZ.articoli) {      // "Disegni Lantek per articolo" (laser-articoli.js)
+      LZ.articoli.disegna(document.getElementById('lz-l-testa'), document.getElementById('lz-l-righe'));
+      menu(attivi);
+      LZ.metti(document.getElementById('lz-l-az'), '');
+      return;
+    }
     const lamiere = S.vista === 'lamiere';
     const gruppi = lamiere ? [] : L.gruppi();
     const glam = lamiere ? L.gruppiLamiera() : [];
@@ -435,6 +441,12 @@
     const righe = document.getElementById('lz-l-righe');
     if (k === 'tutti') { S.filtroStato = ''; S.vista = ''; LZ.ridisegna(); if (righe) righe.scrollTo({ top: 0 }); }
     else if (k === 'lamiere') { S.filtroStato = ''; S.vista = 'lamiere'; LZ.ridisegna(); if (righe) righe.scrollTo({ top: 0 }); }
+    else if (k === 'articoli') {
+      S.filtroStato = ''; S.vista = 'articoli'; S.aperto = null;
+      if (LZ.pacchi && S.pacco) LZ.pacchi.chiudi();
+      if (LZ.articoli) LZ.articoli.carica();
+      LZ.ridisegna(); if (righe) righe.scrollTo({ top: 0 });
+    }
     else if (k === 'coda' || k === 'in_lantek') {
       const n = LZ.ordiniLaser().filter(o => LZ.statoLaser(o) === k).length;
       if (!n) { FT.toast(k === 'coda' ? 'Nessun ordine da mandare a Lantek' : 'Nessun ordine in Lantek da tagliare', ''); return; }

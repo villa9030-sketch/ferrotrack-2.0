@@ -8864,34 +8864,9 @@ def api_ordine_lantek_abbina(order_id):
             _audit('LANTEK_ASSIEME', 'orders', order_id, f'Abbinamento di {codice} tolto ({n} voci)')
             return jsonify({'success': True}), 200
         non_laser = bool(corpo.get('non_laser'))
-        pezzi = []
-        if not non_laser:
-            visti = set()
-            for p in corpo.get('pezzi') or []:
-                c = str((p or {}).get('codice') or '').strip()
-                try:
-                    qt = int((p or {}).get('quantita') or 0)
-                except (TypeError, ValueError):
-                    qt = 0
-                if not c or c.upper() in visti:
-                    continue
-                if not 1 <= qt <= 9999:
-                    return jsonify({'success': False, 'error': f'{c}: quantità per assieme non valida'}), 400
-                visti.add(c.upper())
-                pezzi.append({'codice': c, 'quantita': qt})
-            if not pezzi:
-                return jsonify({'success': False, 'error': 'Scegli almeno un pezzo di Lantek'}), 400
-            if any(p['codice'].upper() == codice.upper() for p in pezzi):
-                return jsonify({'success': False, 'error': "Un assieme non può contenere se stesso"}), 400
-            # solo pezzi che in Lantek ci sono davvero, col codice esatto di Lantek
-            info = _lt.pezzi_in_lantek([p['codice'] for p in pezzi])
-            if not info.get('disponibile'):
-                return jsonify({'success': False, 'error': info.get('errore') or 'Lantek non risponde'}), 503
-            mancano = [p['codice'] for p in pezzi if not (info['pezzi'].get(p['codice']) or {}).get('esiste')]
-            if mancano:
-                return jsonify({'success': False, 'error': 'Non sono in Lantek: ' + ', '.join(mancano)}), 400
-            for p in pezzi:
-                p['codice'] = info['pezzi'][p['codice']]['codice_lantek'] or p['codice']
+        pezzi, errore = _pezzi_abbinamento(codice, corpo, non_laser)
+        if errore:
+            return errore
         _opl.salva_abbinamento(codice, pezzi, non_laser, riga['descrizione'], order.cliente or '', _chi_nome())
         _invalida_analisi_laser(order_id)
         _audit('LANTEK_ASSIEME', 'orders', order_id,
@@ -8900,6 +8875,94 @@ def api_ordine_lantek_abbina(order_id):
         return jsonify({'success': True, 'pezzi': pezzi, 'non_laser': non_laser}), 200
     except Exception as e:
         logger.exception('abbinamento assieme Lantek fallito')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _pezzi_abbinamento(codice, corpo, non_laser):
+    """I pezzi di Lantek di un abbinamento, controllati: (pezzi, None) o
+    (None, risposta di errore). Solo pezzi che in Lantek ci sono davvero, col
+    codice esatto di Lantek; quantita' per UN articolo."""
+    from . import lantek as _lt
+    if non_laser:
+        return [], None
+    pezzi, visti = [], set()
+    for p in corpo.get('pezzi') or []:
+        c = str((p or {}).get('codice') or '').strip()
+        try:
+            qt = int((p or {}).get('quantita') or 0)
+        except (TypeError, ValueError):
+            qt = 0
+        if not c or c.upper() in visti:
+            continue
+        if not 1 <= qt <= 9999:
+            return None, (jsonify({'success': False, 'error': f'{c}: quantità per assieme non valida'}), 400)
+        visti.add(c.upper())
+        pezzi.append({'codice': c, 'quantita': qt})
+    if not pezzi:
+        return None, (jsonify({'success': False, 'error': 'Scegli almeno un pezzo di Lantek'}), 400)
+    if any(p['codice'].upper() == codice.upper() for p in pezzi):
+        return None, (jsonify({'success': False, 'error': "Un assieme non può contenere se stesso"}), 400)
+    info = _lt.pezzi_in_lantek([p['codice'] for p in pezzi])
+    if not info.get('disponibile'):
+        return None, (jsonify({'success': False, 'error': info.get('errore') or 'Lantek non risponde'}), 503)
+    mancano = [p['codice'] for p in pezzi if not (info['pezzi'].get(p['codice']) or {}).get('esiste')]
+    if mancano:
+        return None, (jsonify({'success': False, 'error': 'Non sono in Lantek: ' + ', '.join(mancano)}), 400)
+    for p in pezzi:
+        p['codice'] = info['pezzi'][p['codice']]['codice_lantek'] or p['codice']
+    return pezzi, None
+
+
+@app.route('/api/lantek/abbinamenti', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_lantek_abbinamenti():
+    """Pagina "Disegni Lantek per articolo" (28/10/2026): tutti gli articoli
+    dei clienti (Poliform, B&B...) abbinati ai disegni di Lantek."""
+    from . import ordine_pdf_lantek as _opl
+    return jsonify({'success': True, 'articoli': _opl.elenco_abbinamenti()}), 200
+
+
+@app.route('/api/lantek/abbinamenti', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_lantek_abbinamenti_salva():
+    """Abbina (o cambia) un articolo anche senza un ordine aperto.
+
+    Corpo: {"codice", "descrizione", "cliente", "pezzi": [{"codice",
+    "quantita"}]} (pezzi per UN articolo), oppure {"codice", "non_laser": true},
+    oppure {"codice", "dimentica": true}. Vale per gli ordini da qui in poi:
+    gli ordini al laser si rileggono."""
+    try:
+        from . import ordine_pdf_lantek as _opl
+        from . import api_laser
+        corpo = request.get_json(silent=True) or {}
+        codice = str(corpo.get('codice') or '').strip()
+        if not codice or len(codice) > 60:
+            return jsonify({'success': False, 'error': "Scrivi il codice dell'articolo del cliente"}), 400
+        if corpo.get('dimentica'):
+            n = _opl.dimentica_abbinamento(codice)
+            api_laser.invalida()
+            _audit('LANTEK_ASSIEME', 'assiemi_lantek', codice.upper(), f'Abbinamento di {codice} tolto ({n} voci)')
+            return jsonify({'success': True, 'tolti': n}), 200
+        non_laser = bool(corpo.get('non_laser'))
+        pezzi, errore = _pezzi_abbinamento(codice, corpo, non_laser)
+        if errore:
+            return errore
+        prima = _opl.abbinamenti([codice]).get(codice.upper()) or {}
+        descrizione = str(corpo.get('descrizione') or '').strip()
+        cliente = str(corpo.get('cliente') or '').strip()
+        if not descrizione or not cliente:                 # chi cambia non riscrive descrizione e cliente
+            vecchio = next((a for a in _opl.elenco_abbinamenti() if a['codice'] == codice.upper()), {})
+            descrizione = descrizione or vecchio.get('descrizione', '')
+            cliente = cliente or vecchio.get('cliente', '')
+        _opl.salva_abbinamento(codice, pezzi, non_laser, descrizione, cliente, _chi_nome())
+        api_laser.invalida()
+        _audit('LANTEK_ASSIEME', 'assiemi_lantek', codice.upper(),
+               (f'{codice}: non va al laser' if non_laser else
+                f"{codice} = " + ', '.join(f"{p['codice']} x{p['quantita']}" for p in pezzi))
+               + (' (cambiato)' if prima else ' (nuovo)'))
+        return jsonify({'success': True, 'pezzi': pezzi, 'non_laser': non_laser}), 200
+    except Exception as e:
+        logger.exception('abbinamento articolo Lantek fallito')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
