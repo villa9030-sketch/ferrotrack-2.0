@@ -1574,7 +1574,32 @@ function pkgMancanze() {
   const spMal = PKG.righe.filter(r => !pkgSpValido(r)).length;
   if (spMal) out.push(spMal === 1 ? 'uno spessore valido' : `${spMal} spessori validi`);
   if (pkgAssMancanti().length && !pkgLoStesso()) out.push('i disegni degli assiemi: carica la cartella intera');
+  if (pkgRevDiverse().length && !pkgRevSpuntata()) out.push('la spunta «Ho controllato» sulle revisioni diverse');
   return out;
+}
+
+/* Revisione dell'ordine diversa da quella del disegno (DECA A 001252:
+   25NDSSA0615-00 nell'ordine, il disegno -01). Si crea solo con la spunta. */
+function pkgRevDiverse() {
+  const dentro = new Set(PKG.righe.filter(r => pkgQtaValida(r) && pkgNum(r.q) > 0).map(r => r.id));
+  return ((PKG && PKG.dati && PKG.dati.revisioni_diverse) || []).filter(x => dentro.has(x.id));
+}
+// la spunta vale per i codici che si vedevano: se ne compare un altro, si rispunta
+const pkgRevChiave = () => pkgRevDiverse().map(x => x.id).join('|');
+const pkgRevSpuntata = () => !!PKG.revOk && PKG.revOk === pkgRevChiave();
+function pkgSpuntaRev(v) {
+  PKG.revOk = v ? pkgRevChiave() : '';
+  pkgAggiorna();
+}
+function pkgRevHtml() {
+  const l = pkgRevDiverse();
+  if (!l.length) return '';
+  return `<div class="ft-alert warn" role="alert"><i data-lucide="alert-triangle"></i><div>
+      <b>Revisione diversa: l’ordine chiede una revisione, il disegno è un’altra.</b>
+      <ul style="margin:6px 0 0;padding-left:18px">${l.map(x => `<li><b class="mono">${esc(x.codice)}</b>: l’ordine chiede la -${esc(x.rev_ordine)}, il disegno è la -${esc(x.rev_disegno)} <span class="mono">(${esc(x.disegno)})</span></li>`).join('')}</ul>
+      <p style="margin:6px 0 0">Si taglierebbe il disegno -${esc(l[0].rev_disegno)}. Se non sei sicuro, chiedi al cliente quale va fatta.</p>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;cursor:pointer"><input type="checkbox" id="pkg-rev-ok" ${pkgRevSpuntata() ? 'checked' : ''}
+        onchange="pkgSpuntaRev(this.checked)" style="margin-top:3px"> Ho controllato: va bene la revisione del disegno</label></div></div>`;
 }
 
 /* Assiemi dell'ordine senza componenti (DECA A 001252): BLOCCANO la creazione.
@@ -1662,7 +1687,7 @@ function pkgRender() {
       ${fileHtml(d.pdf ? d.pdf.nome : 'Pacchetto senza PDF', `${nDis === 1 ? '1 disegno' : nDis + ' disegni'} letti in ${PKG.secondi} s`)}
       ${PKG.pdfUrl ? `<button class="ft-btn sm" onclick="pkgVediPdf()"><i data-lucide="file-text"></i> Vedi il PDF</button>` : ''}
     </div>
-    <div class="imp-pk-alerts">${pkgBloccoHtml()}${alerts.join('')}</div>
+    <div class="imp-pk-alerts">${pkgBloccoHtml()}${pkgRevHtml()}${alerts.join('')}</div>
     <div class="imp-pk-head">
       <div class="imp-col">
         <h2 class="imp-step-title"><span class="imp-step-n">1</span> Dati dell’ordine</h2>
@@ -1915,6 +1940,7 @@ async function pkgCrea(forza) {
     numero_ordine: t.numero.trim(), cliente: t.cliente.trim(), data_consegna: t.data, note: t.note.trim(),
     forza: !!forza, al_laser: !!PKG.alLaser,
     crea_lo_stesso: pkgAssMancanti().length && pkgLoStesso() ? 'CREA' : '',
+    revisioni_controllate: pkgRevSpuntata() ? pkgRevDiverse().map(x => x.codice) : [],
     righe: PKG.righe.map(r => ({ id: r.id, quantita: pkgNum(r.q), materiale: r.mat.trim(), spessore_mm: pkgNum(r.sp) })),
   };
   const res = await inviaJson(`/api/orders/da-pacchetto/${encodeURIComponent(PKG.id)}/conferma`, corpo);
@@ -1941,6 +1967,12 @@ async function pkgCrea(forza) {
     PKG.dati.assiemi_senza_componenti = r.assiemi_senza_componenti || PKG.dati.assiemi_senza_componenti || [];
     PKG.dati.blocco = { codice: r.codice, messaggio: r.error };
     PKG.creaLoStesso = '';
+    pkgRender();
+    return;
+  }
+  if (res.status === 409 && r.codice === 'revisioni_diverse') {
+    PKG.dati.revisioni_diverse = r.revisioni_diverse || PKG.dati.revisioni_diverse || [];
+    PKG.revOk = '';
     pkgRender();
     return;
   }

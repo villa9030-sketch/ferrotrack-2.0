@@ -1562,7 +1562,10 @@ def _controllo_pezzo(a: dict) -> dict | None:
     motivi, stato = [], None
     ab = a.get('abbinamento') or {}
     if a.get('dxf_filename') and ab.get('tipo') == 'somiglianza' and not ab.get('confermato'):
-        motivi.append(f"disegno «{a.get('dxf_filename')}» abbinato al codice solo per somiglianza")
+        od = a.get('ordine') if isinstance(a.get('ordine'), dict) else {}
+        rv = _revisione_diversa(od.get('codice') or a.get('codice'), a.get('dxf_filename'))
+        motivi.append(f"revisione diversa: l'ordine chiede la -{rv['rev_ordine']}, il disegno è la -{rv['rev_disegno']}"
+                      if rv else f"disegno «{a.get('dxf_filename')}» abbinato al codice solo per somiglianza")
         stato = 'da_confermare'
     ev = a.get('esito_verifica') or {}
     if ev.get('stato') in ('da_guardare', 'corretto_da_confermare'):
@@ -1621,6 +1624,8 @@ def motivo_breve(m: str) -> str | None:
         return 'Il peso non torna col cartiglio: forse manca materiale'
     if 'modello' in t and ('scelt' in t or 'corrett' in t):
         return 'Contorno scelto dal modello: controlla che sia il pezzo'
+    if t.startswith('revisione diversa'):
+        return 'Revisione diversa' + str(m).strip()[len('revisione diversa'):][:100]
     if 'somiglianza' in t:
         return 'Disegno abbinato al codice solo per somiglianza del nome'
     if 'corretto in automatico' in t:
@@ -5480,13 +5485,43 @@ def _avvisi_riga_pacchetto(it, fonte):
     return avvisi
 
 
+def _revisione_diversa(codice, disegno) -> dict | None:
+    """L'ordine chiede una revisione e il disegno abbinato e' un'altra
+    (DECA A 001252: 25NDSSA0615-00 nell'ordine, 25NDSSA0615-01.DXF nella
+    cartella; abbinato "per somiglianza" senza dire della revisione).
+    {'rev_ordine': '00', 'rev_disegno': '01'} o None."""
+    from . import quadratura as _qd
+    if not codice or not disegno:
+        return None
+    ro, rd = _qd.rev(codice), _qd.rev(disegno)
+    if ro and rd and ro != rd and _qd.kv(codice) == _qd.kv(os.path.splitext(os.path.basename(disegno))[0]):
+        return {'rev_ordine': ro, 'rev_disegno': rd}
+    return None
+
+
+def _revisioni_diverse(articoli) -> list:
+    """I pezzi (con quantita') il cui disegno ha un'altra revisione."""
+    out = []
+    for a in articoli or []:
+        od = a.get('ordine') if isinstance(a.get('ordine'), dict) else {}
+        cod = od.get('codice') or a.get('codice')
+        rv = _revisione_diversa(cod, a.get('dxf_filename'))
+        if rv and int(a.get('quantita') or 0) > 0:
+            out.append({'id': a.get('id'), 'codice': str(cod), 'disegno': os.path.basename(a['dxf_filename']), **rv})
+    return out
+
+
 def _avvisi_tecnici_pacchetto(it):
     """Avvisi TECNICI su un pezzo del pacchetto (disegno, contorno, materiale,
     spessore): li vede e li risolve il laser in "Metti in Lantek", non
     l'ufficio."""
     avvisi = []
     ab = it.get('abbinamento') or {}
-    if it.get('dxf_filename') and ab.get('tipo') == 'somiglianza' and not ab.get('confermato'):
+    rv = _revisione_diversa(it.get('codice'), it.get('dxf_filename'))
+    if rv:
+        avvisi.append(f"Revisione diversa: l'ordine chiede la -{rv['rev_ordine']}, il disegno è la "
+                      f"-{rv['rev_disegno']} («{os.path.basename(it['dxf_filename'])}»)")
+    elif it.get('dxf_filename') and ab.get('tipo') == 'somiglianza' and not ab.get('confermato'):
         avvisi.append(f"Disegno abbinato solo per somiglianza: «{it['dxf_filename']}» per il codice "
                       f"«{it.get('codice')}». Controlla che sia il suo, altrimenti toglilo")
     if not it.get('dxf_filename'):
@@ -5584,6 +5619,7 @@ def api_ordine_pacchetto_analizza():
                 'avvisi': _avvisi_riga_pacchetto(it, fonte),
                 # disegno/contorno/materiale/spessore: li controlla il laser
                 'avvisi_tecnici': _avvisi_tecnici_pacchetto(it) if dxf else [],
+                'revisione_diversa': _revisione_diversa(it.get('codice'), dxf),
             })
 
         cliente = (result.cliente or '').strip()
@@ -5640,6 +5676,10 @@ def api_ordine_pacchetto_analizza():
                                     if not r['disegno'] and not r['fuori_ordine']],
             'avvisi': list(result.warnings or []),
             'ordine_esistente': _ordine_gia_caricato(numero, cliente),
+            # revisione dell'ordine diversa da quella del disegno: per creare
+            # l'ordine serve "Ho controllato" (punto 4 della proposta del 27/10)
+            'revisioni_diverse': [{'id': r['id'], 'codice': r['codice'], 'disegno': r['disegno'], **r['revisione_diversa']}
+                                  for r in righe if r['revisione_diversa'] and not r['fuori_ordine']],
             # problema BLOCCANTE: senza la conferma scritta l'ordine non si crea
             'assiemi_senza_componenti': ass_mancanti,
             'blocco': ({'codice': 'assiemi_senza_componenti',
@@ -5821,6 +5861,16 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
                     _am.messaggio([x['codice'] for x in ass_mancanti]), 409,
                     assiemi_senza_componenti=ass_mancanti)
 
+            # revisione dell'ordine diversa da quella del disegno: si crea solo
+            # se chi carica ha spuntato "Ho controllato" per ognuno
+            rev_diverse = _revisioni_diverse(nuovi)
+            controllate = {str(c).strip().upper() for c in (data.get('revisioni_controllate') or [])}
+            if any(x['codice'].upper() not in controllate for x in rev_diverse):
+                return _errore_pacchetto(
+                    'revisioni_diverse',
+                    "L'ordine chiede una revisione diversa da quella del disegno: controlla e spunta «Ho controllato».",
+                    409, revisioni_diverse=rev_diverse)
+
             doppione = _ordine_gia_caricato(numero, cliente)
             if doppione and not data.get('forza'):
                 return _errore_pacchetto(
@@ -5887,6 +5937,16 @@ def api_ordine_pacchetto_conferma(pacchetto_id):
                        + (f', {mancanti} file non trasferiti' if mancanti else ''))
         except Exception:
             pass
+
+        if rev_diverse:
+            try:
+                AuditManager.log(
+                    user_id=user_id, action='ORDER_PACKAGE_REVISIONE',
+                    entity_type='order', entity_id=order.id,
+                    detail=f'Ordine {numero}: revisione diversa controllata da chi ha caricato: '
+                           + '; '.join(f"{x['codice']} -> disegno -{x['rev_disegno']}" for x in rev_diverse))
+            except Exception:
+                logger.exception('audit revisioni diverse non scritto')
 
         if ass_mancanti:
             try:
