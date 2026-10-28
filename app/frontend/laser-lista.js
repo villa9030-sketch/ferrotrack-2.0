@@ -16,7 +16,15 @@
    Sopra la tabella UNA riga dice cosa fare adesso. Aperto un ordine, la
    tabella si stringe a sinistra e l'ordine sta nel pannello a destra.
    Le caselle servono a lavorare piu' ordini insieme: "Controlla N disegni"
-   e "Manda a Lantek (K ordini)". */
+   e "Manda a Lantek (K ordini)".
+
+   28/10/2026 (Stefano: "capisco poco"; tela "Laser, più chiaro"): per
+   lamiera lo stesso ordine compariva in ogni suo spessore (5 ordini, 15
+   righe). Ora UN ORDINE = UNA RIGA, divisi per cosa c'e' da fare (Da
+   mandare a Lantek, In Lantek da tagliare); gli spessori sono una colonna.
+   Il raggruppamento per lamiera resta nella vista "Per lamiera" del menu
+   (S.vista = 'lamiere'): una riga per lamiera con gli ordini che la usano.
+   Rosso solo per il taglio in ritardo e la consegna passata. */
 (function () {
   'use strict';
   const LZ = window.LZ;
@@ -75,27 +83,55 @@
     const ge = LZ.giorniEntro(o);
     const wd = LZ.lavorativiA(g);
     let cls = '', sotto = '';
-    if (ge != null && ge < 0) { cls = 'indietro'; sotto = `passato da ${-ge} gg`; }
+    if (ge != null && ge < 0) { cls = 'indietro'; sotto = `in ritardo ${-ge} gg`; }
     else if (wd != null && wd <= 2) { cls = 'vicino'; sotto = ge === 0 ? 'oggi' : ge === 1 ? 'domani' : `tra ${wd} gg lav.`; }
     else sotto = `tra ${ge} gg`;
     return `<span class="lz-q ${cls}" title="Taglia entro ${esc(LZ.giornoLungo(g))}"><b>${esc(LZ.giornoCorto(g))}</b> <small>${esc(sotto)}</small></span>`;
   }
 
-  /** La consegna: rossa con la parola solo se e' a rischio. */
+  /** La consegna: grigia. La parola rossa solo se e' passata, o vicina
+      (a rischio) quando il taglia entro non e' gia' rosso. */
   function consegna(o, st) {
     const g = LZ.giorno(o);
     if (!g) return '<span class="lz-cons">—</span>';
     const al = st !== 'tagliato' && LZ.allarme(o);
-    if (al && al.k === 'rischio') return `<span class="lz-cons rischio" title="${esc(al.s)}">${esc(LZ.giornoCorto(g))} <span class="lz-al rischio">a rischio</span></span>`;
+    if (al && al.k === 'rischio') {
+      const gc = LZ.giorniA(o), ge = LZ.giorniEntro(o);
+      const parola = gc < 0 ? 'passata' : ge != null && ge < 0 ? '' : 'a rischio';
+      if (parola) return `<span class="lz-cons" title="${esc(al.s)}">${esc(LZ.giornoCorto(g))} <span class="lz-al rischio">${parola}</span></span>`;
+    }
     return `<span class="lz-cons">${esc(LZ.giornoCorto(g))}</span>`;
   }
 
-  /** Lo stato: UNA parola. Grigia; ambra se c'e' da controllare, rossa se bloccato. */
+  /** Lo stato accanto al numero: solo se c'e' qualcosa da fare o che non va
+      (ambra da controllare, rosso bloccato). Il passo normale lo dice il gruppo. */
   function stato(o) {
     const e = LZ.etichetta(o);
-    if (e.c === 'skel') return '<span class="lz-sot">…</span>';
+    if (e.c !== 'att' && e.c !== 'err') return '';
     const t = e.corto || e.t;
-    return `<span class="lz-sot ${e.c === 'att' || e.c === 'err' ? e.c : ''}"${t !== e.t ? ` title="${esc(e.t)}"` : ''}>${esc(t)}</span>`;
+    return `<small class="lz-sot ${e.c}"${t !== e.t ? ` title="${esc(e.t)}"` : ''}>${esc(t)}</small>`;
+  }
+
+  /** Le lamiere ancora da tagliare, corte: "Inox 2 · 2,5 · 4   S235 12" (mm). */
+  function lamiereTesto(o) {
+    const per = new Map();
+    for (const x of lamiereAperte(o)) {
+      const m = String(x.materiale || '').replace(/_/g, ' ').trim().toLowerCase();
+      const mat = m ? m.charAt(0).toUpperCase() + m.slice(1) : '?';
+      if (!per.has(mat)) per.set(mat, []);
+      const s = x.spessore != null && x.spessore !== '' && !isNaN(Number(x.spessore)) ? Number(x.spessore) : null;
+      per.get(mat).push(s);
+    }
+    return [...per.entries()].map(([mat, sp]) => `${mat}: ${sp.sort((a, b) => (a == null) - (b == null) || a - b)
+      .map(s => (s == null ? '?' : FT.numero(s, s % 1 ? 1 : 0))).join(' · ')}`).join('   ');
+  }
+
+  /** Ore di laser dell'ordine (stesso conto della riga del carico). */
+  function ore(o, st) {
+    if (st === 'tagliato' || st === 'smistare') return '';
+    const d = LZ.sat.oreOrdine(o);
+    if (!d || d.min == null) return '<span class="lz-ore-n" title="Durata non nota">—</span>';
+    return esc((d.min / 60).toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
   }
 
   // ── I gruppi per lamiera ──────────────────────────────────────────────
@@ -108,21 +144,16 @@
   const passaFiltri = o => (!S.filtroCliente || (o.cliente || '') === S.filtroCliente)
     && (!S.filtroStato || LZ.statoLaser(o) === S.filtroStato || LZ.statoLaser(o) === 'tagliato' && S.filtroStato === 'tagliato');
 
-  /** [{k, t, righe:[{o, lam, anche:[nomi], prima}], tot}] nell'ordine in cui si vedono. */
-  L.gruppi = function () {
-    const ordini = LZ.ordiniLaser().filter(passaFiltri);
-    const out = [];
-    const smi = ordini.filter(o => LZ.statoLaser(o) === 'smistare');
-    if (smi.length) out.push({ k: 'smistare', t: window.FTStati.laser.da_smistare, nota: smi.length === 1 ? 'decidi se passa dal laser' : 'decidi se passano dal laser', righe: smi.map(o => ({ o })) });
-    const perLam = new Map(), senza = [];
-    for (const o of ordini) {
+  /** Le lamiere da tagliare, ognuna con gli ordini che la usano (vista
+      "Per lamiera"): [{k, t, lam, righe:[{o, lam}], primo, pezzi}]. */
+  L.gruppiLamiera = function () {
+    const perLam = new Map();
+    for (const o of LZ.ordiniLaser().filter(passaFiltri)) {
       const st = LZ.statoLaser(o);
       if (st === 'smistare' || st === 'tagliato' || st === 'escluso') continue;
-      const lam = lamiereAperte(o);
-      if (!lam.length) { senza.push({ o }); continue; }
-      for (const x of lam) {
+      for (const x of lamiereAperte(o)) {
         if (!perLam.has(x.chiave)) perLam.set(x.chiave, { k: x.chiave, t: LZ.nomeLamiera(x), lam: x, righe: [] });
-        perLam.get(x.chiave).righe.push({ o, lam: x, anche: lam.filter(y => y.chiave !== x.chiave).map(LZ.nomeLamiera) });
+        perLam.get(x.chiave).righe.push({ o, lam: x });
       }
     }
     const chiave = o => (LZ.entro(o) || '9999') + (LZ.giorno(o) || '9999') + (o.cliente || '') + o.id;
@@ -133,9 +164,19 @@
       g.pezzi = g.righe.reduce((s, r) => s + (Number(r.lam.n_pezzi) || 0), 0);
     }
     // prima la lamiera che scade prima; a parita', piu' ordini insieme
-    lams.sort((a, b) => (a.primo || '9999').localeCompare(b.primo || '9999') || b.righe.length - a.righe.length || a.t.localeCompare(b.t));
-    out.push(...lams);
-    if (senza.length) out.push({ k: 'senza', t: 'Lamiera non ancora letta', nota: 'i pezzi dell’ordine si stanno leggendo', righe: senza });
+    return lams.sort((a, b) => (a.primo || '9999').localeCompare(b.primo || '9999') || b.righe.length - a.righe.length || a.t.localeCompare(b.t));
+  };
+
+  /** I gruppi dell'elenco, per cosa c'e' da fare: [{k, t, nota, righe:[{o, prima}]}]. */
+  L.gruppi = function () {
+    const ordini = LZ.ordiniLaser().filter(passaFiltri);
+    const out = [];
+    const smi = ordini.filter(o => LZ.statoLaser(o) === 'smistare');
+    if (smi.length) out.push({ k: 'smistare', t: window.FTStati.laser.da_smistare, nota: smi.length === 1 ? 'decidi se passa dal laser' : 'decidi se passano dal laser', righe: smi.map(o => ({ o })) });
+    const coda = ordini.filter(o => LZ.statoLaser(o) === 'coda');
+    if (coda.length) out.push({ k: 'coda', t: 'Da mandare a Lantek', nota: 'controlla i disegni, poi Manda a Lantek', righe: coda.map(o => ({ o })) });
+    const inl = ordini.filter(o => LZ.statoLaser(o) === 'in_lantek');
+    if (inl.length) out.push({ k: 'in_lantek', t: 'In Lantek, da tagliare', nota: 'quando hai tagliato, segna Taglio fatto', righe: inl.map(o => ({ o })) });
     // gia' tagliati ma con un problema dall'officina aperto (pezzo da rifare...): in cima
     const tagliati = ordini.filter(o => LZ.statoLaser(o) === 'tagliato');
     // (e quelli che non passano dal laser: ci sono solo per il problema)
@@ -159,37 +200,45 @@
     const cons = LZ.giorno(o), te = LZ.te(o), en = LZ.entro(o);
     const tit = `${LZ.numero(o)}, ${o.cliente || ''}: taglia entro ${en ? FT.fmtData(en) : 'da decidere'}${te && te.motivo ? ' (' + te.motivo + ')' : ''}, consegna ${cons ? FT.fmtData(cons) : '—'}`;
     const id = esc(o.id);
-    const attr = r.prima ? `data-id="${id}" data-fuoco="r-${id}"` : `data-rif="${id}" data-fuoco="r-${id}-${esc(g.k)}"`;
-    const pezzi = r.lam ? r.lam.n_pezzi : (S.riep[o.id] || {}).n_pezzi;
-    const anche = r.anche && r.anche.length ? `<small class="lz-anche">anche in ${esc(r.anche.join(', '))}</small>` : '';
-    return `<tr class="lz-r${on ? ' on' : ''}${st === 'tagliato' ? ' spento' : ''}${r.prima ? '' : ' anche'}" tabindex="0" ${attr}
+    const pezzi = (S.riep[o.id] || {}).n_pezzi;
+    return `<tr class="lz-r${on ? ' on' : ''}${st === 'tagliato' ? ' spento' : ''}" tabindex="0" data-id="${id}" data-fuoco="r-${id}"
         ${on ? 'aria-current="true"' : ''} title="${esc(tit)}">
       <td class="c-sp">${sp ? `<input type="checkbox" data-sp="${id}" ${S.spuntati.has(o.id) ? 'checked' : ''}
         aria-label="Seleziona ${esc(o.cliente || '')} ${esc(LZ.numero(o))}" tabindex="-1">` : ''}</td>
-      <td class="c-num"><span class="lz-num" title="${esc(LZ.numero(o))}">${esc(LZ.numeroBreve(o))}</span></td>
-      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b>${LZ.pacchi ? LZ.pacchi.nota(o.id) : ''}${anche}${procura(o)}${LZ.segn ? LZ.segn.parolaLista(o) : ''}${LZ.quad ? LZ.quad.parolaLista(o) : ''}</div></td>
-      <td class="c-st">${stato(o)}</td>
+      <td class="c-num"><div class="lz-cli"><span class="lz-num" title="${esc(LZ.numero(o))}">${esc(LZ.numeroBreve(o))}</span>${stato(o)}${LZ.pacchi ? LZ.pacchi.nota(o.id) : ''}${procura(o)}${LZ.segn ? LZ.segn.parolaLista(o) : ''}${LZ.quad ? LZ.quad.parolaLista(o) : ''}</div></td>
+      <td class="c-cli"><div class="lz-cli"><b>${esc(o.cliente || 'Cliente non indicato')}</b></div></td>
+      <td class="c-lam" title="${esc(lamiereTesto(o))}">${esc(st === 'tagliato' ? '' : lamiereTesto(o))}</td>
       <td class="c-pz r">${pezzi != null ? esc(FT.numero(pezzi)) : '—'}</td>
-      <td class="c-cons">${consegna(o, st)}</td>
+      <td class="c-ore r">${ore(o, st)}</td>
       <td class="c-entro">${quando(o, st)}</td>
+      <td class="c-cons">${consegna(o, st)}</td>
     </tr>`;
   }
 
   function testaGruppo(g) {
-    const n = new Set(g.righe.map(r => r.o.id)).size;
-    let dx = '';
-    if (g.lam) {
-      const daMandare = g.righe.filter(r => L.spuntabile(r.o) && !L.inPacco(r.o)).map(r => r.o.id);
-      const tutti = daMandare.length && daMandare.every(id => S.spuntati.has(id));
-      if (daMandare.length) dx = `<button class="lz-link" type="button" data-az="sel-lam" data-lam="${esc(g.k)}">${tutti ? 'Togli la selezione' : `Seleziona ${daMandare.length === 1 ? 'l’ordine' : `i ${daMandare.length}`} da mandare`}</button>`;
-    }
-    const sotto = g.lam ? LZ.plur(n, 'ordine', 'ordini') : (g.nota ? `${LZ.plur(n, 'ordine', 'ordini')}, ${g.nota}` : LZ.plur(n, 'ordine', 'ordini'));
-    const primo = g.lam && g.primo ? LZ.giornoCorto(g.primo) : '';
+    const n = g.righe.length;
+    const sotto = g.nota ? `${LZ.plur(n, 'ordine', 'ordini')} · ${g.nota}` : LZ.plur(n, 'ordine', 'ordini');
     return `<tr class="lz-gruppo" data-gruppo="${esc(g.k)}">
-      <td colspan="4"><span class="lz-g-tit"><b>${esc(g.t)}</b><span>${esc(sotto)}</span>${dx}</span></td>
-      <td class="c-pz r">${g.lam ? esc(FT.numero(g.pezzi)) : ''}</td>
-      <td class="c-cons"></td>
-      <td class="c-entro">${primo ? `<span class="lz-q-g" title="Il primo da tagliare di questa lamiera"><span class="lz-largo">primo </span>${esc(primo)}</span>` : ''}</td>
+      <td colspan="8"><span class="lz-g-tit"><b>${esc(g.t)}</b><span>${esc(sotto)}</span></span></td>
+    </tr>`;
+  }
+
+  /** Vista "Per lamiera": una riga per lamiera, dentro gli ordini che la
+      usano (clic: apre l'ordine). "Seleziona i N da mandare" per il pacco. */
+  function rigaLamiera(g) {
+    const daMandare = g.righe.filter(r => L.spuntabile(r.o) && !L.inPacco(r.o)).map(r => r.o.id);
+    const tutti = daMandare.length && daMandare.every(id => S.spuntati.has(id));
+    const sel = daMandare.length ? `<button class="lz-link" type="button" data-az="sel-lam" data-lam="${esc(g.k)}">${tutti ? 'Togli la selezione' : `Seleziona ${daMandare.length === 1 ? 'l’ordine' : `i ${daMandare.length}`} da mandare`}</button>` : '';
+    const ordini = g.righe.map(r => `<button class="lz-lam-o${S.aperto === r.o.id ? ' on' : ''}" type="button" data-apri="${esc(r.o.id)}"
+        title="${esc(`${LZ.numero(r.o)}, ${r.o.cliente || ''}`)}"><span class="lz-num">${esc(LZ.numeroBreve(r.o))}</span><small>${esc(FT.numero(r.lam.n_pezzi || 0))}</small></button>`).join('');
+    const ge = g.primo ? FT.giorniDa(g.primo) : null;
+    const primo = g.primo ? `<span class="lz-q${ge != null && ge < 0 ? ' indietro' : ''}"><b>${esc(LZ.giornoCorto(g.primo))}</b>${ge != null && ge < 0 ? ` <small>in ritardo ${-ge} gg</small>` : ''}</span>` : '';
+    return `<tr class="lz-lam" data-gruppo="${esc(g.k)}">
+      <td class="c-lamn"><b>${esc(g.t)}</b></td>
+      <td class="c-lamo"><div class="lz-lam-ordini">${ordini}</div></td>
+      <td class="c-pz r">${esc(FT.numero(g.pezzi))}</td>
+      <td class="c-entro">${primo}</td>
+      <td class="c-lamsel">${sel}</td>
     </tr>`;
   }
 
@@ -208,42 +257,35 @@
     set('in_lantek', attivi.filter(o => LZ.statoLaser(o) === 'in_lantek').length);
     set('controllo', attivi.filter(o => L.spuntabile(o)).reduce((s, o) => s + ((S.riep[o.id] || {}).n_controllare || 0), 0));
     set('correggere', attivi.reduce((s, o) => s + ((S.riep[o.id] || {}).n_correggere || 0), 0));
-    document.querySelectorAll('#lz-menu .ft-tab[data-lz-vai]').forEach(b =>
-      b.classList.toggle('active', b.dataset.lzVai === (['coda', 'in_lantek'].includes(S.filtroStato) ? S.filtroStato : 'tutti')));
+    set('lamiere', L.gruppiLamiera().length);
+    const attivo = S.vista === 'lamiere' ? 'lamiere' : ['coda', 'in_lantek'].includes(S.filtroStato) ? S.filtroStato : 'tutti';
+    document.querySelectorAll('#lz-menu .ft-tab[data-lz-vai]').forEach(b => b.classList.toggle('active', b.dataset.lzVai === attivo));
   }
 
-  /** "Cosa fare adesso": UNA riga. La lamiera del prossimo ordine da fare,
-      quanti ordini ha, entro quando va tagliato il primo; Apri (Invio). */
-  function adesso(gruppi) {
+  /** "Cosa fare adesso": UNA riga corta. Il prossimo ordine e cosa farne; Apri (Invio). */
+  function adesso() {
     if (S.primoCarico) return '<div class="lz-adesso"><span class="lz-skel" style="height:12px;width:50%"></span></div>';
     const p = L.prossimo();
     if (!p) return `<div class="lz-adesso"><span>Niente da tagliare. Quando l'ufficio carica un ordine, compare qui.</span></div>`;
     const st = LZ.statoLaser(p);
-    const chi = `<b>${esc(LZ.numeroBreve(p))}</b> ${esc(p.cliente || '')}`;
-    let frase;
-    if (st === 'smistare') frase = `${chi}: decidi se passa dal laser.`;
-    else {
-      const g = gruppi.find(x => x.lam && x.righe.some(r => r.o.id === p.id));
-      const en = LZ.entro(p), ge = LZ.giorniEntro(p);
-      const tardi = ge != null && ge < 0 ? ` <span class="err">passato da ${-ge} gg</span>` : '';
-      const quando = en ? `va tagliato entro <b>${esc(LZ.giornoLungo(en))}</b>${tardi}` : 'il taglia entro è da decidere';
-      const al = LZ.allarme(p);
-      const rischio = al && al.k === 'rischio' ? ` <span class="err">${esc(al.s.charAt(0).toUpperCase() + al.s.slice(1))}: a rischio.</span>` : '';
-      frase = g ? `<b>${esc(g.t)}</b>: ${LZ.plur(new Set(g.righe.map(r => r.o.id)).size, 'ordine', 'ordini')}. Il primo, ${chi}, ${quando}.${rischio}`
-        : `${chi} ${quando}.${rischio}`;
-    }
+    const chi = `il <b>${esc(LZ.numeroBreve(p))}</b>${p.cliente ? ` di ${esc(p.cliente)}` : ''}`;
+    const en = LZ.entro(p), ge = LZ.giorniEntro(p);
+    const giorno = en ? esc(LZ.giornoCorto(en)) : '';
+    const quando = !en ? '' : ge < 0 ? `: andava tagliato entro <span class="err">${giorno}</span>` : `: va tagliato entro ${giorno}`;
+    const frase = st === 'smistare' ? `decidi se ${chi} passa dal laser.`
+      : st === 'coda' ? `manda a Lantek ${chi}${quando}.`
+      : `taglia ${chi}${quando}.`;
     return `<div class="lz-adesso" aria-label="Cosa fare adesso"><span class="lz-ad-t">Adesso</span><span class="lz-ad-f">${frase}</span>
       ${S.aperto === p.id ? '' : `<button class="lz-btn pri" type="button" data-az="apri-prossimo" data-id="${esc(p.id)}" data-fuoco="apri-prossimo">Apri ${esc(LZ.numeroBreve(p))}${LZ.tasto('Invio')}</button>`}</div>`;
   }
 
+  /** Il filtro per cliente (lo stato lo sceglie il menu a sinistra). */
   function filtri() {
     const clienti = [...new Set(LZ.ordiniLaser().map(o => o.cliente || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'it'));
     if (S.filtroCliente && !clienti.includes(S.filtroCliente)) S.filtroCliente = '';
-    const W = window.FTStati.laser;
     const opz = (v, t, cur) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(t)}</option>`;
     return `<div class="lz-filtri">
       <label>Cliente <select data-filtro="filtroCliente" aria-label="Filtra per cliente">${opz('', 'Tutti', S.filtroCliente)}${clienti.map(c => opz(c, c, S.filtroCliente)).join('')}</select></label>
-      <label>Stato <select data-filtro="filtroStato" aria-label="Filtra per stato">${opz('', 'Tutti', S.filtroStato)}${opz('smistare', W.da_smistare, S.filtroStato)}${opz('coda', W.da_importare, S.filtroStato)}${opz('in_lantek', 'In Lantek, da tagliare', S.filtroStato)}</select></label>
     </div>`;
   }
 
@@ -256,33 +298,40 @@
     if (main) main.classList.toggle('con-ordine', !!(S.aperto || S.pacco));
 
     const attivi = tutti.filter(o => LZ.statoLaser(o) !== 'tagliato');
-    const nRischio = attivi.filter(o => (LZ.allarme(o) || {}).k === 'rischio').length;
-    const gruppi = L.gruppi();
-    const nLam = gruppi.filter(g => g.lam).length;
+    const lamiere = S.vista === 'lamiere';
+    const gruppi = lamiere ? [] : L.gruppi();
+    const glam = lamiere ? L.gruppiLamiera() : [];
     const nDaCtl = attivi.filter(o => L.spuntabile(o) && (S.riep[o.id] || {}).n_controllare).length;
     const selCtl = nDaCtl && !S.spuntati.size ? ` <button class="lz-link" type="button" data-az="sel-ctl">Seleziona ${nDaCtl === 1 ? 'quello' : `i ${nDaCtl}`} con disegni da controllare</button>` : '';
-    // il "Taglio in ritardo" (taglia entro passato) lo dice la riga del carico,
-    // col conto del server uguale all'ufficio (laser-saturazione.js)
-    LZ.metti(document.getElementById('lz-l-testa'), `<div class="lz-l-tit"><h1>Ordini al laser</h1>
-        <p class="lz-riass">${LZ.plur(attivi.length, 'ordine', 'ordini')} da tagliare${nLam ? ` su ${LZ.plur(nLam, 'lamiera', 'lamiere')}` : ''}${nRischio ? `, <span class="rischio">${LZ.plur(nRischio, 'consegna a rischio', 'consegne a rischio')}</span>` : ''}.${selCtl}</p>
-        ${LZ.sat.html()}${filtri()}</div>
-      ${adesso(gruppi)}${promemoria(attivi)}`);
+    // UNA frase: quanti ordini, il taglio in ritardo e il carico dei prossimi
+    // giorni, coi conti del server uguali all'ufficio (laser-saturazione.js)
+    const frase = lamiere
+      ? `${LZ.plur(glam.length, 'lamiera', 'lamiere')} da tagliare, con gli ordini che le usano: il primo è quello che scade prima.`
+      : `${LZ.plur(attivi.length, 'ordine', 'ordini')} da tagliare.${LZ.sat.ritardoHtml()} ${LZ.sat.html()}`;
+    LZ.metti(document.getElementById('lz-l-testa'), `<div class="lz-l-tit"><h1>${lamiere ? 'Per lamiera' : 'Ordini al laser'}</h1>
+        <p class="lz-riass">${frase}${lamiere ? '' : selCtl}</p>${filtri()}</div>
+      ${lamiere ? '' : adesso()}${promemoria(attivi)}`);
     menu(attivi);
 
     const righe = document.getElementById('lz-l-righe');
     let html = '';
     const testa = `<thead><tr><th class="c-sp"><span class="lz-nascosto">Seleziona</span></th><th class="c-num">Ordine</th><th class="c-cli">Cliente</th>
-      <th class="c-st">Stato</th><th class="c-pz r">Pezzi</th><th class="c-cons">Consegna</th><th class="c-entro">Taglia entro</th></tr></thead>`;
+      <th class="c-lam">Lamiere (mm)</th><th class="c-pz r">Pezzi</th><th class="c-ore r">Ore laser</th><th class="c-entro">Taglia entro</th><th class="c-cons">Consegna</th></tr></thead>`;
     if (S.primoCarico) {
       html = `<table class="lz-tabella">${testa}<tbody>${Array.from({ length: 7 }, () => `<tr class="lz-r" aria-hidden="true"><td></td>
         <td><div class="lz-skel" style="height:12px;width:40px"></div></td><td><div class="lz-skel" style="height:12px;width:70%"></div></td>
-        <td><div class="lz-skel" style="height:12px;width:60%"></div></td><td></td><td></td><td><div class="lz-skel" style="height:12px;width:56px"></div></td></tr>`).join('')}</tbody></table>`;
+        <td><div class="lz-skel" style="height:12px;width:60%"></div></td><td></td><td></td><td><div class="lz-skel" style="height:12px;width:56px"></div></td><td></td></tr>`).join('')}</tbody></table>`;
     } else if (!tutti.length) {
       html = `<div class="lz-vuoto-lista"><b>Nessun ordine al laser</b>Quando l'ufficio carica un ordine, compare qui.</div>`;
+    } else if (lamiere) {
+      html = glam.length ? `<table class="lz-tabella lz-tab-lam"><thead><tr><th class="c-lamn">Lamiera</th><th class="c-lamo">Ordini · pezzi</th>
+          <th class="c-pz r">Pezzi</th><th class="c-entro">Primo taglia entro</th><th class="c-lamsel"><span class="lz-nascosto">Seleziona</span></th></tr></thead>
+          <tbody>${glam.map(rigaLamiera).join('')}</tbody></table>`
+        : `<div class="lz-vuoto-lista"><b>Nessuna lamiera da tagliare</b>${S.filtroCliente ? '<button class="lz-link" type="button" data-az="via-filtri">Togli i filtri</button>' : ''}</div>`;
     } else if (!gruppi.length) {
       html = `<div class="lz-vuoto-lista"><b>Nessun ordine con questi filtri</b><button class="lz-link" type="button" data-az="via-filtri">Togli i filtri</button></div>`;
     } else {
-      // in cima i pacchi (laser-pacchi.js), poi le lamiere
+      // in cima i pacchi (laser-pacchi.js), poi gli ordini per cosa c'e' da fare
       html = `<table class="lz-tabella">${testa}<tbody>${LZ.pacchi ? LZ.pacchi.righeLista() : ''}${gruppi.map(g => testaGruppo(g) + g.righe.map(r => riga(r, g)).join('')).join('')}</tbody></table>`;
     }
     LZ.metti(righe, html, righe);
@@ -361,6 +410,8 @@
       return;
     }
     if (e.target.closest('input[data-sp], select, label')) return;
+    const ap = e.target.closest('[data-apri]');
+    if (ap) { L.apri(ap.dataset.apri); return; }
     const rp = e.target.closest('.lz-r[data-pacco]');
     if (rp) { LZ.pacchi.apri(rp.dataset.pacco); return; }
     const r = e.target.closest('.lz-r');
@@ -371,7 +422,7 @@
   /** "Seleziona i N da mandare" di una lamiera: e' il pacco di oggi, finche'
       il pacco non e' un oggetto suo (fase 2). Di nuovo: toglie la selezione. */
   L.selezionaLamiera = function (k) {
-    const g = L.gruppi().find(x => x.k === k);
+    const g = L.gruppiLamiera().find(x => x.k === k);
     if (!g) return;
     const ids = g.righe.filter(r => L.spuntabile(r.o) && !L.inPacco(r.o)).map(r => r.o.id);
     const tutti = ids.every(id => S.spuntati.has(id));
@@ -382,11 +433,13 @@
   /** Il menu della cornice: filtra per stato, porta al controllo, alle correzioni. */
   L.vai = function (k) {
     const righe = document.getElementById('lz-l-righe');
-    if (k === 'tutti') { S.filtroStato = ''; LZ.ridisegna(); if (righe) righe.scrollTo({ top: 0 }); }
+    if (k === 'tutti') { S.filtroStato = ''; S.vista = ''; LZ.ridisegna(); if (righe) righe.scrollTo({ top: 0 }); }
+    else if (k === 'lamiere') { S.filtroStato = ''; S.vista = 'lamiere'; LZ.ridisegna(); if (righe) righe.scrollTo({ top: 0 }); }
     else if (k === 'coda' || k === 'in_lantek') {
       const n = LZ.ordiniLaser().filter(o => LZ.statoLaser(o) === k).length;
       if (!n) { FT.toast(k === 'coda' ? 'Nessun ordine da mandare a Lantek' : 'Nessun ordine in Lantek da tagliare', ''); return; }
       S.filtroStato = k;
+      S.vista = '';
       LZ.ridisegna();
       if (righe) righe.scrollTo({ top: 0 });
       const primo = document.querySelector('#lz-l-righe .lz-r[data-id]');
@@ -420,7 +473,9 @@
   /** "Crea pacco" (P): gli ordini spuntati, nell'ordine dell'elenco. */
   L.creaPacco = function () {
     const ids = LZ.ordiniVisti().filter(o => S.spuntati.has(o.id)).map(o => o.id);
-    if (ids.length && LZ.pacchi) LZ.pacchi.crea(ids);
+    if (!ids.length || !LZ.pacchi) return;
+    S.vista = '';            // il pacco nuovo si vede in cima all'elenco degli ordini
+    LZ.pacchi.crea(ids);
   };
   /** Tutti i selezionati nella conferma: chi non parte dice perche'. */
   L.mandaSpuntati = function () {

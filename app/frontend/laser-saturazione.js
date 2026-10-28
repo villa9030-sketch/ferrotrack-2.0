@@ -41,10 +41,14 @@
     const pieno = k.cap && pct > 1;
     const tit = `${k.etichetta}: ore di laser sulle ore utili del turno; il taglio in ritardo pesa su oggi. Tempi tarati su Lantek. Lo stesso numero lo vede l'ufficio.`
       + (k.ignoti ? ` ${k.ignoti} ordini senza durata non sono contati.` : '');
-    return `<span class="lz-sat${pieno ? ' pieno' : ''}" title="${LZ.esc(tit)}">
-      <span class="riga"><span>${LZ.esc(k.etichetta)}:</span><b class="ore num">${h(k.min)} su ${h(k.cap)} h</b></span>
-      ${k.ritardo ? `<span class="rit">Taglio in ritardo: ${LZ.plur(k.ritardo, 'ordine', 'ordini')}${k.minRitardo ? `, ${h(k.minRitardo)} h di laser` : ''}</span>` : ''}
-    </span>`;
+    return `<span class="lz-sat${pieno ? ' pieno' : ''}" title="${LZ.esc(tit)}"><span class="riga"><span>${LZ.esc(k.etichetta)}:</span> <b class="ore num">${h(k.min)} su ${h(k.cap)} h</b>.</span></span>`;
+  };
+
+  /** " Taglio in ritardo: 2 ordini." (rosso), o niente. Stesso numero dell'ufficio. */
+  sat.ritardoHtml = function () {
+    if (!sat.pronto || !window.CaricoLaser) return '';
+    const k = sat.conti();
+    return k.ritardo ? ` <span class="rit">Taglio in ritardo: ${LZ.plur(k.ritardo, 'ordine', 'ordini')}.</span>` : '';
   };
 
   /** Ore di laser di un ordine (stesso conto della settimana). */

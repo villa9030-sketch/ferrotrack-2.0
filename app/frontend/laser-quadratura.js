@@ -48,10 +48,14 @@
     LZ.ridisegna();
     if (!d.pronto && !d.errore) setTimeout(() => carica(id), 3000);
   }
+  // 28/10: se non quadra, l'elenco delle cose si vede subito (una volta per
+  // ordine aperto; se lo richiudi resta chiuso)
+  const giaAperti = new Set();
   QQ.riga = function (o) {
     const v = QQ.det[o.id];
     if (!v || (!v.in && Date.now() - (v.t || 0) > 30000)) carica(o.id);
     if (!v || (!v.q && !v.errore)) return FQ.html(null, { id: o.id });
+    if (v.q && v.q.esito === 'NON_QUADRA' && !giaAperti.has(o.id)) { giaAperti.add(o.id); FQ.aperti.add(o.id); }
     return FQ.html(v.q, { id: o.id, caricando: !v.pronto && !v.errore, errore: v.errore });
   };
 

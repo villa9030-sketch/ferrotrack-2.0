@@ -185,26 +185,26 @@
     const pp = S.pacchi.filter(p => p.aperto || p.stato === 'tagliato');
     if (!pp.length) return '';
     const aperti = pp.filter(p => p.aperto).length;
-    let h = `<tr class="lz-gruppo" data-gruppo="pacchi"><td colspan="4"><span class="lz-g-tit"><b>Pacchi</b><span>${aperti ? LZ.plur(aperti, 'aperto', 'aperti') : 'nessuno aperto'}</span></span></td>
-      <td class="c-pz r"></td><td class="c-cons"></td><td class="c-entro"></td></tr>`;
+    let h = `<tr class="lz-gruppo" data-gruppo="pacchi"><td colspan="8"><span class="lz-g-tit"><b>Pacchi</b><span>${aperti ? LZ.plur(aperti, 'aperto', 'aperti') : 'nessuno aperto'}</span></span></td></tr>`;
     for (const p of pp) {
       const on = S.pacco === p.id && !S.aperto;
       const ks = chiaviPacco(p);
       const pe = primoEntro(p), ge = pe ? FT.giorniDa(pe) : null, wd = pe ? LZ.lavorativiA(pe) : null;
       const cls = p.stato === 'tagliato' ? '' : ge != null && ge < 0 ? 'indietro' : wd != null && wd <= 2 ? 'vicino' : '';
       const entro = p.stato === 'tagliato' ? `<span class="lz-q fatto"><b>tagliato</b> <small>${esc(FT.fmtOra(p.tagliato_il))}</small></span>`
-        : pe ? `<span class="lz-q ${cls}" title="Il primo da tagliare del pacco: ${esc(LZ.giornoLungo(pe))}"><b>${esc(LZ.giornoCorto(pe))}</b>${cls === 'indietro' ? ` <small>passato da ${-ge} gg</small>` : ''}</span>`
+        : pe ? `<span class="lz-q ${cls}" title="Il primo da tagliare del pacco: ${esc(LZ.giornoLungo(pe))}"><b>${esc(LZ.giornoCorto(pe))}</b>${cls === 'indietro' ? ` <small>in ritardo ${-ge} gg</small>` : ''}</span>`
           : '<span class="lz-q vicino"><b>da decidere</b></span>';
       const pc = primaConsegna(p);
       h += `<tr class="lz-r lz-pacco-r${on ? ' on' : ''}${p.stato === 'tagliato' ? ' spento' : ''}" tabindex="0" data-pacco="${esc(p.id)}" data-fuoco="pacco-${esc(p.id)}"
           ${on ? 'aria-current="true"' : ''} title="${esc(`${p.nome}: ${p.parola}, ${LZ.plur(p.ordini.length, 'ordine', 'ordini')}`)}">
         <td class="c-sp"></td>
         <td class="c-num"><span class="lz-pk-nome">${esc(p.nome)}</span></td>
-        <td class="c-cli"><div class="lz-cli"><b>${esc(LZ.plur(p.ordini.length, 'ordine', 'ordini'))}</b><small class="lz-anche">${esc(ks.slice(0, 3).map(nomeChiave).join(', '))}${ks.length > 3 ? ` e altre ${ks.length - 3}` : ''}</small></div></td>
-        <td class="c-st"><span class="lz-sot">${esc(p.parola)}</span></td>
+        <td class="c-cli"><div class="lz-cli"><b>${esc(LZ.plur(p.ordini.length, 'ordine', 'ordini'))}</b><span class="lz-sot">${esc(p.parola)}</span></div></td>
+        <td class="c-lam">${esc(ks.slice(0, 3).map(nomeChiave).join(', '))}${ks.length > 3 ? ` e altre ${ks.length - 3}` : ''}</td>
         <td class="c-pz r">${esc(FT.numero(pezziPacco(p)))}</td>
-        <td class="c-cons"><span class="lz-cons">${pc ? esc(LZ.giornoCorto(pc)) : '—'}</span></td>
-        <td class="c-entro">${entro}</td></tr>`;
+        <td class="c-ore r"></td>
+        <td class="c-entro">${entro}</td>
+        <td class="c-cons"><span class="lz-cons">${pc ? esc(LZ.giornoCorto(pc)) : '—'}</span></td></tr>`;
     }
     return h;
   };

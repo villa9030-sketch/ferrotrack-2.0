@@ -879,3 +879,80 @@ body.lz .lz-pr-tasti kbd, body.lz .lz-pr-card kbd { font: 400 12px var(--lz-font
 .lz-manca ul .mono { font-weight: 600; }
 .lz-manca label { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; cursor: pointer; }
 .lz-manca label input { margin-top: 3px; }
+
+/* ── 28/10/2026 "Laser, più chiaro": un ordine = una riga ────────────────
+   Colonne: casella | ordine (+ parole che segnalano) | cliente | lamiere |
+   pezzi | ore | taglia entro | consegna. Ordine aperto: restano ordine,
+   cliente e taglia entro. Vista "Per lamiera": una riga per lamiera. */
+.lz-tabella .c-num { width: 210px; }
+.lz-tabella .c-lam { width: 220px; color: var(--lz-ink-3); }
+.lz-tabella .c-pz { width: 64px; }
+.lz-tabella .c-ore { width: 76px; font-variant-numeric: tabular-nums; }
+.lz-tabella .c-entro { width: 190px; }
+.lz-tabella .c-cons { width: 150px; }
+.lz-tabella td.c-ore, .lz-tabella td.c-pz { font-variant-numeric: tabular-nums; }
+.lz-tabella .c-num .lz-cli { gap: 8px; }
+.lz-tabella .c-num .lz-sot { flex: none; font-size: 12px; }
+.lz-tabella td { height: 36px; }
+.lz-r.on td { background: var(--ft-accent-bg); }
+.lz-ore-n { color: var(--lz-ink-3); }
+.lz-riass .rit { color: var(--lz-red); font-weight: 600; }
+.lz-riass .lz-sat { display: inline; font-size: inherit; }
+.lz-riass .lz-sat .riga { display: inline; }
+.lz-main.con-ordine .lz-tabella .c-lam,
+.lz-main.con-ordine .lz-tabella .c-pz,
+.lz-main.con-ordine .lz-tabella .c-ore { display: none; }
+.lz-main.con-ordine .lz-tabella .c-num { width: 150px; }
+.lz-main.con-ordine .lz-tabella .c-num .lz-sot,
+.lz-main.con-ordine .lz-tabella .c-num .lz-pc-mini { display: none; }
+.lz-main.con-ordine .lz-tabella .c-entro { width: 112px; }
+.lz-tab-lam .c-lamn { width: 170px; }
+.lz-tab-lam .c-lamn b { font-weight: 600; }
+.lz-tab-lam .c-lamsel { width: 210px; text-align: right; }
+.lz-tab-lam td { height: 44px; }
+.lz-lam-ordini { display: flex; flex-wrap: wrap; gap: 4px 16px; white-space: normal; }
+.lz-lam-o { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 4px; margin: 0 -4px; border: 0; border-radius: 4px;
+  background: none; font: inherit; color: var(--ft-accent-ink); cursor: pointer; }
+.lz-lam-o .lz-num { color: inherit; }
+.lz-lam-o small { font-size: 12px; color: var(--lz-ink-3); }
+.lz-lam-o:hover { background: var(--ft-accent-bg); }
+.lz-lam-o.on { background: var(--ft-accent-bg); }
+.lz-lam-o:focus-visible { outline: 2px solid var(--ft-accent); outline-offset: 1px; }
+.lz-main.con-ordine .lz-tab-lam .c-lamsel, .lz-main.con-ordine .lz-tab-lam .c-entro { display: none; }
+
+/* Ordine aperto (28/10): passo subito sotto il nome, dati in UNA riga
+   senza riquadri, il perche' del taglia entro in grigio sotto. */
+#lz-o-passo { margin-bottom: 16px; }
+.lz-ordine .lz-o-testa { margin-bottom: 12px; }
+.lz-passo { padding: 12px 16px; }
+.lz-o-fatti { margin: 0 0 16px; }
+.lz-o-fatti .lz-fatti { display: flex; flex-wrap: wrap; gap: 8px 32px; border: 0; background: none; width: auto; margin: 0; }
+.lz-o-fatti .lz-fatti > div { padding: 0; border: 0; }
+.lz-o-fatti .lz-o-perche { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 10px; }
+.lz-o-fatti .lz-o-perche small.mot { display: inline; max-width: none; margin: 0; font-size: 12px; color: var(--lz-ink-3); }
+.lz-o-fatti .lz-entro-mano { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.lz-o-fatti .lz-entro-mano input { height: 28px; border: 1px solid var(--lz-line); border-radius: 6px; padding: 0 6px; font: 13px var(--lz-font); color: var(--lz-ink-2); background: var(--lz-surface); }
+.lz-o-fatti .lz-esterna { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.lz-o-fatti .lz-esterna label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--lz-ink-2); cursor: pointer; }
+.lz-o-fatti .lz-esterna input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--lz-accent); }
+.lz-o-fatti .lz-esterna.att input[type=checkbox] { accent-color: var(--lz-amber); }
+.lz-o-fatti .lz-esterna input.nota { height: 28px; width: 150px; border: 1px solid var(--lz-line); border-radius: 6px; padding: 0 8px; font: 13px var(--lz-font); }
+.lz-o-fatti .lz-esterna small.att { display: inline; color: var(--lz-amber); font-weight: 600; }
+#lz-o-avvisi:empty { display: none; }
+#lz-o-avvisi { margin-bottom: 16px; }
+#lz-o-avvisi .ftq.err { padding: 10px 14px; border: 1px solid var(--lz-red-line); border-radius: var(--lz-r-l); background: var(--lz-red-bg); }
+/* (28/10) colonne piu' larghe dove il testo si tagliava; con l'ordine aperto
+   le colonne in piu' vanno a zero (non display:none: con la tabella fissa e
+   le testate dei gruppi a 8 colonne la larghezza non tornava) */
+.lz-tabella .c-lam { width: 300px; }
+.lz-tabella .c-cons { width: 172px; }
+.lz-tabella .c-cons .lz-al { font-size: 12px; }
+.lz-tab-lam .c-lamn { width: 220px; }
+.lz-main.con-ordine .lz-tabella .c-lam,
+.lz-main.con-ordine .lz-tabella .c-pz,
+.lz-main.con-ordine .lz-tabella .c-ore,
+.lz-main.con-ordine .lz-tabella .c-cons { display: table-cell; width: 0; padding: 0; font-size: 0; border-left: 0; border-right: 0; }
+.lz-main.con-ordine .lz-tabella .c-cons * , .lz-main.con-ordine .lz-tabella .c-lam *, .lz-main.con-ordine .lz-tabella .c-ore * { display: none; }
+.lz-main.con-ordine .lz-tabella td:last-child { padding-right: 0; }
+.lz-main.con-ordine .lz-tabella .c-entro { width: 120px; padding-right: 16px; }
+.lz-tabella .c-num { width: 260px; }

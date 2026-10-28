@@ -107,7 +107,8 @@ with sync_playwright() as p:
     for g in gr:
         if g['k'] != 'tagliato':
             check(f'gruppo {g["k"]}: in fila per taglia entro', g['ch'] == sorted(g['ch']), g['ch'][:5])
-    primi = [g['primo'] or '9999' for g in gr if g['lam']]
+    gl = pg.evaluate("() => LZ.lista.gruppiLamiera().map(g => g.primo || null)")   # vista "Per lamiera" (28/10)
+    primi = [g or '9999' for g in gl]
     check('le lamiere: prima quella che scade prima', primi == sorted(primi), primi)
     coerenti = [r for r in righe if r['server'] and not r['man']]
     check('il taglia entro e\' quello del server', all(r['entro'] == r['server'] for r in coerenti),
@@ -122,7 +123,7 @@ with sync_playwright() as p:
     rit = [r for r in righe if r['entro'] and r['entro'] < oggi]
     if rit:
         tr = pg.locator(f'.lz-r[data-id="{rit[0]["id"]}"] .lz-q.indietro small')
-        check('taglia entro passato: "passato da N gg" in arancione', tr.count() == 1 and 'passato da' in tr.inner_text())
+        check('taglia entro passato: "in ritardo N gg" in rosso', tr.count() == 1 and 'in ritardo' in tr.inner_text())
     nonrit = [r for r in righe if r['entro'] and r['entro'] >= oggi]
     if nonrit:
         check('non in ritardo: niente arancione', pg.locator(f'.lz-r[data-id="{nonrit[0]["id"]}"] .lz-q.indietro').count() == 0)

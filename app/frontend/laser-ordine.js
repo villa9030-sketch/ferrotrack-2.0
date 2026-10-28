@@ -196,7 +196,7 @@
   let costruitoPer = null;
   function scheletro(el, id) {
     el.innerHTML = `<div class="lz-ordine" data-ordine="${esc(id)}">
-      <div id="lz-o-testa"></div><div id="lz-o-passo"></div>
+      <div id="lz-o-testa"></div><div id="lz-o-passo"></div><div id="lz-o-fatti"></div><div id="lz-o-avvisi"></div>
       <div class="lz-o-corpo"><aside class="lz-o-pdf" id="lz-o-pdf" aria-label="PDF dell'ordine del cliente"></aside>
         <div class="lz-o-pezzi"><nav class="lz-schede" id="lz-o-schede" role="tablist" aria-label="Viste dell'ordine"></nav>
         <div class="lz-scheda" id="lz-o-scheda"></div></div></div></div>`;
@@ -230,8 +230,10 @@
     el.dataset.allarga = acc ? (S.allarga || '') : '';
     pdfAccanto(el, o, acc);
     LZ.metti(document.getElementById('lz-o-testa'), testa(o));
-    O.segnaMeta();
     LZ.metti(document.getElementById('lz-o-passo'), passoHtml(o));
+    LZ.metti(document.getElementById('lz-o-fatti'), fatti(o));
+    O.segnaMeta();
+    LZ.metti(document.getElementById('lz-o-avvisi'), avvisiHtml(o));
     LZ.metti(document.getElementById('lz-o-schede'), schede(o));
     LZ.metti(document.getElementById('lz-o-scheda'), scheda(o), el);
   };
@@ -240,7 +242,23 @@
      tutta la larghezza; "cosa fare adesso" sta nella riga sopra la tabella
      (laser-lista.js). Niente si apre da solo (Stefano, 14/10). */
 
+  /* 28/10/2026 ("Laser, più chiaro"): in alto il nome, subito sotto il
+     prossimo passo col suo pulsante, poi UNA riga di dati (niente riquadri)
+     col perché del taglia entro, poi le cose che non vanno (quadratura gia'
+     aperta, blocchi, officina). */
   function testa(o) {
+    const interno = o.numero_ordine_cliente && o.numero_ordine && o.numero_ordine !== o.numero_ordine_cliente ? o.numero_ordine : '';
+    const al = LZ.allarme(o);
+    return `<div class="lz-o-testa">
+      <div class="lz-o-tit"><h2><span class="lz-o-num">${esc(LZ.numeroBreve(o))}</span><span class="lz-o-cli" title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</span></h2>
+        <div class="lz-o-sotto"><span>ordine del cliente <span class="mono">${esc(LZ.numero(o))}</span></span>${paccoDi(o)}${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}${LZ.procura.chip(o)}</div></div>
+      <div class="lz-o-az"><button class="lz-btn ghost piccolo" type="button" data-az="chiudi" data-fuoco="chiudi-ordine" title="Chiudi l'ordine (Esc)">Chiudi</button><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
+    </div>`;
+  }
+
+  /** UNA riga di dati: taglia entro, consegna, codici, pezzi, ore. Sotto, il
+      perche' del taglia entro, la data a mano e la lavorazione esterna. */
+  function fatti(o) {
     const st = LZ.statoLaser(o);
     const D = S.dett[o.id] || {};
     const info = D.dati || S.riep[o.id] || {};
@@ -253,7 +271,6 @@
       ore = `<span class="lz-ore-mano"><input type="number" min="0" step="0.25" inputmode="decimal" data-durata="${esc(o.id)}"
         aria-label="Ore di laser scritte a mano" placeholder="ore"> h</span><small>senza disegni: scrivile tu</small>`;
     }
-    const interno = o.numero_ordine_cliente && o.numero_ordine && o.numero_ordine !== o.numero_ordine_cliente ? o.numero_ordine : '';
     // "Taglia entro": calcolato dalle lavorazioni o scelto a mano (si cambia qui)
     const te = LZ.te(o) || (D.dati && D.dati.taglia_entro) || {};
     const ge = LZ.entro(o);
@@ -267,20 +284,19 @@
           aria-label="Cambia a mano la data entro cui tagliare" title="Cambia a mano la data entro cui tagliare">
         ${aMano ? `<button class="lz-link" type="button" data-az="entro-calcolo" data-fuoco="entro-calcolo">Torna al calcolo</button>` : ''}</span>`;
     const esterna = st === 'tagliato' ? '' : campoEsterna(o, te);
-    const al = LZ.allarme(o);
-    return `<div class="lz-o-testa">
-      <div class="lz-o-tit"><h2><span class="lz-o-num">${esc(LZ.numeroBreve(o))}</span><span class="lz-o-cli" title="${esc(o.cliente || '')}">${esc(o.cliente || 'Cliente non indicato')}</span></h2>
-        <div class="lz-o-sotto"><span>ordine del cliente <span class="mono">${esc(LZ.numero(o))}</span></span>${paccoDi(o)}${interno ? `<span class="mono" title="Numero interno">${esc(interno)}</span>` : ''}${LZ.chip(o)}${al ? `<span class="lz-al ${al.k === 'rischio' ? 'rischio' : 'indietro'}">${esc(al.t)}</span>` : ''}${LZ.procura.chip(o)}</div></div>
-      <div class="lz-o-az"><button class="lz-btn ghost piccolo" type="button" data-az="chiudi" data-fuoco="chiudi-ordine" title="Chiudi l'ordine (Esc)">Chiudi</button><button class="lz-btn ghost lz-icona" type="button" data-az="menu" data-fuoco="menu-ordine" title="Altre azioni" aria-label="Altre azioni">${LZ.ico('ellipsis')}</button></div>
+    const lm = LZ.lamiere(o);
+    return `<div class="lz-o-fatti lz-entro">
       <div class="lz-fatti">
-        <div class="lz-entro"><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
-          <small class="${ritE ? 'rit' : ''}">${st === 'tagliato' ? 'tagliato' : esc(qe.t)}</small>
-          <small class="mot" title="${esc(motivo)}">${esc(motivo)}</small>${cambia}${esterna}</div>
+        <div><span>Taglia entro${aMano ? ' <em>(a mano)</em>' : ''}</span><b class="num${ritE ? ' rit' : ''}">${ge ? FT.fmtData(ge) : '—'}</b>
+          <small class="${ritE ? 'rit' : ''}">${st === 'tagliato' ? 'tagliato' : esc(qe.t)}</small></div>
         <div><span>Consegna</span><b class="num${q.rit && st !== 'tagliato' ? ' rit' : ''}">${g ? FT.fmtData(g) : '—'}</b><small class="${q.rit && st !== 'tagliato' ? 'rit' : ''}">${esc(q.t)}</small></div>
         <div><span>Codici</span><b class="num">${info.n_codici != null ? FT.numero(info.n_codici) : '—'}</b><small>${info.n_esclusi ? `${info.n_esclusi} fuori da Lantek` : '&nbsp;'}</small></div>
         <div><span>Pezzi</span><b class="num">${info.n_pezzi != null ? FT.numero(info.n_pezzi) : '—'}</b><small>&nbsp;</small></div>
         <div><span>Ore laser</span>${ore}</div>
-      </div></div>`;
+        ${lm.n ? `<div><span>Lamiere</span><b class="num">${lm.n}</b><small>${lm.fatte ? `${lm.fatte} già tagliate` : '&nbsp;'}</small></div>` : ''}
+      </div>
+      <div class="lz-o-perche">${motivo ? `<small class="mot">Perché ${ge ? esc(FT.fmtData(ge).slice(0, 5)) : 'questa data'}: ${esc(motivo)}</small>` : '<small class="mot"></small>'}${cambia}${esterna}</div>
+    </div>`;
   }
 
   /** "nel pacco 42": il link apre il pacco (laser-pacchi.js) */
@@ -314,16 +330,20 @@
 
   function passoHtml(o) {
     const p = O.passo(o);
-    const D = S.dett[o.id] || {};
-    const info = D.dati || S.riep[o.id] || {};
-    const st = LZ.statoLaser(o);
-    // la quadratura dell'ordine, in cima (laser-quadratura.js)
-    let h = LZ.quad ? LZ.quad.riga(o) : '';
-    h += `<section class="lz-passo ${p.tono || ''}" aria-label="Prossimo passo">
+    return `<section class="lz-passo ${p.tono || ''}" aria-label="Prossimo passo">
       <div class="ico">${p.carica ? `<span class="lz-gira" style="display:grid">${LZ.ico('loader-circle')}</span>` : LZ.ico(p.ico)}</div>
       <div class="cosa"><b>${esc(p.t)}</b><span>${p.s}</span></div>
       <div class="bottoni">${(p.bottoni || []).map(b => `<button class="lz-btn grande${b.pri ? ' pri' : ''}" type="button" data-az="${b.az}"
         data-fuoco="passo-${b.az}">${esc(b.t)}${b.tasto ? LZ.tasto(b.tasto) : ''}</button>`).join('')}</div></section>`;
+  }
+
+  /** Le cose che non vanno, sotto i dati: la quadratura (gia' aperta se non
+      quadra), righe senza disegno, blocchi, correzioni, l'officina. */
+  function avvisiHtml(o) {
+    const D = S.dett[o.id] || {};
+    const info = D.dati || S.riep[o.id] || {};
+    const st = LZ.statoLaser(o);
+    let h = LZ.quad ? LZ.quad.riga(o) : '';
     const manc = st !== 'tagliato' ? (info.mancano_disegni || []) : [];
     if (manc.length) {
       h += `<ul class="lz-blocchi" aria-label="Righe senza disegni">${manc.map(b => `<li><span class="mono">${esc(b.codice)}</span>

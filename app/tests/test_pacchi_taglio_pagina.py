@@ -140,7 +140,7 @@ with sync_playwright() as p:
     # la lamiera con almeno due ordini da mandare, tutti pronti e liberi
     g = pg.evaluate("""() => {
       const S = LZ.s;
-      for (const g of LZ.lista.gruppi()) {
+      for (const g of LZ.lista.gruppiLamiera()) {
         if (!g.lam) continue;
         const sp = g.righe.filter(r => LZ.lista.spuntabile(r.o));
         if (sp.length >= 2 && sp.every(r => (S.riep[r.o.id] || {}).pronto && !LZ.pacchi.diOrdine(r.o.id)))
@@ -151,7 +151,8 @@ with sync_playwright() as p:
     if not g:
         b.close()
         sys.exit(1)
-    pg.click(f'.lz-gruppo[data-gruppo="{g["k"]}"] [data-az="sel-lam"]')
+    pg.click('#lz-menu [data-lz-vai="lamiere"]')      # dal 28/10 le lamiere stanno nella loro vista
+    pg.click(f'.lz-lam[data-gruppo="{g["k"]}"] [data-az="sel-lam"]')
     pg.wait_for_selector('[data-az="crea-pacco"]:not([disabled])')
     t = pg.inner_text('[data-az="crea-pacco"]')
     check('"Crea pacco (2 ordini)" e\' il pulsante principale',

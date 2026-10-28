@@ -130,19 +130,20 @@ with sync_playwright() as p:
 
     print('\n2) Ordine aperto')
     pg.click(f'.lz-r[data-id="{rosso}"]')
-    pg.wait_for_selector('#lz-o-passo .ftq.err', timeout=20000)
-    t = pg.locator('#lz-o-passo .ftq.err .ftq-t').inner_text()
+    pg.wait_for_selector('#lz-o-avvisi .ftq.err', timeout=20000)
+    t = pg.locator('#lz-o-avvisi .ftq.err .ftq-t').inner_text()
     check('in cima: "Non quadra: 2 problemi"', t.strip() == 'Non quadra: 2 problemi', t)
-    pg.click('#lz-o-passo .ftq.err .ftq-t')
-    pg.wait_for_selector('#lz-o-passo .ftq-tab', timeout=5000)
+    # dal 28/10 l'elenco di cosa non quadra si vede subito, senza cliccare
+    pg.wait_for_selector('#lz-o-avvisi .ftq-tab', timeout=5000)
+    check("non quadra: la tabella e' gia' aperta", True)
     pg.screenshot(path=os.path.join(os.environ.get('FT_FOTO_DIR') or os.environ.get('TEMP', '.'), 'ft_quadratura_riga.png'))
-    tab = pg.locator('#lz-o-passo .ftq-tab').inner_text()
+    tab = pg.locator('#lz-o-avvisi .ftq-tab').inner_text()
     check('la tabella: codici, ordinato, FerroTrack, Lantek, cosa fare',
           all(x in tab for x in ('PROVA-P2-00', 'PROVA-P1-00', 'Ordinato', 'FerroTrack', 'Lantek', 'Cosa fare',
                                  'Manca in FerroTrack', 'Correggi l\'ordine di produzione in Lantek a 6')), tab)
-    pg.click('#lz-o-passo .ftq.err .ftq-t')
-    pg.wait_for_function("!document.querySelector('#lz-o-passo .ftq-tab')", timeout=5000)
-    check('secondo clic: si richiude', True)
+    pg.click('#lz-o-avvisi .ftq.err .ftq-t')
+    pg.wait_for_function("!document.querySelector('#lz-o-avvisi .ftq-tab')", timeout=5000)
+    check('un clic: si richiude', True)
 
     print('\n3) Taglio fatto con l\'ordine che non quadra')
     pg.wait_for_selector('#lz-o-passo [data-az="taglio"]', timeout=20000)
@@ -186,10 +187,10 @@ with sync_playwright() as p:
     print('\n5) Un ordine che quadra')
     pg.click(f'.lz-r[data-id="{verde}"]')
     pg.wait_for_function(f'LZ.s.aperto === "{verde}"', timeout=10000)
-    pg.wait_for_selector('#lz-o-passo .ftq:not(.err)', timeout=20000)
-    t = pg.locator('#lz-o-passo .ftq .ftq-t').inner_text()
+    pg.wait_for_selector('#lz-o-avvisi .ftq:not(.err)', timeout=20000)
+    t = pg.locator('#lz-o-avvisi .ftq .ftq-t').inner_text()
     check('riga grigia "Quadratura: tutto torna"', t.strip() == 'Quadratura: tutto torna'
-          and pg.locator('#lz-o-passo .ftq.err').count() == 0, t)
+          and pg.locator('#lz-o-avvisi .ftq.err').count() == 0, t)
     pg.wait_for_selector('#lz-o-passo [data-az="taglio"]', timeout=20000)
     pg.click('#lz-o-passo [data-az="taglio"]')
     pg.wait_for_selector('.ft-modal-bg.open:not(.ftq-gate)', timeout=20000)

@@ -93,8 +93,15 @@ with sync_playwright() as p:
         if url == '/laser.html':
             pg.wait_for_selector('.lz-r[data-id]', timeout=30000)
             check('laser: la riga "Adesso" in cima', pg.locator('#lz-l-testa .lz-adesso').count() == 1)
-            lam = pg.evaluate("[...document.querySelectorAll('.lz-gruppo')].map(g => g.dataset.gruppo)")
-            check('laser: gli ordini raggruppati per lamiera', any('|' in (g or '') for g in lam), lam)
+            # dal 28/10: un ordine = una riga, gruppi per passo; le lamiere nella vista "Per lamiera"
+            ids = pg.evaluate("[...document.querySelectorAll('.lz-r[data-id]')].map(r => r.dataset.id)")
+            check('laser: ogni ordine una riga sola', len(ids) == len(set(ids)), ids)
+            pg.click('#lz-menu [data-lz-vai="lamiere"]')
+            pg.wait_for_timeout(400)
+            lam = pg.evaluate("[...document.querySelectorAll('.lz-lam')].map(g => g.dataset.gruppo)")
+            check('laser: "Per lamiera" raggruppa per lamiera', any('|' in (g or '') for g in lam), lam)
+            pg.click('#lz-menu [data-lz-vai="tutti"]')
+            pg.wait_for_timeout(400)
         if url == '/impiegata.html':
             check('ufficio: una riga al posto dei riquadri di numeri', pg.locator('#og-kpi.ft-adesso').count() == 1
                   and pg.locator('.og-k').count() == 0)
