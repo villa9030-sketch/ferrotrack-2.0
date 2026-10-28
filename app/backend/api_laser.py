@@ -427,8 +427,23 @@ def analisi(order, completa: bool = False, con_lantek: bool = True) -> dict:
             'pdf': pdf,
             # chi ha gia' scelto "va bene Lantek" per un codice da correggere
             'usa_lantek': [c for c in _lc.usa_lantek(order.id) if c in invio_codici],
+            # spessore diverso: si puo' correggere in Lantek in automatico? (28/10/2026)
+            'correggibili': _correggibili(A, order, q, righe_dist, invio_codici, lt),
         })
     return out
+
+
+def _correggibili(A, order, q, righe_dist, invio_codici, lt) -> dict:
+    """{codice: {'possibile', 'motivo', 'da', 'a'}} per i codici da mandare
+    con lo spessore diverso da Lantek (app._correggibili_spessore)."""
+    from . import lantek as _lt
+    if not q or not (lt or {}).get('disponibile') or not _lt.procesos_disponibile():
+        return {}
+    try:
+        return {c: x for c, x in A._correggibili_spessore(order, q, righe_dist).items() if c in invio_codici}
+    except Exception:
+        logger.warning('correggibili non calcolati per %s', order.id, exc_info=True)
+        return {}
 
 
 def _procura_ordine(order_id) -> dict:

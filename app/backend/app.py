@@ -8689,14 +8689,20 @@ def _voce_per_lantek(arc: str, dati: dict):
     return '/'.join(parti), testi
 
 
-def _nuovi_per_lantek(order, q, righe=None) -> tuple:
+def _nuovi_per_lantek(order, q, righe=None, correggi=None) -> tuple:
     """I codici NUOVI dell'ordine (non ancora in Lantek): quali si possono
     creare in automatico col loro DXF (pronto per Lantek, materiale che Lantek
     conosce, spessore) e quali no, col motivo.
+    correggi=[codici]: invece dei nuovi, quei codici GIA' in Lantek da
+    reimportare con lo spessore dell'ordine (_correggibili_spessore).
 
     ([{'codice', 'dxf', 'materiale', 'spessore'}], [{'codice', 'motivo'}])"""
     from . import lantek as _lt
-    nuovi = [r for r in q['righe'] if r['stato'] == 'nuovo']
+    if correggi is not None:
+        cs = set(correggi)
+        nuovi = [dict(r, spessore=r.get('spessore_ordine')) for r in q['righe'] if r['codice'] in cs]
+    else:
+        nuovi = [r for r in q['righe'] if r['stato'] == 'nuovo']
     if not nuovi:
         return [], []
     if righe is None:
@@ -8754,6 +8760,43 @@ def _nuovi_per_lantek(order, q, righe=None) -> tuple:
             si.append({'codice': cod, 'dxf': dxf[cod.lower()], 'materiale': r['materiale'],
                        'spessore': r['spessore'], 'quantita': r['quantita']})
     return si, no
+
+
+def _correggibili_spessore(order, q, righe=None) -> dict:
+    """I codici gia' in Lantek con lo spessore diverso dall'ordine (e lo
+    stesso materiale): {codice: {'possibile', 'motivo', 'da', 'a'}}.
+    Si correggono reimportandoli con Procesos e lo spessore dell'ordine
+    (provato il 28/10/2026 su FT-PROVA-30: Lantek aggiorna il pezzo, niente
+    doppioni). Non se il pezzo e' in una lamiera nestata non ancora chiusa:
+    quel nesting si rovinerebbe, lo corregge chi lavora."""
+    from . import lantek as _lt
+    cand = {}
+    for r in (q or {}).get('righe') or []:
+        if r.get('stato') == 'nuovo' or r.get('spessore_ordine') is None or r.get('spessore') is None:
+            continue
+        if abs(float(r['spessore']) - float(r['spessore_ordine'])) <= 0.01:
+            continue
+        if any(a.startswith('materiale:') for a in r.get('avvisi') or []):
+            continue          # anche il materiale e' diverso: non provato, a mano
+        cand[r['codice']] = r
+    if not cand:
+        return {}
+    si, no = _nuovi_per_lantek(order, q, righe, correggi=list(cand))
+    nest = _lt.pezzi_in_nesting_aperti(list(cand))
+    out = {}
+    for c, r in cand.items():
+        x = {'possibile': False, 'motivo': None, 'da': r['spessore'], 'a': r['spessore_ordine']}
+        m = next((n['motivo'] for n in no if n['codice'] == c), None)
+        if nest is None:
+            x['motivo'] = 'non riesco a leggere le lamiere nestate di Lantek'
+        elif nest.get(c.upper()):
+            x['motivo'] = 'è in una lamiera nestata non ancora chiusa (' + ', '.join(nest[c.upper()][:2]) + '): correggilo a mano'
+        elif m:
+            x['motivo'] = m
+        else:
+            x['possibile'] = True
+        out[c] = x
+    return out
 
 
 def _righe_pdf_ordine(order) -> list | None:
@@ -9371,6 +9414,23 @@ def _lantek_invia(order_id, _li):
             return jsonify({'success': False, 'codice': 'cambiato',
                             'error': "L'elenco è cambiato da quando l'hai visto: ricontrolla e conferma di nuovo"}), 409
         righe = [r for r in righe if r['codice'] not in tenuti_fuori]
+        # "Correggi in Lantek e manda" (28/10/2026): codici gia' in Lantek con
+        # lo spessore sbagliato, reimportati con quello dell'ordine prima
+        # dell'ordine di produzione. Solo quelli che si possono adesso.
+        correggi = [str(c) for c in (corpo.get('correggi') or [])]
+        corr_si = []
+        if correggi:
+            if not set(correggi) <= {str(c) for c in (corpo.get('codici') or [])}:
+                return jsonify({'success': False, 'codice': 'cambiato',
+                                'error': 'Un codice da correggere deve essere fra quelli da mandare'}), 400
+            possibili = _correggibili_spessore(order, q, righe_dist)
+            no = [c for c in correggi if not (possibili.get(c) or {}).get('possibile')]
+            if no:
+                return jsonify({'success': False, 'codice': 'cambiato',
+                                'error': 'Non si può più correggere in automatico: ' + '; '.join(
+                                    f"{c} ({(possibili.get(c) or {}).get('motivo') or 'lo spessore ora coincide'})" for c in no)
+                                         + '. Ricontrolla e conferma di nuovo'}), 409
+            corr_si = _nuovi_per_lantek(order, q, righe_dist, correggi=correggi)[0]
         # i codici tenuti fuori scegliendo il valore dell'ordine restano scritti
         # "da correggere in Lantek" finche' non si risolvono (lantek_correzioni.py)
         from . import lantek_correzioni as _lc
@@ -9396,24 +9456,33 @@ def _lantek_invia(order_id, _li):
         if _lt.expert_aperto():
             return jsonify({'success': False, 'codice': 'expert_aperto', 'error': _lt.MSG_EXPERT_APERTO}), 409
         cartella = os.path.join(UPLOAD_FOLDER, 'lantek_import')
-        esito_pezzi, creati = None, []
-        # 1. pezzi nuovi col disegno
-        if nuovi_si:
+        esito_pezzi, creati, corretti, non_corretti = None, [], [], []
+        visti = {}
+        # 1. pezzi nuovi col disegno (e quelli da correggere, con lo spessore dell'ordine)
+        if nuovi_si or corr_si:
             cons = ''
             if q['consegna']:
                 cons = datetime.strptime(q['consegna'][:10], '%Y-%m-%d').strftime('%d/%m/%Y')
-            esito_pezzi = _lt.importa_pezzi_dxf(nuovi_si, cartella, [q['cliente_lantek'], cons])
+            esito_pezzi = _lt.importa_pezzi_dxf(nuovi_si + corr_si, cartella, [q['cliente_lantek'], cons])
             if not esito_pezzi.get('eseguito'):
                 if esito_pezzi.get('expert_aperto'):
                     return jsonify({'success': False, 'codice': 'expert_aperto', 'error': esito_pezzi['errore']}), 409
                 _audit('LANTEK_INVIA', 'orders', order_id,
                        'Pezzi nuovi non mandati a Lantek: ' + (esito_pezzi.get('errore') or ''))
                 return jsonify({'success': False, 'codice': 'pezzi_falliti', 'error': esito_pezzi.get('errore')}), 502
-            visti = _lt.pezzi_in_lantek([x['codice'] for x in nuovi_si]).get('pezzi') or {}
+            visti = _lt.pezzi_in_lantek([x['codice'] for x in nuovi_si + corr_si]).get('pezzi') or {}
             creati = [x['codice'] for x in nuovi_si if (visti.get(x['codice']) or {}).get('esiste')]
-            # ora ci sono: rientrano negli ordini di produzione
+            # corretti: riletti in Lantek con lo spessore dell'ordine
+            for x in corr_si:
+                sp = (visti.get(x['codice']) or {}).get('spessore')
+                (corretti if sp is not None and abs(float(sp) - float(x['spessore'])) <= 0.01 else non_corretti).append(x['codice'])
+            # ora ci sono: rientrano negli ordini di produzione; i non
+            # corretti restano fuori, "da correggere in Lantek"
             q = _quantita_lantek(order, righe_dist)
-            ammessi = ({str(c) for c in (corpo.get('codici') or [])} | set(creati)) - tenuti_fuori
+            if non_corretti:
+                fuori_nc = _lc.registra(order_id, q['righe'], set(non_corretti), _chi_nome())
+                da_correggere = da_correggere + fuori_nc
+            ammessi = ({str(c) for c in (corpo.get('codici') or [])} | set(creati)) - tenuti_fuori - set(non_corretti)
             righe = [r for r in _li.togli_mandati(_lt.righe_per_xml(q['righe']), gia) if r['codice'] in ammessi]
         # i pezzi nuovi creati: in Lantek col materiale e lo spessore mandati?
         problemi = _lt.controlla_invio([], None, {}, [x for x in nuovi_si if x['codice'] in creati],
@@ -9454,6 +9523,10 @@ def _lantek_invia(order_id, _li):
                + (f"; RILETTO IN LANTEK, NON TORNA: {'; '.join(p['codice'] + ' ' + p['problema'] for p in problemi)}"
                   if problemi else '')
                + (f"; tenuti fuori: {', '.join(sorted(tenuti_fuori))}" if tenuti_fuori else '')
+               + (f"; CORRETTI IN LANTEK (spessore dell'ordine): "
+                  + ', '.join(f"{x['codice']} {x['spessore']:g} mm" for x in corr_si if x['codice'] in corretti)
+                  if corretti else '')
+               + (f"; NON CORRETTI (restano da correggere): {', '.join(non_corretti)}" if non_corretti else '')
                + ('; LANTEK NON LEGGIBILE: mandato senza il controllo dei doppioni, confermato da chi ha mandato'
                   if lantek_giu else '')
                + (f"; NON MANDATI, mancano i disegni (confermato da chi ha mandato): {', '.join(manc)}"
@@ -9464,6 +9537,7 @@ def _lantek_invia(order_id, _li):
             _lc.chiudi(order_id, presenti, 'mandato', _chi_nome())
         _invalida_analisi_laser(order_id)
         return jsonify({'success': True, 'da_correggere': [x['codice'] for x in da_correggere],
+                        'corretti': corretti, 'non_corretti': non_corretti,
                         'pezzi_nuovi': len(nuovi_si), 'pezzi_creati': len(creati),
                         'pezzi_non_creati': [x['codice'] for x in nuovi_si if x['codice'] not in creati],
                         'mandati': len(righe), 'rapporto': rap, 'verificati': len(presenti),

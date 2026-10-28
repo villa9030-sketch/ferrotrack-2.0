@@ -613,6 +613,39 @@ def riferimento_ordine(commessa: str, codice: str, invio: str = '') -> str:
     return rif[:31] + '-' + hashlib.sha1(rif.encode('utf-8')).hexdigest()[:8]
 
 
+def pezzi_in_nesting_aperti(codici: list, giorni: int = 180) -> dict | None:
+    """{CODICE MAIUSCOLO: ['Nestings\\...', ...]} dei pezzi che sono dentro una
+    lamiera nestata NON ancora chiusa (MState < 90) degli ultimi `giorni`
+    (ce ne sono di aperte dal 2022: si lasciano fuori). Cambiare lo spessore
+    di un pezzo cosi' potrebbe rovinare quel nesting. None = Lantek non letto.
+    SOLA LETTURA."""
+    codici = sorted({str(c).strip().upper() for c in codici if c and str(c).strip()})
+    cfg = _config()
+    if not cfg.get('abilitato'):
+        return None
+    if not codici:
+        return {}
+    try:
+        con, cur = _connessione(cfg)
+        try:
+            out = {}
+            for i in range(0, len(codici), 400):
+                bl = codici[i:i + 400]
+                cur.execute('SELECT DISTINCT UPPER(LTRIM(RTRIM(p.PrdRefDst))), LTRIM(RTRIM(n.NstRef)) '
+                            'FROM DIS_NEST_NEST_00000500 p JOIN DIS_NEST_NEST_00000100 n ON n.NstRef = p.NstRef '
+                            'WHERE n.MState < 90 AND n.CDate >= DATEADD(day, ?, GETDATE()) '
+                            'AND UPPER(LTRIM(RTRIM(p.PrdRefDst))) IN (' + ','.join('?' * len(bl)) + ')',
+                            [-int(giorni)] + bl)
+                for cod, nst in cur.fetchall():
+                    out.setdefault(cod, []).append(nst)
+            return out
+        finally:
+            con.close()
+    except Exception:
+        logger.warning('lamiere nestate aperte non lette', exc_info=True)
+        return None
+
+
 def righe_per_xml(righe: list) -> list:
     """Le righe che Lantek puo' importare: il pezzo deve esserci gia' (stato
     "in_lantek"), o Lantek non era leggibile ("sconosciuto": ci si prova).

@@ -127,6 +127,12 @@
     const s = st.scelte[id] || {};
     return Object.keys(s).filter(c => s[c] === 'ordine');
   }
+  /** "Correggi in Lantek e manda" (28/10): reimportati con lo spessore dell'ordine. */
+  function daCorreggere(id) {
+    const s = st.scelte[id] || {};
+    const cg = (st.dati[id] || {}).correggibili || {};
+    return Object.keys(s).filter(c => s[c] === 'correggi' && (cg[c] || {}).possibile);
+  }
   const elenco = (xs, n = 6) => xs.slice(0, n).map(esc).join(', ') + (xs.length > n ? ` e altri ${xs.length - n}` : '');
 
   function blocco(id) {
@@ -147,7 +153,8 @@
     if (!parte(d)) return `<div class="lz-blocco fuori">${testa}<div class="lz-blocco-corpo"><div class="lz-voce fuori"><b class="n">—</b><span>Non parte: ${esc(perche(d))}.</span></div></div></div>`;
     const inv = d.invio || {};
     const fuoriScelti = tenutiFuori(id);
-    const gia = (inv.da_mandare || []).filter(x => !fuoriScelti.includes(x.codice));
+    const corr = daCorreggere(id);
+    const gia = (inv.da_mandare || []).filter(x => !fuoriScelti.includes(x.codice) && !corr.includes(x.codice));
     const nuovi = inv.nuovi_da_creare || [];
     const rifatti = gia.filter(x => x.gia_fatti);
     const esclusi = d.esclusi || [];
@@ -159,6 +166,7 @@
       ${nuovi.length ? `<div class="lz-voce"><b class="n">${nuovi.length}</b><span>nuovi: creo il pezzo col suo disegno pulito, poi l'ordine<br><span class="mono">${elenco(nuovi.map(x => x.codice))}</span></span></div>` : ''}`;
     if (d.n_in_produzione) h += `<div class="lz-voce fuori"><b class="n">${d.n_in_produzione}</b><span>hanno già l'ordine di produzione in Lantek: non li rimando</span></div>`;
     for (const [m, cod] of motivi) h += `<div class="lz-voce fuori"><b class="n">${cod.length}</b><span>restano fuori (${esc(m)})<br><span class="mono">${elenco(cod)}</span></span></div>`;
+    if (corr.length) h += `<div class="lz-voce"><b class="n">${corr.length}</b><span>spessore sbagliato in Lantek: lo correggo con quello dell'ordine, poi l'ordine<br><span class="mono">${elenco(corr)}</span></span></div>`;
     if (fuoriScelti.length) h += `<div class="lz-voce fuori"><b class="n">${fuoriScelti.length}</b><span>restano fuori: li correggi tu in Lantek (restano segnati «da correggere» finché non sono a posto)<br><span class="mono">${elenco(fuoriScelti)}</span></span></div>`;
     if (rifatti.length) h += `<div class="lz-voce"><b class="n">${rifatti.length}</b><span>erano già stati fatti in passato con questo ordine: si rifanno</span></div>`;
     const manc = d.mancano_disegni || [];
@@ -171,14 +179,17 @@
     }
     if (Object.keys(df).length) {
       h += `<div class="lz-diffs"><p>Ordine e Lantek non coincidono: quale tagli?</p>
-        <small>Se scegli l'ordine, quel codice resta fuori: correggilo in Lantek e rimandalo.</small>
+        <small>«Correggi in Lantek»: FerroTrack reimporta il pezzo con lo spessore dell'ordine, poi lo manda. «Ordine, lo correggo io»: quel codice resta fuori finché non lo correggi tu.</small>
         ${Object.entries(df).map(([c, xs]) => {
+          const cg = (d.correggibili || {})[c];
           const lt = xs.map(x => `${x.tipo === 'spessore' ? '' : ''}${x.lantek}`).join(' · ');
           const or = xs.map(x => x.ordine).join(' · ');
           const nome = `d-${id}-${c}`;
           return `<div class="lz-diff"><span class="mono" title="${esc(xs.map(x => x.testo).join('\n'))}">${esc(c)}</span>
             <label><input type="radio" name="${esc(nome)}" value="lantek" data-diff="1" data-ordine="${esc(id)}" data-codice="${esc(c)}" ${sc[c] === 'lantek' ? 'checked' : ''}>Lantek ${esc(lt)}</label>
-            <label><input type="radio" name="${esc(nome)}" value="ordine" data-diff="1" data-ordine="${esc(id)}" data-codice="${esc(c)}" ${sc[c] === 'ordine' ? 'checked' : ''}>Ordine ${esc(or)}</label></div>`;
+            ${cg && cg.possibile ? `<label><input type="radio" name="${esc(nome)}" value="correggi" data-diff="1" data-ordine="${esc(id)}" data-codice="${esc(c)}" ${sc[c] === 'correggi' ? 'checked' : ''}>Correggi in Lantek a ${esc(FT.numero(cg.a, cg.a % 1 ? 1 : 0))} mm e manda</label>` : ''}
+            <label><input type="radio" name="${esc(nome)}" value="ordine" data-diff="1" data-ordine="${esc(id)}" data-codice="${esc(c)}" ${sc[c] === 'ordine' ? 'checked' : ''}>Ordine ${esc(or)}${cg && cg.possibile ? ', lo correggo io' : ''}</label>
+            ${cg && !cg.possibile && cg.motivo ? `<small class="lz-diff-perche">Non si corregge in automatico: ${esc(cg.motivo)}</small>` : ''}</div>`;
         }).join('')}</div>`;
     }
     return h + '</div></div>';
@@ -266,6 +277,7 @@
     const inv = d.invio || {};
     const fuori = tenutiFuori(id).filter(c => (inv.codici || []).includes(c));
     const corpo = { codici: (inv.codici || []).filter(c => !fuori.includes(c)), nuovi: inv.nuovi || [], esclusi: fuori,
+                    correggi: daCorreggere(id).filter(c => (inv.codici || []).includes(c)),
                     conferma_mancanti: (d.mancano_disegni || []).map(x => x.codice) };
     let r = await LZ.post(`/api/orders/${encodeURIComponent(id)}/lantek-invia`, corpo);
     // Lantek Expert aperto: non e' partito niente. Lo chiudi e riprovi (il MES puo' restare aperto).
@@ -296,13 +308,16 @@
     // problemi: quello che FerroTrack ha riletto in Lantek subito dopo l'invio
     // (ordine che manca, quantita' diversa, pezzo nuovo con spessore/materiale diverso)
     const problemi = x.problemi || [];
-    const tutto = !rap.con_errore && !problemi.length && x.verificati === x.mandati && x.pezzi_creati === x.pezzi_nuovi;
+    const tutto = !rap.con_errore && !problemi.length && x.verificati === x.mandati && x.pezzi_creati === x.pezzi_nuovi
+      && !(x.non_corretti || []).length;
     const righe = [];
     if (x.pezzi_nuovi) righe.push(`${x.pezzi_creati} di ${x.pezzi_nuovi} pezzi nuovi creati col disegno`);
+    if ((x.corretti || []).length) righe.push(`Corretti in Lantek con lo spessore dell'ordine: ${(x.corretti || []).join(', ')}`);
     righe.push(`${x.verificati} di ${x.mandati} ordini di produzione riletti in Lantek: pezzo e quantità giusti`);
     const conErr = new Set((rap.errori || []).map(e => e.pezzo));
     const errori = (rap.errori || []).map(e => `<li><span class="mono">${esc(e.pezzo || '?')}</span> ${esc(e.messaggio || 'errore')}</li>`)
       .concat((x.pezzi_non_creati || []).map(c => `<li><span class="mono">${esc(c)}</span> pezzo non creato</li>`))
+      .concat((x.non_corretti || []).map(c => `<li><span class="mono">${esc(c)}</span> spessore non corretto in Lantek: resta «da correggere», non mandato</li>`))
       .concat(problemi.filter(p => !conErr.has(p.codice)).map(p => `<li><span class="mono">${esc(p.codice)}</span> ${esc(p.problema)}</li>`));
     if (!tutto) {
       return { stato: 'err', titolo: 'Riletto in Lantek: qualcosa non torna. L\'ordine resta da mettere in Lantek',
