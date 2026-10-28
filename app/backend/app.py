@@ -9026,6 +9026,44 @@ def api_lantek_abbinamenti_salva():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/lantek/prova-spessore', methods=['GET'])
+@richiede('laser')
+def api_lantek_prova_spessore():
+    """La prova della correzione dello spessore (lantek_prova_spessore.py):
+    com'e' adesso il pezzo di prova in Lantek, il prossimo passo, gli esiti."""
+    try:
+        from . import lantek as _lt
+        from . import lantek_prova_spessore as _ps
+        cartella = os.path.join(UPLOAD_FOLDER, 'lantek_import')
+        foto = _ps.fotografia()
+        return jsonify({'success': True, 'codice': _ps.CODICE, 'materiale': _ps.MATERIALE, 'spessori': _ps.SPESSORE,
+                        'foto': foto, 'prossimo': _ps.prossimo_passo(foto), 'storico': _ps.storico(cartella),
+                        'procesos': _lt.procesos_disponibile(), 'expert_aperto': _lt.expert_aperto()}), 200
+    except Exception as e:
+        logger.exception('prova spessore: lettura fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/lantek/prova-spessore', methods=['POST'])
+@richiede('laser')
+def api_lantek_prova_spessore_passo():
+    """Un passo della prova, dopo il clic: {"passo": "crea" | "reimporta"}.
+    Solo il pezzo FT-PROVA-30; scrive Procesos di Lantek."""
+    try:
+        from . import lantek_prova_spessore as _ps
+        passo = str((request.get_json(silent=True) or {}).get('passo') or '')
+        r = _ps.esegui(passo, os.path.join(UPLOAD_FOLDER, 'lantek_import'), _chi_nome())
+        _audit('LANTEK_PROVA_SPESSORE', 'lantek', _ps.CODICE,
+               f"Prova correzione spessore, passo {passo}: "
+               + ((r.get('esito') or {}).get('testo') or r.get('errore') or ''))
+        if not r['ok']:
+            return jsonify({'success': False, 'error': r['errore']}), 409
+        return jsonify({'success': True, **r}), 200
+    except Exception as e:
+        logger.exception('prova spessore fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/lantek/pezzi', methods=['GET'])
 @richiede('laser', 'ufficio')
 def api_lantek_cerca_pezzi():
