@@ -533,13 +533,24 @@ def leggi_lantek(commessa: str, codici_archivio: list, cliente_like: str | None 
         con, cur = lt._connessione(cfg)
         try:
             L = _lantek_per_commessa(cur, commessa) if commessa else {}
-            if not L and cliente_like and codici_cliente:
+            if cliente_like and codici_cliente:
                 # anche i codici esatti di Lantek delle righe (08PA04452 -> 08PA04452-00)
                 esatti = {str(p.get('codice_lantek')).upper() for p in (arch.get('pezzi') or {}).values()
                           if p.get('esiste') and p.get('codice_lantek')}
-                L = _lantek_per_cliente(cur, cliente_like, sorted({c.upper() for c in codici_cliente} | esatti),
-                                        dal or '2026-01-01')
-                out['per_cliente'] = True
+                # 28/10: un codice che ha SOLO ordini col numero d'ordine (mandati
+                # da FerroTrack, anche "la differenza") si confronta per davvero;
+                # se il cliente ne ha di piu' (messi a mano, senza numero) si
+                # prendono quelli del cliente, "da_cliente": non si sa con
+                # certezza quanti sono di quest'ordine, e niente differenza.
+                Lc = _lantek_per_cliente(cur, cliente_like, sorted({c.upper() for c in codici_cliente} | esatti),
+                                         dal or '2026-01-01')
+                for c, x in Lc.items():
+                    m = L.get(c)
+                    if m and x['pianificati'] <= m['pianificati'] + 0.001:
+                        continue
+                    x['da_cliente'] = True
+                    L[c] = x
+                out['per_cliente'] = any(x.get('da_cliente') for x in L.values()) or not L
             out['L'] = L
         finally:
             con.close()
@@ -714,9 +725,14 @@ def _confronta_preventivo(d, righe_out, ordine_prob, non_verif, note):
             r['stato'] = 'in Lantek: ' + _stati_txt({'stati': {s: q for l in ls for s, q in l['stati'].items()}})
             if abs(ql - qft) > 0.001:
                 giusta = qta_cliente if qta_cliente is not None else qft
-                _problema(r, 'qta', f'In FerroTrack {qft}, in Lantek {ia(ql)}.',
-                          f"Correggi l'ordine di produzione in Lantek a {giusta}." if abs(ql - giusta) > 0.001
-                          else f'Lantek è giusto ({ia(ql)}): correggi la quantità in FerroTrack.')
+                cosa = (f"Correggi l'ordine di produzione in Lantek a {giusta}." if abs(ql - giusta) > 0.001
+                        else f'Lantek è giusto ({ia(ql)}): correggi la quantità in FerroTrack.')
+                # in Lantek ne mancano e FerroTrack e' d'accordo col cliente:
+                # la differenza si puo' mandare (stesso codice esatto in Lantek)
+                if ql + 0.001 < giusta and abs(qft - giusta) < 0.001 and Lk.get(kk) and len(ls) == 1:
+                    r['manda'] = {'codice': ls[0]['codice'], 'quantita': ia(giusta - ql)}
+                    cosa = f"Mancano {ia(giusta - ql)}: «Manda la differenza» li manda a Lantek."
+                _problema(r, 'qta', f'In FerroTrack {qft}, in Lantek {ia(ql)}.', cosa)
             revs_l = {rev(l['codice']) for l in ls}
             revs_b = {rev(b['codice']) for b in lam}
             if None not in revs_b and revs_l != revs_b:
@@ -749,8 +765,12 @@ def _confronta_preventivo(d, righe_out, ordine_prob, non_verif, note):
             perche.append("il pezzo non è nell'archivio di Lantek")
         if kk in invii:
             perche.append(f'nel registro risulta mandato ({ia(invii[kk])} pz) ma in Lantek non c\'è')
-        _problema(r, 'non_mandato', 'Non è in Lantek' + (f": {'; '.join(perche)}" if perche else '') + '.',
-                  'Mandalo a Lantek (pagina laser, «Manda a Lantek»), o mettilo a mano.')
+        cosa = 'Mandalo a Lantek (pagina laser, «Manda a Lantek»), o mettilo a mano.'
+        if in_arch and (qta_cliente is None or abs(qft - qta_cliente) < 0.001):
+            r['manda'] = {'codice': (arch.get(b0['codice']) or {}).get('codice_lantek') or b0['codice'],
+                          'quantita': ia(qft)}
+            cosa = f"Mandalo a Lantek ({ia(qft)} pz) con «Manda la differenza», o mettilo a mano."
+        _problema(r, 'non_mandato', 'Non è in Lantek' + (f": {'; '.join(perche)}" if perche else '') + '.', cosa)
         r['stato'] = 'non in Lantek'
 
     # --- revisioni del pacchetto
@@ -981,30 +1001,36 @@ def _confronta_solo_pdf(d, righe_out, non_verif, note):
             visti.add(pk)
             if x:
                 rr['lantek'], rr['lantek_fatti'], rr['lantek_stati'] = ia(x['pianificati']), ia(x['fatti']), _stati_txt(x)
-                rr['stato'] = 'in Lantek: ' + _stati_txt(x) + (' (del cliente, dalla data dell\'ordine)' if lt_.get('per_cliente') else '')
-                if primo and not lt_.get('per_cliente') and abs(x['pianificati'] - tot[pk]) > 0.001:
-                    _problema(rr, 'qta', f"Nell'ordine {ia(tot[pk])} in tutto, in Lantek {ia(x['pianificati'])}.",
-                              f"Correggi l'ordine di produzione in Lantek a {ia(tot[pk])}.")
+                rr['stato'] = 'in Lantek: ' + _stati_txt(x) + (' (del cliente, dalla data dell\'ordine)' if x.get('da_cliente') else '')
+                if primo and not x.get('da_cliente') and abs(x['pianificati'] - tot[pk]) > 0.001:
+                    if x['pianificati'] < tot[pk]:
+                        manca = tot[pk] - x['pianificati']
+                        rr['manda'] = {'codice': pc, 'quantita': ia(manca)}
+                        _problema(rr, 'qta', f"Nell'ordine {ia(tot[pk])} in tutto, in Lantek {ia(x['pianificati'])}.",
+                                  f"Mancano {ia(manca)}: «Manda la differenza» li manda a Lantek.")
+                    else:
+                        _problema(rr, 'qta', f"Nell'ordine {ia(tot[pk])} in tutto, in Lantek {ia(x['pianificati'])}.",
+                                  f"Correggi l'ordine di produzione in Lantek a {ia(tot[pk])}.")
             elif not lt_.get('ok'):
                 rr['stato'] = 'Lantek non letto'
             elif not primo:
                 rr['stato'] = 'non in Lantek (vedi sopra)'
             elif mandato:
                 rr['stato'] = 'non in Lantek'
+                rr['manda'] = {'codice': pc, 'quantita': ia(tot[pk])}
                 _problema(rr, 'non_mandato', 'Nessun ordine di produzione in Lantek'
                           + (" dalla data dell'ordine" if lt_.get('per_cliente') else '') + '.',
-                          'Mandalo a Lantek, o mettilo a mano.')
+                          f"Mandalo a Lantek ({ia(tot[pk])} pz) con «Manda la differenza», o mettilo a mano.")
             else:
                 rr['stato'] = 'da mandare'
-    if not lt_.get('per_cliente'):
-        for c, l in sorted(L.items()):
-            if c in visti:
-                continue
-            r = _riga(c, lantek=ia(l['pianificati']), lantek_fatti=ia(l['fatti']), lantek_stati=_stati_txt(l),
-                      stato='in Lantek: ' + _stati_txt(l))
-            righe_out.append(r)
-            _problema(r, 'extra_lantek', f"In Lantek {ia(l['pianificati'])} pz: non è fra le righe dell'ordine.",
-                      'Controlla in Lantek: forse va tolto (o è di un altro ordine).')
+    for c, l in sorted(L.items()):
+        if c in visti or l.get('da_cliente'):
+            continue
+        r = _riga(c, lantek=ia(l['pianificati']), lantek_fatti=ia(l['fatti']), lantek_stati=_stati_txt(l),
+                  stato='in Lantek: ' + _stati_txt(l))
+        righe_out.append(r)
+        _problema(r, 'extra_lantek', f"In Lantek {ia(l['pianificati'])} pz: non è fra le righe dell'ordine.",
+                  'Controlla in Lantek: forse va tolto (o è di un altro ordine).')
 
 
 # ---------------------------------------------------------------------------

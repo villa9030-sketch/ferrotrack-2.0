@@ -9377,6 +9377,126 @@ def _lantek_invia(order_id, _li):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _differenza_lantek(order_id) -> dict:
+    """"Manda la differenza" (27/10/2026, punto 3): dalla quadratura, Lantek
+    riletto ADESSO. {'ok', 'errore', 'manda': [{codice, quantita, riga,
+    ordinato, lantek, motivo}], 'a_mano': [{codice, testo, cosa}]}.
+    manda = pezzi che in Lantek mancano (codice esatto di Lantek, quanti in
+    piu'); a_mano = quelli in piu' in Lantek: non si tolgono da qui, si dice
+    cosa correggere. Fuori i codici "da correggere in Lantek" (spessore o
+    materiale sbagliati): prima si correggono."""
+    from . import quadratura as _qd
+    from . import lantek_correzioni as _lc
+    ris = _qd.calcola(order_id, forza_lantek=True)
+    if ris is None:
+        return {'ok': False, 'errore': 'ordine non trovato', 'manda': [], 'a_mano': []}
+    if not ris.get('lantek_ok'):
+        return {'ok': False, 'errore': (ris.get('non_verificabile') or ['Lantek non risponde'])[0],
+                'manda': [], 'a_mano': []}
+    da_corr = {str(x['codice']).strip().upper() for x in _lc.aperte(order_id)}
+    manda, a_mano, visti = [], [], set()
+    for r in ris.get('righe') or []:
+        m = r.get('manda')
+        motivo = next((p['tipo'] for p in r.get('problemi') or [] if p['tipo'] in ('qta', 'non_mandato')), None)
+        if m and motivo:
+            cod = str(m['codice']).strip()
+            if cod.upper() in visti:
+                continue
+            visti.add(cod.upper())
+            if cod.upper() in da_corr or str(r['codice']).strip().upper() in da_corr:
+                a_mano.append({'codice': cod, 'testo': 'Da correggere in Lantek (spessore o materiale)',
+                               'cosa': 'Correggilo in Lantek, poi si manda.'})
+                continue
+            manda.append({'codice': cod, 'quantita': int(m['quantita']), 'riga': r['codice'],
+                          'ordinato': r.get('ordinato'), 'lantek': r.get('lantek') or 0, 'motivo': motivo})
+            continue
+        for p in r.get('problemi') or []:
+            if p['tipo'] == 'qta' and r.get('lantek') is not None and 'ordine di produzione in Lantek' in p['cosa']:
+                a_mano.append({'codice': r['codice'], 'testo': p['testo'], 'cosa': p['cosa']})
+    return {'ok': True, 'errore': None, 'manda': manda, 'a_mano': a_mano, 'esito': ris.get('esito')}
+
+
+@app.route('/api/orders/<order_id>/lantek-differenza', methods=['GET'])
+@richiede('laser', 'ufficio')
+def api_ordine_lantek_differenza(order_id):
+    """Cosa manderebbe "Manda la differenza" (solo lettura)."""
+    try:
+        if not _ordine_esistente(order_id):
+            return _non_trovato_ordine()
+        d = _differenza_lantek(order_id)
+        if not d['ok']:
+            return jsonify({'success': False, 'codice': 'lantek_non_risponde', 'error': d['errore']}), 503
+        return jsonify({'success': True, **d}), 200
+    except Exception as e:
+        logger.exception('differenza Lantek fallita')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/orders/<order_id>/lantek-differenza', methods=['POST'])
+@richiede('laser', 'ufficio')
+def api_ordine_lantek_differenza_manda(order_id):
+    """"Manda la differenza", dopo la conferma: solo i pezzi che in Lantek
+    mancano, con l'XML Importer (come "Manda a Lantek"), poi riletti.
+    Corpo: {"righe": [{codice, quantita}]} = cio' che si e' visto nella
+    conferma; se Lantek nel frattempo e' cambiato non parte niente (409).
+    Mai togliere o ridurre ordini in Lantek."""
+    from . import lantek_invii as _li
+    with _li.prenota(order_id) as tocca:
+        if not tocca:
+            return jsonify({'success': False, 'codice': 'invio_in_corso',
+                            'error': "Quest'ordine si sta già mandando a Lantek: aspetta l'esito, non lo rimando."}), 409
+        try:
+            from . import lantek as _lt
+            order = _ordine_esistente(order_id)
+            if not order:
+                return _non_trovato_ordine()
+            corpo = request.get_json(silent=True) or {}
+            visto = sorted((str(x.get('codice') or '').strip().upper(), int(x.get('quantita') or 0))
+                           for x in corpo.get('righe') or [])
+            if not visto:
+                return jsonify({'success': False, 'codice': 'niente_da_mandare', 'error': 'Niente da mandare'}), 400
+            d = _differenza_lantek(order_id)
+            if not d['ok']:
+                return jsonify({'success': False, 'codice': 'lantek_non_risponde',
+                                'error': 'Lantek non si legge adesso: niente è stato mandato. ' + (d['errore'] or '')}), 503
+            if sorted((x['codice'].upper(), x['quantita']) for x in d['manda']) != visto:
+                return jsonify({'success': False, 'codice': 'cambiato', 'manda': d['manda'],
+                                'error': "In Lantek è cambiato qualcosa da quando l'hai visto: ricontrolla e conferma di nuovo"}), 409
+            if not _lt.xmlimporter_disponibile():
+                return jsonify({'success': False, 'codice': 'no_xmlimporter',
+                                'error': 'XML Importer di Lantek non trovato su questo PC'}), 503
+            if _lt.expert_aperto():
+                return jsonify({'success': False, 'codice': 'expert_aperto', 'error': _lt.MSG_EXPERT_APERTO}), 409
+            q = _quantita_lantek(order)
+            righe = [{'codice': x['codice'], 'quantita': x['quantita']} for x in d['manda']]
+            invio = datetime.now().strftime('%y%m%d%H%M')
+            xml = _lt.xml_ordini_produzione(righe, q['commessa'], q['cliente_lantek'], q['consegna'], invio=invio)
+            cartella = os.path.join(UPLOAD_FOLDER, 'lantek_import')
+            esito = _lt.importa_xml(xml, q['nome_file_xml'].rsplit('.', 1)[0] + '_DIFFERENZA', cartella)
+            if not esito.get('eseguito'):
+                _audit('LANTEK_DIFFERENZA', 'orders', order_id, 'Differenza non mandata: ' + (esito.get('errore') or ''))
+                return jsonify({'success': False, 'codice': 'import_fallito', 'error': esito.get('errore')}), 502
+            rif = lambda c: _lt.riferimento_ordine(q['commessa'], c, invio)  # noqa: E731
+            _li.registra(order_id, righe, q['commessa'], invio, rif, _chi_nome())
+            problemi = _lt.controlla_invio(righe, rif, _lt.ordini_per_riferimento([rif(r['codice']) for r in righe]))
+            try:
+                from . import quadratura as _qd
+                _qd.in_sottofondo(order_id)
+            except Exception:
+                logger.warning('quadratura dopo la differenza non avviata', exc_info=True)
+            _audit('LANTEK_DIFFERENZA', 'orders', order_id,
+                   f"Mandata a Lantek la differenza (ordine {q['commessa']}): "
+                   + ', '.join(f"{r['codice']} +{r['quantita']}" for r in righe)
+                   + (f"; RILETTO IN LANTEK, NON TORNA: {'; '.join(p['codice'] + ' ' + p['problema'] for p in problemi)}"
+                      if problemi else ''))
+            _invalida_analisi_laser(order_id)
+            return jsonify({'success': True, 'mandati': len(righe), 'rapporto': esito.get('rapporto') or {},
+                            'problemi': problemi}), 200
+        except Exception as e:
+            logger.exception('differenza a Lantek fallita')
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/orders/<order_id>/crea-cartella', methods=['POST'])
 @richiede('laser', 'ufficio')
 def api_ordine_crea_cartella(order_id):

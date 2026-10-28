@@ -104,8 +104,11 @@ button.ftq-t { cursor: pointer; text-decoration: underline; text-underline-offse
     }
     const aperto = Q.aperti.has(id);
     const parz = (q.non_verificabile || []).length ? `<small>${esc('Non controllato tutto: ' + q.non_verificabile[0])}</small>` : '';
+    // pagina laser: "Manda la differenza" se in Lantek mancano dei pezzi
+    const nDiff = opz.differenza ? (q.righe || []).filter(r => r.manda).length : 0;
+    const diff = nDiff ? `<button class="ft-btn sm" type="button" data-ftq-diff="${esc(id)}">Manda la differenza (${nDiff} ${nDiff === 1 ? 'codice' : 'codici'})</button>` : '';
     return `<div class="ftq err" data-ftq="${esc(id)}"><button class="ftq-t" type="button" data-ftq-apri="${esc(id)}" data-fuoco="ftq-${esc(id)}" aria-expanded="${aperto}"
-        title="${aperto ? 'Nascondi' : 'Mostra'} i codici che non tornano">${esc(q.testo)}</button>${parz}${dopo}
+        title="${aperto ? 'Nascondi' : 'Mostra'} i codici che non tornano">${esc(q.testo)}</button>${parz}${dopo}${diff}
       ${aperto ? Q.tabella(q) : ''}</div>`;
   };
 
